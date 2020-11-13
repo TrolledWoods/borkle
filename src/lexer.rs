@@ -19,13 +19,13 @@ pub enum TokenKind {
 #[derive(Debug, Clone, PartialEq)]
 pub enum Literal {
     String(String),
-    Int(i64),
-    Float(f64),
+    Int(u64),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Keyword {
     Const,
+    If,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -102,9 +102,35 @@ pub fn process_string(file: Ustr, string: &str) -> Vec<Token> {
                     }
                 }
 
+                let identifier = &string[start_index..end_index];
+
+                let kind = match identifier {
+                    "const" => TokenKind::Keyword(Keyword::Const),
+                    "if" => TokenKind::Keyword(Keyword::If),
+                    _ => TokenKind::Identifier(identifier.into()),
+                };
+
+                tokens.push(Token { loc, kind });
+            }
+            c if c.is_digit(10) => {
+                // Number
+                let start_index = index;
+                let mut end_index = index;
+
+                for (_, index, c) in &mut chars {
+                    end_index = index;
+
+                    if !(c == '_' || c.is_digit(10)) {
+                        previous = Some((loc, index, c));
+                        break;
+                    }
+                }
+
                 tokens.push(Token {
                     loc,
-                    kind: TokenKind::Identifier(string[start_index..end_index].into()),
+                    kind: TokenKind::Literal(Literal::Int(
+                        string[start_index..end_index].parse().unwrap(),
+                    )),
                 });
             }
             _ => todo!("Error handling is not implemented yet"),
