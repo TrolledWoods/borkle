@@ -1,3 +1,4 @@
+use crate::errors::{ErrorCtx, ErrorId};
 use crate::location::Location;
 use ustr::Ustr;
 
@@ -51,7 +52,11 @@ impl Location {
     }
 }
 
-pub fn process_string(file: Ustr, string: &str) -> Vec<Token> {
+pub fn process_string(
+    errors: &mut ErrorCtx,
+    file: Ustr,
+    string: &str,
+) -> Result<Vec<Token>, ErrorId> {
     let mut tokens = Vec::new();
 
     // Create an iterator that iterates over the
@@ -158,21 +163,35 @@ pub fn process_string(file: Ustr, string: &str) -> Vec<Token> {
                             Some((_, _, 'n')) => string.push('\n'),
                             Some((_, _, 't')) => string.push('\t'),
 
-                            _ => todo!("Error handling!"),
+                            Some((loc, _, c)) => {
+                                return Err(errors.error(
+                                    loc,
+                                    format!("\\{:?} is not a character escape character", c),
+                                ))
+                            }
+                            None => {
+                                return Err(
+                                    errors.error(loc, "String literal was not closed".to_string())
+                                )
+                            }
                         },
                         Some((_, _, c)) => string.push(c),
-                        None => todo!("Error handling!"),
+                        None => {
+                            return Err(
+                                errors.error(loc, "String literal was not closed".to_string())
+                            )
+                        }
                     }
                 }
 
                 TokenKind::Literal(Literal::String(string))
             }
-            _ => todo!("Error handling is not implemented yet"),
+            c => return Err(errors.error(loc, format!("Unknown character {:?}", c))),
         };
 
         tokens.push(Token { loc, kind });
     }
 
     tokens.shrink_to_fit();
-    tokens
+    Ok(tokens)
 }

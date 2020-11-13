@@ -1,6 +1,6 @@
 use crate::location::Location;
 
-#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub struct ErrorId(usize);
 
 pub struct ErrorCtx {
