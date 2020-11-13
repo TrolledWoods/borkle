@@ -8,12 +8,23 @@ pub struct Token {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum TokenKind {
+    SemiColon,
+    Comma,
+    Open(Bracket),
+    Close(Bracket),
     Keyword(Keyword),
     Identifier(Ustr),
     Literal(Literal),
     /// An operator can consist of several operators, it's just the rawest form
     /// of connected operator characters.
     Operator(Ustr),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Bracket {
+    Round,
+    Curly,
+    Square,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -26,13 +37,14 @@ pub enum Literal {
 pub enum Keyword {
     Const,
     If,
+    Let,
 }
 
 #[derive(Debug, Clone, Copy)]
 pub struct Location {
     pub file: Ustr,
-    pub line: usize,
-    pub character: usize,
+    pub line: u32,
+    pub character: u32,
 }
 
 impl Location {
@@ -67,9 +79,22 @@ pub fn process_string(file: Ustr, string: &str) -> Vec<Token> {
 
     let mut previous = None;
     while let Some((loc, index, character)) = previous.take().or_else(|| chars.next()) {
-        match character {
-            ' ' | '\t' | '\n' => (),
-            '.' | ',' | '+' | '-' | '*' | '/' | '=' => {
+        let kind = match character {
+            ' ' | '\t' | '\n' => continue,
+
+            ';' => TokenKind::SemiColon,
+            ',' => TokenKind::Comma,
+
+            '(' => TokenKind::Open(Bracket::Round),
+            ')' => TokenKind::Close(Bracket::Round),
+
+            '[' => TokenKind::Open(Bracket::Square),
+            ']' => TokenKind::Close(Bracket::Square),
+
+            '{' => TokenKind::Open(Bracket::Curly),
+            '}' => TokenKind::Close(Bracket::Curly),
+
+            '.' | '+' | '-' | '*' | '/' | '=' => {
                 // Operator
                 let start_index = index;
                 let mut end_index = index;
@@ -77,16 +102,13 @@ pub fn process_string(file: Ustr, string: &str) -> Vec<Token> {
                 for (_, index, c) in &mut chars {
                     end_index = index;
 
-                    if !matches!(c, '.' | ',' | '+' | '-' | '*' | '/' | '=') {
+                    if !matches!(c, '.' | '+' | '-' | '*' | '/' | '=') {
                         previous = Some((loc, index, c));
                         break;
                     }
                 }
 
-                tokens.push(Token {
-                    loc,
-                    kind: TokenKind::Operator(string[start_index..end_index].into()),
-                });
+                TokenKind::Operator(string[start_index..end_index].into())
             }
             c | c if c.is_alphabetic() || c == '_' => {
                 // Identifier
@@ -104,13 +126,12 @@ pub fn process_string(file: Ustr, string: &str) -> Vec<Token> {
 
                 let identifier = &string[start_index..end_index];
 
-                let kind = match identifier {
+                match identifier {
                     "const" => TokenKind::Keyword(Keyword::Const),
                     "if" => TokenKind::Keyword(Keyword::If),
+                    "let" => TokenKind::Keyword(Keyword::Let),
                     _ => TokenKind::Identifier(identifier.into()),
-                };
-
-                tokens.push(Token { loc, kind });
+                }
             }
             c if c.is_digit(10) => {
                 // Number
@@ -126,16 +147,38 @@ pub fn process_string(file: Ustr, string: &str) -> Vec<Token> {
                     }
                 }
 
-                tokens.push(Token {
-                    loc,
-                    kind: TokenKind::Literal(Literal::Int(
-                        string[start_index..end_index].parse().unwrap(),
-                    )),
-                });
+                TokenKind::Literal(Literal::Int(
+                    string[start_index..end_index].parse().unwrap(),
+                ))
+            }
+            '"' => {
+                let mut string = String::new();
+
+                loop {
+                    match chars.next() {
+                        Some((_, _, '"')) => break,
+                        Some((_, _, '\\')) => match chars.next() {
+                            Some((_, _, '"')) => string.push('"'),
+                            Some((_, _, '\\')) => string.push('\\'),
+
+                            Some((_, _, 'n')) => string.push('\n'),
+                            Some((_, _, 't')) => string.push('\t'),
+
+                            _ => todo!("Error handling!"),
+                        },
+                        Some((_, _, c)) => string.push(c),
+                        None => todo!("Error handling!"),
+                    }
+                }
+
+                TokenKind::Literal(Literal::String(string))
             }
             _ => todo!("Error handling is not implemented yet"),
-        }
+        };
+
+        tokens.push(Token { loc, kind });
     }
 
+    tokens.shrink_to_fit();
     tokens
 }
