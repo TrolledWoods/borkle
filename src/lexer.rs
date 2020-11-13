@@ -1,5 +1,6 @@
 use crate::errors::{ErrorCtx, ErrorId};
 use crate::location::Location;
+use core::iter::Peekable;
 use ustr::Ustr;
 
 #[derive(Debug, Clone)]
@@ -17,8 +18,6 @@ pub enum TokenKind {
     Keyword(Keyword),
     Identifier(Ustr),
     Literal(Literal),
-    /// An operator can consist of several operators, it's just the rawest form
-    /// of connected operator characters.
     Operator(Ustr),
 }
 
@@ -42,16 +41,6 @@ pub enum Keyword {
     Let,
 }
 
-impl Location {
-    const fn start(file: Ustr) -> Self {
-        Self {
-            file,
-            line: 1,
-            character: 1,
-        }
-    }
-}
-
 pub fn process_string(
     errors: &mut ErrorCtx,
     file: Ustr,
@@ -65,65 +54,48 @@ pub fn process_string(
         .char_indices()
         .scan(Location::start(file), |loc, (index, character)| {
             let old_loc = *loc;
-            match character {
-                '\n' => {
-                    loc.line += 1;
-                    loc.character = 0;
-                }
-                '\t' => loc.character += 4,
-                _ => loc.character += 1,
-            }
+            loc.increment_by_char(character);
             Some((old_loc, index, character))
-        });
+        })
+        .peekable();
 
-    let mut previous = None;
-    while let Some((loc, index, character)) = previous.take().or_else(|| chars.next()) {
+    while let Some(&(loc, _, character)) = chars.peek() {
         let kind = match character {
-            ' ' | '\t' | '\n' => continue,
+            ' ' | '\t' | '\n' => {
+                chars.next();
+                continue;
+            }
 
-            ';' => TokenKind::SemiColon,
-            ',' => TokenKind::Comma,
+            ';' | ',' | '(' | ')' | '[' | ']' | '{' | '}' => {
+                chars.next();
+                match character {
+                    ';' => TokenKind::SemiColon,
+                    ',' => TokenKind::Comma,
 
-            '(' => TokenKind::Open(Bracket::Round),
-            ')' => TokenKind::Close(Bracket::Round),
+                    '(' => TokenKind::Open(Bracket::Round),
+                    ')' => TokenKind::Close(Bracket::Round),
 
-            '[' => TokenKind::Open(Bracket::Square),
-            ']' => TokenKind::Close(Bracket::Square),
+                    '[' => TokenKind::Open(Bracket::Square),
+                    ']' => TokenKind::Close(Bracket::Square),
 
-            '{' => TokenKind::Open(Bracket::Curly),
-            '}' => TokenKind::Close(Bracket::Curly),
+                    '{' => TokenKind::Open(Bracket::Curly),
+                    '}' => TokenKind::Close(Bracket::Curly),
+                    _ => unreachable!(),
+                }
+            }
 
             '.' | '+' | '-' | '*' | '/' | '=' => {
                 // Operator
-                let start_index = index;
-                let mut end_index = index;
+                let string = slice_while(string, &mut chars, |c| {
+                    matches!(c, '.' | '+' | '-' | '*' | '/' | '=')
+                });
 
-                for (_, index, c) in &mut chars {
-                    end_index = index;
-
-                    if !matches!(c, '.' | '+' | '-' | '*' | '/' | '=') {
-                        previous = Some((loc, index, c));
-                        break;
-                    }
-                }
-
-                TokenKind::Operator(string[start_index..end_index].into())
+                TokenKind::Operator(string.into())
             }
             c | c if c.is_alphabetic() || c == '_' => {
-                // Identifier
-                let start_index = index;
-                let mut end_index = index;
-
-                for (_, index, c) in &mut chars {
-                    end_index = index;
-
-                    if !(c.is_alphabetic() || c == '_' || c.is_digit(10)) {
-                        previous = Some((loc, index, c));
-                        break;
-                    }
-                }
-
-                let identifier = &string[start_index..end_index];
+                let identifier = slice_while(string, &mut chars, |c| {
+                    c.is_alphabetic() || c.is_digit(10) || c == '_'
+                });
 
                 match identifier {
                     "const" => TokenKind::Keyword(Keyword::Const),
@@ -134,58 +106,11 @@ pub fn process_string(
             }
             c if c.is_digit(10) => {
                 // Number
-                let start_index = index;
-                let mut end_index = index;
+                let string = slice_while(string, &mut chars, |c| c.is_digit(10) || c == '_');
 
-                for (_, index, c) in &mut chars {
-                    end_index = index;
-
-                    if !(c == '_' || c.is_digit(10)) {
-                        previous = Some((loc, index, c));
-                        break;
-                    }
-                }
-
-                TokenKind::Literal(Literal::Int(
-                    string[start_index..end_index].parse().unwrap(),
-                ))
+                TokenKind::Literal(Literal::Int(string.parse().unwrap()))
             }
-            '"' => {
-                let mut string = String::new();
-
-                loop {
-                    match chars.next() {
-                        Some((_, _, '"')) => break,
-                        Some((_, _, '\\')) => match chars.next() {
-                            Some((_, _, '"')) => string.push('"'),
-                            Some((_, _, '\\')) => string.push('\\'),
-
-                            Some((_, _, 'n')) => string.push('\n'),
-                            Some((_, _, 't')) => string.push('\t'),
-
-                            Some((loc, _, c)) => {
-                                return Err(errors.error(
-                                    loc,
-                                    format!("\\{:?} is not a character escape character", c),
-                                ))
-                            }
-                            None => {
-                                return Err(
-                                    errors.error(loc, "String literal was not closed".to_string())
-                                )
-                            }
-                        },
-                        Some((_, _, c)) => string.push(c),
-                        None => {
-                            return Err(
-                                errors.error(loc, "String literal was not closed".to_string())
-                            )
-                        }
-                    }
-                }
-
-                TokenKind::Literal(Literal::String(string))
-            }
+            '"' => TokenKind::Literal(Literal::String(string_literal(errors, &mut chars)?)),
             c => return Err(errors.error(loc, format!("Unknown character {:?}", c))),
         };
 
@@ -194,4 +119,60 @@ pub fn process_string(
 
     tokens.shrink_to_fit();
     Ok(tokens)
+}
+
+/// Creates a string slice while a predicate is true.
+/// The immediately next element is always included.
+fn slice_while<'a>(
+    string: &'a str,
+    chars: &mut Peekable<impl Iterator<Item = (Location, usize, char)>>,
+    mut predicate: impl FnMut(char) -> bool,
+) -> &'a str {
+    let (_, start_index, _) = chars.next().unwrap();
+
+    while let Some(&(_, index, character)) = chars.peek() {
+        if !predicate(character) {
+            return &string[start_index..index];
+        }
+
+        chars.next();
+    }
+
+    &string[start_index..]
+}
+
+fn string_literal(
+    errors: &mut ErrorCtx,
+    chars: &mut impl Iterator<Item = (Location, usize, char)>,
+) -> Result<String, ErrorId> {
+    let mut string = String::new();
+
+    let (loc, _, first_char) = chars.next().unwrap();
+    debug_assert_eq!(first_char, '"');
+
+    loop {
+        match chars.next() {
+            Some((_, _, '"')) => break,
+
+            Some((_, _, '\\')) => match chars.next() {
+                Some((_, _, '"')) => string.push('"'),
+                Some((_, _, '\\')) => string.push('\\'),
+                Some((_, _, 'n')) => string.push('\n'),
+                Some((_, _, 't')) => string.push('\t'),
+                Some((loc, _, c)) => {
+                    return Err(errors.error(
+                        loc,
+                        format!("\\{:?} is not a character escape character", c),
+                    ))
+                }
+                None => return Err(errors.error(loc, "String literal was not closed".to_string())),
+            },
+
+            Some((_, _, c)) => string.push(c),
+
+            None => return Err(errors.error(loc, "String literal was not closed".to_string())),
+        }
+    }
+
+    Ok(string)
 }
