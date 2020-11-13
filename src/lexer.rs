@@ -18,6 +18,8 @@ pub enum TokenKind {
     Keyword(Keyword),
     Identifier(Ustr),
     Literal(Literal),
+    /// An operator token can consist of several operators, it's just the rawest form
+    /// of connected operator characters.
     Operator(Ustr),
 }
 
@@ -85,7 +87,6 @@ pub fn process_string(
             }
 
             '.' | '+' | '-' | '*' | '/' | '=' => {
-                // Operator
                 let string = slice_while(string, &mut chars, |c| {
                     matches!(c, '.' | '+' | '-' | '*' | '/' | '=')
                 });
@@ -105,7 +106,6 @@ pub fn process_string(
                 }
             }
             c if c.is_digit(10) => {
-                // Number
                 let string = slice_while(string, &mut chars, |c| c.is_digit(10) || c == '_');
 
                 TokenKind::Literal(Literal::Int(string.parse().unwrap()))
