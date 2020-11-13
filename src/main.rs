@@ -1,4 +1,7 @@
-#![deny(rust_2018_idioms, clippy::pedantic, clippy::all)]
+#![deny(rust_2018_idioms, clippy::all)]
+
+mod error;
 mod lexer;
+mod location;
 
 fn main() {}
