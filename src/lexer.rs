@@ -69,7 +69,25 @@ pub fn process_string(file: Ustr, string: &str) -> Vec<Token> {
     while let Some((loc, index, character)) = previous.take().or_else(|| chars.next()) {
         match character {
             ' ' | '\t' | '\n' => (),
-            '.' | ',' | '+' | '-' | '*' | '/' => {}
+            '.' | ',' | '+' | '-' | '*' | '/' | '=' => {
+                // Operator
+                let start_index = index;
+                let mut end_index = index;
+
+                for (_, index, c) in &mut chars {
+                    end_index = index;
+
+                    if !matches!(c, '.' | ',' | '+' | '-' | '*' | '/' | '=') {
+                        previous = Some((loc, index, c));
+                        break;
+                    }
+                }
+
+                tokens.push(Token {
+                    loc,
+                    kind: TokenKind::Operator(string[start_index..end_index].into()),
+                });
+            }
             c | c if c.is_alphabetic() || c == '_' => {
                 // Identifier
                 let start_index = index;
