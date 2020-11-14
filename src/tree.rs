@@ -53,6 +53,16 @@ impl<T> Tree<T> {
     }
 }
 
+impl<T> Drop for Tree<T> {
+    fn drop(&mut self) {
+        // We have to make sure to drop these before we drop the bump allocator.
+        // If the bump allocator is dropped before these, these will access
+        // dangling memory.
+        let _ = self.root.take();
+        self.incomplete.clear();
+    }
+}
+
 pub struct NodeBuilder<'a, T: 'static> {
     // Invariant: All the nodese in incomplete are supposed
     // to be allocated within the tree.
@@ -118,7 +128,7 @@ impl<T>
     Debug for NodeMut<'_, T>
 where (T: Debug) {
     fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(fmt, "{:?}: ", self.deref())?;
+        write!(fmt, "{:?}: ", self.internal.value)?;
         fmt.debug_list().entries(self.children()).finish()
     }
 }
@@ -165,9 +175,19 @@ impl<T> DerefMut for NodeMut<'_, T> {
 struct InternalNode<T> {
     // Invariant: These children have to have been
     // allocated within the same tree. This is because
-    // Nodes are deallocated together
+    // we play with lifetimes here, and if nodes from
+    // different trees were to come in here they would
+    // not work because the lifetimes are different.
     children: NonNull<[InternalNode<T>]>,
     value: T,
+}
+
+impl<T> Drop for InternalNode<T> {
+    fn drop(&mut self) {
+        unsafe {
+            self.children.as_ptr().drop_in_place();
+        }
+    }
 }
 
 fn to_non_null<T: ?Sized>(value: &mut T) -> NonNull<T> {
