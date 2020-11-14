@@ -1,4 +1,5 @@
-use crate::errors::{ErrorCtx, ErrorId};
+use super::token_stream::TokenStream;
+use crate::errors::ErrorCtx;
 use crate::location::Location;
 use core::iter::Peekable;
 use ustr::Ustr;
@@ -41,23 +42,21 @@ pub enum Keyword {
     Const,
     If,
     Let,
+    Defer,
 }
 
-pub fn process_string(
-    errors: &mut ErrorCtx,
-    file: Ustr,
-    string: &str,
-) -> Result<Vec<Token>, ErrorId> {
+pub fn process_string(errors: &mut ErrorCtx, file: Ustr, string: &str) -> Result<TokenStream, ()> {
     let mut tokens = Vec::new();
 
     // Create an iterator that iterates over the
     // code locations, byte indices and chars of the string.
+    let mut loc = Location::start(file);
     let mut chars = string
         .char_indices()
-        .scan(Location::start(file), |loc, (index, character)| {
-            let old_loc = *loc;
+        .map(|(index, character)| {
+            let old_loc = loc;
             loc.increment_by_char(character);
-            Some((old_loc, index, character))
+            (old_loc, index, character)
         })
         .peekable();
 
@@ -104,6 +103,7 @@ pub fn process_string(
                     "const" => TokenKind::Keyword(Keyword::Const),
                     "if" => TokenKind::Keyword(Keyword::If),
                     "let" => TokenKind::Keyword(Keyword::Let),
+                    "defer" => TokenKind::Keyword(Keyword::Defer),
                     _ => TokenKind::Identifier(identifier.into()),
                 }
             }
@@ -113,14 +113,16 @@ pub fn process_string(
                 TokenKind::Literal(Literal::Int(string.parse().unwrap()))
             }
             '"' => TokenKind::Literal(Literal::String(string_literal(errors, &mut chars)?)),
-            c => return Err(errors.error(loc, format!("Unknown character {:?}", c))),
+            c => {
+                errors.error(loc, format!("Unknown character {:?}", c));
+                return Err(());
+            }
         };
 
         tokens.push(Token { loc, kind });
     }
 
-    tokens.shrink_to_fit();
-    Ok(tokens)
+    Ok(TokenStream::new(loc, tokens))
 }
 
 /// Creates a string slice while a predicate is true.
@@ -146,7 +148,7 @@ fn slice_while<'a>(
 fn string_literal(
     errors: &mut ErrorCtx,
     chars: &mut impl Iterator<Item = (Location, usize, char)>,
-) -> Result<String, ErrorId> {
+) -> Result<String, ()> {
     let mut string = String::new();
 
     let (loc, _, first_char) = chars.next().unwrap();
@@ -162,17 +164,24 @@ fn string_literal(
                 Some((_, _, 'n')) => string.push('\n'),
                 Some((_, _, 't')) => string.push('\t'),
                 Some((loc, _, c)) => {
-                    return Err(errors.error(
+                    errors.error(
                         loc,
                         format!("\\{:?} is not a character escape character", c),
-                    ))
+                    );
+                    return Err(());
                 }
-                None => return Err(errors.error(loc, "String literal was not closed".to_string())),
+                None => {
+                    errors.error(loc, "String literal was not closed".to_string());
+                    return Err(());
+                }
             },
 
             Some((_, _, c)) => string.push(c),
 
-            None => return Err(errors.error(loc, "String literal was not closed".to_string())),
+            None => {
+                errors.error(loc, "String literal was not closed".to_string());
+                return Err(());
+            }
         }
     }
 

@@ -22,12 +22,25 @@ impl ErrorCtx {
         }
     }
 
+    pub fn print(&self) {
+        for (_loc, message) in &self.errors {
+            print!("Error: ");
+            println!("{}", message);
+        }
+
+        for (_loc, message) in &self.warnings {
+            print!("Warning: ");
+            println!("{}", message);
+        }
+    }
+
     pub fn error(&mut self, loc: Location, message: String) -> ErrorId {
         let id = ErrorId(self.errors.len());
         self.errors.push((loc, message));
         id
     }
 
+    #[allow(unused)]
     pub fn warning(&mut self, loc: Location, message: String) {
         self.warnings.push((loc, message));
     }

@@ -4,7 +4,11 @@ use std::fmt::{self, Debug};
 use std::ops::{Deref, DerefMut};
 use std::ptr::NonNull;
 
-pub struct Tree<T: 'static> {
+pub trait MetaData: Sized {
+    fn validate(&self, num_args: usize) -> bool;
+}
+
+pub struct Tree<T> {
     // Invariants:
     // * All the pointers in the tree point to inside the
     // bump allocator. Since the bump allocator uses heap allocations,
@@ -19,7 +23,10 @@ pub struct Tree<T: 'static> {
     incomplete: Vec<InternalNode<T>>,
 }
 
-impl<T> Tree<T> {
+impl<T> Tree<T>
+where
+    T: MetaData,
+{
     pub fn new() -> Self {
         let bump = Bump::new();
         Self {
@@ -53,6 +60,18 @@ impl<T> Tree<T> {
     }
 }
 
+impl<T> Debug for Tree<T>
+where
+    T: Debug + MetaData,
+{
+    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self.root() {
+            Some(root) => root.fmt(fmt),
+            None => write!(fmt, "No root"),
+        }
+    }
+}
+
 impl<T> Drop for Tree<T> {
     fn drop(&mut self) {
         // We have to make sure to drop these before we drop the bump allocator.
@@ -63,7 +82,7 @@ impl<T> Drop for Tree<T> {
     }
 }
 
-pub struct NodeBuilder<'a, T: 'static> {
+pub struct NodeBuilder<'a, T: MetaData> {
     // Invariant: All the nodese in incomplete are supposed
     // to be allocated within the tree.
     tree: &'a mut Tree<T>,
@@ -71,7 +90,10 @@ pub struct NodeBuilder<'a, T: 'static> {
     value: Option<T>,
 }
 
-impl<T> NodeBuilder<'_, T> {
+impl<T> NodeBuilder<'_, T>
+where
+    T: MetaData,
+{
     pub fn set(&mut self, value: T) {
         assert!(
             self.value.is_none(),
@@ -84,32 +106,56 @@ impl<T> NodeBuilder<'_, T> {
         self.tree.builder()
     }
 
-    pub fn arg_with(&mut self, value: T) -> NodeBuilder<'_, T> {
-        let mut arg = self.arg();
-        arg.set(value);
-        arg
+    /// Panics if the node builder isn't in a valid state.
+    ///
+    /// Also panics if nothing is set.
+    pub fn validate(self) {
+        let num_arguments = self.tree.incomplete.len() - self.starting_point;
+        let value = self
+            .value
+            .as_ref()
+            .expect("The value of a NodeBuilder has to be set before validating it.");
+        assert!(value.validate(num_arguments), "Validation failed");
     }
 }
 
-impl<T> Drop for NodeBuilder<'_, T> {
+impl<T> NodeBuilder<'_, T>
+where
+    T: Clone + MetaData,
+{
+    /// A way to clone nodes from a different ast into
+    /// this one.
+    pub fn set_cloned(&mut self, other: &Node<'_, T>) {
+        self.set(other.internal.value.clone());
+
+        for child in other.children() {
+            self.arg().set_cloned(&child);
+        }
+    }
+}
+
+impl<T> Drop for NodeBuilder<'_, T>
+where
+    T: MetaData,
+{
     fn drop(&mut self) {
-        let slice = self
-            .tree
-            .bump
-            .alloc_slice_fill_iter(self.tree.incomplete.drain(self.starting_point..));
+        if let Some(value) = self.value.take() {
+            let slice = self
+                .tree
+                .bump
+                .alloc_slice_fill_iter(self.tree.incomplete.drain(self.starting_point..));
 
-        self.tree.incomplete.push(InternalNode {
-            children: to_non_null(slice),
-            value: self
-                .value
-                .take()
-                .expect("You have to set the value of a NodeBuilder before dropping it."),
-        });
+            self.tree.incomplete.push(InternalNode {
+                children: to_non_null(slice),
+                value,
+            });
 
-        assert_eq!(self.tree.incomplete.len(), self.starting_point + 1);
+            debug_assert_eq!(self.tree.incomplete.len(), self.starting_point + 1);
+        }
     }
 }
 
+#[derive(Clone, Copy)]
 pub struct Node<'a, T> {
     internal: &'a InternalNode<T>,
 }
@@ -128,7 +174,8 @@ impl<T>
     Debug for NodeMut<'_, T>
 where (T: Debug) {
     fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(fmt, "{:?}: ", self.internal.value)?;
+        self.internal.value.fmt(fmt)?;
+        write!(fmt, ": ")?;
         fmt.debug_list().entries(self.children()).finish()
     }
 }
@@ -146,17 +193,26 @@ impl<T>
 }
 
 impl<T> Node<'_, T>, NodeMut<'_, T> {
-    pub fn children(&self) -> impl Iterator<Item = Node<'_, T>> + DoubleEndedIterator + ExactSizeIterator {
-        let children = unsafe {
+    fn children_slice(&self) -> &[InternalNode<T>] {
+        unsafe {
             &*self.internal.children.as_ptr()
-        };
+        }
+    }
 
-        children.iter().map(|v| Node { internal: v })
+    #[allow(unused)]
+    pub fn child_count(&self) -> usize {
+        self.children_slice().len()
+    }
+
+    #[allow(unused)]
+    pub fn children(&self) -> impl Iterator<Item = Node<'_, T>> + DoubleEndedIterator + ExactSizeIterator {
+        self.children_slice().iter().map(|v| Node { internal: v })
     }
 }
 );
 
 impl<T> NodeMut<'_, T> {
+    #[allow(unused)]
     pub fn children_mut(
         &mut self,
     ) -> impl Iterator<Item = NodeMut<'_, T>> + DoubleEndedIterator + ExactSizeIterator {
