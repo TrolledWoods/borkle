@@ -106,6 +106,22 @@ where
         self.tree.builder()
     }
 
+    /// Replaces this node with a single argument of this node.
+    /// This is useful if you need to specify something as an
+    /// argument but then only later know if it is actually supposed
+    /// to be an argument or its own node entirely.
+    ///
+    /// # Panics
+    /// * If the `set` method has been called before
+    /// * If there isn't exactly one argument
+    pub fn into_arg(self) {
+        assert!(self.value.is_none());
+        assert_eq!(self.tree.incomplete.len(), self.starting_point + 1);
+
+        // Don't call drop to make this its own node.
+        std::mem::forget(self);
+    }
+
     /// Panics if the node builder isn't in a valid state.
     ///
     /// Also panics if nothing is set.

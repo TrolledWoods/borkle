@@ -4,6 +4,7 @@
 mod errors;
 mod locals;
 mod location;
+mod operators;
 mod parser;
 mod tree;
 
@@ -14,7 +15,7 @@ fn main() {
         "hi".into(),
         r#"
         {
-            let x = 5;
+            let x = &&&&!!!5;
             let y = 2;
             x;
             y;

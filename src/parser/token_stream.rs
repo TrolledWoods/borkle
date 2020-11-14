@@ -1,6 +1,7 @@
 use super::lexer::{Token, TokenKind};
 use crate::errors::ErrorCtx;
 use crate::location::Location;
+use crate::operators::{BinaryOp, UnaryOp};
 
 pub struct TokenStream {
     last: Location,
@@ -27,6 +28,22 @@ impl TokenStream {
         self.peek().ok_or_else(|| {
             errors.error(self.last, "Unexpected end of file".to_string());
         })
+    }
+
+    pub fn try_consume_unary(&mut self) -> Option<(Location, UnaryOp)> {
+        let token = self.peek_mut()?;
+        if let TokenKind::Operator(ref mut string) = token.kind {
+            if let Some((op, suffix)) = UnaryOp::from_prefix(string) {
+                let loc = token.loc;
+                if suffix.is_empty() {
+                    self.next();
+                } else {
+                    *string = suffix.into();
+                }
+                return Some((loc, op));
+            }
+        }
+        None
     }
 
     pub fn try_consume_operator(&mut self, operator: &str) -> Option<()> {

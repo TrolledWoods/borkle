@@ -85,9 +85,9 @@ pub fn process_string(errors: &mut ErrorCtx, file: Ustr, string: &str) -> Result
                 }
             }
 
-            '.' | '+' | '-' | '*' | '/' | '=' => {
+            '.' | '+' | '-' | '*' | '/' | '=' | '&' | '!' | '|' => {
                 let string = slice_while(string, &mut chars, |c| {
-                    matches!(c, '.' | '+' | '-' | '*' | '/' | '=')
+                    matches!(c, '.' | '+' | '-' | '*' | '/' | '=' | '&' | '!' | '|')
                 });
 
                 TokenKind::Operator(string.into())

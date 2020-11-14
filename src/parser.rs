@@ -25,6 +25,20 @@ pub fn process_string(errors: &mut ErrorCtx, file: Ustr, string: &str) -> Result
 }
 
 fn value(ctx: &mut Context<'_>, mut node: NodeBuilder<'_>) -> Result<(), ()> {
+    // Check for unary operator
+    if let Some((loc, op)) = ctx.tokens.try_consume_unary() {
+        value(ctx, node.arg())?;
+        node.set(Node::new(loc, NodeKind::Unary(op)));
+        node.validate();
+    } else {
+        atom_value(ctx, node)?;
+    }
+
+    Ok(())
+}
+
+/// A value without unary operators, member accesses, or anything like that.
+fn atom_value(ctx: &mut Context<'_>, mut node: NodeBuilder<'_>) -> Result<(), ()> {
     let token = ctx.tokens.expect_next(ctx.errors)?;
     match token.kind {
         TokenKind::Identifier(name) => {

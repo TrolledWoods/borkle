@@ -1,5 +1,6 @@
 use crate::locals::LocalId;
 use crate::location::Location;
+use crate::operators::UnaryOp;
 use crate::tree;
 use std::fmt;
 
@@ -18,10 +19,10 @@ impl Node {
 #[derive(Clone)]
 pub enum NodeKind {
     Int(u64),
+    Unary(UnaryOp),
     FunctionCall,
     Block,
     Empty,
-
     Declare(LocalId),
     Local(LocalId),
 }
@@ -36,6 +37,7 @@ impl fmt::Debug for NodeKind {
     fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Int(num) => write!(fmt, "{}", num),
+            Self::Unary(op) => write!(fmt, "{:?}", op),
             Self::FunctionCall => write!(fmt, "Function call"),
             Self::Block => write!(fmt, "Block"),
             Self::Empty => write!(fmt, "()"),
@@ -53,6 +55,7 @@ impl tree::MetaData for Node {
 
               (NodeKind::Local(_),     0)
             | (NodeKind::Int(_),       0)
+            | (NodeKind::Unary(_),     1)
             | (NodeKind::Empty,        0)
             | (NodeKind::Declare(_),   0..=1)
             | (NodeKind::FunctionCall, 1..=usize::MAX)
