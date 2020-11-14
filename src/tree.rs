@@ -1,7 +1,6 @@
 use bumpalo::Bump;
 use impl_twice::impl_twice;
-use std::marker::PhantomData;
-use std::mem::transmute;
+use std::fmt::{self, Debug};
 use std::ops::{Deref, DerefMut};
 use std::ptr::NonNull;
 
@@ -115,6 +114,17 @@ pub struct NodeMut<'a, T> {
 
 impl_twice!(
 impl<T>
+    Debug for Node<'_, T>,
+    Debug for NodeMut<'_, T>
+where (T: Debug) {
+    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(fmt, "{:?}: ", self.deref())?;
+        fmt.debug_list().entries(self.children()).finish()
+    }
+}
+
+
+impl<T>
     Deref for Node<'_, T>,
     Deref for NodeMut<'_, T>
 {
@@ -124,7 +134,27 @@ impl<T>
         &self.internal.value
     }
 }
+
+impl<T> Node<'_, T>, NodeMut<'_, T> {
+    pub fn children(&self) -> impl Iterator<Item = Node<'_, T>> + DoubleEndedIterator + ExactSizeIterator {
+        let children = unsafe {
+            &*self.internal.children.as_ptr()
+        };
+
+        children.iter().map(|v| Node { internal: v })
+    }
+}
 );
+
+impl<T> NodeMut<'_, T> {
+    pub fn children_mut(
+        &mut self,
+    ) -> impl Iterator<Item = NodeMut<'_, T>> + DoubleEndedIterator + ExactSizeIterator {
+        let children = unsafe { &mut *self.internal.children.as_ptr() };
+
+        children.iter_mut().map(|v| NodeMut { internal: v })
+    }
+}
 
 impl<T> DerefMut for NodeMut<'_, T> {
     fn deref_mut(&mut self) -> &'_ mut Self::Target {

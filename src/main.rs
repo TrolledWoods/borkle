@@ -9,14 +9,19 @@ fn main() {
     use tree::Tree;
 
     let mut tree = Tree::new();
-    let mut node = tree.builder();
-    node.set("hi");
     {
-        let mut node = node.arg_with("yes");
-        node.arg_with("please");
+        let mut node = tree.builder();
+        node.set("hi");
+        {
+            let mut node = node.arg_with("yes");
+            node.arg_with("please");
+            node.arg_with("please2");
+            node.arg_with("please3");
+        }
+        node.arg_with("bye");
     }
-    node.arg_with("bye");
-    std::mem::drop(node);
+    tree.set_root();
+    println!("{:#?}", tree.root().unwrap());
 
     let mut errors = errors::ErrorCtx::new();
     let result = lexer::process_string(&mut errors, "NO".into(), "oh \"hi mark\"");
