@@ -19,13 +19,16 @@ checksum = "cf1de2fe8c75bc145a2f577add951f8134889b4795d47466a54a5c846d691693"
 name = "borkle"
 version = "0.1.0"
 dependencies = [
- "bump_vec",
+ "bumpalo",
+ "impl_twice",
  "ustr",
 ]
 
 [[package]]
-name = "bump_vec"
-version = "0.1.0"
+name = "bumpalo"
+version = "3.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2e8c087f005730276d1096a652e92a8bacee2e2472bcc9715a74d2bec38b5820"
 
 [[package]]
 name = "byteorder"
@@ -78,6 +81,12 @@ dependencies = [
  "libc",
  "wasi",
 ]
+
+[[package]]
+name = "impl_twice"
+version = "0.0.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d60a1fa3d4099e892a7f2d2b5e8e845a83059cf94c79744687731b6f90d81da9"
 
 [[package]]
 name = "lazy_static"

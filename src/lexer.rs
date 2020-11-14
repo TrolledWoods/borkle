@@ -93,10 +93,12 @@ pub fn process_string(
 
                 TokenKind::Operator(string.into())
             }
-            c | c if c.is_alphabetic() || c == '_' => {
-                let identifier = slice_while(string, &mut chars, |c| {
-                    c.is_alphabetic() || c.is_digit(10) || c == '_'
-                });
+            'a'..='z' | 'A'..='Z' | '_' => {
+                let identifier = slice_while(
+                    string,
+                    &mut chars,
+                    |c| matches!(c, 'a'..='z' | 'A'..='Z' | '_' | '0'..='9'),
+                );
 
                 match identifier {
                     "const" => TokenKind::Keyword(Keyword::Const),
@@ -105,7 +107,7 @@ pub fn process_string(
                     _ => TokenKind::Identifier(identifier.into()),
                 }
             }
-            c if c.is_digit(10) => {
+            '0'..='9' => {
                 let string = slice_while(string, &mut chars, |c| c.is_digit(10) || c == '_');
 
                 TokenKind::Literal(Literal::Int(string.parse().unwrap()))

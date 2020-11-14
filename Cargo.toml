@@ -8,4 +8,5 @@ edition = "2018"
 
 [dependencies]
 ustr = "0.7.*"
-bump_vec = { path = "bump_vec" }
+bumpalo = "3.4.0"
+impl_twice = "0.0.3"
