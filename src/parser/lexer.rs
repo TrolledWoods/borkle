@@ -1,5 +1,6 @@
 use super::token_stream::TokenStream;
 use crate::errors::ErrorCtx;
+use crate::literal::Literal;
 use crate::location::Location;
 use core::iter::Peekable;
 use ustr::Ustr;
@@ -29,12 +30,6 @@ pub enum Bracket {
     Round,
     Curly,
     Square,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub enum Literal {
-    String(String),
-    Int(u64),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

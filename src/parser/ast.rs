@@ -1,3 +1,4 @@
+use crate::literal::Literal;
 use crate::locals::LocalId;
 use crate::location::Location;
 use crate::operators::{BinaryOp, UnaryOp};
@@ -18,7 +19,7 @@ impl Node {
 
 #[derive(Clone)]
 pub enum NodeKind {
-    Int(u64),
+    Literal(Literal),
 
     Member(Ustr),
     FunctionInsert,
@@ -43,7 +44,7 @@ impl fmt::Debug for Node {
 impl fmt::Debug for NodeKind {
     fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Int(num) => write!(fmt, "{}", num),
+            Self::Literal(literal) => write!(fmt, "{:?}", literal),
             Self::Empty => write!(fmt, "()"),
 
             Self::Member(name) => write!(fmt, "member {}", name),
@@ -66,8 +67,9 @@ impl bump_tree::MetaData for Node {
         matches!(
             (&self.kind, num_args),
 
-              (NodeKind::Local(_),     0)
-            | (NodeKind::Int(_),       0)
+              (NodeKind::Literal(_),   0)
+
+            | (NodeKind::Local(_),     0)
             | (NodeKind::Member(_),    1)
             | (NodeKind::Unary(_),     1)
             | (NodeKind::FunctionInsert, 2)

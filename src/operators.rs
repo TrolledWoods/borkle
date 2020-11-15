@@ -48,6 +48,8 @@ operator!(BinaryOp {
 
     Add = ("+", 100),
     Sub = ("-", 100),
+    Mult = ("*", 101),
+    Div = ("/", 102),
     BitAnd = ("&", 4),
     BitOr = ("|", 5),
 });

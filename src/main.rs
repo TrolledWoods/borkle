@@ -2,6 +2,7 @@
 #![feature(bool_to_option)]
 
 mod errors;
+mod literal;
 mod locals;
 mod location;
 mod operators;
@@ -14,7 +15,7 @@ fn main() {
         "hi".into(),
         r#"
         {
-            1 && &5;
+            1 + 2 * 4;
         }
     "#,
     );

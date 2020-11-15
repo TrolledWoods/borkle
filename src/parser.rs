@@ -9,7 +9,7 @@ use crate::operators::{AccessOp, BinaryOp};
 use ast::{Node, NodeKind};
 use bump_tree::Tree;
 use context::Context;
-use lexer::{Bracket, Keyword, Literal, TokenKind};
+use lexer::{Bracket, Keyword, TokenKind};
 use ustr::Ustr;
 
 pub type Ast = Tree<Node>;
@@ -113,7 +113,7 @@ fn atom_value(ctx: &mut Context<'_>, mut node: NodeBuilder<'_>) -> Result<(), ()
             }
         }
 
-        TokenKind::Literal(Literal::Int(num)) => node.set(Node::new(token.loc, NodeKind::Int(num))),
+        TokenKind::Literal(literal) => node.set(Node::new(token.loc, NodeKind::Literal(literal))),
 
         TokenKind::Keyword(Keyword::Let) => {
             let token = ctx.tokens.expect_next(ctx.errors)?;
