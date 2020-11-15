@@ -14,10 +14,7 @@ fn main() {
         "hi".into(),
         r#"
         {
-            let x = 3;
-            let yes = 5;
-            defer x.x.hi.super->yes;
-            defer x.hello.hi.super->yes;
+            1 + 2 - 5;
         }
     "#,
     );

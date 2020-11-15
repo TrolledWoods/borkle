@@ -115,6 +115,11 @@ impl TokenStream {
         if &token.kind == kind {
             Ok(())
         } else {
+            if self.try_consume_unary().is_some() {
+                errors.error(token.loc, "Unary operator is not allowed here".to_string());
+                return Err(());
+            }
+
             errors.error(token.loc, format!("Expected '{:?}'", kind));
             Err(())
         }

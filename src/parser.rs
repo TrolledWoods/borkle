@@ -28,14 +28,22 @@ pub fn process_string(errors: &mut ErrorCtx, file: Ustr, string: &str) -> Result
 fn expression(ctx: &mut Context<'_>, mut node: NodeBuilder<'_>) -> Result<(), ()> {
     value(ctx, node.arg())?;
 
-    if let Some((loc, op)) = ctx.tokens.try_consume_binary() {
+    let mut old_op = None;
+    while let Some((loc, op)) = ctx.tokens.try_consume_binary() {
+        if old_op.unwrap_or(op) != op {
+            ctx.error(
+                loc,
+                "Only operators of the same kind can be used in succession".to_string(),
+            );
+            return Err(());
+        }
+
         value(ctx, node.arg())?;
-        node.set(Node::new(loc, NodeKind::Binary(op)));
-        node.validate();
-    } else {
-        node.into_arg();
+        node.collapse(Node::new(loc, NodeKind::Binary(op)), 2);
+        old_op = Some(op);
     }
 
+    node.into_arg();
     Ok(())
 }
 
@@ -83,6 +91,7 @@ fn atom_value(ctx: &mut Context<'_>, mut node: NodeBuilder<'_>) -> Result<(), ()
         TokenKind::Identifier(name) => {
             if let Some(local_id) = ctx.get_local(name) {
                 node.set(Node::new(token.loc, NodeKind::Local(local_id)));
+                node.validate();
             } else {
                 ctx.error(
                     token.loc,
@@ -109,6 +118,7 @@ fn atom_value(ctx: &mut Context<'_>, mut node: NodeBuilder<'_>) -> Result<(), ()
                 expression(ctx, node.arg())?;
 
                 node.set(Node::new(token.loc, NodeKind::Declare(id)));
+                node.validate();
             } else {
                 ctx.error(token.loc, "Expected identifier".to_string());
                 return Err(());
@@ -117,11 +127,18 @@ fn atom_value(ctx: &mut Context<'_>, mut node: NodeBuilder<'_>) -> Result<(), ()
 
         TokenKind::Keyword(Keyword::Defer) => {
             let mut ast = Ast::new();
-            value(ctx, ast.builder())?;
+            expression(ctx, ast.builder())?;
             ast.set_root();
             ctx.push_defer(ast);
 
             node.set(Node::new(token.loc, NodeKind::Empty));
+            node.validate();
+        }
+
+        TokenKind::Open(Bracket::Round) => {
+            expression(ctx, node)?;
+            ctx.tokens
+                .expect_next_is(ctx.errors, &TokenKind::Close(Bracket::Round))?;
         }
 
         TokenKind::Open(Bracket::Curly) => {
@@ -132,7 +149,7 @@ fn atom_value(ctx: &mut Context<'_>, mut node: NodeBuilder<'_>) -> Result<(), ()
                 .tokens
                 .try_consume(ctx.errors, &TokenKind::Close(Bracket::Curly))?
             {
-                value(ctx, node.arg())?;
+                expression(ctx, node.arg())?;
                 ctx.tokens
                     .expect_next_is(ctx.errors, &TokenKind::SemiColon)?;
             }
@@ -143,6 +160,7 @@ fn atom_value(ctx: &mut Context<'_>, mut node: NodeBuilder<'_>) -> Result<(), ()
             }
 
             ctx.pop_scope_boundary();
+            node.validate();
         }
 
         _ => {
@@ -153,7 +171,5 @@ fn atom_value(ctx: &mut Context<'_>, mut node: NodeBuilder<'_>) -> Result<(), ()
             return Err(());
         }
     }
-
-    node.validate();
     Ok(())
 }
