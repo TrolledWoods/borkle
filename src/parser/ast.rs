@@ -29,6 +29,7 @@ pub enum NodeKind {
 
     FunctionCall,
     Block,
+    Tuple,
     Empty,
 
     Declare(LocalId),
@@ -55,6 +56,7 @@ impl fmt::Debug for NodeKind {
 
             Self::FunctionCall => write!(fmt, "Function call"),
             Self::Block => write!(fmt, "Block"),
+            Self::Tuple => write!(fmt, "Tuple"),
 
             Self::Declare(id) => write!(fmt, "Decl {:?}", id),
             Self::Local(id) => write!(fmt, "{:?}", id),
@@ -77,6 +79,7 @@ impl bump_tree::MetaData for Node {
             | (NodeKind::Empty,        0)
             | (NodeKind::Declare(_),   0..=1)
             | (NodeKind::FunctionCall, 1..=usize::MAX)
+            | (NodeKind::Tuple,        1..=usize::MAX)
             | (NodeKind::Block,        _)
         )
     }

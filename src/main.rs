@@ -15,7 +15,8 @@ fn main() {
         "hi".into(),
         r#"
         {
-            1 + 2 * 4;
+            defer let x = (5, 2, 3, 4, 5, 6, 7, "Hello!!!!");
+            "Hello world!" + "wow";
         }
     "#,
     );

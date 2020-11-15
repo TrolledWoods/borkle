@@ -148,9 +148,36 @@ fn atom_value(ctx: &mut Context<'_>, mut node: NodeBuilder<'_>) -> Result<(), ()
         }
 
         TokenKind::Open(Bracket::Round) => {
-            expression(ctx, node)?;
-            ctx.tokens
-                .expect_next_is(ctx.errors, &TokenKind::Close(Bracket::Round))?;
+            let mut has_comma = false;
+            loop {
+                if ctx
+                    .tokens
+                    .try_consume(ctx.errors, &TokenKind::Close(Bracket::Round))?
+                {
+                    break;
+                }
+
+                expression(ctx, node.arg())?;
+
+                let token = ctx.tokens.expect_next(ctx.errors)?;
+                match token.kind {
+                    TokenKind::Close(Bracket::Round) => break,
+                    TokenKind::Comma => has_comma = true,
+                    _ => {
+                        ctx.error(token.loc, "Expected either ',' or ')'".to_string());
+                        return Err(());
+                    }
+                }
+            }
+
+            if has_comma {
+                // A tuple
+                node.set(Node::new(token.loc, NodeKind::Tuple));
+                node.validate();
+            } else {
+                // Just a parenthesis
+                node.into_arg();
+            }
         }
 
         TokenKind::Open(Bracket::Curly) => {
