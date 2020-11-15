@@ -40,7 +40,6 @@ impl ErrorCtx {
         id
     }
 
-    #[allow(unused)]
     pub fn warning(&mut self, loc: Location, message: String) {
         self.warnings.push((loc, message));
     }

@@ -30,20 +30,35 @@ impl TokenStream {
         })
     }
 
-    pub fn try_consume_operator<T: Operator>(&mut self) -> Option<(Location, T)> {
+    pub fn try_consume_operator_with_metadata<T: Operator>(
+        &mut self,
+    ) -> Option<(Location, T, OperatorConsumptionMeta)> {
         let token = self.peek_mut()?;
         if let TokenKind::Operator(ref mut string) = token.kind {
             if let Some((op, suffix)) = T::from_prefix(string) {
                 let loc = token.loc;
+                let mut cleared_operator_string = false;
                 if suffix.is_empty() {
+                    cleared_operator_string = true;
                     self.next();
                 } else {
                     *string = suffix.into();
                 }
-                return Some((loc, op));
+                return Some((
+                    loc,
+                    op,
+                    OperatorConsumptionMeta {
+                        cleared_operator_string,
+                    },
+                ));
             }
         }
         None
+    }
+
+    pub fn try_consume_operator<T: Operator>(&mut self) -> Option<(Location, T)> {
+        self.try_consume_operator_with_metadata()
+            .map(|(loc, val, _)| (loc, val))
     }
 
     pub fn try_consume_operator_string(&mut self, prefix: &str) -> Option<Location> {
@@ -99,4 +114,8 @@ impl Iterator for TokenStream {
     fn next(&mut self) -> Option<Self::Item> {
         self.tokens.next()
     }
+}
+
+pub struct OperatorConsumptionMeta {
+    pub cleared_operator_string: bool,
 }

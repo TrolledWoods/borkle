@@ -29,7 +29,16 @@ fn expression(ctx: &mut Context<'_>, mut node: NodeBuilder<'_>) -> Result<(), ()
     value(ctx, node.arg())?;
 
     let mut old_op: Option<BinaryOp> = None;
-    while let Some((loc, op)) = ctx.tokens.try_consume_operator() {
+    while let Some((loc, op, meta_data)) = ctx.tokens.try_consume_operator_with_metadata() {
+        if !meta_data.cleared_operator_string {
+            ctx.errors.warning(
+                loc,
+                "Ambiguous operator separation, please insert a space to clearly indicate \
+                where the binary operator ends and the unary operators begin"
+                    .to_string(),
+            );
+        }
+
         if old_op.unwrap_or(op).precedence() != op.precedence() {
             ctx.error(
                 loc,

@@ -14,14 +14,13 @@ fn main() {
         "hi".into(),
         r#"
         {
-            &&&2;
+            1 && &5;
         }
     "#,
     );
 
     if let Ok(ast) = result {
         println!("{:#?}", ast);
-    } else {
-        errors.print();
     }
+    errors.print();
 }
