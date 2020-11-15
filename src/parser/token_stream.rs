@@ -1,7 +1,7 @@
 use super::lexer::{Token, TokenKind};
 use crate::errors::ErrorCtx;
 use crate::location::Location;
-use crate::operators::{BinaryOp, UnaryOp};
+use crate::operators::{Operator, UnaryOp};
 
 pub struct TokenStream {
     last: Location,
@@ -30,10 +30,10 @@ impl TokenStream {
         })
     }
 
-    pub fn try_consume_access_operator(&mut self) -> Option<(Location, BinaryOp)> {
+    pub fn try_consume_operator<T: Operator>(&mut self) -> Option<(Location, T)> {
         let token = self.peek_mut()?;
         if let TokenKind::Operator(ref mut string) = token.kind {
-            if let Some((op, suffix)) = BinaryOp::access_op_from_prefix(string) {
+            if let Some((op, suffix)) = T::from_prefix(string) {
                 let loc = token.loc;
                 if suffix.is_empty() {
                     self.next();
@@ -46,59 +46,20 @@ impl TokenStream {
         None
     }
 
-    pub fn try_consume_unary(&mut self) -> Option<(Location, UnaryOp)> {
+    pub fn try_consume_operator_string(&mut self, prefix: &str) -> Option<Location> {
         let token = self.peek_mut()?;
         if let TokenKind::Operator(ref mut string) = token.kind {
-            if let Some((op, suffix)) = UnaryOp::from_prefix(string) {
+            if let Some(suffix) = string.strip_prefix(prefix) {
                 let loc = token.loc;
                 if suffix.is_empty() {
                     self.next();
                 } else {
                     *string = suffix.into();
                 }
-                return Some((loc, op));
+                return Some(loc);
             }
         }
         None
-    }
-
-    pub fn try_consume_binary(&mut self) -> Option<(Location, BinaryOp)> {
-        let token = self.peek_mut()?;
-        if let TokenKind::Operator(ref mut string) = token.kind {
-            if let Some((op, suffix)) = BinaryOp::from_prefix(string) {
-                let loc = token.loc;
-                if suffix.is_empty() {
-                    self.next();
-                } else {
-                    *string = suffix.into();
-                }
-                return Some((loc, op));
-            }
-        }
-        None
-    }
-
-    pub fn try_consume_operator(&mut self, operator: &str) -> Option<()> {
-        // This is complicated because multiple operators
-        // could be mashed together into a single token.
-        let token = self.peek_mut()?;
-        if let TokenKind::Operator(ref mut string) = token.kind {
-            // We can't use map here because closure
-            // borrow checking SUCKS. Meh
-            #[allow(clippy::option_if_let_else)]
-            if let Some(rest) = string.strip_prefix(operator) {
-                if rest.is_empty() {
-                    self.next();
-                } else {
-                    *string = rest.into();
-                }
-                Some(())
-            } else {
-                None
-            }
-        } else {
-            None
-        }
     }
 
     pub fn try_consume(&mut self, errors: &mut ErrorCtx, kind: &TokenKind) -> Result<bool, ()> {
@@ -115,7 +76,7 @@ impl TokenStream {
         if &token.kind == kind {
             Ok(())
         } else {
-            if self.try_consume_unary().is_some() {
+            if self.try_consume_operator::<UnaryOp>().is_some() {
                 errors.error(token.loc, "Unary operator is not allowed here".to_string());
                 return Err(());
             }

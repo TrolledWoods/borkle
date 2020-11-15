@@ -5,7 +5,7 @@ mod token_stream;
 
 use crate::errors::ErrorCtx;
 use crate::locals::Local;
-use crate::operators::BinaryOp;
+use crate::operators::{AccessOp, BinaryOp};
 use ast::{Node, NodeKind};
 use bump_tree::Tree;
 use context::Context;
@@ -28,12 +28,12 @@ pub fn process_string(errors: &mut ErrorCtx, file: Ustr, string: &str) -> Result
 fn expression(ctx: &mut Context<'_>, mut node: NodeBuilder<'_>) -> Result<(), ()> {
     value(ctx, node.arg())?;
 
-    let mut old_op = None;
-    while let Some((loc, op)) = ctx.tokens.try_consume_binary() {
-        if old_op.unwrap_or(op) != op {
+    let mut old_op: Option<BinaryOp> = None;
+    while let Some((loc, op)) = ctx.tokens.try_consume_operator() {
+        if old_op.unwrap_or(op).precedence() != op.precedence() {
             ctx.error(
                 loc,
-                "Only operators of the same kind can be used in succession".to_string(),
+                "Only operators with the same precedence can be used after one another".to_string(),
             );
             return Err(());
         }
@@ -50,7 +50,7 @@ fn expression(ctx: &mut Context<'_>, mut node: NodeBuilder<'_>) -> Result<(), ()
 /// A value allows for unary operators and member accesses or function insertions.
 /// However, unary operators are only allowed before the accesses.
 fn value(ctx: &mut Context<'_>, mut node: NodeBuilder<'_>) -> Result<(), ()> {
-    if let Some((loc, op)) = ctx.tokens.try_consume_unary() {
+    if let Some((loc, op)) = ctx.tokens.try_consume_operator() {
         value(ctx, node.arg())?;
         node.set(Node::new(loc, NodeKind::Unary(op)));
         node.validate();
@@ -66,17 +66,20 @@ fn value(ctx: &mut Context<'_>, mut node: NodeBuilder<'_>) -> Result<(), ()> {
 fn member_value(ctx: &mut Context<'_>, mut node: NodeBuilder<'_>) -> Result<(), ()> {
     atom_value(ctx, node.arg())?;
 
-    while let Some((loc, op)) = ctx.tokens.try_consume_access_operator() {
-        if let BinaryOp::Member = op {
-            let token = ctx.tokens.expect_next(ctx.errors)?;
-            if let TokenKind::Identifier(name) = token.kind {
-                node.collapse(Node::new(token.loc, NodeKind::Member(name)), 1);
-            } else {
-                ctx.error(token.loc, "Expected identifier".to_string());
+    while let Some((loc, op)) = ctx.tokens.try_consume_operator() {
+        match op {
+            AccessOp::Member => {
+                let token = ctx.tokens.expect_next(ctx.errors)?;
+                if let TokenKind::Identifier(name) = token.kind {
+                    node.collapse(Node::new(token.loc, NodeKind::Member(name)), 1);
+                } else {
+                    ctx.error(token.loc, "Expected identifier".to_string());
+                }
             }
-        } else {
-            member_value(ctx, node.arg())?;
-            node.collapse(Node::new(loc, NodeKind::Binary(op)), 2);
+            AccessOp::FunctionInsert => {
+                member_value(ctx, node.arg())?;
+                node.collapse(Node::new(loc, NodeKind::FunctionInsert), 2);
+            }
         }
     }
 
@@ -111,7 +114,7 @@ fn atom_value(ctx: &mut Context<'_>, mut node: NodeBuilder<'_>) -> Result<(), ()
                     name,
                 });
 
-                ctx.tokens.try_consume_operator("=").ok_or_else(|| {
+                ctx.tokens.try_consume_operator_string("=").ok_or_else(|| {
                     ctx.error(token.loc, "Expected '=' after identifier".into());
                 })?;
 
