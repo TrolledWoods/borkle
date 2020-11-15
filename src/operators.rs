@@ -38,6 +38,9 @@ pub enum BinaryOp {
     Sub,
     BitAnd,
     BitOr,
+
+    FunctionInsert,
+    Member,
 }
 
 const BINARY_OP_STRINGS: &[(&str, BinaryOp)] = &[
@@ -45,12 +48,25 @@ const BINARY_OP_STRINGS: &[(&str, BinaryOp)] = &[
     ("||", BinaryOp::Or),
     ("==", BinaryOp::Equals),
     ("+", BinaryOp::Add),
-    ("-", BinaryOp::Add),
+    ("-", BinaryOp::Sub),
     ("&", BinaryOp::BitAnd),
     ("|", BinaryOp::BitOr),
 ];
 
+const ACCESS_OP_STRINGS: &[(&str, BinaryOp)] =
+    &[("->", BinaryOp::FunctionInsert), (".", BinaryOp::Member)];
+
 impl BinaryOp {
+    pub fn access_op_from_prefix(string: &str) -> Option<(Self, &'_ str)> {
+        for &(prefix, operator) in ACCESS_OP_STRINGS {
+            if let Some(suffix) = string.strip_prefix(prefix) {
+                return Some((operator, suffix));
+            }
+        }
+
+        None
+    }
+
     /// Tries to find this operator in the prefix of a string.
     /// If it does find it, it returns the operator as well
     /// as the rest of the string that wasn't part of the operator.

@@ -6,7 +6,6 @@ mod locals;
 mod location;
 mod operators;
 mod parser;
-mod tree;
 
 fn main() {
     let mut errors = errors::ErrorCtx::new();
@@ -15,18 +14,9 @@ fn main() {
         "hi".into(),
         r#"
         {
-            let x = &&&&!!!5;
-            let y = 2;
-            x;
-            y;
-            y;
-            defer {
-                2;
-                6;
-            };
-            5;
-            defer 3;
-            6;
+            let x = 3 + 5;
+            let y = x + 2 + 3;
+            defer let z = 2;
         }
     "#,
     );

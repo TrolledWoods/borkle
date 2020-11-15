@@ -1,7 +1,6 @@
 use crate::locals::LocalId;
 use crate::location::Location;
-use crate::operators::UnaryOp;
-use crate::tree;
+use crate::operators::{BinaryOp, UnaryOp};
 use std::fmt;
 
 #[derive(Clone)]
@@ -20,6 +19,7 @@ impl Node {
 pub enum NodeKind {
     Int(u64),
     Unary(UnaryOp),
+    Binary(BinaryOp),
     FunctionCall,
     Block,
     Empty,
@@ -38,6 +38,7 @@ impl fmt::Debug for NodeKind {
         match self {
             Self::Int(num) => write!(fmt, "{}", num),
             Self::Unary(op) => write!(fmt, "{:?}", op),
+            Self::Binary(op) => write!(fmt, "{:?}", op),
             Self::FunctionCall => write!(fmt, "Function call"),
             Self::Block => write!(fmt, "Block"),
             Self::Empty => write!(fmt, "()"),
@@ -48,7 +49,7 @@ impl fmt::Debug for NodeKind {
     }
 }
 
-impl tree::MetaData for Node {
+impl bump_tree::MetaData for Node {
     fn validate(&self, num_args: usize) -> bool {
         matches!(
             (&self.kind, num_args),
@@ -56,6 +57,7 @@ impl tree::MetaData for Node {
               (NodeKind::Local(_),     0)
             | (NodeKind::Int(_),       0)
             | (NodeKind::Unary(_),     1)
+            | (NodeKind::Binary(_),    2)
             | (NodeKind::Empty,        0)
             | (NodeKind::Declare(_),   0..=1)
             | (NodeKind::FunctionCall, 1..=usize::MAX)

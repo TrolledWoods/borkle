@@ -30,10 +30,42 @@ impl TokenStream {
         })
     }
 
+    pub fn try_consume_access_operator(&mut self) -> Option<(Location, BinaryOp)> {
+        let token = self.peek_mut()?;
+        if let TokenKind::Operator(ref mut string) = token.kind {
+            if let Some((op, suffix)) = BinaryOp::access_op_from_prefix(string) {
+                let loc = token.loc;
+                if suffix.is_empty() {
+                    self.next();
+                } else {
+                    *string = suffix.into();
+                }
+                return Some((loc, op));
+            }
+        }
+        None
+    }
+
     pub fn try_consume_unary(&mut self) -> Option<(Location, UnaryOp)> {
         let token = self.peek_mut()?;
         if let TokenKind::Operator(ref mut string) = token.kind {
             if let Some((op, suffix)) = UnaryOp::from_prefix(string) {
+                let loc = token.loc;
+                if suffix.is_empty() {
+                    self.next();
+                } else {
+                    *string = suffix.into();
+                }
+                return Some((loc, op));
+            }
+        }
+        None
+    }
+
+    pub fn try_consume_binary(&mut self) -> Option<(Location, BinaryOp)> {
+        let token = self.peek_mut()?;
+        if let TokenKind::Operator(ref mut string) = token.kind {
+            if let Some((op, suffix)) = BinaryOp::from_prefix(string) {
                 let loc = token.loc;
                 if suffix.is_empty() {
                     self.next();

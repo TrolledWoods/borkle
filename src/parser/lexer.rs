@@ -61,6 +61,11 @@ pub fn process_string(errors: &mut ErrorCtx, file: Ustr, string: &str) -> Result
         .peekable();
 
     while let Some(&(loc, _, character)) = chars.peek() {
+        // We allow this so that operator character matching
+        // can use ranges and be somewhat concise.
+        // This means however that the operator branch
+        // must be at the bottom.
+        #[allow(overlapping_patterns)]
         let kind = match character {
             ' ' | '\t' | '\n' => {
                 chars.next();
@@ -85,13 +90,6 @@ pub fn process_string(errors: &mut ErrorCtx, file: Ustr, string: &str) -> Result
                 }
             }
 
-            '.' | '+' | '-' | '*' | '/' | '=' | '&' | '!' | '|' => {
-                let string = slice_while(string, &mut chars, |c| {
-                    matches!(c, '.' | '+' | '-' | '*' | '/' | '=' | '&' | '!' | '|')
-                });
-
-                TokenKind::Operator(string.into())
-            }
             'a'..='z' | 'A'..='Z' | '_' => {
                 let identifier = slice_while(
                     string,
@@ -113,6 +111,17 @@ pub fn process_string(errors: &mut ErrorCtx, file: Ustr, string: &str) -> Result
                 TokenKind::Literal(Literal::Int(string.parse().unwrap()))
             }
             '"' => TokenKind::Literal(Literal::String(string_literal(errors, &mut chars)?)),
+
+            '!'..='/' | ':'..='@' | '['..='`' | '{'..='~' => {
+                let string = slice_while(string, &mut chars, |c| {
+                    matches!(
+                        c,
+                        '!'..='/' | ':'..='@' | '['..='`' | '{'..='~'
+                    )
+                });
+
+                TokenKind::Operator(string.into())
+            }
             c => {
                 errors.error(loc, format!("Unknown character {:?}", c));
                 return Err(());

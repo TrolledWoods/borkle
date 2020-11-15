@@ -10,3 +10,4 @@ edition = "2018"
 ustr = "0.7.*"
 bumpalo = "3.4.0"
 impl_twice = "0.0.3"
+bump_tree = { path = "bump_tree" }

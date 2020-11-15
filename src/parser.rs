@@ -5,33 +5,64 @@ mod token_stream;
 
 use crate::errors::ErrorCtx;
 use crate::locals::Local;
-use crate::tree::Tree;
 use ast::{Node, NodeKind};
+use bump_tree::Tree;
 use context::Context;
 use lexer::{Bracket, Keyword, Literal, TokenKind};
 use ustr::Ustr;
 
 pub type Ast = Tree<Node>;
-type NodeBuilder<'a> = crate::tree::NodeBuilder<'a, Node>;
+type NodeBuilder<'a> = bump_tree::NodeBuilder<'a, Node>;
 
 pub fn process_string(errors: &mut ErrorCtx, file: Ustr, string: &str) -> Result<Ast, ()> {
     let tokens = lexer::process_string(errors, file, string)?;
 
     let mut ast = Ast::new();
-    value(&mut Context::new(errors, tokens), ast.builder())?;
+    expression(&mut Context::new(errors, tokens), ast.builder())?;
     ast.set_root();
 
     Ok(ast)
 }
 
+fn expression(ctx: &mut Context<'_>, mut node: NodeBuilder<'_>) -> Result<(), ()> {
+    value(ctx, node.arg())?;
+
+    if let Some((loc, op)) = ctx.tokens.try_consume_binary() {
+        value(ctx, node.arg())?;
+        node.set(Node::new(loc, NodeKind::Binary(op)));
+        node.validate();
+    } else {
+        node.into_arg();
+    }
+
+    Ok(())
+}
+
+/// A value allows for unary operators and member accesses or function insertions.
+/// However, unary operators are only allowed before the accesses.
 fn value(ctx: &mut Context<'_>, mut node: NodeBuilder<'_>) -> Result<(), ()> {
-    // Check for unary operator
     if let Some((loc, op)) = ctx.tokens.try_consume_unary() {
         value(ctx, node.arg())?;
         node.set(Node::new(loc, NodeKind::Unary(op)));
         node.validate();
     } else {
-        atom_value(ctx, node)?;
+        member_value(ctx, node)?;
+    }
+
+    Ok(())
+}
+
+/// A member value only allows for member accesses or function insertions. It does not
+/// allow for unary operators.
+fn member_value(ctx: &mut Context<'_>, mut node: NodeBuilder<'_>) -> Result<(), ()> {
+    atom_value(ctx, node.arg())?;
+
+    if let Some((loc, op)) = ctx.tokens.try_consume_access_operator() {
+        member_value(ctx, node.arg())?;
+        node.set(Node::new(loc, NodeKind::Binary(op)));
+        node.validate();
+    } else {
+        node.into_arg();
     }
 
     Ok(())
@@ -67,7 +98,7 @@ fn atom_value(ctx: &mut Context<'_>, mut node: NodeBuilder<'_>) -> Result<(), ()
                     ctx.error(token.loc, "Expected '=' after identifier".into());
                 })?;
 
-                value(ctx, node.arg())?;
+                expression(ctx, node.arg())?;
 
                 node.set(Node::new(token.loc, NodeKind::Declare(id)));
             } else {
