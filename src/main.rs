@@ -14,9 +14,10 @@ fn main() {
         "hi".into(),
         r#"
         {
-            let x = 3 + 5;
-            let y = x + 2 + 3;
-            defer let z = 2;
+            let x = 3;
+            let yes = 5;
+            defer x.x.hi.super->yes;
+            defer x.hello.hi.super->yes;
         }
     "#,
     );

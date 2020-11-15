@@ -5,6 +5,7 @@ mod token_stream;
 
 use crate::errors::ErrorCtx;
 use crate::locals::Local;
+use crate::operators::BinaryOp;
 use ast::{Node, NodeKind};
 use bump_tree::Tree;
 use context::Context;
@@ -57,14 +58,21 @@ fn value(ctx: &mut Context<'_>, mut node: NodeBuilder<'_>) -> Result<(), ()> {
 fn member_value(ctx: &mut Context<'_>, mut node: NodeBuilder<'_>) -> Result<(), ()> {
     atom_value(ctx, node.arg())?;
 
-    if let Some((loc, op)) = ctx.tokens.try_consume_access_operator() {
-        member_value(ctx, node.arg())?;
-        node.set(Node::new(loc, NodeKind::Binary(op)));
-        node.validate();
-    } else {
-        node.into_arg();
+    while let Some((loc, op)) = ctx.tokens.try_consume_access_operator() {
+        if let BinaryOp::Member = op {
+            let token = ctx.tokens.expect_next(ctx.errors)?;
+            if let TokenKind::Identifier(name) = token.kind {
+                node.collapse(Node::new(token.loc, NodeKind::Member(name)), 1);
+            } else {
+                ctx.error(token.loc, "Expected identifier".to_string());
+            }
+        } else {
+            member_value(ctx, node.arg())?;
+            node.collapse(Node::new(loc, NodeKind::Binary(op)), 2);
+        }
     }
 
+    node.into_arg();
     Ok(())
 }
 

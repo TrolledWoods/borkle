@@ -112,6 +112,28 @@ where
         self.tree.builder()
     }
 
+    pub fn num_args(&self) -> usize {
+        self.tree.incomplete.len() - self.starting_point
+    }
+
+    /// Will collapse some `num_args` of the last appended
+    /// arguments (with the `arg` function) into arguments
+    /// of some value `T`.
+    pub fn collapse(&mut self, value: T, num_args: usize) {
+        assert!(num_args >= self.num_args());
+
+        let new_length = self.tree.incomplete.len() - num_args;
+        let slice = self
+            .tree
+            .bump
+            .alloc_slice_fill_iter(self.tree.incomplete.drain(new_length..));
+
+        self.tree.incomplete.push(InternalNode {
+            children: to_non_null(slice),
+            value,
+        });
+    }
+
     /// Replaces this node with a single argument of this node.
     /// This is useful if you need to specify something as an
     /// argument but then only later know if it is actually supposed
@@ -162,15 +184,7 @@ where
 {
     fn drop(&mut self) {
         if let Some(value) = self.value.take() {
-            let slice = self
-                .tree
-                .bump
-                .alloc_slice_fill_iter(self.tree.incomplete.drain(self.starting_point..));
-
-            self.tree.incomplete.push(InternalNode {
-                children: to_non_null(slice),
-                value,
-            });
+            self.collapse(value, self.num_args());
 
             debug_assert_eq!(self.tree.incomplete.len(), self.starting_point + 1);
         }
