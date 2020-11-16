@@ -4,7 +4,7 @@ use crate::location::Location;
 pub struct ErrorId(usize);
 
 pub struct ErrorCtx {
-    errors: Vec<(Location, String)>,
+    errors: Vec<(Option<Location>, String)>,
     warnings: Vec<(Location, String)>,
 }
 
@@ -34,9 +34,15 @@ impl ErrorCtx {
         }
     }
 
+    pub fn global_error(&mut self, message: String) -> ErrorId {
+        let id = ErrorId(self.errors.len());
+        self.errors.push((None, message));
+        id
+    }
+
     pub fn error(&mut self, loc: Location, message: String) -> ErrorId {
         let id = ErrorId(self.errors.len());
-        self.errors.push((loc, message));
+        self.errors.push((Some(loc), message));
         id
     }
 

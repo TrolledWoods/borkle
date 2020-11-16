@@ -6,7 +6,7 @@ mod token_stream;
 use crate::errors::ErrorCtx;
 use crate::locals::Local;
 use crate::operators::{AccessOp, BinaryOp};
-use ast::{Node, NodeKind};
+pub use ast::{Node, NodeKind};
 use bump_tree::Tree;
 use context::Context;
 use lexer::{Bracket, Keyword, TokenKind};
@@ -150,10 +150,7 @@ fn atom_value(ctx: &mut Context<'_>, mut node: NodeBuilder<'_>) -> Result<(), ()
         TokenKind::Open(Bracket::Round) => {
             let mut has_comma = false;
             loop {
-                if ctx
-                    .tokens
-                    .try_consume(ctx.errors, &TokenKind::Close(Bracket::Round))?
-                {
+                if ctx.tokens.try_consume(&TokenKind::Close(Bracket::Round)) {
                     break;
                 }
 
@@ -184,10 +181,7 @@ fn atom_value(ctx: &mut Context<'_>, mut node: NodeBuilder<'_>) -> Result<(), ()
             node.set(Node::new(token.loc, NodeKind::Block));
             let scope_boundary = ctx.push_scope_boundary();
 
-            while !ctx
-                .tokens
-                .try_consume(ctx.errors, &TokenKind::Close(Bracket::Curly))?
-            {
+            while !ctx.tokens.try_consume(&TokenKind::Close(Bracket::Curly)) {
                 expression(ctx, node.arg())?;
                 ctx.tokens
                     .expect_next_is(ctx.errors, &TokenKind::SemiColon)?;
