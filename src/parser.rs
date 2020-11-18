@@ -3,26 +3,63 @@ mod context;
 mod lexer;
 mod token_stream;
 
+use crate::compile_units::CompileUnits;
 use crate::errors::ErrorCtx;
 use crate::locals::Local;
 use crate::operators::{AccessOp, BinaryOp};
 pub use ast::{Node, NodeKind};
 use bump_tree::Tree;
-use context::Context;
+use context::{Context, GlobalContext};
 use lexer::{Bracket, Keyword, TokenKind};
 use ustr::Ustr;
 
 pub type Ast = Tree<Node>;
 type NodeBuilder<'a> = bump_tree::NodeBuilder<'a, Node>;
 
-pub fn process_string(errors: &mut ErrorCtx, file: Ustr, string: &str) -> Result<Ast, ()> {
-    let tokens = lexer::process_string(errors, file, string)?;
+pub fn process_string(
+    errors: &mut ErrorCtx,
+    compile_units: &CompileUnits,
+    file: Ustr,
+    string: &str,
+) -> Result<(), ()> {
+    let mut tokens = lexer::process_string(errors, file, string)?;
 
-    let mut ast = Ast::new();
-    expression(&mut Context::new(errors, tokens), ast.builder())?;
-    ast.set_root();
+    let mut context = GlobalContext::new(errors, &mut tokens, compile_units);
 
-    Ok(ast)
+    while context
+        .tokens
+        .try_consume(&TokenKind::Keyword(Keyword::Const))
+    {
+        constant(&mut context)?;
+    }
+
+    Ok(())
+}
+
+fn constant(ctx: &mut GlobalContext<'_>) -> Result<(), ()> {
+    let token = ctx.tokens.expect_next(ctx.errors)?;
+    if let TokenKind::Identifier(name) = token.kind {
+        if ctx.tokens.try_consume_operator_string("=").is_none() {
+            ctx.error(token.loc, "Expected '=' after const".to_string());
+            return Err(());
+        }
+
+        let mut ast = Ast::new();
+        expression(&mut ctx.local(), ast.builder())?;
+        ast.set_root();
+
+        println!("");
+        println!("--- {}", name);
+        println!("{:#?}", ast);
+
+        ctx.tokens
+            .expect_next_is(ctx.errors, &TokenKind::SemiColon)?;
+
+        Ok(())
+    } else {
+        ctx.error(token.loc, "Expected identifier".to_string());
+        Err(())
+    }
 }
 
 fn expression(ctx: &mut Context<'_>, mut node: NodeBuilder<'_>) -> Result<(), ()> {
@@ -182,6 +219,10 @@ fn atom_value(ctx: &mut Context<'_>, mut node: NodeBuilder<'_>) -> Result<(), ()
             let scope_boundary = ctx.push_scope_boundary();
 
             while !ctx.tokens.try_consume(&TokenKind::Close(Bracket::Curly)) {
+                if ctx.tokens.try_consume(&TokenKind::Keyword(Keyword::Const)) {
+                    constant(&mut ctx.global())?;
+                }
+
                 expression(ctx, node.arg())?;
                 ctx.tokens
                     .expect_next_is(ctx.errors, &TokenKind::SemiColon)?;

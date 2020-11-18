@@ -1,9 +1,9 @@
 #![deny(rust_2018_idioms, clippy::pedantic, clippy::all)]
+#![allow(clippy::module_name_repetitions)]
 #![feature(bool_to_option)]
 
 mod compile_units;
 mod errors;
-// mod global_scope;
 mod literal;
 mod locals;
 mod location;

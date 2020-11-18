@@ -1,9 +1,10 @@
 use crate::errors::ErrorCtx;
 use crate::location::Location;
-use parking_lot::RwLock;
+use parking_lot::{Mutex, RwLock};
 use std::collections::HashMap;
 use std::path::PathBuf;
 
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub struct CompileUnitId(u32);
 
 #[derive(Default)]
@@ -36,11 +37,9 @@ impl CompileUnits {
                     return Err(());
                 }
             };
-            let output = crate::parser::process_string(errors, file_name, &file_contents)?;
-            println!("{:#?}", output);
+            crate::parser::process_string(errors, self, file_name, &file_contents)?;
             Ok(true)
         } else {
-            // In this case we are done
             Ok(false)
         }
     }
@@ -53,13 +52,13 @@ pub struct File {
 
 pub struct Unit {
     loc: Location,
-    kind: UnitKind,
+    state: Mutex<UnitState>,
 }
 
 /// Contains temporary data associated with stages
 /// of compilation. Permanent data that can be depended upon
 /// should be stored in the [`Unit`]]]]]]]]] struct.
-pub enum UnitKind {
+pub enum UnitState {
     Parsed(crate::parser::Ast),
     Done,
 }

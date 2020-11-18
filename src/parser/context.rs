@@ -1,5 +1,6 @@
 use super::token_stream::TokenStream;
 use super::Ast;
+use crate::compile_units::CompileUnits;
 use crate::errors::ErrorCtx;
 use crate::locals::{Local, LocalId, LocalVariables};
 use crate::location::Location;
@@ -8,10 +9,48 @@ use ustr::Ustr;
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ScopeBoundaryId(usize);
 
+pub struct GlobalContext<'a> {
+    pub errors: &'a mut ErrorCtx,
+    pub tokens: &'a mut TokenStream,
+    compile_units: &'a CompileUnits,
+}
+
+impl<'a> GlobalContext<'a> {
+    pub fn new(
+        errors: &'a mut ErrorCtx,
+        tokens: &'a mut TokenStream,
+        compile_units: &'a CompileUnits,
+    ) -> Self {
+        Self {
+            errors,
+            tokens,
+            compile_units,
+        }
+    }
+
+    pub fn error(&mut self, loc: Location, message: String) {
+        self.errors.error(loc, message);
+    }
+
+    pub fn local(&mut self) -> Context<'_> {
+        Context {
+            errors: self.errors,
+            tokens: self.tokens,
+            locals: LocalVariables::new(),
+            compile_units: self.compile_units,
+
+            scope_boundaries: Vec::new(),
+            defers: Vec::new(),
+            local_map: Vec::new(),
+        }
+    }
+}
+
 pub struct Context<'a> {
     pub locals: LocalVariables,
     pub errors: &'a mut ErrorCtx,
-    pub tokens: TokenStream,
+    pub tokens: &'a mut TokenStream,
+    compile_units: &'a CompileUnits,
 
     scope_boundaries: Vec<ScopeBoundary>,
     defers: Vec<Ast>,
@@ -19,15 +58,11 @@ pub struct Context<'a> {
 }
 
 impl<'a> Context<'a> {
-    pub fn new(errors: &'a mut ErrorCtx, tokens: TokenStream) -> Self {
-        Self {
-            errors,
-            tokens,
-            locals: LocalVariables::new(),
-
-            scope_boundaries: Vec::new(),
-            defers: Vec::new(),
-            local_map: Vec::new(),
+    pub fn global(&mut self) -> GlobalContext<'_> {
+        GlobalContext {
+            errors: self.errors,
+            tokens: self.tokens,
+            compile_units: self.compile_units,
         }
     }
 

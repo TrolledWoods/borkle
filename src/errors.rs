@@ -23,14 +23,14 @@ impl ErrorCtx {
     }
 
     pub fn print(&self) {
-        for (_loc, message) in &self.errors {
+        for (loc, message) in &self.errors {
             print!("Error: ");
-            println!("{}", message);
+            println!("{:?}: {}", loc, message);
         }
 
-        for (_loc, message) in &self.warnings {
+        for (loc, message) in &self.warnings {
             print!("Warning: ");
-            println!("{}", message);
+            println!("{:?}: {}", loc, message);
         }
     }
 

@@ -78,7 +78,12 @@ impl TokenStream {
     }
 
     pub fn try_consume(&mut self, wanted: &TokenKind) -> bool {
-        matches!(self.peek(), Some(Token { kind, .. }) if kind == wanted)
+        if matches!(self.peek(), Some(Token { kind, .. }) if kind == wanted) {
+            self.next();
+            true
+        } else {
+            false
+        }
     }
 
     pub fn expect_next_is(&mut self, errors: &mut ErrorCtx, kind: &TokenKind) -> Result<(), ()> {
