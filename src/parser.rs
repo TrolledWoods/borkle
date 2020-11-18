@@ -8,7 +8,7 @@ use crate::locals::Local;
 use crate::operators::{AccessOp, BinaryOp};
 pub use ast::{Node, NodeKind};
 use bump_tree::Tree;
-use context::{Context, GlobalContext};
+use context::{GlobalContext, ImperativeContext};
 use lexer::{Bracket, Keyword, TokenKind};
 use ustr::Ustr;
 
@@ -30,39 +30,46 @@ pub fn process_string(errors: &mut ErrorCtx, file: Ustr, string: &str) -> Result
     Ok(())
 }
 
-fn constant(ctx: &mut GlobalContext<'_>) -> Result<(), ()> {
-    let token = ctx.tokens.expect_next(ctx.errors)?;
+fn constant(global: &mut GlobalContext<'_>) -> Result<(), ()> {
+    let token = global.tokens.expect_next(global.errors)?;
     if let TokenKind::Identifier(name) = token.kind {
-        if ctx.tokens.try_consume_operator_string("=").is_none() {
-            ctx.error(token.loc, "Expected '=' after const".to_string());
+        if global.tokens.try_consume_operator_string("=").is_none() {
+            global.error(token.loc, "Expected '=' after const".to_string());
             return Err(());
         }
 
         let mut ast = Ast::new();
-        expression(&mut ctx.local(), ast.builder())?;
+        let mut imperative = global.imperative();
+        expression(global, &mut imperative, ast.builder())?;
+        std::mem::drop(imperative);
         ast.set_root();
 
         println!();
         println!("--- {}", name);
         println!("{:#?}", ast);
 
-        ctx.tokens
-            .expect_next_is(ctx.errors, &TokenKind::SemiColon)?;
+        global
+            .tokens
+            .expect_next_is(global.errors, &TokenKind::SemiColon)?;
 
         Ok(())
     } else {
-        ctx.error(token.loc, "Expected identifier".to_string());
+        global.error(token.loc, "Expected identifier".to_string());
         Err(())
     }
 }
 
-fn expression(ctx: &mut Context<'_>, mut node: NodeBuilder<'_>) -> Result<(), ()> {
-    value(ctx, node.arg())?;
+fn expression(
+    global: &mut GlobalContext<'_>,
+    imperative: &mut ImperativeContext,
+    mut node: NodeBuilder<'_>,
+) -> Result<(), ()> {
+    value(global, imperative, node.arg())?;
 
     let mut old_op: Option<BinaryOp> = None;
-    while let Some((loc, op, meta_data)) = ctx.tokens.try_consume_operator_with_metadata() {
+    while let Some((loc, op, meta_data)) = global.tokens.try_consume_operator_with_metadata() {
         if !meta_data.cleared_operator_string {
-            ctx.errors.warning(
+            global.errors.warning(
                 loc,
                 "Ambiguous operator separation, please insert a space to clearly indicate \
                 where the binary operator ends and the unary operators begin"
@@ -71,14 +78,14 @@ fn expression(ctx: &mut Context<'_>, mut node: NodeBuilder<'_>) -> Result<(), ()
         }
 
         if old_op.unwrap_or(op).precedence() != op.precedence() {
-            ctx.error(
+            global.error(
                 loc,
                 "Only operators with the same precedence can be used after one another".to_string(),
             );
             return Err(());
         }
 
-        value(ctx, node.arg())?;
+        value(global, imperative, node.arg())?;
         node.collapse(Node::new(loc, NodeKind::Binary(op)), 2);
         old_op = Some(op);
     }
@@ -89,13 +96,17 @@ fn expression(ctx: &mut Context<'_>, mut node: NodeBuilder<'_>) -> Result<(), ()
 
 /// A value allows for unary operators and member accesses or function insertions.
 /// However, unary operators are only allowed before the accesses.
-fn value(ctx: &mut Context<'_>, mut node: NodeBuilder<'_>) -> Result<(), ()> {
-    if let Some((loc, op)) = ctx.tokens.try_consume_operator() {
-        value(ctx, node.arg())?;
+fn value(
+    global: &mut GlobalContext<'_>,
+    imperative: &mut ImperativeContext,
+    mut node: NodeBuilder<'_>,
+) -> Result<(), ()> {
+    if let Some((loc, op)) = global.tokens.try_consume_operator() {
+        value(global, imperative, node.arg())?;
         node.set(Node::new(loc, NodeKind::Unary(op)));
         node.validate();
     } else {
-        member_value(ctx, node)?;
+        member_value(global, imperative, node)?;
     }
 
     Ok(())
@@ -103,21 +114,25 @@ fn value(ctx: &mut Context<'_>, mut node: NodeBuilder<'_>) -> Result<(), ()> {
 
 /// A member value only allows for member accesses or function insertions. It does not
 /// allow for unary operators.
-fn member_value(ctx: &mut Context<'_>, mut node: NodeBuilder<'_>) -> Result<(), ()> {
-    atom_value(ctx, node.arg())?;
+fn member_value(
+    global: &mut GlobalContext<'_>,
+    imperative: &mut ImperativeContext,
+    mut node: NodeBuilder<'_>,
+) -> Result<(), ()> {
+    atom_value(global, imperative, node.arg())?;
 
-    while let Some((loc, op)) = ctx.tokens.try_consume_operator() {
+    while let Some((loc, op)) = global.tokens.try_consume_operator() {
         match op {
             AccessOp::Member => {
-                let token = ctx.tokens.expect_next(ctx.errors)?;
+                let token = global.tokens.expect_next(global.errors)?;
                 if let TokenKind::Identifier(name) = token.kind {
                     node.collapse(Node::new(token.loc, NodeKind::Member(name)), 1);
                 } else {
-                    ctx.error(token.loc, "Expected identifier".to_string());
+                    global.error(token.loc, "Expected identifier".to_string());
                 }
             }
             AccessOp::FunctionInsert => {
-                member_value(ctx, node.arg())?;
+                member_value(global, imperative, node.arg())?;
                 node.collapse(Node::new(loc, NodeKind::FunctionInsert), 2);
             }
         }
@@ -128,15 +143,19 @@ fn member_value(ctx: &mut Context<'_>, mut node: NodeBuilder<'_>) -> Result<(), 
 }
 
 /// A value without unary operators, member accesses, or anything like that.
-fn atom_value(ctx: &mut Context<'_>, mut node: NodeBuilder<'_>) -> Result<(), ()> {
-    let token = ctx.tokens.expect_next(ctx.errors)?;
+fn atom_value(
+    global: &mut GlobalContext<'_>,
+    imperative: &mut ImperativeContext,
+    mut node: NodeBuilder<'_>,
+) -> Result<(), ()> {
+    let token = global.tokens.expect_next(global.errors)?;
     match token.kind {
         TokenKind::Identifier(name) => {
-            if let Some(local_id) = ctx.get_local(name) {
+            if let Some(local_id) = imperative.get_local(name) {
                 node.set(Node::new(token.loc, NodeKind::Local(local_id)));
                 node.validate();
             } else {
-                ctx.error(
+                global.error(
                     token.loc,
                     "Global variables are not supported yet".to_string(),
                 );
@@ -147,32 +166,35 @@ fn atom_value(ctx: &mut Context<'_>, mut node: NodeBuilder<'_>) -> Result<(), ()
         TokenKind::Literal(literal) => node.set(Node::new(token.loc, NodeKind::Literal(literal))),
 
         TokenKind::Keyword(Keyword::Let) => {
-            let token = ctx.tokens.expect_next(ctx.errors)?;
+            let token = global.tokens.expect_next(global.errors)?;
             if let TokenKind::Identifier(name) = token.kind {
-                let id = ctx.insert_local(Local {
+                let id = imperative.insert_local(Local {
                     loc: token.loc,
                     name,
                 });
 
-                ctx.tokens.try_consume_operator_string("=").ok_or_else(|| {
-                    ctx.error(token.loc, "Expected '=' after identifier".into());
-                })?;
+                global
+                    .tokens
+                    .try_consume_operator_string("=")
+                    .ok_or_else(|| {
+                        global.error(token.loc, "Expected '=' after identifier".into());
+                    })?;
 
-                expression(ctx, node.arg())?;
+                expression(global, imperative, node.arg())?;
 
                 node.set(Node::new(token.loc, NodeKind::Declare(id)));
                 node.validate();
             } else {
-                ctx.error(token.loc, "Expected identifier".to_string());
+                global.error(token.loc, "Expected identifier".to_string());
                 return Err(());
             }
         }
 
         TokenKind::Keyword(Keyword::Defer) => {
             let mut ast = Ast::new();
-            expression(ctx, ast.builder())?;
+            expression(global, imperative, ast.builder())?;
             ast.set_root();
-            ctx.push_defer(ast);
+            imperative.push_defer(ast);
 
             node.set(Node::new(token.loc, NodeKind::Empty));
             node.validate();
@@ -181,18 +203,18 @@ fn atom_value(ctx: &mut Context<'_>, mut node: NodeBuilder<'_>) -> Result<(), ()
         TokenKind::Open(Bracket::Round) => {
             let mut has_comma = false;
             loop {
-                if ctx.tokens.try_consume(&TokenKind::Close(Bracket::Round)) {
+                if global.tokens.try_consume(&TokenKind::Close(Bracket::Round)) {
                     break;
                 }
 
-                expression(ctx, node.arg())?;
+                expression(global, imperative, node.arg())?;
 
-                let token = ctx.tokens.expect_next(ctx.errors)?;
+                let token = global.tokens.expect_next(global.errors)?;
                 match token.kind {
                     TokenKind::Close(Bracket::Round) => break,
                     TokenKind::Comma => has_comma = true,
                     _ => {
-                        ctx.error(token.loc, "Expected either ',' or ')'".to_string());
+                        global.error(token.loc, "Expected either ',' or ')'".to_string());
                         return Err(());
                     }
                 }
@@ -210,29 +232,33 @@ fn atom_value(ctx: &mut Context<'_>, mut node: NodeBuilder<'_>) -> Result<(), ()
 
         TokenKind::Open(Bracket::Curly) => {
             node.set(Node::new(token.loc, NodeKind::Block));
-            let scope_boundary = ctx.push_scope_boundary();
+            let scope_boundary = imperative.push_scope_boundary();
 
-            while !ctx.tokens.try_consume(&TokenKind::Close(Bracket::Curly)) {
-                if ctx.tokens.try_consume(&TokenKind::Keyword(Keyword::Const)) {
-                    constant(&mut ctx.global())?;
+            while !global.tokens.try_consume(&TokenKind::Close(Bracket::Curly)) {
+                if global
+                    .tokens
+                    .try_consume(&TokenKind::Keyword(Keyword::Const))
+                {
+                    constant(global)?;
                 } else {
-                    expression(ctx, node.arg())?;
-                    ctx.tokens
-                        .expect_next_is(ctx.errors, &TokenKind::SemiColon)?;
+                    expression(global, imperative, node.arg())?;
+                    global
+                        .tokens
+                        .expect_next_is(global.errors, &TokenKind::SemiColon)?;
                 }
             }
 
             // Insert deferred definitions.
-            for deferred in ctx.defers_to(scope_boundary) {
+            for deferred in imperative.defers_to(scope_boundary) {
                 node.arg().set_cloned(&deferred.root().unwrap());
             }
 
-            ctx.pop_scope_boundary();
+            imperative.pop_scope_boundary();
             node.validate();
         }
 
         _ => {
-            ctx.error(
+            global.error(
                 token.loc,
                 format!("Unexpected token '{:?}', expected value", token.kind),
             );

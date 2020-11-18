@@ -22,10 +22,8 @@ impl<'a> GlobalContext<'a> {
         self.errors.error(loc, message);
     }
 
-    pub fn local(&mut self) -> Context<'_> {
-        Context {
-            errors: self.errors,
-            tokens: self.tokens,
+    pub fn imperative(&mut self) -> ImperativeContext {
+        ImperativeContext {
             locals: LocalVariables::new(),
 
             scope_boundaries: Vec::new(),
@@ -35,28 +33,15 @@ impl<'a> GlobalContext<'a> {
     }
 }
 
-pub struct Context<'a> {
+pub struct ImperativeContext {
     pub locals: LocalVariables,
-    pub errors: &'a mut ErrorCtx,
-    pub tokens: &'a mut TokenStream,
 
     scope_boundaries: Vec<ScopeBoundary>,
     defers: Vec<Ast>,
     local_map: Vec<(Ustr, LocalId)>,
 }
 
-impl<'a> Context<'a> {
-    pub fn global(&mut self) -> GlobalContext<'_> {
-        GlobalContext {
-            errors: self.errors,
-            tokens: self.tokens,
-        }
-    }
-
-    pub fn error(&mut self, loc: Location, message: String) {
-        self.errors.error(loc, message);
-    }
-
+impl ImperativeContext {
     pub fn push_scope_boundary(&mut self) -> ScopeBoundaryId {
         let id = ScopeBoundaryId(self.scope_boundaries.len());
         self.scope_boundaries.push(ScopeBoundary {
