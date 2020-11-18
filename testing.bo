@@ -1,8 +1,3 @@
 const hello = {
-    const more = 42;
-    const yes = 42;
-
-    let x = 42;
-    let y = x + 2;
-    let z = x + (y * 2);
+    let x = some_dependency;
 };

@@ -12,8 +12,8 @@ pub struct Node {
 }
 
 impl Node {
-    pub fn new(loc: Location, kind: NodeKind) -> Self {
-        Node { loc, kind }
+    pub const fn new(loc: Location, kind: NodeKind) -> Self {
+        Self { loc, kind }
     }
 }
 

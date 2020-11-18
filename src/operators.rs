@@ -15,7 +15,7 @@ macro_rules! operator {
 
         impl $enum_name {
             #[allow(unused)]
-            pub fn precedence(&self) -> usize {
+            pub const fn precedence(&self) -> usize {
                 match self {
                     $(Self::$operator_name => $precedence,)*
                 }

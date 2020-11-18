@@ -15,7 +15,7 @@ impl Default for ErrorCtx {
 }
 
 impl ErrorCtx {
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         Self {
             errors: Vec::new(),
             warnings: Vec::new(),

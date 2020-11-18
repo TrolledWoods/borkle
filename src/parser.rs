@@ -8,7 +8,7 @@ use crate::locals::Local;
 use crate::operators::{AccessOp, BinaryOp};
 pub use ast::{Node, NodeKind};
 use bump_tree::Tree;
-use context::{GlobalContext, ImperativeContext};
+use context::{DataContext, ImperativeContext};
 use lexer::{Bracket, Keyword, TokenKind};
 use ustr::Ustr;
 
@@ -18,7 +18,7 @@ type NodeBuilder<'a> = bump_tree::NodeBuilder<'a, Node>;
 pub fn process_string(errors: &mut ErrorCtx, file: Ustr, string: &str) -> Result<(), ()> {
     let mut tokens = lexer::process_string(errors, file, string)?;
 
-    let mut context = GlobalContext::new(errors, &mut tokens);
+    let mut context = DataContext::new(errors, &mut tokens);
 
     while context
         .tokens
@@ -30,7 +30,7 @@ pub fn process_string(errors: &mut ErrorCtx, file: Ustr, string: &str) -> Result
     Ok(())
 }
 
-fn constant(global: &mut GlobalContext<'_>) -> Result<(), ()> {
+fn constant(global: &mut DataContext<'_>) -> Result<(), ()> {
     let token = global.tokens.expect_next(global.errors)?;
     if let TokenKind::Identifier(name) = token.kind {
         if global.tokens.try_consume_operator_string("=").is_none() {
@@ -39,7 +39,7 @@ fn constant(global: &mut GlobalContext<'_>) -> Result<(), ()> {
         }
 
         let mut ast = Ast::new();
-        let mut imperative = global.imperative();
+        let mut imperative = ImperativeContext::new();
         expression(global, &mut imperative, ast.builder())?;
         std::mem::drop(imperative);
         ast.set_root();
@@ -60,7 +60,7 @@ fn constant(global: &mut GlobalContext<'_>) -> Result<(), ()> {
 }
 
 fn expression(
-    global: &mut GlobalContext<'_>,
+    global: &mut DataContext<'_>,
     imperative: &mut ImperativeContext,
     mut node: NodeBuilder<'_>,
 ) -> Result<(), ()> {
@@ -97,7 +97,7 @@ fn expression(
 /// A value allows for unary operators and member accesses or function insertions.
 /// However, unary operators are only allowed before the accesses.
 fn value(
-    global: &mut GlobalContext<'_>,
+    global: &mut DataContext<'_>,
     imperative: &mut ImperativeContext,
     mut node: NodeBuilder<'_>,
 ) -> Result<(), ()> {
@@ -115,7 +115,7 @@ fn value(
 /// A member value only allows for member accesses or function insertions. It does not
 /// allow for unary operators.
 fn member_value(
-    global: &mut GlobalContext<'_>,
+    global: &mut DataContext<'_>,
     imperative: &mut ImperativeContext,
     mut node: NodeBuilder<'_>,
 ) -> Result<(), ()> {
@@ -144,7 +144,7 @@ fn member_value(
 
 /// A value without unary operators, member accesses, or anything like that.
 fn atom_value(
-    global: &mut GlobalContext<'_>,
+    global: &mut DataContext<'_>,
     imperative: &mut ImperativeContext,
     mut node: NodeBuilder<'_>,
 ) -> Result<(), ()> {

@@ -8,28 +8,21 @@ use ustr::Ustr;
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ScopeBoundaryId(usize);
 
-pub struct GlobalContext<'a> {
+/// A collection of various data that is needed for parsing
+/// things in a data scope. Data scopes are scopes where constants
+/// can be defined.
+pub struct DataContext<'a> {
     pub errors: &'a mut ErrorCtx,
     pub tokens: &'a mut TokenStream,
 }
 
-impl<'a> GlobalContext<'a> {
+impl<'a> DataContext<'a> {
     pub fn new(errors: &'a mut ErrorCtx, tokens: &'a mut TokenStream) -> Self {
         Self { errors, tokens }
     }
 
     pub fn error(&mut self, loc: Location, message: String) {
         self.errors.error(loc, message);
-    }
-
-    pub fn imperative(&mut self) -> ImperativeContext {
-        ImperativeContext {
-            locals: LocalVariables::new(),
-
-            scope_boundaries: Vec::new(),
-            defers: Vec::new(),
-            local_map: Vec::new(),
-        }
     }
 }
 
@@ -42,6 +35,16 @@ pub struct ImperativeContext {
 }
 
 impl ImperativeContext {
+    pub const fn new() -> Self {
+        Self {
+            locals: LocalVariables::new(),
+
+            scope_boundaries: Vec::new(),
+            defers: Vec::new(),
+            local_map: Vec::new(),
+        }
+    }
+
     pub fn push_scope_boundary(&mut self) -> ScopeBoundaryId {
         let id = ScopeBoundaryId(self.scope_boundaries.len());
         self.scope_boundaries.push(ScopeBoundary {
