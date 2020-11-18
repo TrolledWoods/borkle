@@ -1,5 +1,6 @@
-const hello {
-    const more 42;
+const hello = {
+    const more = 42;
+    const yes = 42;
 
     let x = 42;
     let y = x + 2;

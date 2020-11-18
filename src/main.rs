@@ -1,8 +1,8 @@
 #![deny(rust_2018_idioms, clippy::pedantic, clippy::all)]
+#![warn(clippy::nursery)]
 #![allow(clippy::module_name_repetitions)]
 #![feature(bool_to_option)]
 
-mod compile_units;
 mod errors;
 mod literal;
 mod locals;
@@ -12,10 +12,11 @@ mod parser;
 
 fn main() {
     let mut errors = errors::ErrorCtx::new();
-    let compiler = compile_units::CompileUnits::new();
-    compiler.add_file("testing.bo".into());
-
-    while let Ok(true) = compiler.bump(&mut errors) {}
+    let _ = parser::process_string(
+        &mut errors,
+        "testing.bo".into(),
+        &std::fs::read_to_string("testing.bo").unwrap(),
+    );
 
     errors.print();
 }

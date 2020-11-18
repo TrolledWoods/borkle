@@ -3,7 +3,6 @@ mod context;
 mod lexer;
 mod token_stream;
 
-use crate::compile_units::CompileUnits;
 use crate::errors::ErrorCtx;
 use crate::locals::Local;
 use crate::operators::{AccessOp, BinaryOp};
@@ -16,15 +15,10 @@ use ustr::Ustr;
 pub type Ast = Tree<Node>;
 type NodeBuilder<'a> = bump_tree::NodeBuilder<'a, Node>;
 
-pub fn process_string(
-    errors: &mut ErrorCtx,
-    compile_units: &CompileUnits,
-    file: Ustr,
-    string: &str,
-) -> Result<(), ()> {
+pub fn process_string(errors: &mut ErrorCtx, file: Ustr, string: &str) -> Result<(), ()> {
     let mut tokens = lexer::process_string(errors, file, string)?;
 
-    let mut context = GlobalContext::new(errors, &mut tokens, compile_units);
+    let mut context = GlobalContext::new(errors, &mut tokens);
 
     while context
         .tokens
@@ -48,7 +42,7 @@ fn constant(ctx: &mut GlobalContext<'_>) -> Result<(), ()> {
         expression(&mut ctx.local(), ast.builder())?;
         ast.set_root();
 
-        println!("");
+        println!();
         println!("--- {}", name);
         println!("{:#?}", ast);
 
@@ -221,11 +215,11 @@ fn atom_value(ctx: &mut Context<'_>, mut node: NodeBuilder<'_>) -> Result<(), ()
             while !ctx.tokens.try_consume(&TokenKind::Close(Bracket::Curly)) {
                 if ctx.tokens.try_consume(&TokenKind::Keyword(Keyword::Const)) {
                     constant(&mut ctx.global())?;
+                } else {
+                    expression(ctx, node.arg())?;
+                    ctx.tokens
+                        .expect_next_is(ctx.errors, &TokenKind::SemiColon)?;
                 }
-
-                expression(ctx, node.arg())?;
-                ctx.tokens
-                    .expect_next_is(ctx.errors, &TokenKind::SemiColon)?;
             }
 
             // Insert deferred definitions.
