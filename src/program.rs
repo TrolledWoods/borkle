@@ -131,6 +131,6 @@ impl<T> DependableOption<T> {
 
 #[derive(Debug)]
 pub enum Task {
-    Parse(PathBuf),
+    Parse(Ustr, PathBuf),
     Type(crate::parser::Ast),
 }

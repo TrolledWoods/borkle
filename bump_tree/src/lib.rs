@@ -19,6 +19,9 @@ pub struct Tree<T> {
     incomplete: Vec<InternalNode<T>>,
 }
 
+unsafe impl<T> Sync for Tree<T> where T: Sync {}
+unsafe impl<T> Send for Tree<T> where T: Send {}
+
 impl<T> Default for Tree<T>
 where
     T: MetaData,
@@ -195,6 +198,9 @@ where
 pub struct Node<'a, T> {
     internal: &'a InternalNode<T>,
 }
+
+unsafe impl<T> Sync for Node<'_, T> where T: Sync {}
+unsafe impl<T> Send for Node<'_, T> where T: Send {}
 
 pub struct NodeMut<'a, T> {
     // The reason this is wrapping an InternalNode

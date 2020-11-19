@@ -22,6 +22,11 @@ impl ErrorCtx {
         }
     }
 
+    pub fn join(&mut self, mut other: ErrorCtx) {
+        self.errors.append(&mut other.errors);
+        self.warnings.append(&mut other.warnings);
+    }
+
     pub fn print(&self) {
         for (loc, message) in &self.errors {
             print!("Error: ");
@@ -32,6 +37,12 @@ impl ErrorCtx {
             print!("Warning: ");
             println!("{:?}: {}", loc, message);
         }
+    }
+
+    pub fn global_error(&mut self, message: String) -> ErrorId {
+        let id = ErrorId(self.errors.len());
+        self.errors.push((None, message));
+        id
     }
 
     pub fn error(&mut self, loc: Location, message: String) -> ErrorId {

@@ -11,16 +11,20 @@ mod location;
 mod operators;
 mod parser;
 mod program;
+mod thread_pool;
 
 fn main() {
-    let mut errors = errors::ErrorCtx::new();
     let mut program = program::Program::new();
-    let _ = parser::process_string(
-        &mut errors,
-        &program,
-        "testing.bo".into(),
-        &std::fs::read_to_string("testing.bo").unwrap(),
+    let mut thread_pool = thread_pool::ThreadPool::new(
+        program,
+        std::iter::once(program::Task::Parse("testing".into(), "testing.bo".into())),
     );
+
+    for _ in 0..2 {
+        thread_pool.spawn_thread();
+    }
+
+    let errors = thread_pool.join();
 
     errors.print();
 }
