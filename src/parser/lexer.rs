@@ -115,6 +115,19 @@ pub fn process_string(errors: &mut ErrorCtx, file: Ustr, string: &str) -> Result
                     )
                 });
 
+                // FIXME: Is this the best place to put comment checking?
+                // It's certainly versatile, but maybe we want a separate place
+                // for them?
+                if string.starts_with("//") {
+                    for (_, _, c) in &mut chars {
+                        if c == '\n' {
+                            break;
+                        }
+                    }
+
+                    continue;
+                }
+
                 TokenKind::Operator(string.into())
             }
             c => {

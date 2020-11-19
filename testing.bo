@@ -1,9 +1,20 @@
-const hello = {
-    let x = hi;
-    let y = wow;
-
-    let z = x + y;
+const ANSWER = {
+    let x: MyType = 42;
+    let y = 42;
+    x;
 };
 
-const hi = 42;
-const wow = 20;
+/// NOTE: Globals should be the last thing that's converted into C code.
+/// That's because the state of globals can change; hence we should
+/// make sure to only put them into C code once all compile time code
+/// that could potentially have side effects on the globals have been run.
+/// 
+/// Constants are fair game however, because they are already not supposed
+/// to be modified and doing so is UB. Doing compile time checking against
+/// this is probably going to be done by encoding immutability in the type
+/// system, but bit casting to an immutable type to a mutable type is always
+/// possible, but you'd only do that if you wanted to explore the innards
+/// and edges of the compiler itself; not if you're writing a serious program.
+///
+/// Maybe warn if someone bit casts between types whose only difference is their
+/// mutability?

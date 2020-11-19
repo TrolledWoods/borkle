@@ -3,7 +3,7 @@ mod context;
 mod lexer;
 mod token_stream;
 
-use crate::dependencies::DependencyKind;
+use crate::dependencies::{DependencyKind, DependencyList};
 use crate::errors::ErrorCtx;
 use crate::locals::Local;
 use crate::operators::{AccessOp, BinaryOp};
@@ -169,6 +169,9 @@ fn atom_value(
         TokenKind::Keyword(Keyword::Let) => {
             let token = global.tokens.expect_next(global.errors)?;
             if let TokenKind::Identifier(name) = token.kind {
+                // There might be a type declaration here.
+                maybe_type_marker(global, &mut imperative.dependencies, node.arg())?;
+
                 let id = imperative.insert_local(Local {
                     loc: token.loc,
                     name,
@@ -267,4 +270,33 @@ fn atom_value(
         }
     }
     Ok(())
+}
+
+/// Tries to parse a type marker. It first checks if there is a ':',
+/// and only tries to parse a type if there is one. If there was a type
+/// marker here, it returns Ok(true), if not it returns Ok(false)
+fn maybe_type_marker(
+    global: &mut DataContext<'_>,
+    dependencies: &mut DependencyList,
+    mut node: NodeBuilder<'_>,
+) -> Result<bool, ()> {
+    if global.tokens.try_consume_operator_string(":").is_none() {
+        return Ok(false);
+    }
+
+    println!("Parsing type");
+    let token = global.tokens.expect_next(global.errors)?;
+    match token.kind {
+        TokenKind::Identifier(name) => {
+            dependencies.add(name, DependencyKind::Value);
+            node.set(Node::new(token.loc, NodeKind::Global(name)));
+        }
+        TokenKind::Open(Bracket::Round) => todo!(),
+        _ => {
+            global.error(token.loc, format!("Expected type, got {:?}", token.kind));
+            return Err(());
+        }
+    }
+
+    Ok(true)
 }

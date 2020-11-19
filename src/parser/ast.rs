@@ -79,7 +79,7 @@ impl bump_tree::MetaData for Node {
             | (NodeKind::FunctionInsert, 2)
             | (NodeKind::Binary(_),      2)
             | (NodeKind::Empty,          0)
-            | (NodeKind::Declare(_),     0..=1)
+            | (NodeKind::Declare(_),     1..=2)
             | (NodeKind::FunctionCall,   1..=usize::MAX)
             | (NodeKind::Tuple,          1..=usize::MAX)
             | (NodeKind::Block,          _)
