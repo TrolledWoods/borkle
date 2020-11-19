@@ -7,6 +7,7 @@ use crate::dependencies::{DependencyKind, DependencyList};
 use crate::errors::ErrorCtx;
 use crate::locals::Local;
 use crate::operators::{AccessOp, BinaryOp};
+use crate::program::{Program, Task};
 pub use ast::{Node, NodeKind};
 use bump_tree::Tree;
 use context::{DataContext, ImperativeContext};
@@ -16,10 +17,15 @@ use ustr::Ustr;
 pub type Ast = Tree<Node>;
 type NodeBuilder<'a> = bump_tree::NodeBuilder<'a, Node>;
 
-pub fn process_string(errors: &mut ErrorCtx, file: Ustr, string: &str) -> Result<(), ()> {
+pub fn process_string(
+    errors: &mut ErrorCtx,
+    program: &Program,
+    file: Ustr,
+    string: &str,
+) -> Result<(), ()> {
     let mut tokens = lexer::process_string(errors, file, string)?;
 
-    let mut context = DataContext::new(errors, &mut tokens);
+    let mut context = DataContext::new(errors, program, &mut tokens);
 
     while context
         .tokens
@@ -46,10 +52,7 @@ fn constant(global: &mut DataContext<'_>) -> Result<(), ()> {
         let dependencies = imperative.dependencies;
         ast.set_root();
 
-        println!();
-        println!("--- {}", name);
-        println!("{:?}", dependencies);
-        println!("{:#?}", ast);
+        global.program.insert(name, dependencies, Task::Type(ast));
 
         global
             .tokens
@@ -242,7 +245,7 @@ fn atom_value(
         }
 
         TokenKind::Open(Bracket::Curly) => {
-            let scope_boundary = imperative.push_scope_boundary();
+            imperative.push_scope_boundary();
 
             while !global.tokens.try_consume(&TokenKind::Close(Bracket::Curly)) {
                 if global
@@ -286,7 +289,6 @@ fn maybe_type_marker(
         return Ok(false);
     }
 
-    println!("Parsing type");
     let token = global.tokens.expect_next(global.errors)?;
     match token.kind {
         TokenKind::Identifier(name) => {

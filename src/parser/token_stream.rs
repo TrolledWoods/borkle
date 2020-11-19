@@ -24,6 +24,7 @@ impl TokenStream {
         self.tokens.as_slice().first()
     }
 
+    #[allow(unused)]
     pub fn expect_peek(&self, errors: &mut ErrorCtx) -> Result<&'_ Token, ()> {
         self.peek().ok_or_else(|| {
             errors.error(self.last, "Unexpected end of file".to_string());

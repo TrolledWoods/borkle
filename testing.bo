@@ -1,11 +1,5 @@
-const ANSWER = {
-    'label {
-        move 'label 13;
-    };
-    let x: MyType = defer { defer 2; defer 3; };
-    let y = 42;
-    x;
-};
+const no_dependencies = 42;
+const deps = no_dependencies;
 
 /// NOTE: Globals should be the last thing that's converted into C code.
 /// That's because the state of globals can change; hence we should

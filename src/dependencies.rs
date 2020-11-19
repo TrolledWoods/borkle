@@ -2,8 +2,8 @@ use ustr::{Ustr, UstrSet};
 
 #[derive(Debug)]
 pub struct DependencyList {
-    values: UstrSet,
-    types: UstrSet,
+    pub values: UstrSet,
+    pub types: UstrSet,
 }
 
 impl DependencyList {

@@ -24,10 +24,12 @@ impl LocalVariables {
         id
     }
 
+    #[allow(unused)]
     pub fn get(&self, id: LocalId) -> &'_ Local {
         &self.locals[id.0]
     }
 
+    #[allow(unused)]
     pub fn get_mut(&mut self, id: LocalId) -> &'_ mut Local {
         &mut self.locals[id.0]
     }

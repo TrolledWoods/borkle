@@ -4,6 +4,7 @@ use crate::dependencies::DependencyList;
 use crate::errors::ErrorCtx;
 use crate::locals::{Local, LocalId, LocalVariables};
 use crate::location::Location;
+use crate::program::Program;
 use ustr::Ustr;
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
@@ -14,12 +15,21 @@ pub struct ScopeBoundaryId(usize);
 /// can be defined.
 pub struct DataContext<'a> {
     pub errors: &'a mut ErrorCtx,
+    pub program: &'a Program,
     pub tokens: &'a mut TokenStream,
 }
 
 impl<'a> DataContext<'a> {
-    pub fn new(errors: &'a mut ErrorCtx, tokens: &'a mut TokenStream) -> Self {
-        Self { errors, tokens }
+    pub fn new(
+        errors: &'a mut ErrorCtx,
+        program: &'a Program,
+        tokens: &'a mut TokenStream,
+    ) -> Self {
+        Self {
+            errors,
+            program,
+            tokens,
+        }
     }
 
     pub fn error(&mut self, loc: Location, message: String) {
@@ -90,6 +100,7 @@ impl ImperativeContext {
         self.defers.push(defer);
     }
 
+    #[allow(unused)]
     pub fn defers_to(&self, index: ScopeBoundaryId) -> impl Iterator<Item = &Ast> {
         self.defers[self.scope_boundaries[index.0].defers..]
             .iter()
