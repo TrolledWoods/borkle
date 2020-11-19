@@ -1,3 +1,9 @@
 const hello = {
-    let x = some_dependency;
+    let x = hi;
+    let y = wow;
+
+    let z = x + y;
 };
+
+const hi = 42;
+const wow = 20;

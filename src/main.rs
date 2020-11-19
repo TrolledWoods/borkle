@@ -3,6 +3,7 @@
 #![allow(clippy::module_name_repetitions)]
 #![feature(bool_to_option)]
 
+mod dependencies;
 mod errors;
 mod literal;
 mod locals;

@@ -1,5 +1,6 @@
 use super::token_stream::TokenStream;
 use super::Ast;
+use crate::dependencies::DependencyList;
 use crate::errors::ErrorCtx;
 use crate::locals::{Local, LocalId, LocalVariables};
 use crate::location::Location;
@@ -28,6 +29,7 @@ impl<'a> DataContext<'a> {
 
 pub struct ImperativeContext {
     pub locals: LocalVariables,
+    pub dependencies: DependencyList,
 
     scope_boundaries: Vec<ScopeBoundary>,
     defers: Vec<Ast>,
@@ -35,9 +37,10 @@ pub struct ImperativeContext {
 }
 
 impl ImperativeContext {
-    pub const fn new() -> Self {
+    pub fn new() -> Self {
         Self {
             locals: LocalVariables::new(),
+            dependencies: DependencyList::new(),
 
             scope_boundaries: Vec::new(),
             defers: Vec::new(),

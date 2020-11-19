@@ -3,6 +3,7 @@ mod context;
 mod lexer;
 mod token_stream;
 
+use crate::dependencies::DependencyKind;
 use crate::errors::ErrorCtx;
 use crate::locals::Local;
 use crate::operators::{AccessOp, BinaryOp};
@@ -39,13 +40,15 @@ fn constant(global: &mut DataContext<'_>) -> Result<(), ()> {
         }
 
         let mut ast = Ast::new();
+
         let mut imperative = ImperativeContext::new();
         expression(global, &mut imperative, ast.builder())?;
-        std::mem::drop(imperative);
+        let dependencies = imperative.dependencies;
         ast.set_root();
 
         println!();
         println!("--- {}", name);
+        println!("{:?}", dependencies);
         println!("{:#?}", ast);
 
         global
@@ -155,11 +158,9 @@ fn atom_value(
                 node.set(Node::new(token.loc, NodeKind::Local(local_id)));
                 node.validate();
             } else {
-                global.error(
-                    token.loc,
-                    "Global variables are not supported yet".to_string(),
-                );
-                return Err(());
+                imperative.dependencies.add(name, DependencyKind::Type);
+                node.set(Node::new(token.loc, NodeKind::Global(name)));
+                node.validate();
             }
         }
 

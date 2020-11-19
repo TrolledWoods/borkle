@@ -20,6 +20,7 @@ impl Node {
 #[derive(Clone)]
 pub enum NodeKind {
     Literal(Literal),
+    Global(Ustr),
 
     Member(Ustr),
     FunctionInsert,
@@ -46,6 +47,7 @@ impl fmt::Debug for NodeKind {
     fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Literal(literal) => write!(fmt, "{:?}", literal),
+            Self::Global(name) => write!(fmt, "global {}", name),
             Self::Empty => write!(fmt, "()"),
 
             Self::Member(name) => write!(fmt, "member {}", name),
@@ -69,18 +71,18 @@ impl bump_tree::MetaData for Node {
         matches!(
             (&self.kind, num_args),
 
-              (NodeKind::Literal(_),   0)
-
-            | (NodeKind::Local(_),     0)
-            | (NodeKind::Member(_),    1)
-            | (NodeKind::Unary(_),     1)
+              (NodeKind::Literal(_),     0)
+            | (NodeKind::Global(_),      0)
+            | (NodeKind::Local(_),       0)
+            | (NodeKind::Member(_),      1)
+            | (NodeKind::Unary(_),       1)
             | (NodeKind::FunctionInsert, 2)
-            | (NodeKind::Binary(_),    2)
-            | (NodeKind::Empty,        0)
-            | (NodeKind::Declare(_),   0..=1)
-            | (NodeKind::FunctionCall, 1..=usize::MAX)
-            | (NodeKind::Tuple,        1..=usize::MAX)
-            | (NodeKind::Block,        _)
+            | (NodeKind::Binary(_),      2)
+            | (NodeKind::Empty,          0)
+            | (NodeKind::Declare(_),     0..=1)
+            | (NodeKind::FunctionCall,   1..=usize::MAX)
+            | (NodeKind::Tuple,          1..=usize::MAX)
+            | (NodeKind::Block,          _)
         )
     }
 }
