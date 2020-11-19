@@ -1,5 +1,8 @@
 const ANSWER = {
-    let x: MyType = 42;
+    'label {
+        move 'label 13;
+    };
+    let x: MyType = defer { defer 2; defer 3; };
     let y = 42;
     x;
 };

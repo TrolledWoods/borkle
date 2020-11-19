@@ -1,5 +1,5 @@
 use super::token_stream::TokenStream;
-use super::Ast;
+use super::{Ast, NodeBuilder};
 use crate::dependencies::DependencyList;
 use crate::errors::ErrorCtx;
 use crate::locals::{Local, LocalId, LocalVariables};
@@ -57,11 +57,16 @@ impl ImperativeContext {
         id
     }
 
-    pub fn pop_scope_boundary(&mut self) {
+    pub fn pop_scope_boundary(&mut self, node: &mut NodeBuilder<'_>) {
         let boundary = self
             .scope_boundaries
             .pop()
             .expect("called pop_scope_boundary without anything to pop");
+
+        // Insert all the defers that have to do with this scope boundary.
+        for deferred in self.defers[boundary.defers..].iter().rev() {
+            node.arg().set_cloned(&deferred.root().unwrap());
+        }
 
         self.defers.truncate(boundary.defers);
         self.local_map.truncate(boundary.locals);

@@ -196,7 +196,14 @@ fn atom_value(
 
         TokenKind::Keyword(Keyword::Defer) => {
             let mut ast = Ast::new();
-            expression(global, imperative, ast.builder())?;
+            {
+                let mut builder = ast.builder();
+                builder.set(Node::new(token.loc, NodeKind::Block));
+
+                imperative.push_scope_boundary();
+                expression(global, imperative, builder.arg())?;
+                imperative.pop_scope_boundary(&mut builder);
+            }
             ast.set_root();
             imperative.push_defer(ast);
 
@@ -235,7 +242,6 @@ fn atom_value(
         }
 
         TokenKind::Open(Bracket::Curly) => {
-            node.set(Node::new(token.loc, NodeKind::Block));
             let scope_boundary = imperative.push_scope_boundary();
 
             while !global.tokens.try_consume(&TokenKind::Close(Bracket::Curly)) {
@@ -252,12 +258,8 @@ fn atom_value(
                 }
             }
 
-            // Insert deferred definitions.
-            for deferred in imperative.defers_to(scope_boundary) {
-                node.arg().set_cloned(&deferred.root().unwrap());
-            }
-
-            imperative.pop_scope_boundary();
+            imperative.pop_scope_boundary(&mut node);
+            node.set(Node::new(token.loc, NodeKind::Block));
             node.validate();
         }
 
