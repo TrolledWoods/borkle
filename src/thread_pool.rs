@@ -6,6 +6,23 @@ use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
 use std::thread::{spawn, JoinHandle};
 
+/// A channel from where you can send work.
+///
+/// It's not guaranteed that the threadpool couldn't stop working
+/// before you send all the work; the assumption is that you send
+/// more work WITHIN other work, and in that case the threadpool
+/// will not stop.
+#[derive(Clone)]
+pub struct WorkSender {
+    work: Arc<WorkPile>,
+}
+
+impl WorkSender {
+    pub fn send(&self, task: Task) {
+        self.work.queue.lock().push_front(task);
+    }
+}
+
 struct WorkPile {
     queue: Mutex<VecDeque<Task>>,
     num_currently_working: AtomicU32,
@@ -19,17 +36,26 @@ pub struct ThreadPool {
 }
 
 impl ThreadPool {
-    pub fn new(program: Program, tasks: impl IntoIterator<Item = Task>) -> Self {
+    pub fn new(tasks: impl IntoIterator<Item = Task>) -> Self {
+        let work = Arc::new(WorkPile {
+            queue: Mutex::new(tasks.into_iter().collect()),
+            // Set this to one to begin with so that no thread ever stops working,
+            // because before joining the thread pool there may be more work that is
+            // pushed onto it.
+            num_currently_working: AtomicU32::new(1),
+        });
         Self {
             threads: Vec::new(),
-            program: Arc::new(program),
-            work: Arc::new(WorkPile {
-                queue: Mutex::new(tasks.into_iter().collect()),
-                // Set this to one to begin with so that no thread ever stops working,
-                // because before joining the thread pool there may be more work that is
-                // pushed onto it.
-                num_currently_working: AtomicU32::new(1),
-            }),
+            program: Arc::new(Program::new(WorkSender {
+                work: Arc::clone(&work),
+            })),
+            work,
+        }
+    }
+
+    pub fn create_work_sender(&self) -> WorkSender {
+        WorkSender {
+            work: Arc::clone(&self.work),
         }
     }
 
@@ -73,12 +99,8 @@ fn worker(program: &Arc<Program>, work: &Arc<WorkPile>) -> ErrorCtx {
             match task {
                 Task::Parse(file_name, path) => match std::fs::read_to_string(&path) {
                     Ok(string) => {
-                        let _ = crate::parser::process_string(
-                            &mut errors,
-                            &program,
-                            file_name,
-                            &string,
-                        );
+                        let _ =
+                            crate::parser::process_string(&mut errors, program, file_name, &string);
                     }
                     Err(_) => {
                         errors.global_error(format!("'{}' cannot be loaded", file_name));

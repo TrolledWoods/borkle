@@ -14,11 +14,10 @@ mod program;
 mod thread_pool;
 
 fn main() {
-    let mut program = program::Program::new();
-    let mut thread_pool = thread_pool::ThreadPool::new(
-        program,
-        std::iter::once(program::Task::Parse("testing".into(), "testing.bo".into())),
-    );
+    let mut thread_pool = thread_pool::ThreadPool::new(std::iter::once(program::Task::Parse(
+        "testing".into(),
+        "testing.bo".into(),
+    )));
 
     for _ in 0..2 {
         thread_pool.spawn_thread();

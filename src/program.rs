@@ -1,5 +1,6 @@
 use crate::dependencies::DependencyList;
-use parking_lot::{Mutex, RwLock};
+use crate::thread_pool::WorkSender;
+use parking_lot::RwLock;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU32, Ordering};
 use ustr::{Ustr, UstrMap};
@@ -8,16 +9,19 @@ use ustr::{Ustr, UstrMap};
 ///
 /// We deal with constants(and possibly in the future globals too),
 /// e.g. data scopes, and the dependency system.
-#[derive(Default)]
 pub struct Program {
     // TODO: We will have scopes eventually, but for now
     // everything is just in the same scope.
     const_table: RwLock<UstrMap<Member>>,
+    work: WorkSender,
 }
 
 impl Program {
-    pub fn new() -> Self {
-        Self::default()
+    pub fn new(work: WorkSender) -> Self {
+        Self {
+            const_table: RwLock::default(),
+            work,
+        }
     }
 
     /// Inserts an element, such that after all the dependencies are resolved
@@ -72,7 +76,7 @@ impl Program {
         if *num_dependencies == 0 {
             // We are already done! We can emit the task without
             // doing dependency stuff
-            println!("Emit the task {:?}", task);
+            self.work.send(task);
         } else {
             // We are not done with our dependencies. We have to wait a bit,
             // so we have to put the task into the lock.

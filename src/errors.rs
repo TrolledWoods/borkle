@@ -22,7 +22,7 @@ impl ErrorCtx {
         }
     }
 
-    pub fn join(&mut self, mut other: ErrorCtx) {
+    pub fn join(&mut self, mut other: Self) {
         self.errors.append(&mut other.errors);
         self.warnings.append(&mut other.warnings);
     }
