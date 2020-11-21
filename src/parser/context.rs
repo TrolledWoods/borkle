@@ -93,7 +93,7 @@ impl ImperativeContext {
         self.local_map
             .iter()
             .rev()
-            .find_map(|&(local_name, id)| (local_name == name).then_some(id))
+            .find_map(|&(local_name, id)| if local_name == name { Some(id) } else { None })
     }
 
     pub fn push_defer(&mut self, defer: Ast) {

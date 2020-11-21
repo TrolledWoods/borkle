@@ -5,6 +5,9 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicU32, Ordering};
 use ustr::{Ustr, UstrMap};
 
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+pub struct MemberId(Ustr);
+
 /// This is the main hub of the program that is being compiled.
 ///
 /// We deal with constants(and possibly in the future globals too),

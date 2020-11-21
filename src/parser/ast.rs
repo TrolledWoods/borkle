@@ -23,14 +23,12 @@ pub enum NodeKind {
     Global(Ustr),
 
     Member(Ustr),
-    FunctionInsert,
 
     Unary(UnaryOp),
     Binary(BinaryOp),
 
     FunctionCall,
     Block,
-    Tuple,
     Empty,
 
     Declare(LocalId),
@@ -51,14 +49,12 @@ impl fmt::Debug for NodeKind {
             Self::Empty => write!(fmt, "()"),
 
             Self::Member(name) => write!(fmt, "member {}", name),
-            Self::FunctionInsert => write!(fmt, "insert first arg from left hand"),
 
             Self::Unary(op) => write!(fmt, "{:?}", op),
             Self::Binary(op) => write!(fmt, "{:?}", op),
 
             Self::FunctionCall => write!(fmt, "Function call"),
             Self::Block => write!(fmt, "Block"),
-            Self::Tuple => write!(fmt, "Tuple"),
 
             Self::Declare(id) => write!(fmt, "Decl {:?}", id),
             Self::Local(id) => write!(fmt, "{:?}", id),
@@ -76,12 +72,10 @@ impl bump_tree::MetaData for Node {
             | (NodeKind::Local(_),       0)
             | (NodeKind::Member(_),      1)
             | (NodeKind::Unary(_),       1)
-            | (NodeKind::FunctionInsert, 2)
             | (NodeKind::Binary(_),      2)
             | (NodeKind::Empty,          0)
             | (NodeKind::Declare(_),     1..=2)
             | (NodeKind::FunctionCall,   1..=usize::MAX)
-            | (NodeKind::Tuple,          1..=usize::MAX)
             | (NodeKind::Block,          _)
         )
     }

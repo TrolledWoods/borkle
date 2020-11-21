@@ -137,10 +137,6 @@ fn member_value(
                     global.error(token.loc, "Expected identifier".to_string());
                 }
             }
-            AccessOp::FunctionInsert => {
-                member_value(global, imperative, node.arg())?;
-                node.collapse(Node::new(loc, NodeKind::FunctionInsert), 2);
-            }
         }
     }
 
@@ -236,8 +232,9 @@ fn atom_value(
 
             if has_comma {
                 // A tuple
-                node.set(Node::new(token.loc, NodeKind::Tuple));
-                node.validate();
+                // node.set(Node::new(token.loc, NodeKind::Tuple));
+                // node.validate();
+                todo!("Tuples");
             } else {
                 // Just a parenthesis
                 node.into_arg();

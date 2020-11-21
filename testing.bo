@@ -1,5 +1,14 @@
-const no_dependencies = 42;
-const deps = no_dependencies;
+const N  = 42;
+const E  = 42;
+const V  = 42;
+const E1 = 42;
+const R  = 42;
+
+const G  = 42;
+const O  = 42;
+const N1 = 42;
+const N2 = 42;
+const A  = 42;
 
 /// NOTE: Globals should be the last thing that's converted into C code.
 /// That's because the state of globals can change; hence we should

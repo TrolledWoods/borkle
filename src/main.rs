@@ -1,7 +1,10 @@
 #![deny(rust_2018_idioms, clippy::pedantic, clippy::all)]
 #![warn(clippy::nursery)]
-#![allow(clippy::module_name_repetitions, clippy::too_many_lines)]
-#![feature(bool_to_option)]
+#![allow(
+    clippy::module_name_repetitions,
+    clippy::too_many_lines,
+    clippy::option_if_let_else
+)]
 
 mod dependencies;
 mod errors;
@@ -12,6 +15,8 @@ mod operators;
 mod parser;
 mod program;
 mod thread_pool;
+mod typer;
+mod types;
 
 fn main() {
     let mut thread_pool = thread_pool::ThreadPool::new(std::iter::once(program::Task::Parse(

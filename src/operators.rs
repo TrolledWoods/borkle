@@ -55,6 +55,5 @@ operator!(BinaryOp {
 });
 
 operator!(AccessOp {
-    FunctionInsert = ("->", 0),
     Member = (".", 0),
 });

@@ -106,8 +106,8 @@ fn worker(program: &Arc<Program>, work: &Arc<WorkPile>) -> ErrorCtx {
                         errors.global_error(format!("'{}' cannot be loaded", file_name));
                     }
                 },
-                Task::Type(_) => {
-                    println!("Typing things is not done yet");
+                Task::Type(ast) => {
+                    let _ = crate::typer::process_ast(&mut errors, &ast);
                 }
             }
 
