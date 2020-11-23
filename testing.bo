@@ -1,26 +1,4 @@
-const N  = 42;
-const E  = 42;
-const V  = 42;
-const E1 = 42;
-const R  = 42;
-
-const G  = 42;
-const O  = 42;
-const N1 = 42;
-const N2 = 42;
-const A  = 42;
-
-/// NOTE: Globals should be the last thing that's converted into C code.
-/// That's because the state of globals can change; hence we should
-/// make sure to only put them into C code once all compile time code
-/// that could potentially have side effects on the globals have been run.
-/// 
-/// Constants are fair game however, because they are already not supposed
-/// to be modified and doing so is UB. Doing compile time checking against
-/// this is probably going to be done by encoding immutability in the type
-/// system, but bit casting to an immutable type to a mutable type is always
-/// possible, but you'd only do that if you wanted to explore the innards
-/// and edges of the compiler itself; not if you're writing a serious program.
-///
-/// Maybe warn if someone bit casts between types whose only difference is their
-/// mutability?
+const HELLO = {
+    let x = &(5:u8);
+    let y = &&x;
+};

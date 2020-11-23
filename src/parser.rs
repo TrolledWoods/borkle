@@ -8,6 +8,7 @@ use crate::errors::ErrorCtx;
 use crate::locals::Local;
 use crate::operators::{AccessOp, BinaryOp};
 use crate::program::{Program, Task};
+use crate::types::TypeKind;
 pub use ast::{Node, NodeKind};
 use bump_tree::Tree;
 use context::{DataContext, ImperativeContext};
@@ -52,7 +53,9 @@ fn constant(global: &mut DataContext<'_>) -> Result<(), ()> {
         let dependencies = imperative.dependencies;
         ast.set_root();
 
-        global.program.insert(name, dependencies, Task::Type(ast));
+        global
+            .program
+            .insert(name, dependencies, Task::Type(imperative.locals, ast));
 
         global
             .tokens
@@ -96,7 +99,13 @@ fn expression(
         old_op = Some(op);
     }
 
-    node.into_arg();
+    if let Some(loc) = global.tokens.try_consume_operator_string(":") {
+        type_(global, &mut imperative.dependencies, node.arg())?;
+        node.set(Node::new(loc, NodeKind::TypeBound));
+        node.validate();
+    } else {
+        node.into_arg();
+    }
     Ok(())
 }
 
@@ -127,7 +136,7 @@ fn member_value(
 ) -> Result<(), ()> {
     atom_value(global, imperative, node.arg())?;
 
-    while let Some((loc, op)) = global.tokens.try_consume_operator() {
+    while let Some((_, op)) = global.tokens.try_consume_operator() {
         match op {
             AccessOp::Member => {
                 let token = global.tokens.expect_next(global.errors)?;
@@ -141,6 +150,44 @@ fn member_value(
     }
 
     node.into_arg();
+    Ok(())
+}
+
+fn type_(
+    global: &mut DataContext<'_>,
+    dependencies: &mut DependencyList,
+    mut node: NodeBuilder<'_>,
+) -> Result<(), ()> {
+    let token = global.tokens.expect_next(global.errors)?;
+    match token.kind {
+        TokenKind::Identifier(name) => {
+            dependencies.add(name, DependencyKind::Value);
+            node.set(Node::new(token.loc, NodeKind::Global(name)));
+            node.validate();
+        }
+        TokenKind::Keyword(Keyword::I64) => {
+            node.set(Node::new(
+                token.loc,
+                NodeKind::LiteralType(TypeKind::I64.into()),
+            ));
+            node.validate();
+        }
+        TokenKind::Keyword(Keyword::U8) => {
+            node.set(Node::new(
+                token.loc,
+                NodeKind::LiteralType(TypeKind::U8.into()),
+            ));
+            node.validate();
+        }
+        _ => {
+            global.error(
+                token.loc,
+                "Unexpected token, expected type expression".to_string(),
+            );
+            return Err(());
+        }
+    }
+
     Ok(())
 }
 
@@ -162,18 +209,14 @@ fn atom_value(
                 node.validate();
             }
         }
-
         TokenKind::Literal(literal) => node.set(Node::new(token.loc, NodeKind::Literal(literal))),
-
         TokenKind::Keyword(Keyword::Let) => {
             let token = global.tokens.expect_next(global.errors)?;
             if let TokenKind::Identifier(name) = token.kind {
-                // There might be a type declaration here.
-                maybe_type_marker(global, &mut imperative.dependencies, node.arg())?;
-
                 let id = imperative.insert_local(Local {
                     loc: token.loc,
                     name,
+                    type_: None,
                 });
 
                 global
@@ -192,7 +235,6 @@ fn atom_value(
                 return Err(());
             }
         }
-
         TokenKind::Keyword(Keyword::Defer) => {
             let mut ast = Ast::new();
             {
@@ -244,7 +286,15 @@ fn atom_value(
         TokenKind::Open(Bracket::Curly) => {
             imperative.push_scope_boundary();
 
-            while !global.tokens.try_consume(&TokenKind::Close(Bracket::Curly)) {
+            loop {
+                if let Some(loc) = global
+                    .tokens
+                    .try_consume_with_data(&TokenKind::Close(Bracket::Curly))
+                {
+                    node.arg().set(Node::new(loc, NodeKind::Empty));
+                    break;
+                }
+
                 if global
                     .tokens
                     .try_consume(&TokenKind::Keyword(Keyword::Const))
@@ -252,9 +302,16 @@ fn atom_value(
                     constant(global)?;
                 } else {
                     expression(global, imperative, node.arg())?;
-                    global
-                        .tokens
-                        .expect_next_is(global.errors, &TokenKind::SemiColon)?;
+
+                    let token = global.tokens.expect_next(global.errors)?;
+                    match token.kind {
+                        TokenKind::SemiColon => {}
+                        TokenKind::Close(Bracket::Curly) => break,
+                        _ => {
+                            global.error(token.loc, "Expected ';' or '}'".to_string());
+                            return Err(());
+                        }
+                    }
                 }
             }
 

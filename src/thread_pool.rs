@@ -106,8 +106,11 @@ fn worker(program: &Arc<Program>, work: &Arc<WorkPile>) -> ErrorCtx {
                         errors.global_error(format!("'{}' cannot be loaded", file_name));
                     }
                 },
-                Task::Type(ast) => {
-                    let _ = crate::typer::process_ast(&mut errors, &ast);
+                Task::Type(mut locals, ast) => {
+                    println!(
+                        "Finished typing, {:#?}",
+                        crate::typer::process_ast(&mut errors, program, &mut locals, &ast)
+                    );
                 }
             }
 

@@ -1,12 +1,20 @@
 use crate::dependencies::DependencyList;
 use crate::thread_pool::WorkSender;
+use crate::types::Type;
 use parking_lot::RwLock;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU32, Ordering};
 use ustr::{Ustr, UstrMap};
 
-#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub struct MemberId(Ustr);
+
+impl MemberId {
+    // Temporary function, will be removed once scopes are added.
+    pub const fn from_ustr(ustr: Ustr) -> Self {
+        Self(ustr)
+    }
+}
 
 /// This is the main hub of the program that is being compiled.
 ///
@@ -25,6 +33,11 @@ impl Program {
             const_table: RwLock::default(),
             work,
         }
+    }
+
+    pub fn get_type_of_member(&self, id: Ustr) -> Option<Type> {
+        let const_table = self.const_table.read();
+        const_table.get(&id).unwrap().type_.to_option().copied()
     }
 
     /// Inserts an element, such that after all the dependencies are resolved
@@ -89,8 +102,8 @@ impl Program {
 }
 
 struct Member {
-    type_: DependableOption<()>,
-    value: DependableOption<()>,
+    type_: DependableOption<Type>,
+    value: DependableOption<Vec<u8>>,
     dependencies_left: AtomicU32,
     task: Option<Task>,
     is_defined: bool,
@@ -134,10 +147,17 @@ impl<T> DependableOption<T> {
             }
         }
     }
+
+    const fn to_option(&self) -> Option<&T> {
+        match self {
+            Self::Some(value) => Some(value),
+            Self::None(_) => None,
+        }
+    }
 }
 
 #[derive(Debug)]
 pub enum Task {
     Parse(Ustr, PathBuf),
-    Type(crate::parser::Ast),
+    Type(crate::locals::LocalVariables, crate::parser::Ast),
 }

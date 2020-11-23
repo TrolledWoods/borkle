@@ -78,13 +78,16 @@ impl TokenStream {
         None
     }
 
-    pub fn try_consume(&mut self, wanted: &TokenKind) -> bool {
+    pub fn try_consume_with_data(&mut self, wanted: &TokenKind) -> Option<Location> {
         if matches!(self.peek(), Some(Token { kind, .. }) if kind == wanted) {
-            self.next();
-            true
+            Some(self.next().unwrap().loc)
         } else {
-            false
+            None
         }
+    }
+
+    pub fn try_consume(&mut self, wanted: &TokenKind) -> bool {
+        self.try_consume_with_data(wanted).is_some()
     }
 
     pub fn expect_next_is(&mut self, errors: &mut ErrorCtx, kind: &TokenKind) -> Result<(), ()> {

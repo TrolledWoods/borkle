@@ -38,6 +38,9 @@ pub enum Keyword {
     If,
     Let,
     Defer,
+
+    I64,
+    U8,
 }
 
 pub fn process_string(errors: &mut ErrorCtx, file: Ustr, string: &str) -> Result<TokenStream, ()> {
@@ -97,6 +100,8 @@ pub fn process_string(errors: &mut ErrorCtx, file: Ustr, string: &str) -> Result
                     "if" => TokenKind::Keyword(Keyword::If),
                     "let" => TokenKind::Keyword(Keyword::Let),
                     "defer" => TokenKind::Keyword(Keyword::Defer),
+                    "i64" => TokenKind::Keyword(Keyword::I64),
+                    "u8" => TokenKind::Keyword(Keyword::U8),
                     _ => TokenKind::Identifier(identifier.into()),
                 }
             }
@@ -107,13 +112,8 @@ pub fn process_string(errors: &mut ErrorCtx, file: Ustr, string: &str) -> Result
             }
             '"' => TokenKind::Literal(Literal::String(string_literal(errors, &mut chars)?)),
 
-            '!'..='/' | ':'..='@' | '['..='`' | '{'..='~' => {
-                let string = slice_while(string, &mut chars, |c| {
-                    matches!(
-                        c,
-                        '!'..='/' | ':'..='@' | '['..='`' | '{'..='~'
-                    )
-                });
+            c if is_operator_token(c) => {
+                let string = slice_while(string, &mut chars, is_operator_token);
 
                 // FIXME: Is this the best place to put comment checking?
                 // It's certainly versatile, but maybe we want a separate place
@@ -203,4 +203,8 @@ fn string_literal(
     }
 
     Ok(string)
+}
+
+const fn is_operator_token(c: char) -> bool {
+    matches!(c, '+' | '-' | '*' | '/' | '&' | '!' | '=' | ':')
 }

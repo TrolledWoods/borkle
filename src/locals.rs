@@ -1,14 +1,18 @@
 use crate::location::Location;
+use crate::types::Type;
 use ustr::Ustr;
 
 #[derive(Clone, Copy, Hash, PartialEq, Eq, Debug)]
 pub struct LocalId(usize);
 
+#[derive(Debug)]
 pub struct Local {
     pub name: Ustr,
     pub loc: Location,
+    pub type_: Option<Type>,
 }
 
+#[derive(Debug)]
 pub struct LocalVariables {
     locals: Vec<Local>,
 }
