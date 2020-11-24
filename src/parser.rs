@@ -217,6 +217,7 @@ fn atom_value(
                     loc: token.loc,
                     name,
                     type_: None,
+                    value: None,
                 });
 
                 global

@@ -94,7 +94,7 @@ fn worker(program: &Arc<Program>, work: &Arc<WorkPile>) -> ErrorCtx {
             // We have to increase the number of currently working threads before
             // releasing the lock
             work.num_currently_working.fetch_add(1, Ordering::SeqCst);
-            std::mem::drop(queue_lock);
+            drop(queue_lock);
 
             match task {
                 Task::Parse(file_name, path) => match std::fs::read_to_string(&path) {
@@ -107,10 +107,24 @@ fn worker(program: &Arc<Program>, work: &Arc<WorkPile>) -> ErrorCtx {
                     }
                 },
                 Task::Type(mut locals, ast) => {
-                    println!(
-                        "Finished typing, {:#?}",
-                        crate::typer::process_ast(&mut errors, program, &mut locals, &ast)
-                    );
+                    match crate::typer::process_ast(&mut errors, program, &mut locals, &ast) {
+                        Ok(ast) => {
+                            work.queue.lock().push_front(Task::Value(locals, ast));
+                        }
+                        Err(()) => {
+                            // TODO: Here we want to poison the Value parameter of the thing this
+                            // Task is associated with.
+                        }
+                    }
+                }
+                Task::Value(locals, ast) => {
+                    let routine = crate::ir::emit::emit(locals, &ast);
+
+                    println!("Const routine finished: ");
+                    println!("Result: {:?}", routine.result);
+                    for instr in &routine.instr {
+                        println!("    {:?}", instr);
+                    }
                 }
             }
 
@@ -123,7 +137,7 @@ fn worker(program: &Arc<Program>, work: &Arc<WorkPile>) -> ErrorCtx {
             // might push another piece of work and decrement the currently working counter,
             // and that would cause this thread to incorrectly stop working.
             let currently_working = work.num_currently_working.load(Ordering::SeqCst);
-            std::mem::drop(queue_lock);
+            drop(queue_lock);
 
             if currently_working == 0 {
                 println!("No more work, stopping thread");

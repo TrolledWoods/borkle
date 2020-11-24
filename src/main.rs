@@ -1,5 +1,4 @@
 #![deny(rust_2018_idioms, clippy::pedantic, clippy::all)]
-#![warn(clippy::nursery)]
 #![allow(
     clippy::module_name_repetitions,
     clippy::too_many_lines,
@@ -8,6 +7,7 @@
 
 mod dependencies;
 mod errors;
+mod ir;
 mod literal;
 mod locals;
 mod location;

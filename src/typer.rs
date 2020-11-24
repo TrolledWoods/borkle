@@ -11,10 +11,10 @@ use std::convert::TryFrom;
 type ParsedAst = bump_tree::Tree<parser::ast::Node>;
 type ParsedNode<'a> = bump_tree::Node<'a, parser::ast::Node>;
 
-type Ast = bump_tree::Tree<Node>;
+pub type Ast = bump_tree::Tree<Node>;
 type NodeBuilder<'a> = bump_tree::NodeBuilder<'a, Node>;
 
-mod ast;
+pub mod ast;
 
 pub fn process_ast(
     errors: &mut ErrorCtx,
@@ -82,6 +82,13 @@ pub fn type_ast(
             let mut children = parsed.children();
             let internal = children.next().unwrap();
             let type_expr = children.next().unwrap();
+
+            if wanted_type.is_some() {
+                errors.warning(
+                    parsed.loc,
+                    "Unnecessary type bound, the type is already known".to_string(),
+                );
+            }
 
             type_ = const_fold_type_expr(errors, type_expr)?;
             type_ast(errors, program, locals, Some(type_), internal, node)?;

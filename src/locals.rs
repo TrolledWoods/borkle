@@ -10,6 +10,7 @@ pub struct Local {
     pub name: Ustr,
     pub loc: Location,
     pub type_: Option<Type>,
+    pub value: Option<crate::ir::Value>,
 }
 
 #[derive(Debug)]
@@ -26,6 +27,10 @@ impl LocalVariables {
         let id = LocalId(self.locals.len());
         self.locals.push(local);
         id
+    }
+
+    pub fn iter_mut(&mut self) -> impl Iterator<Item = &'_ mut Local> {
+        self.locals.iter_mut()
     }
 
     #[allow(unused)]

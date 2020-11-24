@@ -23,6 +23,14 @@ impl Node {
             type_: type_.into(),
         }
     }
+
+    pub fn kind(&self) -> &'_ NodeKind {
+        &self.kind
+    }
+
+    pub fn type_(&self) -> Type {
+        self.type_
+    }
 }
 
 impl bump_tree::MetaData for Node {
@@ -37,7 +45,7 @@ impl bump_tree::MetaData for Node {
     }
 }
 
-pub struct ByteArray(Vec<u8>);
+pub struct ByteArray(pub Vec<u8>);
 
 impl Debug for ByteArray {
     fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {

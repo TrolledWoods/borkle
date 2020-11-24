@@ -126,6 +126,7 @@ impl Display for TypeKind {
     }
 }
 
+/// FIXME: I think this should be called `align_to`
 pub fn to_align(value: usize, align: usize) -> usize {
     debug_assert!(align.is_power_of_two());
     (value + align - 1) & !align

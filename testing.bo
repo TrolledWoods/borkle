@@ -1,4 +1,5 @@
 const HELLO = {
-    let x = &(5:u8);
-    let y = &&x;
+    let x = 60 : i64;
+    let y = 42 : u8;
+    let x = 50;
 };

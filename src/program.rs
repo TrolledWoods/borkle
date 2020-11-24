@@ -160,4 +160,5 @@ impl<T> DependableOption<T> {
 pub enum Task {
     Parse(Ustr, PathBuf),
     Type(crate::locals::LocalVariables, crate::parser::Ast),
+    Value(crate::locals::LocalVariables, crate::typer::Ast),
 }

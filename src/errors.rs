@@ -33,9 +33,11 @@ impl ErrorCtx {
             println!("{:?}: {}", loc, message);
         }
 
-        for (loc, message) in &self.warnings {
-            print!("Warning: ");
-            println!("{:?}: {}", loc, message);
+        if self.errors.is_empty() {
+            for (loc, message) in &self.warnings {
+                print!("Warning: ");
+                println!("{:?}: {}", loc, message);
+            }
         }
     }
 
