@@ -1,3 +1,4 @@
+use crate::dependencies::{DependencyKind, DependencyList};
 use crate::errors::ErrorCtx;
 use crate::literal::Literal;
 use crate::locals::LocalVariables;
@@ -16,17 +17,30 @@ type NodeBuilder<'a> = bump_tree::NodeBuilder<'a, Node>;
 
 pub mod ast;
 
+struct Context<'a> {
+    errors: &'a mut ErrorCtx,
+    program: &'a Program,
+    locals: LocalVariables,
+    deps: DependencyList,
+}
+
 pub fn process_ast(
     errors: &mut ErrorCtx,
     program: &Program,
-    locals: &mut LocalVariables,
+    locals: LocalVariables,
     ast: &ParsedAst,
-) -> Result<Ast, ()> {
+) -> Result<(DependencyList, LocalVariables, Ast), ()> {
     let root = ast.root().unwrap();
     let mut ast = Ast::new();
-    type_ast(errors, program, locals, None, root, ast.builder())?;
+    let mut ctx = Context {
+        errors,
+        program,
+        locals,
+        deps: DependencyList::new(),
+    };
+    type_ast(&mut ctx, None, root, ast.builder())?;
     ast.set_root();
-    Ok(ast)
+    Ok((ctx.deps, ctx.locals, ast))
 }
 
 // NOTE: ParsedNode is both Copy and 8 bytes. I don't see why the lint is triggered
@@ -35,10 +49,8 @@ pub fn process_ast(
 /// do not match, i.e., if Some(type_) is passed as the `wanted_type`, if the function returns Ok
 /// that is guaranteed to be the type_ passed in.
 #[allow(clippy::needless_pass_by_value)]
-pub fn type_ast(
-    errors: &mut ErrorCtx,
-    program: &Program,
-    locals: &mut LocalVariables,
+fn type_ast(
+    ctx: &mut Context<'_>,
     wanted_type: Option<Type>,
     parsed: ParsedNode<'_>,
     mut node: NodeBuilder<'_>,
@@ -62,7 +74,7 @@ pub fn type_ast(
                     ));
                     node.validate();
                 } else {
-                    errors.error(
+                    ctx.errors.error(
                         parsed.loc,
                         "Given integer does not fit within a 'u8', u8 has the range 0-255"
                             .to_string(),
@@ -71,7 +83,7 @@ pub fn type_ast(
                 }
             }
             Some(wanted_type) => {
-                errors.error(
+                ctx.errors.error(
                     parsed.loc,
                     format!("Expected '{}', found integer", wanted_type),
                 );
@@ -84,25 +96,26 @@ pub fn type_ast(
             let type_expr = children.next().unwrap();
 
             if wanted_type.is_some() {
-                errors.warning(
+                ctx.errors.warning(
                     parsed.loc,
                     "Unnecessary type bound, the type is already known".to_string(),
                 );
             }
 
-            type_ = const_fold_type_expr(errors, type_expr)?;
-            type_ast(errors, program, locals, Some(type_), internal, node)?;
+            type_ = const_fold_type_expr(ctx.errors, type_expr)?;
+            type_ast(ctx, Some(type_), internal, node)?;
         }
         ParserNodeKind::Binary(op) => {
             let mut children = parsed.children();
             let left = children.next().unwrap();
             let right = children.next().unwrap();
 
-            let left_type = type_ast(errors, program, locals, wanted_type, left, node.arg())?;
-            let right_type = type_ast(errors, program, locals, Some(left_type), right, node.arg())?;
+            let left_type = type_ast(ctx, wanted_type, left, node.arg())?;
+            let right_type = type_ast(ctx, Some(left_type), right, node.arg())?;
 
             if left_type != right_type {
-                errors.error(parsed.loc, "Operands do not have the same type".to_string());
+                ctx.errors
+                    .error(parsed.loc, "Operands do not have the same type".to_string());
             }
 
             type_ = left_type;
@@ -128,19 +141,17 @@ pub fn type_ast(
                             None
                         };
 
-                    let operand =
-                        type_ast(errors, program, locals, wanted_inner, operand, node.arg())?;
+                    let operand = type_ast(ctx, wanted_inner, operand, node.arg())?;
                     type_ = Type::new(TypeKind::Reference(operand));
                 }
                 UnaryOp::Dereference => {
                     let wanted_inner = wanted_type.map(|v| Type::new(TypeKind::Reference(v)));
 
-                    let operand =
-                        type_ast(errors, program, locals, wanted_inner, operand, node.arg())?;
+                    let operand = type_ast(ctx, wanted_inner, operand, node.arg())?;
                     if let TypeKind::Reference(inner) = *operand.kind() {
                         type_ = inner;
                     } else {
-                        errors.error(
+                        ctx.errors.error(
                             parsed.loc,
                             format!(
                                 "Cannot dereference '{}', because it's not a refernece",
@@ -151,7 +162,7 @@ pub fn type_ast(
                     }
                 }
                 _ => {
-                    type_ = type_ast(errors, program, locals, wanted_type, operand, node.arg())?;
+                    type_ = type_ast(ctx, wanted_type, operand, node.arg())?;
                 }
             }
 
@@ -170,17 +181,10 @@ pub fn type_ast(
             assert!(n_children > 0);
 
             for child in children.by_ref().take(n_children - 1) {
-                type_ast(errors, program, locals, None, child, node.arg())?;
+                type_ast(ctx, None, child, node.arg())?;
             }
 
-            type_ = type_ast(
-                errors,
-                program,
-                locals,
-                wanted_type,
-                children.next().unwrap(),
-                node.arg(),
-            )?;
+            type_ = type_ast(ctx, wanted_type, children.next().unwrap(), node.arg())?;
             node.set(Node::new(parsed.loc, NodeKind::Block, type_));
             node.validate();
         }
@@ -188,7 +192,7 @@ pub fn type_ast(
             let mut children = parsed.children();
             let child = children.next().unwrap();
 
-            let member_of = type_ast(errors, program, locals, None, child, node.arg())?;
+            let member_of = type_ast(ctx, None, child, node.arg())?;
 
             if let Some(member) = member_of.member(name) {
                 type_ = member.type_;
@@ -196,7 +200,7 @@ pub fn type_ast(
                 node.set(Node::new(parsed.loc, NodeKind::Member(name), type_));
                 node.validate();
             } else {
-                errors.error(
+                ctx.errors.error(
                     parsed.loc,
                     format!("The type '{}' does not have member '{}'", member_of, name),
                 );
@@ -204,36 +208,30 @@ pub fn type_ast(
             }
         }
         ParserNodeKind::Global(id) => {
-            type_ = program.get_type_of_member(id).expect("The type of a member should have been made a dependency in the parser, so it should be defined by the time we get here, no matter what.");
+            type_ = ctx.program.get_type_of_member(id).expect("The type of a member should have been made a dependency in the parser, so it should be defined by the time we get here, no matter what.");
             node.set(Node::new(
                 parsed.loc,
                 NodeKind::Global(MemberId::from_ustr(id)),
                 type_,
             ));
             node.validate();
+            ctx.deps.add(id, DependencyKind::Value);
         }
         ParserNodeKind::Local(local) => {
-            type_ = locals.get(local).type_.unwrap();
+            type_ = ctx.locals.get(local).type_.unwrap();
             node.set(Node::new(parsed.loc, NodeKind::Local(local), type_));
         }
         ParserNodeKind::Declare(local) => {
             let mut children = parsed.children();
-            let local_type = type_ast(
-                errors,
-                program,
-                locals,
-                None,
-                children.next().unwrap(),
-                node.arg(),
-            )?;
+            let local_type = type_ast(ctx, None, children.next().unwrap(), node.arg())?;
 
-            locals.get_mut(local).type_ = Some(local_type);
+            ctx.locals.get_mut(local).type_ = Some(local_type);
             type_ = Type::new(TypeKind::Empty);
             node.set(Node::new(parsed.loc, NodeKind::Assign(local), type_));
             node.validate();
         }
         ParserNodeKind::LiteralType(_) => {
-            errors.error(
+            ctx.errors.error(
                 parsed.loc,
                 "(Internal compiler error) The parser should not emit a literal type node here"
                     .to_string(),
@@ -244,7 +242,7 @@ pub fn type_ast(
 
     if let Some(wanted_type) = wanted_type {
         if wanted_type != type_ {
-            errors.error(
+            ctx.errors.error(
                 parsed.loc,
                 format!("Expected '{}', found '{}'", wanted_type, type_),
             );

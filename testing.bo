@@ -1,5 +1,6 @@
 const HELLO = {
-    let x = 60 : i64;
-    let y = 42 : u8;
-    let x = 50;
+    X + 50
 };
+
+const Y = 50 : u8;
+const X = 42 : i64;

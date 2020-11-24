@@ -1,5 +1,5 @@
 use crate::errors::ErrorCtx;
-use crate::program::{Program, Task};
+use crate::program::{MemberId, Program, Task};
 use parking_lot::Mutex;
 use std::collections::VecDeque;
 use std::sync::atomic::{AtomicU32, Ordering};
@@ -106,10 +106,15 @@ fn worker(program: &Arc<Program>, work: &Arc<WorkPile>) -> ErrorCtx {
                         errors.global_error(format!("'{}' cannot be loaded", file_name));
                     }
                 },
-                Task::Type(mut locals, ast) => {
-                    match crate::typer::process_ast(&mut errors, program, &mut locals, &ast) {
-                        Ok(ast) => {
-                            work.queue.lock().push_front(Task::Value(locals, ast));
+                Task::Type(member_id, locals, ast) => {
+                    match crate::typer::process_ast(&mut errors, program, locals, &ast) {
+                        Ok((dependencies, locals, ast)) => {
+                            let type_ = ast.root().unwrap().type_();
+                            println!("type_of '{:?}' = {:?}", member_id, type_);
+                            program.insert(member_id.to_ustr(), dependencies, |id| {
+                                Task::Value(id, locals, ast)
+                            });
+                            program.set_type_of_member(member_id.to_ustr(), type_);
                         }
                         Err(()) => {
                             // TODO: Here we want to poison the Value parameter of the thing this
@@ -117,14 +122,24 @@ fn worker(program: &Arc<Program>, work: &Arc<WorkPile>) -> ErrorCtx {
                         }
                     }
                 }
-                Task::Value(locals, ast) => {
+                Task::Value(member_id, locals, ast) => {
+                    use std::io::Write;
                     let routine = crate::ir::emit::emit(locals, &ast);
 
-                    println!("Const routine finished: ");
-                    println!("Result: {:?}", routine.result);
+                    let stdout = std::io::stdout();
+                    let mut stdout = stdout.lock();
+                    let _ = writeln!(
+                        &mut stdout,
+                        "Const evaluation routine for {:?} finished: ",
+                        member_id
+                    );
+                    let _ = writeln!(&mut stdout, "Result: {:?}", routine.result);
                     for instr in &routine.instr {
-                        println!("    {:?}", instr);
+                        let _ = writeln!(&mut stdout, "    {:?}", instr);
                     }
+
+                    // TODO: Once we run routines this will be run.
+                    // program.set_value_of_member(member_id.to_ustr(), );
                 }
             }
 

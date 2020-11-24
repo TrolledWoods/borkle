@@ -51,11 +51,12 @@ fn constant(global: &mut DataContext<'_>) -> Result<(), ()> {
         let mut imperative = ImperativeContext::new();
         expression(global, &mut imperative, ast.builder())?;
         let dependencies = imperative.dependencies;
+        let locals = imperative.locals;
         ast.set_root();
 
         global
             .program
-            .insert(name, dependencies, Task::Type(imperative.locals, ast));
+            .insert(name, dependencies, |id| Task::Type(id, locals, ast));
 
         global
             .tokens
