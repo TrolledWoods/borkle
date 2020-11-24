@@ -101,6 +101,11 @@ fn emit_node(ctx: &mut Context, node: &Node<'_>) -> Value {
             }
             emit_node(ctx, &children.next().unwrap())
         }
-        NodeKind::Global(_) | NodeKind::FunctionCall => todo!(),
+        NodeKind::Global(id) => {
+            let to = ctx.registers.create(node.type_());
+            ctx.instr.push(Instr::Global { to, from: *id });
+            to
+        }
+        NodeKind::FunctionCall => todo!(),
     }
 }

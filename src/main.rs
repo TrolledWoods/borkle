@@ -7,6 +7,7 @@
 
 mod dependencies;
 mod errors;
+mod interp;
 mod ir;
 mod literal;
 mod locals;

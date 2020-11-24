@@ -1,4 +1,5 @@
 use crate::operators::{BinaryOp, UnaryOp};
+use crate::program::MemberId;
 use crate::types::{to_align, Type};
 use ustr::Ustr;
 
@@ -9,6 +10,10 @@ pub enum Instr {
     Constant {
         to: Value,
         from: Vec<u8>,
+    },
+    Global {
+        to: Value,
+        from: MemberId,
     },
     Binary {
         op: BinaryOp,
@@ -55,10 +60,10 @@ pub struct Routine {
 }
 
 pub struct Registers {
-    locals: Vec<Register>,
+    pub(crate) locals: Vec<Register>,
     // If you had a buffer with a bunch of locals inside,
     // how big would that buffer have to be to fit all of them?
-    buffer_size: usize,
+    pub(crate) buffer_size: usize,
 }
 
 impl Registers {
@@ -80,11 +85,25 @@ impl Registers {
         self.buffer_size += type_.size();
         value
     }
+
+    pub(crate) fn get(&self, value: Value) -> &'_ Register {
+        &self.locals[value.0]
+    }
 }
 
-struct Register {
+pub(crate) struct Register {
     offset: usize,
     type_: Type,
+}
+
+impl Register {
+    pub(crate) fn offset(&self) -> usize {
+        self.offset
+    }
+
+    pub(crate) fn size(&self) -> usize {
+        self.type_.size()
+    }
 }
 
 #[derive(Debug, Clone, Copy)]

@@ -40,6 +40,15 @@ impl Program {
         }
     }
 
+    pub fn copy_value_into_slice(&self, id: MemberId, slice: &mut [u8]) {
+        let const_table = self.const_table.read();
+        if let DependableOption::Some(value) = &const_table.get(&id.0).unwrap().value {
+            slice.copy_from_slice(value);
+        } else {
+            panic!("Can't call copy_value_into_slice if you aren't sure the value is defined");
+        }
+    }
+
     pub fn get_type_of_member(&self, id: Ustr) -> Option<Type> {
         let const_table = self.const_table.read();
         const_table.get(&id).unwrap().type_.to_option().copied()
