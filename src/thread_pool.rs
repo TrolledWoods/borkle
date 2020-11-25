@@ -93,7 +93,7 @@ fn worker(program: &Arc<Program>, work: &Arc<WorkPile>) -> ErrorCtx {
         if let Some(task) = queue_lock.pop_back() {
             // We have to increase the number of currently working threads before
             // releasing the lock
-            work.num_currently_working.fetch_add(1, Ordering::SeqCst);
+            let currently_working_counter = Count::new(&work.num_currently_working);
             drop(queue_lock);
 
             match task {
@@ -150,7 +150,7 @@ fn worker(program: &Arc<Program>, work: &Arc<WorkPile>) -> ErrorCtx {
             // We have to decrease the number of currently working threads after
             // the work is done, otherwise we may be pushing more work after
             // saying nobody is working, which could cause incorrect thread stopping.
-            work.num_currently_working.fetch_sub(1, Ordering::SeqCst);
+            drop(currently_working_counter);
         } else {
             // This has to happen before the drop, because otherwise another thread
             // might push another piece of work and decrement the currently working counter,
@@ -165,4 +165,19 @@ fn worker(program: &Arc<Program>, work: &Arc<WorkPile>) -> ErrorCtx {
     }
 
     errors
+}
+
+struct Count<'a>(&'a AtomicU32);
+
+impl<'a> Count<'a> {
+    fn new(atomic: &'a AtomicU32) -> Self {
+        atomic.fetch_add(1, Ordering::SeqCst);
+        Self(atomic)
+    }
+}
+
+impl Drop for Count<'_> {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, Ordering::SeqCst);
+    }
 }

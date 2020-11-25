@@ -1,6 +1,1 @@
-const HELLO = {
-    X + 50
-};
-
-const Y = 50 : u8;
-const X = 42 : i64;
+const HI = 50 : u8;
