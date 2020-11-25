@@ -5,6 +5,7 @@ mod token_stream;
 
 use crate::dependencies::{DependencyKind, DependencyList};
 use crate::errors::ErrorCtx;
+use crate::literal::Literal;
 use crate::locals::Local;
 use crate::operators::{AccessOp, BinaryOp};
 use crate::program::{Program, Task};
@@ -253,7 +254,35 @@ fn atom_value(
             node.set(Node::new(token.loc, NodeKind::Empty));
             node.validate();
         }
-
+        TokenKind::Keyword(Keyword::Extern) => {
+            let loc = token.loc;
+            let token = global.tokens.expect_next(global.errors)?;
+            if let TokenKind::Literal(Literal::String(library_name)) = token.kind {
+                let token = global.tokens.expect_next(global.errors)?;
+                if let TokenKind::Literal(Literal::String(symbol_name)) = token.kind {
+                    node.set(Node::new(
+                        loc,
+                        NodeKind::Extern {
+                            library_name,
+                            symbol_name,
+                        },
+                    ));
+                    node.validate();
+                } else {
+                    global.error(
+                        token.loc,
+                        "Expected string literal containing the library name".to_string(),
+                    );
+                    return Err(());
+                }
+            } else {
+                global.error(
+                    token.loc,
+                    "Expected string literal containing the library name".to_string(),
+                );
+                return Err(());
+            }
+        }
         TokenKind::Open(Bracket::Round) => {
             let mut has_comma = false;
             loop {

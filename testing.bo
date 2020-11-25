@@ -1,1 +1,2 @@
-const HI = 50 : u8;
+const main = extern "borkle_lib/hello" "answer" : i64;
+const answer = extern "borkle_lib/hello" "answer" : i64;

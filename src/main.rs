@@ -25,6 +25,8 @@ fn main() {
         "testing.bo".into(),
     )));
 
+    let mut time = std::time::Instant::now();
+
     for _ in 0..2 {
         thread_pool.spawn_thread();
     }
@@ -32,4 +34,7 @@ fn main() {
     let errors = thread_pool.join();
 
     errors.print();
+
+    let elapsed = time.elapsed();
+    println!("Finished in {:.4} seconds", elapsed.as_secs_f32());
 }

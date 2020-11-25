@@ -67,6 +67,12 @@ impl From<u64> for ByteArray {
     }
 }
 
+impl From<usize> for ByteArray {
+    fn from(other: usize) -> Self {
+        Self(other.to_le_bytes().into())
+    }
+}
+
 impl From<u8> for ByteArray {
     fn from(other: u8) -> Self {
         Self(vec![other])

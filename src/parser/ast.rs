@@ -22,6 +22,10 @@ impl Node {
 pub enum NodeKind {
     Literal(Literal),
     Global(Ustr),
+    Extern {
+        library_name: String,
+        symbol_name: String,
+    },
 
     Member(Ustr),
 
@@ -58,6 +62,7 @@ impl bump_tree::MetaData for Node {
             | (NodeKind::Unary(_),       1)
             | (NodeKind::Declare(_),     1)
             | (NodeKind::Binary(_),      2)
+            | (NodeKind::Extern { .. },  0)
             | (NodeKind::TypeBound,      2)
             | (NodeKind::Empty,          0)
             | (NodeKind::FunctionCall,   1..=usize::MAX)

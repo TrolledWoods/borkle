@@ -13,3 +13,5 @@ impl_twice = "0.0.3"
 bump_tree = { path = "bump_tree" }
 parking_lot = "0.10.2"
 lazy_static = "1.4.0"
+libloading = "0.6.5"
+libffi-sys = "1.1.0"

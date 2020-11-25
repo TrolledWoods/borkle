@@ -94,6 +94,7 @@ fn worker(program: &Arc<Program>, work: &Arc<WorkPile>) -> ErrorCtx {
             // We have to increase the number of currently working threads before
             // releasing the lock
             let currently_working_counter = Count::new(&work.num_currently_working);
+
             drop(queue_lock);
 
             match task {

@@ -58,6 +58,45 @@ fn type_ast(
     let type_: Type;
     match parsed.kind {
         ParserNodeKind::FunctionCall | ParserNodeKind::Literal(Literal::String(_)) => todo!(),
+        ParserNodeKind::Extern {
+            ref library_name,
+            ref symbol_name,
+        } => {
+            if let Some(wanted_type) = wanted_type {
+                match ctx.program.load_lib(library_name, symbol_name) {
+                    Ok(value) => {
+                        if wanted_type.size() != 8 {
+                            ctx.errors.error(
+                                parsed.loc,
+                                "Can only load 8 byte big values from external sources".into(),
+                            );
+                            return Err(());
+                        }
+
+                        let value =
+                            unsafe { std::mem::transmute::<_, extern "C" fn() -> u64>(value)() };
+
+                        type_ = wanted_type;
+                        node.set(Node::new(
+                            parsed.loc,
+                            NodeKind::Constant(value.into()),
+                            type_,
+                        ));
+                        node.validate();
+                    }
+                    Err(err) => {
+                        ctx.errors.error(
+                            parsed.loc,
+                            format!("Failed loading external item\n  {:?}", err),
+                        );
+                        return Err(());
+                    }
+                }
+            } else {
+                ctx.errors.error(parsed.loc, "The type has to be known at this point. You can specify the type of the item to import by adding a type bound, ': [type]' after it".to_string());
+                return Err(());
+            }
+        }
         ParserNodeKind::Literal(Literal::Int(num)) => match wanted_type.map(Type::kind) {
             Some(TypeKind::I64) | None => {
                 type_ = TypeKind::I64.into();
