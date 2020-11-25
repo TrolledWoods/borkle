@@ -269,11 +269,10 @@ fn type_ast(
             node.set(Node::new(parsed.loc, NodeKind::Assign(local), type_));
             node.validate();
         }
-        ParserNodeKind::LiteralType(_) => {
+        ParserNodeKind::LiteralType(_) | ParserNodeKind::FunctionType => {
             ctx.errors.error(
                 parsed.loc,
-                "(Internal compiler error) The parser should not emit a literal type node here"
-                    .to_string(),
+                "(Internal compiler error) The parser should not emit a type node here".to_string(),
             );
             return Err(());
         }
@@ -294,9 +293,25 @@ fn type_ast(
 
 #[allow(clippy::needless_pass_by_value)]
 fn const_fold_type_expr(errors: &mut ErrorCtx, parsed: ParsedNode<'_>) -> Result<Type, ()> {
-    #[allow(clippy::single_match_else)]
     match parsed.kind {
         ParserNodeKind::LiteralType(type_) => Ok(type_),
+        ParserNodeKind::FunctionType => {
+            let mut children = parsed.children();
+            let n_args = children.len() - 1;
+
+            let mut arg_types = Vec::with_capacity(n_args);
+            for arg in children.by_ref().take(n_args) {
+                arg_types.push(const_fold_type_expr(errors, arg)?);
+            }
+
+            let returns = const_fold_type_expr(errors, children.next().unwrap())?;
+
+            Ok(TypeKind::Function {
+                args: arg_types,
+                returns,
+            }
+            .into())
+        }
         _ => {
             errors.error(
                 parsed.loc,

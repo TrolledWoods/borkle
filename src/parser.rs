@@ -167,6 +167,46 @@ fn type_(
             node.set(Node::new(token.loc, NodeKind::Global(name)));
             node.validate();
         }
+        TokenKind::Open(Bracket::Round) => {
+            if global.tokens.try_consume(&TokenKind::Close(Bracket::Round)) {
+                node.set(Node::new(
+                    token.loc,
+                    NodeKind::LiteralType(TypeKind::Empty.into()),
+                ));
+                node.validate();
+            } else {
+                type_(global, dependencies, node)?;
+                global
+                    .tokens
+                    .expect_next_is(global.errors, &TokenKind::Close(Bracket::Round))?;
+            }
+        }
+        TokenKind::Keyword(Keyword::Function) => {
+            // We start with a list of arguments.
+            if global.tokens.try_consume_operator_string("->").is_some() {
+                type_(global, dependencies, node.arg())?;
+            } else {
+                loop {
+                    type_(global, dependencies, node.arg())?;
+
+                    if !global.tokens.try_consume(&TokenKind::Comma) {
+                        break;
+                    }
+                }
+
+                if global.tokens.try_consume_operator_string("->").is_some() {
+                    type_(global, dependencies, node.arg())?;
+                } else {
+                    node.arg().set(Node::new(
+                        token.loc,
+                        NodeKind::LiteralType(TypeKind::Empty.into()),
+                    ));
+                }
+            }
+
+            node.set(Node::new(token.loc, NodeKind::FunctionType));
+            node.validate();
+        }
         TokenKind::Keyword(Keyword::I64) => {
             node.set(Node::new(
                 token.loc,

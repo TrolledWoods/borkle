@@ -111,6 +111,20 @@ impl Display for TypeKind {
             Self::I64 => write!(fmt, "i64"),
             Self::U8 => write!(fmt, "u8"),
             Self::Reference(internal) => write!(fmt, "&{}", internal),
+            Self::Function { args, returns } => {
+                write!(fmt, "fn")?;
+                for (i, arg) in args.iter().enumerate() {
+                    if i > 0 {
+                        write!(fmt, ",")?;
+                    }
+                    write!(fmt, " {}", arg)?;
+                }
+
+                if !matches!(returns.kind(), Self::Empty) {
+                    write!(fmt, " -> {}", returns)?;
+                }
+                Ok(())
+            }
             Self::Struct(members) => {
                 write!(fmt, "{{")?;
                 for (i, (name, member)) in members.iter().enumerate() {
@@ -139,6 +153,7 @@ pub enum TypeKind {
     I64,
     U8,
     Reference(Type),
+    Function { args: Vec<Type>, returns: Type },
     Struct(Vec<(Ustr, Type)>),
 }
 
@@ -147,7 +162,7 @@ impl TypeKind {
         match self {
             Self::Empty => (0, 1),
             Self::U8 => (1, 1),
-            Self::F64 | Self::I64 | Self::Reference(_) => (8, 8),
+            Self::F64 | Self::I64 | Self::Reference(_) | Self::Function { .. } => (8, 8),
             Self::Struct(members) => {
                 let mut size = 0;
                 let mut align = 1;

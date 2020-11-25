@@ -39,6 +39,7 @@ pub enum Keyword {
     Let,
     Defer,
     Extern,
+    Function,
 
     I64,
     U8,
@@ -101,6 +102,7 @@ pub fn process_string(errors: &mut ErrorCtx, file: Ustr, string: &str) -> Result
                     "if" => TokenKind::Keyword(Keyword::If),
                     "let" => TokenKind::Keyword(Keyword::Let),
                     "defer" => TokenKind::Keyword(Keyword::Defer),
+                    "fn" => TokenKind::Keyword(Keyword::Function),
                     "extern" => TokenKind::Keyword(Keyword::Extern),
                     "i64" => TokenKind::Keyword(Keyword::I64),
                     "u8" => TokenKind::Keyword(Keyword::U8),
@@ -208,5 +210,5 @@ fn string_literal(
 }
 
 const fn is_operator_token(c: char) -> bool {
-    matches!(c, '+' | '-' | '*' | '/' | '&' | '!' | '=' | ':')
+    matches!(c, '+' | '-' | '*' | '/' | '&' | '!' | '=' | ':' | '<' | '>')
 }

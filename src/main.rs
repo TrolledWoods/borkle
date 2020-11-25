@@ -25,7 +25,7 @@ fn main() {
         "testing.bo".into(),
     )));
 
-    let mut time = std::time::Instant::now();
+    let time = std::time::Instant::now();
 
     for _ in 0..2 {
         thread_pool.spawn_thread();
