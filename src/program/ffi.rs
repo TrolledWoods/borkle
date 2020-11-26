@@ -35,14 +35,14 @@ impl Libraries {
         symbol_name: Ustr,
         arg_types: &[Type],
         return_type: Type,
-    ) -> Result<&'_ Function, libloading::Error> {
+    ) -> Result<Function, libloading::Error> {
         let lib = get_or_insert_lib(&mut self.libs, lib_name)?;
 
         if !lib.functions.contains_key(&symbol_name) {
             let ptr = *unsafe { lib.lib.get::<*const ()>(symbol_name.as_bytes())? };
 
             let alloc = &self.alloc;
-            let mut arg_ffi_types = alloc.alloc_slice_copy(
+            let arg_ffi_types = alloc.alloc_slice_copy(
                 &arg_types
                     .iter()
                     .filter_map(|&type_| {
@@ -76,7 +76,7 @@ impl Libraries {
             };
         }
 
-        Ok(lib.functions.get(&symbol_name).unwrap())
+        Ok(*lib.functions.get(&symbol_name).unwrap())
     }
 }
 
@@ -97,6 +97,7 @@ fn get_or_insert_lib(
     Ok(libs.get_mut(&lib_name).unwrap())
 }
 
+#[derive(Clone, Copy)]
 pub struct Function {
     calling_convention: ffi_cif,
     ptr: *const (),
@@ -111,14 +112,12 @@ impl Function {
     /// # Safety
     /// The data should contain all of the arguments that you have.
     pub unsafe fn call(&self, data: *mut *mut (), returns: *mut ()) {
-        unsafe {
-            ffi_call(
-                &self.calling_convention as *const _ as *mut _,
-                Some(std::mem::transmute(self.ptr)),
-                returns.cast(),
-                data.cast(),
-            );
-        }
+        ffi_call(
+            &self.calling_convention as *const _ as *mut _,
+            Some(std::mem::transmute(self.ptr)),
+            returns.cast(),
+            data.cast(),
+        );
     }
 }
 
@@ -132,7 +131,8 @@ fn type_to_ffi_type(alloc: &Bump, type_: Type) -> Option<ffi_type> {
             TypeKind::U8 => Some(ffi_type_uint8),
             TypeKind::I64 => Some(ffi_type_sint64),
             TypeKind::F64 => Some(ffi_type_double),
-            TypeKind::Reference(_) | TypeKind::Function { .. } => Some(ffi_type_pointer),
+            TypeKind::Reference(_) => Some(ffi_type_pointer),
+            TypeKind::Function { .. } => todo!("Function pointers are not supported in FFI yet, because function pointers in the compile time execution part of things are not represented like they would be in other languages; this is a problem, and it means I'll have to change the way that functions are represented. The solution I'll come up with is probably to split functions into 'extern fn' and 'fn'. 'extern' fns will always just be a function poitner that can be called directly with libffi, while 'fn' will be a different kind of thing that is called by just running it with the interpreter."),
             TypeKind::Struct(members) => {
                 todo!("Struct ffi is not implemented yet");
             }

@@ -31,6 +31,7 @@ pub struct Program {
     // TODO: We will have scopes eventually, but for now
     // everything is just in the same scope.
     const_table: RwLock<UstrMap<Member>>,
+    functions: RwLock<Vec<Function>>,
     work: WorkSender,
     pub libraries: Mutex<ffi::Libraries>,
 }
@@ -39,9 +40,22 @@ impl Program {
     pub fn new(work: WorkSender) -> Self {
         Self {
             const_table: RwLock::default(),
+            functions: RwLock::default(),
             libraries: Mutex::new(ffi::Libraries::new()),
             work,
         }
+    }
+
+    pub fn function(&self, function_id: usize) -> Function {
+        let functions = self.functions.read();
+        functions[function_id]
+    }
+
+    pub fn insert_function(&self, function: Function) -> usize {
+        let mut functions = self.functions.write();
+        let id = functions.len();
+        functions.push(function);
+        id
     }
 
     pub fn copy_value_into_slice(&self, id: MemberId, slice: &mut [u8]) {
@@ -252,4 +266,10 @@ pub enum Task {
     Parse(Ustr, PathBuf),
     Type(MemberId, crate::locals::LocalVariables, crate::parser::Ast),
     Value(MemberId, crate::locals::LocalVariables, crate::typer::Ast),
+}
+
+#[derive(Clone, Copy)]
+pub enum Function {
+    FFI(ffi::Function),
+    Temp,
 }

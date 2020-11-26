@@ -409,7 +409,7 @@ fn atom_value(
         .tokens
         .try_consume_with_data(&TokenKind::Open(Bracket::Round))
     {
-        let mut n_children = 1;
+        let mut n_args = 0;
 
         loop {
             if global.tokens.try_consume(&TokenKind::Close(Bracket::Round)) {
@@ -417,7 +417,7 @@ fn atom_value(
             }
 
             expression(global, imperative, node.arg())?;
-            n_children += 1;
+            n_args += 1;
 
             let token = global.tokens.expect_next(global.errors)?;
             match token.kind {
@@ -430,7 +430,18 @@ fn atom_value(
             }
         }
 
-        node.collapse(Node::new(loc, NodeKind::FunctionCall), n_children);
+        if n_args >= crate::MAX_FUNCTION_ARGUMENTS {
+            global.error(
+                loc,
+                format!(
+                    "There can at most be {} arguments in a function",
+                    crate::MAX_FUNCTION_ARGUMENTS
+                ),
+            );
+            return Err(());
+        }
+
+        node.collapse(Node::new(loc, NodeKind::FunctionCall), n_args + 1);
     }
 
     node.into_arg();

@@ -1,4 +1,8 @@
-const answer  = extern "borkle_lib/hello" "answer3" : fn -> i64;
-const answer2 = extern "borkle_lib/hello" "answer2" : i64;
+const alloc   = extern "borkle_lib/hello" "alloc" : fn i64 -> i64;
+const dealloc = extern "borkle_lib/hello" "dealloc" : fn i64, i64;
 
-const main = answer();
+const main = {
+    let ptr = alloc(8);
+    dealloc(ptr, 8);
+    ptr
+};

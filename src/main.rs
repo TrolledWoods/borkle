@@ -19,6 +19,8 @@ mod thread_pool;
 mod typer;
 mod types;
 
+pub const MAX_FUNCTION_ARGUMENTS: usize = 32;
+
 fn main() {
     let mut thread_pool = thread_pool::ThreadPool::new(std::iter::once(program::Task::Parse(
         "testing".into(),

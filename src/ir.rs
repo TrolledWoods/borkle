@@ -7,6 +7,13 @@ pub mod emit;
 
 #[derive(Debug, Clone)]
 pub enum Instr {
+    Call {
+        to: Value,
+        pointer: Value,
+        // FIXME: We don't really want a vector here, we want a more efficient datastructure
+        // probably.
+        args: Vec<Value>,
+    },
     Constant {
         to: Value,
         from: Vec<u8>,

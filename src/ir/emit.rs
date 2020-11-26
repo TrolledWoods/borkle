@@ -106,6 +106,18 @@ fn emit_node(ctx: &mut Context, node: &Node<'_>) -> Value {
             ctx.instr.push(Instr::Global { to, from: *id });
             to
         }
-        NodeKind::FunctionCall => todo!(),
+        NodeKind::FunctionCall => {
+            let to = ctx.registers.create(node.type_());
+            let mut children = node.children();
+            let pointer = emit_node(ctx, &children.next().unwrap());
+
+            let mut args = Vec::with_capacity(children.len());
+            for child in children {
+                args.push(emit_node(ctx, &child));
+            }
+
+            ctx.instr.push(Instr::Call { to, pointer, args });
+            to
+        }
     }
 }

@@ -4,7 +4,7 @@ use crate::literal::Literal;
 use crate::locals::LocalVariables;
 use crate::operators::UnaryOp;
 use crate::parser::{self, ast::NodeKind as ParserNodeKind};
-use crate::program::{MemberId, Program};
+use crate::program::{Function, MemberId, Program};
 use crate::types::{Type, TypeKind};
 use ast::{Node, NodeKind};
 use std::convert::TryFrom;
@@ -100,7 +100,14 @@ fn type_ast(
                         *returns,
                     ) {
                         Ok(func) => {
-                            todo!("Recieved a function from ffi, we should put those into the program");
+                            let id = ctx.program.insert_function(Function::FFI(func));
+                            type_ = wanted_type;
+                            node.set(Node::new(
+                                parsed.loc,
+                                NodeKind::Constant(id.into()),
+                                wanted_type,
+                            ));
+                            node.validate();
                         }
                         Err(err) => {
                             ctx.errors.error(
