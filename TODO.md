@@ -1,7 +1,5 @@
 # Todo list
-* Parse types
-* Parse function declarations
-* Scope things
-* Dependency resolution
-* Ast typing
-[ ] 
+[ ] Parse function declarations
+[ ] Scope things
+[X] Dependency resolution
+[ ] Ast typing

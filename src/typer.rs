@@ -38,7 +38,7 @@ pub fn process_ast(
         locals,
         deps: DependencyList::new(),
     };
-    type_ast(&mut ctx, None, root, ast.builder())?;
+    type_ast(&mut ctx, None, &root, ast.builder())?;
     ast.set_root();
     Ok((ctx.deps, ctx.locals, ast))
 }
@@ -52,45 +52,71 @@ pub fn process_ast(
 fn type_ast(
     ctx: &mut Context<'_>,
     wanted_type: Option<Type>,
-    parsed: ParsedNode<'_>,
+    parsed: &ParsedNode<'_>,
     mut node: NodeBuilder<'_>,
 ) -> Result<Type, ()> {
     let type_: Type;
     match parsed.kind {
-        ParserNodeKind::FunctionCall | ParserNodeKind::Literal(Literal::String(_)) => todo!(),
+        ParserNodeKind::Literal(Literal::String(_)) => todo!(),
+        ParserNodeKind::FunctionCall => {
+            let mut children = parsed.children();
+            let ptr_child = children.next().unwrap();
+            let ptr = type_ast(ctx, None, &ptr_child, node.arg())?;
+            if let TypeKind::Function { args, returns } = ptr.kind() {
+                if args.len() != children.len() {
+                    ctx.errors.error(ptr_child.loc, format!("Function is of type '{}', which has {} arguments, but {} arguments were given in the call", ptr, args.len(), children.len()));
+                    return Err(());
+                }
+
+                for (&wanted, got) in args.iter().zip(children) {
+                    type_ast(ctx, Some(wanted), &got, node.arg())?;
+                }
+
+                type_ = *returns;
+                node.set(Node::new(ptr_child.loc, NodeKind::FunctionCall, type_));
+                node.validate();
+            } else {
+                ctx.errors.error(
+                    ptr_child.loc,
+                    format!(
+                        "Can only call function on function pointer, found type '{}'",
+                        ptr
+                    ),
+                );
+                return Err(());
+            }
+        }
         ParserNodeKind::Extern {
             ref library_name,
             ref symbol_name,
         } => {
             if let Some(wanted_type) = wanted_type {
-                match ctx.program.load_lib(library_name, symbol_name) {
-                    Ok(value) => {
-                        if wanted_type.size() != 8 {
+                if let TypeKind::Function { args, returns } = wanted_type.kind() {
+                    let mut libraries = ctx.program.libraries.lock();
+                    match libraries.load_symbol(
+                        library_name.as_str().into(),
+                        symbol_name.as_str().into(),
+                        args,
+                        *returns,
+                    ) {
+                        Ok(func) => {
+                            todo!("Recieved a function from ffi, we should put those into the program");
+                        }
+                        Err(err) => {
                             ctx.errors.error(
                                 parsed.loc,
-                                "Can only load 8 byte big values from external sources".into(),
+                                format!("Failed to load extern symbol\n{:?}", err),
                             );
                             return Err(());
                         }
-
-                        let value =
-                            unsafe { std::mem::transmute::<_, extern "C" fn() -> u64>(value)() };
-
-                        type_ = wanted_type;
-                        node.set(Node::new(
-                            parsed.loc,
-                            NodeKind::Constant(value.into()),
-                            type_,
-                        ));
-                        node.validate();
                     }
-                    Err(err) => {
-                        ctx.errors.error(
-                            parsed.loc,
-                            format!("Failed loading external item\n  {:?}", err),
-                        );
-                        return Err(());
-                    }
+                } else {
+                    ctx.errors.error(
+                        parsed.loc,
+                        "Only function pointer types can be imported from external sources"
+                            .to_string(),
+                    );
+                    return Err(());
                 }
             } else {
                 ctx.errors.error(parsed.loc, "The type has to be known at this point. You can specify the type of the item to import by adding a type bound, ': [type]' after it".to_string());
@@ -142,15 +168,15 @@ fn type_ast(
             }
 
             type_ = const_fold_type_expr(ctx.errors, type_expr)?;
-            type_ast(ctx, Some(type_), internal, node)?;
+            type_ast(ctx, Some(type_), &internal, node)?;
         }
         ParserNodeKind::Binary(op) => {
             let mut children = parsed.children();
             let left = children.next().unwrap();
             let right = children.next().unwrap();
 
-            let left_type = type_ast(ctx, wanted_type, left, node.arg())?;
-            let right_type = type_ast(ctx, Some(left_type), right, node.arg())?;
+            let left_type = type_ast(ctx, wanted_type, &left, node.arg())?;
+            let right_type = type_ast(ctx, Some(left_type), &right, node.arg())?;
 
             if left_type != right_type {
                 ctx.errors
@@ -180,13 +206,13 @@ fn type_ast(
                             None
                         };
 
-                    let operand = type_ast(ctx, wanted_inner, operand, node.arg())?;
+                    let operand = type_ast(ctx, wanted_inner, &operand, node.arg())?;
                     type_ = Type::new(TypeKind::Reference(operand));
                 }
                 UnaryOp::Dereference => {
                     let wanted_inner = wanted_type.map(|v| Type::new(TypeKind::Reference(v)));
 
-                    let operand = type_ast(ctx, wanted_inner, operand, node.arg())?;
+                    let operand = type_ast(ctx, wanted_inner, &operand, node.arg())?;
                     if let TypeKind::Reference(inner) = *operand.kind() {
                         type_ = inner;
                     } else {
@@ -201,7 +227,7 @@ fn type_ast(
                     }
                 }
                 _ => {
-                    type_ = type_ast(ctx, wanted_type, operand, node.arg())?;
+                    type_ = type_ast(ctx, wanted_type, &operand, node.arg())?;
                 }
             }
 
@@ -220,10 +246,10 @@ fn type_ast(
             assert!(n_children > 0);
 
             for child in children.by_ref().take(n_children - 1) {
-                type_ast(ctx, None, child, node.arg())?;
+                type_ast(ctx, None, &child, node.arg())?;
             }
 
-            type_ = type_ast(ctx, wanted_type, children.next().unwrap(), node.arg())?;
+            type_ = type_ast(ctx, wanted_type, &children.next().unwrap(), node.arg())?;
             node.set(Node::new(parsed.loc, NodeKind::Block, type_));
             node.validate();
         }
@@ -231,7 +257,7 @@ fn type_ast(
             let mut children = parsed.children();
             let child = children.next().unwrap();
 
-            let member_of = type_ast(ctx, None, child, node.arg())?;
+            let member_of = type_ast(ctx, None, &child, node.arg())?;
 
             if let Some(member) = member_of.member(name) {
                 type_ = member.type_;
@@ -262,7 +288,7 @@ fn type_ast(
         }
         ParserNodeKind::Declare(local) => {
             let mut children = parsed.children();
-            let local_type = type_ast(ctx, None, children.next().unwrap(), node.arg())?;
+            let local_type = type_ast(ctx, None, &children.next().unwrap(), node.arg())?;
 
             ctx.locals.get_mut(local).type_ = Some(local_type);
             type_ = Type::new(TypeKind::Empty);

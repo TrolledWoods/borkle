@@ -1,11 +1,12 @@
 use crate::dependencies::DependencyList;
 use crate::thread_pool::WorkSender;
 use crate::types::Type;
-use libloading::Library;
-use parking_lot::RwLock;
+use parking_lot::{Mutex, RwLock};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicI32, Ordering};
 use ustr::{Ustr, UstrMap};
+
+mod ffi;
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub struct MemberId(Ustr);
@@ -31,34 +32,16 @@ pub struct Program {
     // everything is just in the same scope.
     const_table: RwLock<UstrMap<Member>>,
     work: WorkSender,
-    libraries: RwLock<UstrMap<Library>>,
+    pub libraries: Mutex<ffi::Libraries>,
 }
 
 impl Program {
     pub fn new(work: WorkSender) -> Self {
         Self {
             const_table: RwLock::default(),
-            libraries: RwLock::default(),
+            libraries: Mutex::new(ffi::Libraries::new()),
             work,
         }
-    }
-
-    #[allow(clippy::map_err_ignore)]
-    pub fn load_lib(
-        &self,
-        lib_name: &str,
-        symbol_name: &str,
-    ) -> Result<*const u8, libloading::Error> {
-        let mut libraries = self.libraries.write();
-        let library = if let Some(library) = libraries.get(&lib_name.into()) {
-            library
-        } else {
-            let filename = libloading::library_filename(lib_name);
-            libraries.insert(lib_name.into(), Library::new(filename)?);
-            libraries.get(&lib_name.into()).unwrap()
-        };
-
-        unsafe { Ok(*library.get(symbol_name.as_bytes())?) }
     }
 
     pub fn copy_value_into_slice(&self, id: MemberId, slice: &mut [u8]) {

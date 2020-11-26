@@ -239,75 +239,86 @@ fn atom_value(
     imperative: &mut ImperativeContext,
     mut node: NodeBuilder<'_>,
 ) -> Result<(), ()> {
-    let token = global.tokens.expect_next(global.errors)?;
-    match token.kind {
-        TokenKind::Identifier(name) => {
-            if let Some(local_id) = imperative.get_local(name) {
-                node.set(Node::new(token.loc, NodeKind::Local(local_id)));
-                node.validate();
-            } else {
-                imperative.dependencies.add(name, DependencyKind::Type);
-                node.set(Node::new(token.loc, NodeKind::Global(name)));
-                node.validate();
+    {
+        let mut arg_node = node.arg();
+        let token = global.tokens.expect_next(global.errors)?;
+        match token.kind {
+            TokenKind::Identifier(name) => {
+                if let Some(local_id) = imperative.get_local(name) {
+                    arg_node.set(Node::new(token.loc, NodeKind::Local(local_id)));
+                    arg_node.validate();
+                } else {
+                    imperative.dependencies.add(name, DependencyKind::Type);
+                    arg_node.set(Node::new(token.loc, NodeKind::Global(name)));
+                    arg_node.validate();
+                }
             }
-        }
-        TokenKind::Literal(literal) => node.set(Node::new(token.loc, NodeKind::Literal(literal))),
-        TokenKind::Keyword(Keyword::Let) => {
-            let token = global.tokens.expect_next(global.errors)?;
-            if let TokenKind::Identifier(name) = token.kind {
-                let id = imperative.insert_local(Local {
-                    loc: token.loc,
-                    name,
-                    type_: None,
-                    value: None,
-                });
-
-                global
-                    .tokens
-                    .try_consume_operator_string("=")
-                    .ok_or_else(|| {
-                        global.error(token.loc, "Expected '=' after identifier".into());
-                    })?;
-
-                expression(global, imperative, node.arg())?;
-
-                node.set(Node::new(token.loc, NodeKind::Declare(id)));
-                node.validate();
-            } else {
-                global.error(token.loc, "Expected identifier".to_string());
-                return Err(());
+            TokenKind::Literal(literal) => {
+                arg_node.set(Node::new(token.loc, NodeKind::Literal(literal)))
             }
-        }
-        TokenKind::Keyword(Keyword::Defer) => {
-            let mut ast = Ast::new();
-            {
-                let mut builder = ast.builder();
-                builder.set(Node::new(token.loc, NodeKind::Block));
-
-                imperative.push_scope_boundary();
-                expression(global, imperative, builder.arg())?;
-                imperative.pop_scope_boundary(&mut builder);
-            }
-            ast.set_root();
-            imperative.push_defer(ast);
-
-            node.set(Node::new(token.loc, NodeKind::Empty));
-            node.validate();
-        }
-        TokenKind::Keyword(Keyword::Extern) => {
-            let loc = token.loc;
-            let token = global.tokens.expect_next(global.errors)?;
-            if let TokenKind::Literal(Literal::String(library_name)) = token.kind {
+            TokenKind::Keyword(Keyword::Let) => {
                 let token = global.tokens.expect_next(global.errors)?;
-                if let TokenKind::Literal(Literal::String(symbol_name)) = token.kind {
-                    node.set(Node::new(
-                        loc,
-                        NodeKind::Extern {
-                            library_name,
-                            symbol_name,
-                        },
-                    ));
-                    node.validate();
+                if let TokenKind::Identifier(name) = token.kind {
+                    let id = imperative.insert_local(Local {
+                        loc: token.loc,
+                        name,
+                        type_: None,
+                        value: None,
+                    });
+
+                    global
+                        .tokens
+                        .try_consume_operator_string("=")
+                        .ok_or_else(|| {
+                            global.error(token.loc, "Expected '=' after identifier".into());
+                        })?;
+
+                    expression(global, imperative, arg_node.arg())?;
+
+                    arg_node.set(Node::new(token.loc, NodeKind::Declare(id)));
+                    arg_node.validate();
+                } else {
+                    global.error(token.loc, "Expected identifier".to_string());
+                    return Err(());
+                }
+            }
+            TokenKind::Keyword(Keyword::Defer) => {
+                let mut ast = Ast::new();
+                {
+                    let mut builder = ast.builder();
+                    builder.set(Node::new(token.loc, NodeKind::Block));
+
+                    imperative.push_scope_boundary();
+                    expression(global, imperative, builder.arg())?;
+                    imperative.pop_scope_boundary(&mut builder);
+                }
+                ast.set_root();
+                imperative.push_defer(ast);
+
+                arg_node.set(Node::new(token.loc, NodeKind::Empty));
+                arg_node.validate();
+            }
+            TokenKind::Keyword(Keyword::Extern) => {
+                let loc = token.loc;
+                let token = global.tokens.expect_next(global.errors)?;
+                if let TokenKind::Literal(Literal::String(library_name)) = token.kind {
+                    let token = global.tokens.expect_next(global.errors)?;
+                    if let TokenKind::Literal(Literal::String(symbol_name)) = token.kind {
+                        arg_node.set(Node::new(
+                            loc,
+                            NodeKind::Extern {
+                                library_name,
+                                symbol_name,
+                            },
+                        ));
+                        arg_node.validate();
+                    } else {
+                        global.error(
+                            token.loc,
+                            "Expected string literal containing the library name".to_string(),
+                        );
+                        return Err(());
+                    }
                 } else {
                     global.error(
                         token.loc,
@@ -315,90 +326,115 @@ fn atom_value(
                     );
                     return Err(());
                 }
-            } else {
-                global.error(
-                    token.loc,
-                    "Expected string literal containing the library name".to_string(),
-                );
-                return Err(());
             }
-        }
-        TokenKind::Open(Bracket::Round) => {
-            let mut has_comma = false;
-            loop {
-                if global.tokens.try_consume(&TokenKind::Close(Bracket::Round)) {
-                    break;
-                }
-
-                expression(global, imperative, node.arg())?;
-
-                let token = global.tokens.expect_next(global.errors)?;
-                match token.kind {
-                    TokenKind::Close(Bracket::Round) => break,
-                    TokenKind::Comma => has_comma = true,
-                    _ => {
-                        global.error(token.loc, "Expected either ',' or ')'".to_string());
-                        return Err(());
+            TokenKind::Open(Bracket::Round) => {
+                let mut has_comma = false;
+                loop {
+                    if global.tokens.try_consume(&TokenKind::Close(Bracket::Round)) {
+                        break;
                     }
-                }
-            }
 
-            if has_comma {
-                // A tuple
-                // node.set(Node::new(token.loc, NodeKind::Tuple));
-                // node.validate();
-                todo!("Tuples");
-            } else {
-                // Just a parenthesis
-                node.into_arg();
-            }
-        }
-
-        TokenKind::Open(Bracket::Curly) => {
-            imperative.push_scope_boundary();
-
-            loop {
-                if let Some(loc) = global
-                    .tokens
-                    .try_consume_with_data(&TokenKind::Close(Bracket::Curly))
-                {
-                    node.arg().set(Node::new(loc, NodeKind::Empty));
-                    break;
-                }
-
-                if global
-                    .tokens
-                    .try_consume(&TokenKind::Keyword(Keyword::Const))
-                {
-                    constant(global)?;
-                } else {
-                    expression(global, imperative, node.arg())?;
+                    expression(global, imperative, arg_node.arg())?;
 
                     let token = global.tokens.expect_next(global.errors)?;
                     match token.kind {
-                        TokenKind::SemiColon => {}
-                        TokenKind::Close(Bracket::Curly) => break,
+                        TokenKind::Close(Bracket::Round) => break,
+                        TokenKind::Comma => has_comma = true,
                         _ => {
-                            global.error(token.loc, "Expected ';' or '}'".to_string());
+                            global.error(token.loc, "Expected either ',' or ')'".to_string());
                             return Err(());
                         }
                     }
                 }
+
+                if has_comma {
+                    // A tuple
+                    // arg_node.set(Node::new(token.loc, NodeKind::Tuple));
+                    // arg_node.validate();
+                    todo!("Tuples");
+                } else {
+                    // Just a parenthesis
+                    arg_node.into_arg();
+                }
             }
 
-            imperative.pop_scope_boundary(&mut node);
-            node.set(Node::new(token.loc, NodeKind::Block));
-            node.validate();
-        }
+            TokenKind::Open(Bracket::Curly) => {
+                imperative.push_scope_boundary();
 
-        _ => {
-            global.error(
-                token.loc,
-                format!("Unexpected token '{:?}', expected value", token.kind),
-            );
-            return Err(());
+                loop {
+                    if let Some(loc) = global
+                        .tokens
+                        .try_consume_with_data(&TokenKind::Close(Bracket::Curly))
+                    {
+                        arg_node.arg().set(Node::new(loc, NodeKind::Empty));
+                        break;
+                    }
+
+                    if global
+                        .tokens
+                        .try_consume(&TokenKind::Keyword(Keyword::Const))
+                    {
+                        constant(global)?;
+                    } else {
+                        expression(global, imperative, arg_node.arg())?;
+
+                        let token = global.tokens.expect_next(global.errors)?;
+                        match token.kind {
+                            TokenKind::SemiColon => {}
+                            TokenKind::Close(Bracket::Curly) => break,
+                            _ => {
+                                global.error(token.loc, "Expected ';' or '}'".to_string());
+                                return Err(());
+                            }
+                        }
+                    }
+                }
+
+                imperative.pop_scope_boundary(&mut arg_node);
+                arg_node.set(Node::new(token.loc, NodeKind::Block));
+                arg_node.validate();
+            }
+
+            _ => {
+                global.error(
+                    token.loc,
+                    format!("Unexpected token '{:?}', expected value", token.kind),
+                );
+                return Err(());
+            }
         }
     }
+
+    while let Some(loc) = global
+        .tokens
+        .try_consume_with_data(&TokenKind::Open(Bracket::Round))
+    {
+        let mut n_children = 1;
+
+        loop {
+            if global.tokens.try_consume(&TokenKind::Close(Bracket::Round)) {
+                break;
+            }
+
+            expression(global, imperative, node.arg())?;
+            n_children += 1;
+
+            let token = global.tokens.expect_next(global.errors)?;
+            match token.kind {
+                TokenKind::Close(Bracket::Round) => break,
+                TokenKind::Comma => {}
+                _ => {
+                    global.error(token.loc, "Expected ',' or ')'".into());
+                    return Err(());
+                }
+            }
+        }
+
+        node.collapse(Node::new(loc, NodeKind::FunctionCall), n_children);
+    }
+
+    node.into_arg();
+
     Ok(())
 }
 

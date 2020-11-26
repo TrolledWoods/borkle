@@ -1,4 +1,4 @@
-const main = extern "borkle_lib/hello" "answer2" : fn -> i64;
-const main2 = {
-    // let x = 2 * main();
-};
+const answer  = extern "borkle_lib/hello" "answer3" : fn -> i64;
+const answer2 = extern "borkle_lib/hello" "answer2" : i64;
+
+const main = answer();
