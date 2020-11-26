@@ -125,7 +125,6 @@ fn worker(program: &Arc<Program>, work: &Arc<WorkPile>) -> ErrorCtx {
                 }
                 Task::Value(member_id, locals, ast) => {
                     let routine = crate::ir::emit::emit(program, locals, &ast);
-                    println!("Emitted instructions");
 
                     let mut stack = crate::interp::Stack::new(2048);
                     let result = crate::interp::interp(program, &mut stack, &routine);

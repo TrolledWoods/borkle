@@ -1,7 +1,10 @@
 use crate::ir::{Instr, Routine};
 use crate::operators::{BinaryOp, UnaryOp};
 use crate::program::Program;
+use crate::types::TypeKind;
 
+#[macro_use]
+mod macros;
 mod stack;
 
 pub use stack::Stack;
@@ -45,51 +48,33 @@ fn interp_internal(program: &Program, stack: &mut StackFrame<'_>, routine: &Rout
             Instr::Global { to, from } => {
                 program.copy_value_into_slice(from, stack.get_mut(to));
             }
-            Instr::Binary { op, to, a, b } => match op {
+            Instr::Binary {
+                op,
+                to,
+                a,
+                b,
+                type_,
+            } => match op {
                 BinaryOp::And | BinaryOp::Or | BinaryOp::Equals => {
                     todo!("Operator is not implemented yet");
                 }
                 BinaryOp::Add => {
-                    let a = u64_from_bytes(stack.get(a));
-                    let b = u64_from_bytes(stack.get(b));
-                    let result = a.wrapping_add(b);
-                    let to = stack.get_mut(to);
-                    to.copy_from_slice(&result.to_le_bytes()[..to.len()]);
+                    all_int_types!(type_, stack.get_mut(to), (stack.get(a), stack.get(b)), +);
                 }
                 BinaryOp::Sub => {
-                    let a = u64_from_bytes(stack.get(a));
-                    let b = u64_from_bytes(stack.get(b));
-                    let result = a.wrapping_sub(b);
-                    let to = stack.get_mut(to);
-                    to.copy_from_slice(&result.to_le_bytes()[..to.len()]);
+                    all_int_types!(type_, stack.get_mut(to), (stack.get(a), stack.get(b)), -);
                 }
                 BinaryOp::Mult => {
-                    let a = u64_from_bytes(stack.get(a));
-                    let b = u64_from_bytes(stack.get(b));
-                    let result = a.wrapping_mul(b);
-                    let to = stack.get_mut(to);
-                    to.copy_from_slice(&result.to_le_bytes()[..to.len()]);
+                    all_int_types!(type_, stack.get_mut(to), (stack.get(a), stack.get(b)), *);
                 }
                 BinaryOp::Div => {
-                    let a = u64_from_bytes(stack.get(a));
-                    let b = u64_from_bytes(stack.get(b));
-                    let result = a.wrapping_div(b);
-                    let to = stack.get_mut(to);
-                    to.copy_from_slice(&result.to_le_bytes()[..to.len()]);
+                    all_int_types!(type_, stack.get_mut(to), (stack.get(a), stack.get(b)), /);
                 }
                 BinaryOp::BitAnd => {
-                    let a = u64_from_bytes(stack.get(a));
-                    let b = u64_from_bytes(stack.get(b));
-                    let result = a & b;
-                    let to = stack.get_mut(to);
-                    to.copy_from_slice(&result.to_le_bytes()[..to.len()]);
+                    all_int_types!(type_, stack.get_mut(to), (stack.get(a), stack.get(b)), &);
                 }
                 BinaryOp::BitOr => {
-                    let a = u64_from_bytes(stack.get(a));
-                    let b = u64_from_bytes(stack.get(b));
-                    let result = a | b;
-                    let to = stack.get_mut(to);
-                    to.copy_from_slice(&result.to_le_bytes()[..to.len()]);
+                    all_int_types!(type_, stack.get_mut(to), (stack.get(a), stack.get(b)), |);
                 }
             },
             Instr::Unary { op, to, from } => match op {

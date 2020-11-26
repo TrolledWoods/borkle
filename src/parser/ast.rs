@@ -32,6 +32,7 @@ pub enum NodeKind {
     FunctionType {
         is_extern: bool,
     },
+    ReferenceType,
     LiteralType(Type),
 
     Unary(UnaryOp),
@@ -54,23 +55,21 @@ impl fmt::Debug for Node {
 
 impl bump_tree::MetaData for Node {
     fn validate(&self, num_args: usize) -> bool {
-        matches!(
-            (&self.kind, num_args),
-
-              (NodeKind::Literal(_),     0)
-            | (NodeKind::LiteralType(_), 0)
-            | (NodeKind::FunctionType { .. },   1..=usize::MAX)
-            | (NodeKind::Global(_),      0)
-            | (NodeKind::Local(_),       0)
-            | (NodeKind::Member(_),      1)
-            | (NodeKind::Unary(_),       1)
-            | (NodeKind::Declare(_),     1)
-            | (NodeKind::Binary(_),      2)
-            | (NodeKind::Extern { .. },  0)
-            | (NodeKind::TypeBound,      2)
-            | (NodeKind::Empty,          0)
-            | (NodeKind::FunctionCall,   1..=usize::MAX)
-            | (NodeKind::Block,          _)
-        )
+        match self.kind {
+            NodeKind::Local(_)
+            | NodeKind::Empty
+            | NodeKind::Literal(_)
+            | NodeKind::Global(_)
+            | NodeKind::Extern { .. }
+            | NodeKind::LiteralType(_) => num_args == 0,
+            NodeKind::Declare(_)
+            | NodeKind::Member(_)
+            | NodeKind::ReferenceType
+            | NodeKind::Unary(_) => num_args == 1,
+            NodeKind::Binary(_) | NodeKind::TypeBound => num_args == 2,
+            NodeKind::Block | NodeKind::FunctionCall | NodeKind::FunctionType { is_extern: _ } => {
+                num_args >= 1
+            }
+        }
     }
 }

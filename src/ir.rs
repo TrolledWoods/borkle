@@ -28,6 +28,7 @@ pub enum Instr {
         to: Value,
         a: Value,
         b: Value,
+        type_: Type,
     },
     Unary {
         op: UnaryOp,

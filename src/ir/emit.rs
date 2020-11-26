@@ -63,7 +63,13 @@ fn emit_node(ctx: &mut Context<'_>, node: &Node<'_>) -> Value {
             let mut children = node.children();
             let a = emit_node(ctx, &children.next().unwrap());
             let b = emit_node(ctx, &children.next().unwrap());
-            ctx.instr.push(Instr::Binary { op: *op, to, a, b });
+            ctx.instr.push(Instr::Binary {
+                op: *op,
+                to,
+                a,
+                b,
+                type_: node.type_(),
+            });
             to
         }
         NodeKind::Unary(UnaryOp::Reference) => {

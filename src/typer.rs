@@ -314,7 +314,9 @@ fn type_ast(
             node.set(Node::new(parsed.loc, NodeKind::Assign(local), type_));
             node.validate();
         }
-        ParserNodeKind::LiteralType(_) | ParserNodeKind::FunctionType { .. } => {
+        ParserNodeKind::LiteralType(_)
+        | ParserNodeKind::FunctionType { .. }
+        | ParserNodeKind::ReferenceType => {
             ctx.errors.error(
                 parsed.loc,
                 "(Internal compiler error) The parser should not emit a type node here".to_string(),
@@ -340,6 +342,11 @@ fn type_ast(
 fn const_fold_type_expr(errors: &mut ErrorCtx, parsed: ParsedNode<'_>) -> Result<Type, ()> {
     match parsed.kind {
         ParserNodeKind::LiteralType(type_) => Ok(type_),
+        ParserNodeKind::ReferenceType => {
+            let mut children = parsed.children();
+            let pointee = const_fold_type_expr(errors, children.next().unwrap())?;
+            Ok(TypeKind::Reference(pointee).into())
+        }
         ParserNodeKind::FunctionType { is_extern } => {
             let mut children = parsed.children();
             let n_args = children.len() - 1;

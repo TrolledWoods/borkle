@@ -21,3 +21,8 @@ pub extern "C" fn print_u8(num: u8) -> u8 {
     println!("{}", num);
     num
 }
+
+#[no_mangle]
+pub extern "C" fn callback() -> extern "C" fn(i64) -> i64 {
+    print_i64
+}
