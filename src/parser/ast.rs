@@ -29,7 +29,9 @@ pub enum NodeKind {
 
     Member(Ustr),
 
-    FunctionType,
+    FunctionType {
+        is_extern: bool,
+    },
     LiteralType(Type),
 
     Unary(UnaryOp),
@@ -57,7 +59,7 @@ impl bump_tree::MetaData for Node {
 
               (NodeKind::Literal(_),     0)
             | (NodeKind::LiteralType(_), 0)
-            | (NodeKind::FunctionType,   1..=usize::MAX)
+            | (NodeKind::FunctionType { .. },   1..=usize::MAX)
             | (NodeKind::Global(_),      0)
             | (NodeKind::Local(_),       0)
             | (NodeKind::Member(_),      1)

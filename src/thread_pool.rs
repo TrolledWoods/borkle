@@ -1,5 +1,5 @@
 use crate::errors::ErrorCtx;
-use crate::program::{MemberId, Program, Task};
+use crate::program::{Program, Task};
 use parking_lot::Mutex;
 use std::collections::VecDeque;
 use std::sync::atomic::{AtomicU32, Ordering};
@@ -124,21 +124,8 @@ fn worker(program: &Arc<Program>, work: &Arc<WorkPile>) -> ErrorCtx {
                     }
                 }
                 Task::Value(member_id, locals, ast) => {
-                    use std::io::Write;
-                    let routine = crate::ir::emit::emit(locals, &ast);
-
-                    // let stdout = std::io::stdout();
-                    // let mut stdout = stdout.lock();
-                    // let _ = writeln!(
-                    //     &mut stdout,
-                    //     "Const evaluation routine for {:?} finished: ",
-                    //     member_id
-                    // );
-                    // let _ = writeln!(&mut stdout, "Result: {:?}", routine.result);
-                    // for instr in &routine.instr {
-                    //     let _ = writeln!(&mut stdout, "    {:?}", instr);
-                    // }
-                    // drop(stdout);
+                    let routine = crate::ir::emit::emit(program, locals, &ast);
+                    println!("Emitted instructions");
 
                     let mut stack = crate::interp::Stack::new(2048);
                     let result = crate::interp::interp(program, &mut stack, &routine);

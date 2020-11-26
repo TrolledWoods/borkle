@@ -7,6 +7,7 @@ use crate::dependencies::{DependencyKind, DependencyList};
 use crate::errors::ErrorCtx;
 use crate::literal::Literal;
 use crate::locals::Local;
+use crate::location::Location;
 use crate::operators::{AccessOp, BinaryOp};
 use crate::program::{Program, Task};
 use crate::types::TypeKind;
@@ -181,31 +182,14 @@ fn type_(
                     .expect_next_is(global.errors, &TokenKind::Close(Bracket::Round))?;
             }
         }
+        TokenKind::Keyword(Keyword::Extern) => {
+            global
+                .tokens
+                .expect_next_is(global.errors, &TokenKind::Keyword(Keyword::Function))?;
+            function_type(global, dependencies, token.loc, node, true)?;
+        }
         TokenKind::Keyword(Keyword::Function) => {
-            // We start with a list of arguments.
-            if global.tokens.try_consume_operator_string("->").is_some() {
-                type_(global, dependencies, node.arg())?;
-            } else {
-                loop {
-                    type_(global, dependencies, node.arg())?;
-
-                    if !global.tokens.try_consume(&TokenKind::Comma) {
-                        break;
-                    }
-                }
-
-                if global.tokens.try_consume_operator_string("->").is_some() {
-                    type_(global, dependencies, node.arg())?;
-                } else {
-                    node.arg().set(Node::new(
-                        token.loc,
-                        NodeKind::LiteralType(TypeKind::Empty.into()),
-                    ));
-                }
-            }
-
-            node.set(Node::new(token.loc, NodeKind::FunctionType));
-            node.validate();
+            function_type(global, dependencies, token.loc, node, false)?;
         }
         TokenKind::Keyword(Keyword::I64) => {
             node.set(Node::new(
@@ -449,30 +433,37 @@ fn atom_value(
     Ok(())
 }
 
-/// Tries to parse a type marker. It first checks if there is a ':',
-/// and only tries to parse a type if there is one. If there was a type
-/// marker here, it returns Ok(true), if not it returns Ok(false)
-fn maybe_type_marker(
+fn function_type(
     global: &mut DataContext<'_>,
     dependencies: &mut DependencyList,
+    loc: Location,
     mut node: NodeBuilder<'_>,
-) -> Result<bool, ()> {
-    if global.tokens.try_consume_operator_string(":").is_none() {
-        return Ok(false);
+    is_extern: bool,
+) -> Result<(), ()> {
+    // We start with a list of arguments.
+    if global.tokens.try_consume_operator_string("->").is_some() {
+        type_(global, dependencies, node.arg())?;
+    } else {
+        loop {
+            type_(global, dependencies, node.arg())?;
+
+            if !global.tokens.try_consume(&TokenKind::Comma) {
+                break;
+            }
+        }
+
+        if global.tokens.try_consume_operator_string("->").is_some() {
+            type_(global, dependencies, node.arg())?;
+        } else {
+            node.arg().set(Node::new(
+                loc,
+                NodeKind::LiteralType(TypeKind::Empty.into()),
+            ));
+        }
     }
 
-    let token = global.tokens.expect_next(global.errors)?;
-    match token.kind {
-        TokenKind::Identifier(name) => {
-            dependencies.add(name, DependencyKind::Value);
-            node.set(Node::new(token.loc, NodeKind::Global(name)));
-        }
-        TokenKind::Open(Bracket::Round) => todo!(),
-        _ => {
-            global.error(token.loc, format!("Expected type, got {:?}", token.kind));
-            return Err(());
-        }
-    }
+    node.set(Node::new(loc, NodeKind::FunctionType { is_extern }));
+    node.validate();
 
-    Ok(true)
+    Ok(())
 }

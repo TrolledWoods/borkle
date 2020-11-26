@@ -1,12 +1,14 @@
 use crate::dependencies::DependencyList;
 use crate::thread_pool::WorkSender;
 use crate::types::Type;
+use bumpalo::Bump;
 use parking_lot::{Mutex, RwLock};
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicI32, Ordering};
 use ustr::{Ustr, UstrMap};
 
-mod ffi;
+pub mod ffi;
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub struct MemberId(Ustr);
@@ -31,7 +33,8 @@ pub struct Program {
     // TODO: We will have scopes eventually, but for now
     // everything is just in the same scope.
     const_table: RwLock<UstrMap<Member>>,
-    functions: RwLock<Vec<Function>>,
+    calling_conventions_alloc: Mutex<Bump>,
+    extern_fn_calling_conventions: RwLock<HashMap<Type, ffi::CallingConvention>>,
     work: WorkSender,
     pub libraries: Mutex<ffi::Libraries>,
 }
@@ -40,22 +43,25 @@ impl Program {
     pub fn new(work: WorkSender) -> Self {
         Self {
             const_table: RwLock::default(),
-            functions: RwLock::default(),
+            extern_fn_calling_conventions: RwLock::default(),
+            calling_conventions_alloc: Mutex::default(),
             libraries: Mutex::new(ffi::Libraries::new()),
             work,
         }
     }
 
-    pub fn function(&self, function_id: usize) -> Function {
-        let functions = self.functions.read();
-        functions[function_id]
-    }
-
-    pub fn insert_function(&self, function: Function) -> usize {
-        let mut functions = self.functions.write();
-        let id = functions.len();
-        functions.push(function);
-        id
+    pub fn ffi_calling_convention(&self, function_type: Type) -> ffi::CallingConvention {
+        let guard = self.extern_fn_calling_conventions.read();
+        if let Some(convention) = guard.get(&function_type).copied() {
+            convention
+        } else {
+            drop(guard);
+            let mut guard = self.extern_fn_calling_conventions.write();
+            let mut alloc = self.calling_conventions_alloc.lock();
+            let convention = ffi::CallingConvention::new(&alloc, function_type);
+            guard.insert(function_type, convention);
+            convention
+        }
     }
 
     pub fn copy_value_into_slice(&self, id: MemberId, slice: &mut [u8]) {
@@ -266,10 +272,4 @@ pub enum Task {
     Parse(Ustr, PathBuf),
     Type(MemberId, crate::locals::LocalVariables, crate::parser::Ast),
     Value(MemberId, crate::locals::LocalVariables, crate::typer::Ast),
-}
-
-#[derive(Clone, Copy)]
-pub enum Function {
-    FFI(ffi::Function),
-    Temp,
 }

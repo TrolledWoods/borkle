@@ -1,8 +1,5 @@
-const alloc   = extern "borkle_lib/hello" "alloc" : fn i64 -> i64;
-const dealloc = extern "borkle_lib/hello" "dealloc" : fn i64, i64;
+const print_i64 = extern "borkle_lib/hello" "print_i64" : extern fn i64 -> i64;
+const print_u8  = extern "borkle_lib/hello" "print_u8"  : extern fn u8 -> u8;
 
-const main = {
-    let ptr = alloc(8);
-    dealloc(ptr, 8);
-    ptr
-};
+const hello2 = print_u8(42 + 4);
+const perfect = print_i64(1924);

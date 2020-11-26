@@ -111,7 +111,14 @@ impl Display for TypeKind {
             Self::I64 => write!(fmt, "i64"),
             Self::U8 => write!(fmt, "u8"),
             Self::Reference(internal) => write!(fmt, "&{}", internal),
-            Self::Function { args, returns } => {
+            Self::Function {
+                args,
+                returns,
+                is_extern,
+            } => {
+                if *is_extern {
+                    write!(fmt, "extern ")?;
+                }
                 write!(fmt, "fn")?;
                 for (i, arg) in args.iter().enumerate() {
                     if i > 0 {
@@ -153,7 +160,11 @@ pub enum TypeKind {
     I64,
     U8,
     Reference(Type),
-    Function { args: Vec<Type>, returns: Type },
+    Function {
+        args: Vec<Type>,
+        returns: Type,
+        is_extern: bool,
+    },
     Struct(Vec<(Ustr, Type)>),
 }
 

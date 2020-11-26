@@ -1,23 +1,26 @@
-use super::{Instr, Register, Registers, Routine, Value};
+use super::{Instr, Registers, Routine, Value};
 use crate::locals::LocalVariables;
 use crate::operators::UnaryOp;
+use crate::program::Program;
 use crate::typer::ast::NodeKind;
 use crate::typer::Ast;
 
 type Node<'a> = bump_tree::Node<'a, crate::typer::ast::Node>;
 
-struct Context {
+struct Context<'a> {
     instr: Vec<Instr>,
     registers: Registers,
     locals: LocalVariables,
+    program: &'a Program,
 }
 
 /// Emit instructions for an Ast.
-pub fn emit(locals: LocalVariables, ast: &Ast) -> Routine {
+pub fn emit(program: &Program, locals: LocalVariables, ast: &Ast) -> Routine {
     let mut ctx = Context {
         instr: Vec::new(),
         registers: Registers::new(),
         locals,
+        program,
     };
 
     // Allocate registers for all the locals
@@ -35,7 +38,7 @@ pub fn emit(locals: LocalVariables, ast: &Ast) -> Routine {
     }
 }
 
-fn emit_node(ctx: &mut Context, node: &Node<'_>) -> Value {
+fn emit_node(ctx: &mut Context<'_>, node: &Node<'_>) -> Value {
     match node.kind() {
         NodeKind::Constant(bytes) => {
             let to = ctx.registers.create(node.type_());
@@ -106,17 +109,27 @@ fn emit_node(ctx: &mut Context, node: &Node<'_>) -> Value {
             ctx.instr.push(Instr::Global { to, from: *id });
             to
         }
-        NodeKind::FunctionCall => {
-            let to = ctx.registers.create(node.type_());
+        NodeKind::FunctionCall { is_extern } => {
+            let to = ctx.registers.create_min_align(node.type_(), 8);
             let mut children = node.children();
-            let pointer = emit_node(ctx, &children.next().unwrap());
+            let pointer_node = children.next().unwrap();
+            let pointer = emit_node(ctx, &pointer_node);
 
             let mut args = Vec::with_capacity(children.len());
             for child in children {
                 args.push(emit_node(ctx, &child));
             }
 
-            ctx.instr.push(Instr::Call { to, pointer, args });
+            if *is_extern {
+                ctx.instr.push(Instr::CallExtern {
+                    to,
+                    pointer,
+                    args,
+                    convention: ctx.program.ffi_calling_convention(pointer_node.type_()),
+                });
+            } else {
+                todo!("Non extern functions can not be called yet");
+            }
             to
         }
     }

@@ -4,7 +4,7 @@ use crate::literal::Literal;
 use crate::locals::LocalVariables;
 use crate::operators::UnaryOp;
 use crate::parser::{self, ast::NodeKind as ParserNodeKind};
-use crate::program::{Function, MemberId, Program};
+use crate::program::{MemberId, Program};
 use crate::types::{Type, TypeKind};
 use ast::{Node, NodeKind};
 use std::convert::TryFrom;
@@ -62,7 +62,12 @@ fn type_ast(
             let mut children = parsed.children();
             let ptr_child = children.next().unwrap();
             let ptr = type_ast(ctx, None, &ptr_child, node.arg())?;
-            if let TypeKind::Function { args, returns } = ptr.kind() {
+            if let TypeKind::Function {
+                args,
+                returns,
+                is_extern,
+            } = ptr.kind()
+            {
                 if args.len() != children.len() {
                     ctx.errors.error(ptr_child.loc, format!("Function is of type '{}', which has {} arguments, but {} arguments were given in the call", ptr, args.len(), children.len()));
                     return Err(());
@@ -73,7 +78,13 @@ fn type_ast(
                 }
 
                 type_ = *returns;
-                node.set(Node::new(ptr_child.loc, NodeKind::FunctionCall, type_));
+                node.set(Node::new(
+                    ptr_child.loc,
+                    NodeKind::FunctionCall {
+                        is_extern: *is_extern,
+                    },
+                    type_,
+                ));
                 node.validate();
             } else {
                 ctx.errors.error(
@@ -91,20 +102,21 @@ fn type_ast(
             ref symbol_name,
         } => {
             if let Some(wanted_type) = wanted_type {
-                if let TypeKind::Function { args, returns } = wanted_type.kind() {
+                if let TypeKind::Function {
+                    args,
+                    returns,
+                    is_extern: true,
+                } = wanted_type.kind()
+                {
                     let mut libraries = ctx.program.libraries.lock();
-                    match libraries.load_symbol(
-                        library_name.as_str().into(),
-                        symbol_name.as_str().into(),
-                        args,
-                        *returns,
-                    ) {
+                    match libraries
+                        .load_symbol(library_name.as_str().into(), symbol_name.as_str().into())
+                    {
                         Ok(func) => {
-                            let id = ctx.program.insert_function(Function::FFI(func));
                             type_ = wanted_type;
                             node.set(Node::new(
                                 parsed.loc,
-                                NodeKind::Constant(id.into()),
+                                NodeKind::Constant(func.into()),
                                 wanted_type,
                             ));
                             node.validate();
@@ -120,7 +132,7 @@ fn type_ast(
                 } else {
                     ctx.errors.error(
                         parsed.loc,
-                        "Only function pointer types can be imported from external sources"
+                        "Only extern function pointer types can be imported from external sources"
                             .to_string(),
                     );
                     return Err(());
@@ -302,7 +314,7 @@ fn type_ast(
             node.set(Node::new(parsed.loc, NodeKind::Assign(local), type_));
             node.validate();
         }
-        ParserNodeKind::LiteralType(_) | ParserNodeKind::FunctionType => {
+        ParserNodeKind::LiteralType(_) | ParserNodeKind::FunctionType { .. } => {
             ctx.errors.error(
                 parsed.loc,
                 "(Internal compiler error) The parser should not emit a type node here".to_string(),
@@ -328,7 +340,7 @@ fn type_ast(
 fn const_fold_type_expr(errors: &mut ErrorCtx, parsed: ParsedNode<'_>) -> Result<Type, ()> {
     match parsed.kind {
         ParserNodeKind::LiteralType(type_) => Ok(type_),
-        ParserNodeKind::FunctionType => {
+        ParserNodeKind::FunctionType { is_extern } => {
             let mut children = parsed.children();
             let n_args = children.len() - 1;
 
@@ -342,6 +354,7 @@ fn const_fold_type_expr(errors: &mut ErrorCtx, parsed: ParsedNode<'_>) -> Result
             Ok(TypeKind::Function {
                 args: arg_types,
                 returns,
+                is_extern,
             }
             .into())
         }

@@ -37,7 +37,7 @@ impl bump_tree::MetaData for Node {
     fn validate(&self, num_args: usize) -> bool {
         match self.kind {
             NodeKind::Constant(_) | NodeKind::Global(_) | NodeKind::Local(_) => num_args == 0,
-            NodeKind::FunctionCall => true,
+            NodeKind::FunctionCall { .. } => true,
             NodeKind::Block => num_args > 0,
             NodeKind::Member(_) | NodeKind::Assign(_) | NodeKind::Unary(_) => num_args == 1,
             NodeKind::Binary(_) => num_args == 2,
@@ -64,6 +64,12 @@ impl Debug for ByteArray {
 impl From<u64> for ByteArray {
     fn from(other: u64) -> Self {
         Self(other.to_le_bytes().into())
+    }
+}
+
+impl From<unsafe extern "C" fn()> for ByteArray {
+    fn from(other: unsafe extern "C" fn()) -> Self {
+        (other as usize).into()
     }
 }
 
@@ -94,7 +100,7 @@ pub enum NodeKind {
     // node, and they have nothing to do with each other despite having similar names.
     Global(MemberId),
     Member(Ustr),
-    FunctionCall,
+    FunctionCall { is_extern: bool },
     Block,
 
     // TODO: Assign should have 2 children, one being an lvalue, rather than having a LocalId like

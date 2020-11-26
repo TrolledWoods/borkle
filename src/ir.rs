@@ -1,5 +1,5 @@
 use crate::operators::{BinaryOp, UnaryOp};
-use crate::program::MemberId;
+use crate::program::{ffi, MemberId};
 use crate::types::{to_align, Type};
 use ustr::Ustr;
 
@@ -7,12 +7,13 @@ pub mod emit;
 
 #[derive(Debug, Clone)]
 pub enum Instr {
-    Call {
+    CallExtern {
         to: Value,
         pointer: Value,
         // FIXME: We don't really want a vector here, we want a more efficient datastructure
         // probably.
         args: Vec<Value>,
+        convention: ffi::CallingConvention,
     },
     Constant {
         to: Value,
@@ -90,6 +91,22 @@ impl Registers {
             type_,
         });
         self.buffer_size += type_.size();
+        value
+    }
+
+    fn create_min_align(&mut self, type_: impl Into<Type>, min_align: usize) -> Value {
+        let type_ = type_.into();
+        let mut align = type_.align();
+        if align < min_align {
+            align = min_align;
+        }
+        self.buffer_size = to_align(self.buffer_size, align);
+        let value = Value(self.locals.len());
+        self.locals.push(Register {
+            offset: self.buffer_size,
+            type_,
+        });
+        self.buffer_size += to_align(type_.size(), align);
         value
     }
 

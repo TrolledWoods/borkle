@@ -1,6 +1,6 @@
-use crate::ir::{Instr, Routine, Value};
+use crate::ir::{Instr, Routine};
 use crate::operators::{BinaryOp, UnaryOp};
-use crate::program::{Function, Program};
+use crate::program::Program;
 
 mod stack;
 
@@ -18,27 +18,25 @@ pub fn interp(program: &Program, stack: &mut Stack, routine: &Routine) -> Vec<u8
 fn interp_internal(program: &Program, stack: &mut StackFrame<'_>, routine: &Routine) {
     for instr in &routine.instr {
         match *instr {
-            Instr::Call {
+            Instr::CallExtern {
                 to,
                 pointer,
                 ref args,
+                convention,
             } => {
                 let mut ptr = [0_u8; 8];
                 ptr.copy_from_slice(stack.get(pointer));
-                let function_id = usize::from_le_bytes(ptr);
+                let function_ptr = unsafe { std::mem::transmute(usize::from_le_bytes(ptr)) };
 
-                match program.function(function_id) {
-                    Function::FFI(function) => unsafe {
-                        let mut arg_pointers =
-                            [std::ptr::null_mut(); crate::MAX_FUNCTION_ARGUMENTS];
-                        for (arg_ptr, &arg) in arg_pointers.iter_mut().zip(args) {
-                            *arg_ptr = stack.get_mut(arg).as_mut_ptr().cast();
-                        }
+                let mut arg_pointers = [std::ptr::null_mut(); crate::MAX_FUNCTION_ARGUMENTS];
+                for (arg_ptr, &arg) in arg_pointers.iter_mut().zip(args) {
+                    *arg_ptr = stack.get_mut(arg).as_mut_ptr().cast();
+                }
 
-                        let to_ptr: *mut _ = stack.get_mut(to);
-                        function.call(arg_pointers.as_mut_ptr(), to_ptr.cast());
-                    },
-                    Function::Temp => unreachable!(),
+                let to_ptr: *mut _ = stack.get_mut(to).as_mut_ptr().cast();
+
+                unsafe {
+                    convention.call(function_ptr, arg_pointers.as_mut_ptr(), to_ptr);
                 }
             }
             Instr::Constant { to, ref from } => {
@@ -111,7 +109,7 @@ fn interp_internal(program: &Program, stack: &mut StackFrame<'_>, routine: &Rout
                     unreachable!("This operator is supposed to be a special case");
                 }
             },
-            Instr::Member { to, of, name } => {
+            Instr::Member { .. } => {
                 todo!();
             }
             Instr::Dereference { to, from } => {
