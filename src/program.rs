@@ -57,7 +57,7 @@ impl Program {
         } else {
             drop(guard);
             let mut guard = self.extern_fn_calling_conventions.write();
-            let mut alloc = self.calling_conventions_alloc.lock();
+            let alloc = self.calling_conventions_alloc.lock();
             let convention = ffi::CallingConvention::new(&alloc, function_type);
             guard.insert(function_type, convention);
             convention

@@ -1,11 +1,6 @@
-const things = 42 + 4 : u8;
-
-const hello2 = print_u8(46 + 4);
-const perfect = print_i64(5 + 1924);
-const wow0 = callback()(69);
-
 const print_u8  = extern "borkle_lib/hello" "print_u8"  : extern fn u8 -> u8;
 const print_i64 = extern "borkle_lib/hello" "print_i64" : extern fn i64 -> i64;
-const callback  = extern "borkle_lib/hello" "callback"  : extern fn -> extern fn i64 -> i64;
+// const callback  = extern "borkle_lib/hello" "callback"  : extern fn -> extern fn i64 -> i64;
 
-const non_resolved = IDontExistHa;
+const alloc   = extern "borkle_lib/hello" "alloc"   : extern fn i64 -> &u8;
+const dealloc = extern "borkle_lib/hello" "dealloc" : extern fn &u8, i64;

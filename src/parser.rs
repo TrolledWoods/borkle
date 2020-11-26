@@ -161,17 +161,20 @@ fn type_(
     dependencies: &mut DependencyList,
     mut node: NodeBuilder<'_>,
 ) -> Result<(), ()> {
-    let token = global.tokens.expect_next(global.errors)?;
+    let token = global.tokens.expect_peek(global.errors)?;
+    let loc = token.loc;
     match token.kind {
         TokenKind::Identifier(name) => {
+            global.tokens.next();
             dependencies.add(name, DependencyKind::Value);
-            node.set(Node::new(token.loc, NodeKind::Global(name)));
+            node.set(Node::new(loc, NodeKind::Global(name)));
             node.validate();
         }
         TokenKind::Open(Bracket::Round) => {
+            global.tokens.next();
             if global.tokens.try_consume(&TokenKind::Close(Bracket::Round)) {
                 node.set(Node::new(
-                    token.loc,
+                    loc,
                     NodeKind::LiteralType(TypeKind::Empty.into()),
                 ));
                 node.validate();
@@ -183,34 +186,38 @@ fn type_(
             }
         }
         TokenKind::Keyword(Keyword::Extern) => {
+            global.tokens.next();
             global
                 .tokens
                 .expect_next_is(global.errors, &TokenKind::Keyword(Keyword::Function))?;
-            function_type(global, dependencies, token.loc, node, true)?;
+            function_type(global, dependencies, loc, node, true)?;
         }
         TokenKind::Keyword(Keyword::Function) => {
-            function_type(global, dependencies, token.loc, node, false)?;
+            global.tokens.next();
+            function_type(global, dependencies, loc, node, false)?;
         }
         TokenKind::Keyword(Keyword::I64) => {
-            node.set(Node::new(
-                token.loc,
-                NodeKind::LiteralType(TypeKind::I64.into()),
-            ));
+            global.tokens.next();
+            node.set(Node::new(loc, NodeKind::LiteralType(TypeKind::I64.into())));
             node.validate();
         }
         TokenKind::Keyword(Keyword::U8) => {
-            node.set(Node::new(
-                token.loc,
-                NodeKind::LiteralType(TypeKind::U8.into()),
-            ));
+            global.tokens.next();
+            node.set(Node::new(loc, NodeKind::LiteralType(TypeKind::U8.into())));
             node.validate();
         }
         _ => {
-            global.error(
-                token.loc,
-                "Unexpected token, expected type expression".to_string(),
-            );
-            return Err(());
+            if global.tokens.try_consume_operator_string("&").is_some() {
+                type_(global, dependencies, node.arg())?;
+                node.set(Node::new(loc, NodeKind::ReferenceType));
+                node.validate();
+            } else {
+                global.error(
+                    loc,
+                    "Unexpected token, expected type expression".to_string(),
+                );
+                return Err(());
+            }
         }
     }
 
