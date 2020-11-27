@@ -40,6 +40,16 @@ pub fn emit(program: &Program, locals: LocalVariables, ast: &Ast) -> Routine {
 
 fn emit_node(ctx: &mut Context<'_>, node: &Node<'_>) -> Value {
     match node.kind() {
+        NodeKind::BitCast => {
+            let from = emit_node(ctx, &node.children().next().unwrap());
+            let to = ctx.registers.create(node.type_());
+            ctx.instr.push(Instr::Move {
+                to,
+                from,
+                size: node.type_().size(),
+            });
+            to
+        }
         NodeKind::Constant(bytes) => {
             let to = ctx.registers.create(node.type_());
             ctx.instr.push(Instr::Constant {

@@ -207,16 +207,16 @@ pub enum IntTypeKind {
 }
 
 impl IntTypeKind {
-    pub fn range(self) -> std::ops::Range<i128> {
+    pub fn range(self) -> std::ops::RangeInclusive<i128> {
         match self {
-            Self::U64 | Self::Usize => u64::MIN.into()..u64::MAX.into(),
-            Self::I64 | Self::Isize => i64::MIN.into()..i64::MAX.into(),
-            Self::U32 => u32::MIN.into()..u32::MAX.into(),
-            Self::I32 => i32::MIN.into()..i32::MAX.into(),
-            Self::U16 => u16::MIN.into()..u16::MAX.into(),
-            Self::I16 => i16::MIN.into()..i16::MAX.into(),
-            Self::U8 => u8::MIN.into()..u8::MAX.into(),
-            Self::I8 => i8::MIN.into()..i8::MAX.into(),
+            Self::U64 | Self::Usize => u64::MIN.into()..=u64::MAX.into(),
+            Self::I64 | Self::Isize => i64::MIN.into()..=i64::MAX.into(),
+            Self::U32 => u32::MIN.into()..=u32::MAX.into(),
+            Self::I32 => i32::MIN.into()..=i32::MAX.into(),
+            Self::U16 => u16::MIN.into()..=u16::MAX.into(),
+            Self::I16 => i16::MIN.into()..=i16::MAX.into(),
+            Self::U8 => u8::MIN.into()..=u8::MAX.into(),
+            Self::I8 => i8::MIN.into()..=i8::MAX.into(),
         }
     }
 

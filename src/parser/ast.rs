@@ -43,6 +43,8 @@ pub enum NodeKind {
     Empty,
 
     TypeBound,
+    BitCast,
+
     Declare(LocalId),
     Local(LocalId),
 }
@@ -63,6 +65,7 @@ impl bump_tree::MetaData for Node {
             | NodeKind::Extern { .. }
             | NodeKind::LiteralType(_) => num_args == 0,
             NodeKind::Declare(_)
+            | NodeKind::BitCast
             | NodeKind::Member(_)
             | NodeKind::ReferenceType
             | NodeKind::Unary(_) => num_args == 1,

@@ -57,6 +57,33 @@ fn type_ast(
     let type_: Type;
     match parsed.kind {
         ParserNodeKind::Literal(Literal::String(_)) => todo!(),
+        ParserNodeKind::BitCast => {
+            if let Some(casting_to) = wanted_type {
+                let mut children = parsed.children();
+                let parsed_casting = children.next().unwrap();
+                let casting_from = type_ast(ctx, None, &parsed_casting, node.arg())?;
+
+                if casting_from.size() != casting_to.size() {
+                    ctx.errors.error(parsed.loc, format!("Cannot bit_cast from '{}' to '{}', the sizes of the types have to be the same.", casting_from, casting_to));
+                    return Err(());
+                }
+
+                if casting_from == casting_to {
+                    ctx.errors.warning(
+                        parsed.loc,
+                        "Unnecessary bit_cast, the types are the same".to_string(),
+                    );
+                }
+
+                type_ = casting_to;
+
+                node.set(Node::new(parsed.loc, NodeKind::BitCast, type_));
+                node.validate();
+            } else {
+                ctx.errors.error(parsed.loc, "Can only cast if the type we cast to is known; add a type bound after the cast to tell it what to cast to".to_string());
+                return Err(());
+            }
+        }
         ParserNodeKind::FunctionCall => {
             let mut children = parsed.children();
             let ptr_child = children.next().unwrap();
@@ -149,7 +176,7 @@ fn type_ast(
                     let range = int.range();
                     ctx.errors.error(
                             parsed.loc,
-                            format!("Given integer does not fit within a '{:?}', only values from {} to {} fit in this integer", int, range.start, range.end)
+                            format!("Given integer does not fit within a '{:?}', only values from {} to {} fit in this integer", int, range.start(), range.end())
                         );
                     return Err(());
                 }

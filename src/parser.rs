@@ -242,6 +242,11 @@ fn atom_value(
             TokenKind::Literal(literal) => {
                 arg_node.set(Node::new(token.loc, NodeKind::Literal(literal)))
             }
+            TokenKind::Keyword(Keyword::BitCast) => {
+                value(global, imperative, arg_node.arg())?;
+                arg_node.set(Node::new(token.loc, NodeKind::BitCast));
+                arg_node.validate();
+            }
             TokenKind::Keyword(Keyword::Let) => {
                 let token = global.tokens.expect_next(global.errors)?;
                 if let TokenKind::Identifier(name) = token.kind {

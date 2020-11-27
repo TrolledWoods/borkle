@@ -39,7 +39,9 @@ impl bump_tree::MetaData for Node {
             NodeKind::Constant(_) | NodeKind::Global(_) | NodeKind::Local(_) => num_args == 0,
             NodeKind::FunctionCall { .. } => true,
             NodeKind::Block => num_args > 0,
-            NodeKind::Member(_) | NodeKind::Assign(_) | NodeKind::Unary(_) => num_args == 1,
+            NodeKind::BitCast | NodeKind::Member(_) | NodeKind::Assign(_) | NodeKind::Unary(_) => {
+                num_args == 1
+            }
             NodeKind::Binary(_) => num_args == 2,
         }
     }
@@ -116,6 +118,8 @@ pub enum NodeKind {
 
     Binary(BinaryOp),
     Unary(UnaryOp),
+
+    BitCast,
 }
 
 impl Debug for Node {
