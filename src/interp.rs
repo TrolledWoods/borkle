@@ -1,7 +1,6 @@
 use crate::ir::{Instr, Routine};
 use crate::operators::{BinaryOp, UnaryOp};
 use crate::program::Program;
-use crate::types::TypeKind;
 
 #[macro_use]
 mod macros;

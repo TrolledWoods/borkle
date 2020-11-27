@@ -103,8 +103,8 @@ fn type_ast(
         } => {
             if let Some(wanted_type) = wanted_type {
                 if let TypeKind::Function {
-                    args,
-                    returns,
+                    args: _,
+                    returns: _,
                     is_extern: true,
                 } = wanted_type.kind()
                 {

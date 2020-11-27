@@ -57,6 +57,7 @@ impl<'a> StackFrame<'a> {
     /// stack frame, as well as the new stack frame. This is so that the previous stack frame can
     /// still be used(although it's much smaller) while the new stackframe can add more stack
     /// frames still.
+    #[allow(unused)]
     pub fn split<'b>(&'b mut self, registers: &'b Registers) -> (StackFrame<'b>, StackFrame<'b>) {
         let position = crate::types::to_align(self.registers.buffer_size, 16);
         if self.stack.len() < position + registers.buffer_size {

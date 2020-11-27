@@ -17,14 +17,12 @@ struct Library {
 }
 
 pub struct Libraries {
-    alloc: Bump,
     libs: UstrMap<Library>,
 }
 
 impl Libraries {
     pub fn new() -> Self {
         Self {
-            alloc: Bump::new(),
             libs: UstrMap::default(),
         }
     }
@@ -135,7 +133,7 @@ fn type_to_ffi_type(type_: Type) -> Option<ffi_type> {
             TypeKind::I64 => Some(ffi_type_sint64),
             TypeKind::F64 => Some(ffi_type_double),
             TypeKind::Reference(_) | TypeKind::Function { .. } => Some(ffi_type_pointer),
-            TypeKind::Struct(members) => {
+            TypeKind::Struct(_) => {
                 todo!("Struct ffi is not implemented yet");
             }
         }

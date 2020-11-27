@@ -53,12 +53,6 @@ impl ThreadPool {
         }
     }
 
-    pub fn create_work_sender(&self) -> WorkSender {
-        WorkSender {
-            work: Arc::clone(&self.work),
-        }
-    }
-
     pub fn spawn_thread(&mut self) {
         let program = Arc::clone(&self.program);
         let work = Arc::clone(&self.work);
@@ -111,7 +105,7 @@ fn worker(program: &Arc<Program>, work: &Arc<WorkPile>) -> ErrorCtx {
                     match crate::typer::process_ast(&mut errors, program, locals, &ast) {
                         Ok((dependencies, locals, ast)) => {
                             let type_ = ast.root().unwrap().type_();
-                            println!("type of '{}' = '{:?}'", member_id.to_ustr(), type_);
+                            // println!("type of '{}' = '{:?}'", member_id.to_ustr(), type_);
                             program.insert(member_id.to_ustr(), dependencies, |id| {
                                 Task::Value(id, locals, ast)
                             });
@@ -128,7 +122,7 @@ fn worker(program: &Arc<Program>, work: &Arc<WorkPile>) -> ErrorCtx {
 
                     let mut stack = crate::interp::Stack::new(2048);
                     let result = crate::interp::interp(program, &mut stack, &routine);
-                    println!("value of '{}' = {:?}", member_id.to_ustr(), result);
+                    // println!("value of '{}' = {:?}", member_id.to_ustr(), result);
 
                     program.set_value_of_member(member_id.to_ustr(), result);
                 }

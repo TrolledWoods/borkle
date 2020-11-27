@@ -53,8 +53,6 @@ pub enum Instr {
         from: Value,
         size: usize,
     },
-    /// Move 'from' into the memory location pointed to by
-    /// 'to'.
     MoveIndirect {
         to: Value,
         from: Value,
