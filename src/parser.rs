@@ -374,10 +374,22 @@ fn atom_value(
 
                         let token = global.tokens.expect_next(global.errors)?;
                         match token.kind {
+                            TokenKind::Operator(c) if c == "=" => {
+                                // Assignment!
+                                expression(global, imperative, arg_node.arg())?;
+                                arg_node.collapse(Node::new(token.loc, NodeKind::Assign), 2);
+
+                                global
+                                    .tokens
+                                    .expect_next_is(global.errors, &TokenKind::SemiColon)?;
+                            }
                             TokenKind::SemiColon => {}
                             TokenKind::Close(Bracket::Curly) => break,
                             _ => {
-                                global.error(token.loc, "Expected ';' or '}'".to_string());
+                                global.error(
+                                    token.loc,
+                                    "Expected ';' or '}', or a '=' for assignment".to_string(),
+                                );
                                 return Err(());
                             }
                         }
@@ -527,7 +539,7 @@ fn function_declaration(
                 return Err(());
             }
 
-            type_(global, imperative.dependencies, node.arg());
+            type_(global, imperative.dependencies, node.arg())?;
         } else {
             global.error(
                 global.tokens.loc(),
@@ -548,7 +560,7 @@ fn function_declaration(
     }
 
     if global.tokens.try_consume_operator_string("->").is_some() {
-        type_(global, imperative.dependencies, node.arg());
+        type_(global, imperative.dependencies, node.arg())?;
     } else {
         node.arg().set(Node::new(
             global.tokens.loc(),

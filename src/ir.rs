@@ -1,6 +1,6 @@
 use crate::operators::{BinaryOp, UnaryOp};
 use crate::program::{ffi, MemberId};
-use crate::types::{to_align, Type};
+use crate::types::{to_align, Type, TypeKind};
 use ustr::Ustr;
 
 pub mod emit;
@@ -96,6 +96,10 @@ impl Registers {
         });
         self.buffer_size += type_.size();
         value
+    }
+
+    fn zst(&mut self) -> Value {
+        self.create(TypeKind::Empty)
     }
 
     fn create_min_align(&mut self, type_: impl Into<Type>, min_align: usize) -> Value {

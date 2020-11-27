@@ -123,7 +123,7 @@ where
     /// arguments (with the `arg` function) into arguments
     /// of some value `T`.
     pub fn collapse(&mut self, value: T, num_args: usize) {
-        assert!(num_args >= self.num_args());
+        assert!(num_args <= self.num_args());
 
         let new_length = self.tree.incomplete.len() - num_args;
         let slice = self

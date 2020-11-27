@@ -59,6 +59,51 @@ fn type_ast(
     let type_: Type;
     match parsed.kind {
         ParserNodeKind::Literal(Literal::String(_)) => todo!(),
+        ParserNodeKind::Assign => {
+            let mut children = parsed.children();
+            let lvalue = children.next().unwrap();
+            type_ = Type::new(TypeKind::Empty);
+            match lvalue.kind {
+                ParserNodeKind::Local(local) => {
+                    type_ast(
+                        ctx,
+                        Some(ctx.locals.get(local).type_.unwrap()),
+                        &children.next().unwrap(),
+                        node.arg(),
+                    )?;
+                    node.set(Node::new(parsed.loc, NodeKind::AssignLocal(local), type_));
+                    node.validate();
+                }
+                ParserNodeKind::Unary(UnaryOp::Dereference) => {
+                    let pointer_node = lvalue.children().next().unwrap();
+                    let pointer_type = type_ast(ctx, None, &pointer_node, node.arg())?;
+                    let pointee = match pointer_type.kind() {
+                        TypeKind::Reference(pointee) => *pointee,
+                        _ => {
+                            ctx.errors.error(
+                                pointer_node.loc,
+                                format!(
+                                    "Can only dereference pointer types, found '{}'",
+                                    pointer_type
+                                ),
+                            );
+                            return Err(());
+                        }
+                    };
+                    type_ast(ctx, Some(pointee), &children.next().unwrap(), node.arg())?;
+                    node.set(Node::new(parsed.loc, NodeKind::AssignToPtr, type_));
+                    node.validate();
+                }
+                _ => {
+                    ctx.errors.error(
+                        lvalue.loc,
+                        "You can only assign to a dereferenced pointer or to a local variable"
+                            .to_string(),
+                    );
+                    return Err(());
+                }
+            }
+        }
         ParserNodeKind::FunctionDeclaration { ref locals } => {
             let mut locals = locals.clone();
             let mut children = parsed.children();
@@ -389,7 +434,7 @@ fn type_ast(
 
             ctx.locals.get_mut(local).type_ = Some(local_type);
             type_ = Type::new(TypeKind::Empty);
-            node.set(Node::new(parsed.loc, NodeKind::Assign(local), type_));
+            node.set(Node::new(parsed.loc, NodeKind::AssignLocal(local), type_));
             node.validate();
         }
         ParserNodeKind::LiteralType(_)

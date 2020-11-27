@@ -129,7 +129,20 @@ fn emit_node(ctx: &mut Context<'_>, node: &Node<'_>) -> Value {
             ctx.instr.push(Instr::Unary { op: *op, to, from });
             to
         }
-        NodeKind::Assign(local_id) => {
+        NodeKind::AssignToPtr => {
+            let to = ctx.registers.zst();
+            let mut children = node.children();
+            let ptr_to = emit_node(ctx, &children.next().unwrap());
+            let from_node = children.next().unwrap();
+            let from = emit_node(ctx, &from_node);
+            ctx.instr.push(Instr::MoveIndirect {
+                to: ptr_to,
+                from,
+                size: from_node.type_().size(),
+            });
+            to
+        }
+        NodeKind::AssignLocal(local_id) => {
             let to = ctx.registers.create(node.type_());
             let from_node = node.children().next().unwrap();
             let from = emit_node(ctx, &from_node);

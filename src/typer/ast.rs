@@ -42,9 +42,9 @@ impl bump_tree::MetaData for Node {
             NodeKind::FunctionDeclaration { locals: _ }
             | NodeKind::BitCast
             | NodeKind::Member(_)
-            | NodeKind::Assign(_)
+            | NodeKind::AssignLocal(_)
             | NodeKind::Unary(_) => num_args == 1,
-            NodeKind::Binary(_) => num_args == 2,
+            NodeKind::AssignToPtr | NodeKind::Binary(_) => num_args == 2,
         }
     }
 }
@@ -114,9 +114,8 @@ pub enum NodeKind {
     FunctionDeclaration { locals: LocalVariables },
     Block,
 
-    // TODO: Assign should have 2 children, one being an lvalue, rather than having a LocalId like
-    // this.
-    Assign(LocalId),
+    AssignToPtr,
+    AssignLocal(LocalId),
     Local(LocalId),
 
     Binary(BinaryOp),

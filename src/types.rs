@@ -119,14 +119,15 @@ impl Display for TypeKind {
                 if *is_extern {
                     write!(fmt, "extern ")?;
                 }
-                write!(fmt, "fn")?;
+                write!(fmt, "fn(")?;
                 for (i, arg) in args.iter().enumerate() {
                     if i > 0 {
-                        write!(fmt, ",")?;
+                        write!(fmt, ", ")?;
                     }
-                    write!(fmt, " {}", arg)?;
+                    write!(fmt, "{}", arg)?;
                 }
 
+                write!(fmt, ")")?;
                 if !matches!(returns.kind(), Self::Empty) {
                     write!(fmt, " -> {}", returns)?;
                 }
