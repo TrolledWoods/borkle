@@ -443,25 +443,35 @@ fn function_type(
     is_extern: bool,
 ) -> Result<(), ()> {
     // We start with a list of arguments.
+    global
+        .tokens
+        .expect_next_is(global.errors, &TokenKind::Open(Bracket::Round))?;
+
+    loop {
+        if global.tokens.try_consume(&TokenKind::Close(Bracket::Round)) {
+            break;
+        }
+
+        type_(global, dependencies, node.arg())?;
+
+        let token = global.tokens.expect_next(global.errors)?;
+        match token.kind {
+            TokenKind::Close(Bracket::Round) => break,
+            TokenKind::Comma => {}
+            _ => {
+                global.error(token.loc, "Expected ',' or ')'".to_string());
+                return Err(());
+            }
+        }
+    }
+
     if global.tokens.try_consume_operator_string("->").is_some() {
         type_(global, dependencies, node.arg())?;
     } else {
-        loop {
-            type_(global, dependencies, node.arg())?;
-
-            if !global.tokens.try_consume(&TokenKind::Comma) {
-                break;
-            }
-        }
-
-        if global.tokens.try_consume_operator_string("->").is_some() {
-            type_(global, dependencies, node.arg())?;
-        } else {
-            node.arg().set(Node::new(
-                loc,
-                NodeKind::LiteralType(TypeKind::Empty.into()),
-            ));
-        }
+        node.arg().set(Node::new(
+            loc,
+            NodeKind::LiteralType(TypeKind::Empty.into()),
+        ));
     }
 
     node.set(Node::new(loc, NodeKind::FunctionType { is_extern }));

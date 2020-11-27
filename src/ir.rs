@@ -1,6 +1,6 @@
 use crate::operators::{BinaryOp, UnaryOp};
 use crate::program::{ffi, MemberId};
-use crate::types::{to_align, IntTypeKind, Type};
+use crate::types::{to_align, Type};
 use ustr::Ustr;
 
 pub mod emit;

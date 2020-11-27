@@ -1,10 +1,13 @@
-const print_u8  = extern "borkle_lib/hello" "print_u8"  : extern fn u8 -> u8;
-const print_i64 = extern "borkle_lib/hello" "print_i64" : extern fn i64 -> i64;
-const callback  = extern "borkle_lib/hello" "callback"  : extern fn -> extern fn i64 -> i64;
+const print_u8  = extern "borkle_lib/hello" "print_u8"  : extern fn (u8) -> u8;
+const print_i64 = extern "borkle_lib/hello" "print_i64" : extern fn (i64) -> i64;
+const callback  = extern "borkle_lib/hello" "callback"  : extern fn () -> extern fn (i64) -> i64;
 
-const alloc   = extern "borkle_lib/hello" "alloc"   : extern fn i64 -> &u8;
-const dealloc = extern "borkle_lib/hello" "dealloc" : extern fn &u8, i64;
+const alloc   = extern "borkle_lib/hello" "alloc"   : extern fn (i64) -> &u8;
+const dealloc = extern "borkle_lib/hello" "dealloc" : extern fn (&u8, i64);
 
 const main = {
-    let hello = 5 - 20 : i16;
+    let hello = 5 - 20 : i64;
+
+    print_i64(hello);
+    print_i64(15 + hello);
 };

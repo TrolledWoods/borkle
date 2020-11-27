@@ -7,7 +7,6 @@ use crate::parser::{self, ast::NodeKind as ParserNodeKind};
 use crate::program::{MemberId, Program};
 use crate::types::{Type, TypeKind};
 use ast::{Node, NodeKind};
-use std::convert::TryFrom;
 
 type ParsedAst = bump_tree::Tree<parser::ast::Node>;
 type ParsedNode<'a> = bump_tree::Node<'a, parser::ast::Node>;

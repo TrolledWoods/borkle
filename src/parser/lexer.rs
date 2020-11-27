@@ -2,7 +2,7 @@ use super::token_stream::TokenStream;
 use crate::errors::ErrorCtx;
 use crate::literal::Literal;
 use crate::location::Location;
-use crate::types::{IntTypeKind, Type, TypeKind};
+use crate::types::IntTypeKind;
 use core::iter::Peekable;
 use ustr::Ustr;
 
