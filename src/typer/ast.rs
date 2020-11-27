@@ -1,4 +1,4 @@
-use crate::locals::LocalId;
+use crate::locals::{LocalId, LocalVariables};
 use crate::location::Location;
 use crate::operators::{BinaryOp, UnaryOp};
 use crate::program::MemberId;
@@ -39,9 +39,11 @@ impl bump_tree::MetaData for Node {
             NodeKind::Constant(_) | NodeKind::Global(_) | NodeKind::Local(_) => num_args == 0,
             NodeKind::FunctionCall { .. } => true,
             NodeKind::Block => num_args > 0,
-            NodeKind::BitCast | NodeKind::Member(_) | NodeKind::Assign(_) | NodeKind::Unary(_) => {
-                num_args == 1
-            }
+            NodeKind::FunctionDeclaration { locals: _ }
+            | NodeKind::BitCast
+            | NodeKind::Member(_)
+            | NodeKind::Assign(_)
+            | NodeKind::Unary(_) => num_args == 1,
             NodeKind::Binary(_) => num_args == 2,
         }
     }
@@ -109,6 +111,7 @@ pub enum NodeKind {
     Global(MemberId),
     Member(Ustr),
     FunctionCall { is_extern: bool },
+    FunctionDeclaration { locals: LocalVariables },
     Block,
 
     // TODO: Assign should have 2 children, one being an lvalue, rather than having a LocalId like

@@ -1,4 +1,4 @@
-use crate::ir::{Registers, Value};
+use crate::ir::{Register, Registers, Value};
 use std::alloc::{alloc, dealloc, Layout};
 use std::ptr::NonNull;
 
@@ -45,6 +45,11 @@ impl<'a> StackFrame<'a> {
         let reg = self.registers.get(value);
         let offset = reg.offset();
         &self.stack[offset..offset + reg.size()]
+    }
+
+    pub(crate) fn get_mut_from_reg(&mut self, reg: &Register) -> &mut [u8] {
+        let offset = reg.offset();
+        &mut self.stack[offset..offset + reg.size()]
     }
 
     pub fn get_mut(&mut self, value: Value) -> &mut [u8] {

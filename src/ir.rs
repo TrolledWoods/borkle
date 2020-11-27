@@ -14,6 +14,12 @@ pub enum Instr {
         args: Vec<Value>,
         convention: ffi::CallingConvention,
     },
+    Call {
+        to: Value,
+        pointer: Value,
+        // FIXME: We don't really want a vector here, we want a more efficient datastructure
+        args: Vec<Value>,
+    },
     Constant {
         to: Value,
         from: Vec<u8>,

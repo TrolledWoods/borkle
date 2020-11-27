@@ -1,10 +1,13 @@
 use crate::dependencies::DependencyList;
+use crate::ir::Routine;
 use crate::types::Type;
 use bumpalo::Bump;
 use parking_lot::{Mutex, RwLock};
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::pin::Pin;
 use std::sync::atomic::{AtomicI32, Ordering};
+use std::sync::Arc;
 use thread_pool::WorkSender;
 use ustr::{Ustr, UstrMap};
 
@@ -35,6 +38,10 @@ pub struct Program {
     // everything is just in the same scope.
     const_table: RwLock<UstrMap<Member>>,
     calling_conventions_alloc: Mutex<Bump>,
+    // This has to live for as long as the interpreter runs, because, we have no idea
+    // how long the pointers to functions might live inside of the compile time execution things,
+    // so we have to just have them all alive for the entire duration of the program.
+    functions: Mutex<Vec<Pin<Arc<Routine>>>>,
     extern_fn_calling_conventions: RwLock<HashMap<Type, ffi::CallingConvention>>,
     work: WorkSender,
     pub libraries: Mutex<ffi::Libraries>,
@@ -46,9 +53,18 @@ impl Program {
             const_table: RwLock::default(),
             extern_fn_calling_conventions: RwLock::default(),
             calling_conventions_alloc: Mutex::default(),
+            functions: Mutex::default(),
             libraries: Mutex::new(ffi::Libraries::new()),
             work,
         }
+    }
+
+    pub fn insert_function(&self, routine: Routine) -> usize {
+        let mut functions = self.functions.lock();
+        let arc = Arc::pin(routine);
+        let ptr = arc.as_ref().get_ref() as *const Routine as usize;
+        functions.push(arc);
+        ptr
     }
 
     pub fn ffi_calling_convention(&self, function_type: Type) -> ffi::CallingConvention {

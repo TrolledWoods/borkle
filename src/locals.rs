@@ -5,7 +5,7 @@ use ustr::Ustr;
 #[derive(Clone, Copy, Hash, PartialEq, Eq, Debug)]
 pub struct LocalId(usize);
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Local {
     pub name: Ustr,
     pub loc: Location,
@@ -13,7 +13,7 @@ pub struct Local {
     pub value: Option<crate::ir::Value>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct LocalVariables {
     locals: Vec<Local>,
 }

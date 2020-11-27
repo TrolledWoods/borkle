@@ -1,5 +1,5 @@
 use crate::literal::Literal;
-use crate::locals::LocalId;
+use crate::locals::{LocalId, LocalVariables};
 use crate::location::Location;
 use crate::operators::{BinaryOp, UnaryOp};
 use crate::types::Type;
@@ -28,6 +28,10 @@ pub enum NodeKind {
     },
 
     Member(Ustr),
+
+    FunctionDeclaration {
+        locals: LocalVariables,
+    },
 
     FunctionType {
         is_extern: bool,
@@ -70,6 +74,7 @@ impl bump_tree::MetaData for Node {
             | NodeKind::ReferenceType
             | NodeKind::Unary(_) => num_args == 1,
             NodeKind::Binary(_) | NodeKind::TypeBound => num_args == 2,
+            NodeKind::FunctionDeclaration { locals: _ } => num_args >= 2,
             NodeKind::Block | NodeKind::FunctionCall | NodeKind::FunctionType { is_extern: _ } => {
                 num_args >= 1
             }

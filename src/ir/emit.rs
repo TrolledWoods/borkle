@@ -40,6 +40,35 @@ pub fn emit(program: &Program, locals: LocalVariables, ast: &Ast) -> Routine {
 
 fn emit_node(ctx: &mut Context<'_>, node: &Node<'_>) -> Value {
     match node.kind() {
+        NodeKind::FunctionDeclaration { locals } => {
+            let mut sub_ctx = Context {
+                instr: Vec::new(),
+                registers: Registers::new(),
+                locals: locals.clone(),
+                program: ctx.program,
+            };
+
+            // Allocate registers for all the locals
+            for local in sub_ctx.locals.iter_mut() {
+                let value = sub_ctx.registers.create(local.type_.unwrap());
+                local.value = Some(value);
+            }
+
+            let result = emit_node(&mut sub_ctx, &node.children().next().unwrap());
+
+            let id = sub_ctx.program.insert_function(Routine {
+                instr: sub_ctx.instr,
+                registers: sub_ctx.registers,
+                result,
+            });
+
+            let to = ctx.registers.create(node.type_());
+            ctx.instr.push(Instr::Constant {
+                to,
+                from: id.to_le_bytes().into(),
+            });
+            to
+        }
         NodeKind::BitCast => {
             let from = emit_node(ctx, &node.children().next().unwrap());
             let to = ctx.registers.create(node.type_());
@@ -144,7 +173,7 @@ fn emit_node(ctx: &mut Context<'_>, node: &Node<'_>) -> Value {
                     convention: ctx.program.ffi_calling_convention(pointer_node.type_()),
                 });
             } else {
-                todo!("Non extern functions can not be called yet");
+                ctx.instr.push(Instr::Call { to, pointer, args });
             }
             to
         }

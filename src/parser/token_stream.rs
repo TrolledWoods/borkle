@@ -16,6 +16,10 @@ impl TokenStream {
         }
     }
 
+    pub fn loc(&self) -> Location {
+        self.peek().map(|token| token.loc).unwrap_or(self.last)
+    }
+
     pub fn peek_mut(&mut self) -> Option<&'_ mut Token> {
         self.tokens.as_mut_slice().first_mut()
     }

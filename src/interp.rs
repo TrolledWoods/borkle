@@ -42,6 +42,30 @@ fn interp_internal(program: &Program, stack: &mut StackFrame<'_>, routine: &Rout
                     convention.call(function_ptr, arg_pointers.as_mut_ptr(), to_ptr);
                 }
             }
+            Instr::Call {
+                to,
+                pointer,
+                ref args,
+            } => {
+                let mut ptr = [0_u8; 8];
+                ptr.copy_from_slice(stack.get(pointer));
+                let routine: &Routine = unsafe { std::mem::transmute(usize::from_le_bytes(ptr)) };
+
+                let (mut old_stack, mut new_stack) = stack.split(&routine.registers);
+
+                // Put the arguments on top of the new stack frame
+                for (old, new) in args.iter().zip(&routine.registers.locals) {
+                    new_stack
+                        .get_mut_from_reg(new)
+                        .copy_from_slice(old_stack.get(*old));
+                }
+
+                interp_internal(program, &mut new_stack, routine);
+
+                old_stack
+                    .get_mut(to)
+                    .copy_from_slice(new_stack.get(routine.result));
+            }
             Instr::Constant { to, ref from } => {
                 stack.get_mut(to).copy_from_slice(from);
             }

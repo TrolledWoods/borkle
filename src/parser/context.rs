@@ -37,20 +37,20 @@ impl<'a> DataContext<'a> {
     }
 }
 
-pub struct ImperativeContext {
+pub struct ImperativeContext<'a> {
     pub locals: LocalVariables,
-    pub dependencies: DependencyList,
+    pub dependencies: &'a mut DependencyList,
 
     scope_boundaries: Vec<ScopeBoundary>,
     defers: Vec<Ast>,
     local_map: Vec<(Ustr, LocalId)>,
 }
 
-impl ImperativeContext {
-    pub fn new() -> Self {
+impl<'a> ImperativeContext<'a> {
+    pub fn new(dependencies: &'a mut DependencyList) -> Self {
         Self {
             locals: LocalVariables::new(),
-            dependencies: DependencyList::new(),
+            dependencies,
 
             scope_boundaries: Vec::new(),
             defers: Vec::new(),

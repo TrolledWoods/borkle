@@ -20,7 +20,7 @@ struct Context<'a> {
     errors: &'a mut ErrorCtx,
     program: &'a Program,
     locals: LocalVariables,
-    deps: DependencyList,
+    deps: &'a mut DependencyList,
 }
 
 pub fn process_ast(
@@ -31,15 +31,17 @@ pub fn process_ast(
 ) -> Result<(DependencyList, LocalVariables, Ast), ()> {
     let root = ast.root().unwrap();
     let mut ast = Ast::new();
+    let mut deps = DependencyList::new();
     let mut ctx = Context {
         errors,
         program,
         locals,
-        deps: DependencyList::new(),
+        deps: &mut deps,
     };
     type_ast(&mut ctx, None, &root, ast.builder())?;
     ast.set_root();
-    Ok((ctx.deps, ctx.locals, ast))
+    let locals = ctx.locals;
+    Ok((deps, locals, ast))
 }
 
 // NOTE: ParsedNode is both Copy and 8 bytes. I don't see why the lint is triggered
@@ -57,6 +59,51 @@ fn type_ast(
     let type_: Type;
     match parsed.kind {
         ParserNodeKind::Literal(Literal::String(_)) => todo!(),
+        ParserNodeKind::FunctionDeclaration { ref locals } => {
+            let mut locals = locals.clone();
+            let mut children = parsed.children();
+            let n_arguments = children.len() - 2;
+
+            let mut arg_types = Vec::new();
+            for (local, node) in locals.iter_mut().zip(children.by_ref().take(n_arguments)) {
+                let arg_type = const_fold_type_expr(ctx.errors, &node)?;
+                local.type_ = Some(arg_type);
+                arg_types.push(arg_type);
+            }
+
+            let return_type = const_fold_type_expr(ctx.errors, &children.next().unwrap())?;
+
+            type_ = Type::new(TypeKind::Function {
+                args: arg_types,
+                returns: return_type,
+                is_extern: false,
+            });
+
+            let mut sub_ctx = Context {
+                errors: ctx.errors,
+                program: ctx.program,
+                // FIXME: Remove the clone here; This should be doable by recursing over an owned
+                // version of the tree in the future.
+                locals,
+                deps: ctx.deps,
+            };
+
+            type_ast(
+                &mut sub_ctx,
+                Some(return_type),
+                &children.next().unwrap(),
+                node.arg(),
+            )?;
+
+            node.set(Node::new(
+                parsed.loc,
+                NodeKind::FunctionDeclaration {
+                    locals: sub_ctx.locals,
+                },
+                type_,
+            ));
+            node.validate();
+        }
         ParserNodeKind::BitCast => {
             if let Some(casting_to) = wanted_type {
                 let mut children = parsed.children();
@@ -217,7 +264,7 @@ fn type_ast(
                 );
             }
 
-            type_ = const_fold_type_expr(ctx.errors, type_expr)?;
+            type_ = const_fold_type_expr(ctx.errors, &type_expr)?;
             type_ast(ctx, Some(type_), &internal, node)?;
         }
         ParserNodeKind::Binary(op) => {
@@ -369,13 +416,12 @@ fn type_ast(
     Ok(type_)
 }
 
-#[allow(clippy::needless_pass_by_value)]
-fn const_fold_type_expr(errors: &mut ErrorCtx, parsed: ParsedNode<'_>) -> Result<Type, ()> {
+fn const_fold_type_expr(errors: &mut ErrorCtx, parsed: &ParsedNode<'_>) -> Result<Type, ()> {
     match parsed.kind {
         ParserNodeKind::LiteralType(type_) => Ok(type_),
         ParserNodeKind::ReferenceType => {
             let mut children = parsed.children();
-            let pointee = const_fold_type_expr(errors, children.next().unwrap())?;
+            let pointee = const_fold_type_expr(errors, &children.next().unwrap())?;
             Ok(TypeKind::Reference(pointee).into())
         }
         ParserNodeKind::FunctionType { is_extern } => {
@@ -384,10 +430,10 @@ fn const_fold_type_expr(errors: &mut ErrorCtx, parsed: ParsedNode<'_>) -> Result
 
             let mut arg_types = Vec::with_capacity(n_args);
             for arg in children.by_ref().take(n_args) {
-                arg_types.push(const_fold_type_expr(errors, arg)?);
+                arg_types.push(const_fold_type_expr(errors, &arg)?);
             }
 
-            let returns = const_fold_type_expr(errors, children.next().unwrap())?;
+            let returns = const_fold_type_expr(errors, &children.next().unwrap())?;
 
             Ok(TypeKind::Function {
                 args: arg_types,

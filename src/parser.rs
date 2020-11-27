@@ -14,7 +14,7 @@ use crate::types::TypeKind;
 pub use ast::{Node, NodeKind};
 use bump_tree::Tree;
 use context::{DataContext, ImperativeContext};
-use lexer::{Bracket, Keyword, TokenKind};
+use lexer::{Bracket, Keyword, Token, TokenKind};
 use ustr::Ustr;
 
 pub type Ast = Tree<Node>;
@@ -50,9 +50,9 @@ fn constant(global: &mut DataContext<'_>) -> Result<(), ()> {
 
         let mut ast = Ast::new();
 
-        let mut imperative = ImperativeContext::new();
+        let mut dependencies = DependencyList::new();
+        let mut imperative = ImperativeContext::new(&mut dependencies);
         expression(global, &mut imperative, ast.builder())?;
-        let dependencies = imperative.dependencies;
         let locals = imperative.locals;
         ast.set_root();
 
@@ -73,7 +73,7 @@ fn constant(global: &mut DataContext<'_>) -> Result<(), ()> {
 
 fn expression(
     global: &mut DataContext<'_>,
-    imperative: &mut ImperativeContext,
+    imperative: &mut ImperativeContext<'_>,
     mut node: NodeBuilder<'_>,
 ) -> Result<(), ()> {
     value(global, imperative, node.arg())?;
@@ -116,7 +116,7 @@ fn expression(
 /// However, unary operators are only allowed before the accesses.
 fn value(
     global: &mut DataContext<'_>,
-    imperative: &mut ImperativeContext,
+    imperative: &mut ImperativeContext<'_>,
     mut node: NodeBuilder<'_>,
 ) -> Result<(), ()> {
     if let Some((loc, op)) = global.tokens.try_consume_operator() {
@@ -134,7 +134,7 @@ fn value(
 /// allow for unary operators.
 fn member_value(
     global: &mut DataContext<'_>,
-    imperative: &mut ImperativeContext,
+    imperative: &mut ImperativeContext<'_>,
     mut node: NodeBuilder<'_>,
 ) -> Result<(), ()> {
     atom_value(global, imperative, node.arg())?;
@@ -222,7 +222,7 @@ fn type_(
 /// A value without unary operators, member accesses, or anything like that.
 fn atom_value(
     global: &mut DataContext<'_>,
-    imperative: &mut ImperativeContext,
+    imperative: &mut ImperativeContext<'_>,
     mut node: NodeBuilder<'_>,
 ) -> Result<(), ()> {
     {
@@ -241,6 +241,9 @@ fn atom_value(
             }
             TokenKind::Literal(literal) => {
                 arg_node.set(Node::new(token.loc, NodeKind::Literal(literal)))
+            }
+            TokenKind::Keyword(Keyword::Function) => {
+                function_declaration(global, imperative.dependencies, arg_node, token.loc)?;
             }
             TokenKind::Keyword(Keyword::BitCast) => {
                 value(global, imperative, arg_node.arg())?;
@@ -480,6 +483,87 @@ fn function_type(
     }
 
     node.set(Node::new(loc, NodeKind::FunctionType { is_extern }));
+    node.validate();
+
+    Ok(())
+}
+
+/// Parses a function declaration, although doesn't expect the 'fn' keyword to be included because
+/// that keyword was what triggered this function to be called in the first place.
+fn function_declaration(
+    global: &mut DataContext<'_>,
+    dependencies: &mut DependencyList,
+    mut node: NodeBuilder<'_>,
+    loc: Location,
+) -> Result<(), ()> {
+    global
+        .tokens
+        .expect_next_is(global.errors, &TokenKind::Open(Bracket::Round))?;
+
+    let mut imperative = ImperativeContext::new(dependencies);
+    loop {
+        if global.tokens.try_consume(&TokenKind::Close(Bracket::Round)) {
+            break;
+        }
+
+        if let Some(Token {
+            loc,
+            kind: TokenKind::Identifier(name),
+            ..
+        }) = global.tokens.next()
+        {
+            imperative.insert_local(Local {
+                loc,
+                name,
+                type_: None,
+                value: None,
+            });
+
+            if global.tokens.try_consume_operator_string(":").is_none() {
+                global.error(
+                    global.tokens.loc(),
+                    "Expected ':' for argument type".to_string(),
+                );
+                return Err(());
+            }
+
+            type_(global, imperative.dependencies, node.arg());
+        } else {
+            global.error(
+                global.tokens.loc(),
+                "Expected identifier for function argument name".to_string(),
+            );
+            return Err(());
+        }
+
+        let token = global.tokens.expect_next(global.errors)?;
+        match token.kind {
+            TokenKind::Close(Bracket::Round) => break,
+            TokenKind::Comma => {}
+            _ => {
+                global.error(token.loc, "Expected ',' or ')'".into());
+                return Err(());
+            }
+        }
+    }
+
+    if global.tokens.try_consume_operator_string("->").is_some() {
+        type_(global, imperative.dependencies, node.arg());
+    } else {
+        node.arg().set(Node::new(
+            global.tokens.loc(),
+            NodeKind::LiteralType(TypeKind::Empty.into()),
+        ));
+    }
+
+    expression(global, &mut imperative, node.arg())?;
+
+    node.set(Node::new(
+        loc,
+        NodeKind::FunctionDeclaration {
+            locals: imperative.locals,
+        },
+    ));
     node.validate();
 
     Ok(())
