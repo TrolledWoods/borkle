@@ -40,6 +40,10 @@ pub fn emit(program: &Program, locals: LocalVariables, ast: &Ast) -> Routine {
 
 fn emit_node(ctx: &mut Context<'_>, node: &Node<'_>) -> Value {
     match node.kind() {
+        NodeKind::Uninit => {
+            // We don't need an instruction to initialize the memory, because it's uninit!
+            ctx.registers.create(node.type_())
+        }
         NodeKind::FunctionDeclaration { locals } => {
             let mut sub_ctx = Context {
                 instr: Vec::new(),

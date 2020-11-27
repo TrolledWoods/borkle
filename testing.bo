@@ -6,14 +6,16 @@ const dealloc = extern "borkle_lib/hello" "dealloc" : extern fn (&(), usize);
 
 const print_i64 = extern "borkle_lib/hello" "print_i64" : extern fn (i64) -> i64;
 
-const if = fn(option: u64, one: fn(), zero: fn()) -> fn() {
-    bit_cast (bit_cast zero - (bit_cast zero * option) + (bit_cast one * option) : u64)
-};
-
 const main = {
-    if(
-        1,
-        fn() { if(1, fn () { print_i64(2); }, fn() { print_i64(1); })(); },
-        fn() { print_i64(0); },
-    )();
+    let literal = uninit : i64;
+    literal = 25;
+    print_i64(literal);
+
+    let complex = {
+        let y = 42 : i64;
+        *&*&y = y + 2;
+        y
+    };
+
+    print_i64(complex);
 };

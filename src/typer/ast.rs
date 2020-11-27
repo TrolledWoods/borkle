@@ -36,7 +36,9 @@ impl Node {
 impl bump_tree::MetaData for Node {
     fn validate(&self, num_args: usize) -> bool {
         match self.kind {
-            NodeKind::Constant(_) | NodeKind::Global(_) | NodeKind::Local(_) => num_args == 0,
+            NodeKind::Uninit | NodeKind::Constant(_) | NodeKind::Global(_) | NodeKind::Local(_) => {
+                num_args == 0
+            }
             NodeKind::FunctionCall { .. } => true,
             NodeKind::Block => num_args > 0,
             NodeKind::FunctionDeclaration { locals: _ }
@@ -114,6 +116,7 @@ pub enum NodeKind {
     FunctionDeclaration { locals: LocalVariables },
     Block,
 
+    Uninit,
     AssignToPtr,
     AssignLocal(LocalId),
     Local(LocalId),

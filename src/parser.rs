@@ -240,7 +240,12 @@ fn atom_value(
                 }
             }
             TokenKind::Literal(literal) => {
-                arg_node.set(Node::new(token.loc, NodeKind::Literal(literal)))
+                arg_node.set(Node::new(token.loc, NodeKind::Literal(literal)));
+                arg_node.validate();
+            }
+            TokenKind::Keyword(Keyword::Uninit) => {
+                arg_node.set(Node::new(token.loc, NodeKind::Uninit));
+                arg_node.validate();
             }
             TokenKind::Keyword(Keyword::Function) => {
                 function_declaration(global, imperative.dependencies, arg_node, token.loc)?;

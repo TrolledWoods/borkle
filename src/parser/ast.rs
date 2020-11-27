@@ -45,6 +45,7 @@ pub enum NodeKind {
     FunctionCall,
     Block,
     Empty,
+    Uninit,
 
     TypeBound,
     BitCast,
@@ -68,6 +69,7 @@ impl bump_tree::MetaData for Node {
             | NodeKind::Literal(_)
             | NodeKind::Global(_)
             | NodeKind::Extern { .. }
+            | NodeKind::Uninit
             | NodeKind::LiteralType(_) => num_args == 0,
             NodeKind::Declare(_)
             | NodeKind::BitCast

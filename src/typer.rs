@@ -104,6 +104,19 @@ fn type_ast(
                 }
             }
         }
+        ParserNodeKind::Uninit => {
+            if let Some(wanted_type) = wanted_type {
+                type_ = wanted_type;
+                node.set(Node::new(parsed.loc, NodeKind::Uninit, wanted_type));
+                node.validate();
+            } else {
+                ctx.errors.error(
+                    parsed.loc,
+                    "Type has to be known at this point; put a type bound on this!".to_string(),
+                );
+                return Err(());
+            }
+        }
         ParserNodeKind::FunctionDeclaration { ref locals } => {
             let mut locals = locals.clone();
             let mut children = parsed.children();
