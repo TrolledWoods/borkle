@@ -61,6 +61,12 @@ impl Debug for ByteArray {
     }
 }
 
+impl<'a> From<&'a [u8]> for ByteArray {
+    fn from(other: &'a [u8]) -> Self {
+        Self(other.into())
+    }
+}
+
 impl From<u64> for ByteArray {
     fn from(other: u64) -> Self {
         Self(other.to_le_bytes().into())

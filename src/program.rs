@@ -1,14 +1,15 @@
 use crate::dependencies::DependencyList;
-use crate::thread_pool::WorkSender;
 use crate::types::Type;
 use bumpalo::Bump;
 use parking_lot::{Mutex, RwLock};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicI32, Ordering};
+use thread_pool::WorkSender;
 use ustr::{Ustr, UstrMap};
 
 pub mod ffi;
+pub mod thread_pool;
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub struct MemberId(Ustr);

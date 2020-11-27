@@ -143,33 +143,38 @@ fn type_ast(
             }
         }
         ParserNodeKind::Literal(Literal::Int(num)) => match wanted_type.map(Type::kind) {
-            Some(TypeKind::I64) | None => {
-                type_ = TypeKind::I64.into();
-                node.set(Node::new(parsed.loc, NodeKind::Constant(num.into()), type_));
-                node.validate();
-            }
-            Some(TypeKind::U8) => {
-                type_ = TypeKind::U8.into();
-                if let Ok(byte) = u8::try_from(num) {
-                    node.set(Node::new(
-                        parsed.loc,
-                        NodeKind::Constant(byte.into()),
-                        type_,
-                    ));
-                    node.validate();
-                } else {
+            Some(TypeKind::Int(int)) => {
+                let bytes = num.to_le_bytes();
+
+                if !int.range().contains(&(num as i128)) {
+                    let range = int.range();
                     ctx.errors.error(
-                        parsed.loc,
-                        "Given integer does not fit within a 'u8', u8 has the range 0-255"
-                            .to_string(),
-                    );
+                            parsed.loc,
+                            format!("Given integer does not fit within a '{:?}', only values from {} to {} fit in this integer", int, range.start, range.end)
+                        );
                     return Err(());
                 }
+
+                type_ = (*int).into();
+                let (size, _) = int.size_align();
+                node.set(Node::new(
+                    parsed.loc,
+                    NodeKind::Constant(bytes[..size].into()),
+                    type_,
+                ));
+                node.validate();
             }
             Some(wanted_type) => {
                 ctx.errors.error(
                     parsed.loc,
                     format!("Expected '{}', found integer", wanted_type),
+                );
+                return Err(());
+            }
+            None => {
+                ctx.errors.error(
+                    parsed.loc,
+                    "An integer literal has to know what type it's supposed to be, consider adding a type bound to it.".to_string(),
                 );
                 return Err(());
             }

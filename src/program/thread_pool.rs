@@ -8,10 +8,9 @@ use std::thread::{spawn, JoinHandle};
 
 /// A channel from where you can send work.
 ///
-/// It's not guaranteed that the threadpool couldn't stop working
-/// before you send all the work; the assumption is that you send
-/// more work WITHIN other work, and in that case the threadpool
-/// will not stop.
+/// After you `join` the thread pool, adding more work might fail unless that work is 'within'
+/// other work; therefore, add all the build files you want, that are not imported through other
+/// files, before calling `join`.
 #[derive(Clone)]
 pub struct WorkSender {
     work: Arc<WorkPile>,

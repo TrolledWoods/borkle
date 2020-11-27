@@ -1,6 +1,6 @@
 use crate::operators::{BinaryOp, UnaryOp};
 use crate::program::{ffi, MemberId};
-use crate::types::{to_align, Type};
+use crate::types::{to_align, IntTypeKind, Type};
 use ustr::Ustr;
 
 pub mod emit;
@@ -11,7 +11,6 @@ pub enum Instr {
         to: Value,
         pointer: Value,
         // FIXME: We don't really want a vector here, we want a more efficient datastructure
-        // probably.
         args: Vec<Value>,
         convention: ffi::CallingConvention,
     },

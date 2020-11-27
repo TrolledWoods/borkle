@@ -196,14 +196,9 @@ fn type_(
             global.tokens.next();
             function_type(global, dependencies, loc, node, false)?;
         }
-        TokenKind::Keyword(Keyword::I64) => {
+        TokenKind::PrimitiveInt(type_) => {
             global.tokens.next();
-            node.set(Node::new(loc, NodeKind::LiteralType(TypeKind::I64.into())));
-            node.validate();
-        }
-        TokenKind::Keyword(Keyword::U8) => {
-            global.tokens.next();
-            node.set(Node::new(loc, NodeKind::LiteralType(TypeKind::U8.into())));
+            node.set(Node::new(loc, NodeKind::LiteralType(type_.into())));
             node.validate();
         }
         _ => {

@@ -2,6 +2,7 @@ use super::token_stream::TokenStream;
 use crate::errors::ErrorCtx;
 use crate::literal::Literal;
 use crate::location::Location;
+use crate::types::{IntTypeKind, Type, TypeKind};
 use core::iter::Peekable;
 use ustr::Ustr;
 
@@ -23,6 +24,7 @@ pub enum TokenKind {
     /// An operator token can consist of several operators, it's just the rawest form
     /// of connected operator characters.
     Operator(Ustr),
+    PrimitiveInt(IntTypeKind),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -40,9 +42,6 @@ pub enum Keyword {
     Defer,
     Extern,
     Function,
-
-    I64,
-    U8,
 }
 
 pub fn process_string(errors: &mut ErrorCtx, file: Ustr, string: &str) -> Result<TokenStream, ()> {
@@ -104,8 +103,17 @@ pub fn process_string(errors: &mut ErrorCtx, file: Ustr, string: &str) -> Result
                     "defer" => TokenKind::Keyword(Keyword::Defer),
                     "fn" => TokenKind::Keyword(Keyword::Function),
                     "extern" => TokenKind::Keyword(Keyword::Extern),
-                    "i64" => TokenKind::Keyword(Keyword::I64),
-                    "u8" => TokenKind::Keyword(Keyword::U8),
+
+                    "isize" => TokenKind::PrimitiveInt(IntTypeKind::Isize),
+                    "usize" => TokenKind::PrimitiveInt(IntTypeKind::Usize),
+                    "i64" => TokenKind::PrimitiveInt(IntTypeKind::I64),
+                    "u64" => TokenKind::PrimitiveInt(IntTypeKind::U64),
+                    "i32" => TokenKind::PrimitiveInt(IntTypeKind::I32),
+                    "u32" => TokenKind::PrimitiveInt(IntTypeKind::U32),
+                    "i16" => TokenKind::PrimitiveInt(IntTypeKind::I16),
+                    "u16" => TokenKind::PrimitiveInt(IntTypeKind::U16),
+                    "i8" => TokenKind::PrimitiveInt(IntTypeKind::I8),
+                    "u8" => TokenKind::PrimitiveInt(IntTypeKind::U8),
                     _ => TokenKind::Identifier(identifier.into()),
                 }
             }

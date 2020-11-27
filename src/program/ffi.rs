@@ -1,6 +1,6 @@
 #![allow(clippy::map_entry)]
 
-use crate::types::{Type, TypeKind};
+use crate::types::{IntTypeKind, Type, TypeKind};
 use bumpalo::Bump;
 #[allow(clippy::wildcard_imports)]
 use libffi_sys::*;
@@ -129,9 +129,18 @@ fn type_to_ffi_type(type_: Type) -> Option<ffi_type> {
     unsafe {
         match type_.kind() {
             TypeKind::Empty => None,
-            TypeKind::U8 => Some(ffi_type_uint8),
-            TypeKind::I64 => Some(ffi_type_sint64),
+            TypeKind::Int(IntTypeKind::U64) => Some(ffi_type_uint64),
+            TypeKind::Int(IntTypeKind::I64) => Some(ffi_type_sint64),
+            TypeKind::Int(IntTypeKind::U32) => Some(ffi_type_uint32),
+            TypeKind::Int(IntTypeKind::I32) => Some(ffi_type_sint32),
+            TypeKind::Int(IntTypeKind::U16) => Some(ffi_type_uint16),
+            TypeKind::Int(IntTypeKind::I16) => Some(ffi_type_sint16),
+            TypeKind::Int(IntTypeKind::U8) => Some(ffi_type_uint8),
+            TypeKind::Int(IntTypeKind::I8) => Some(ffi_type_sint8),
             TypeKind::F64 => Some(ffi_type_double),
+            TypeKind::F32 => Some(ffi_type_float),
+            TypeKind::Int(IntTypeKind::Usize) => Some(ffi_type_pointer),
+            TypeKind::Int(IntTypeKind::Isize) => Some(ffi_type_pointer),
             TypeKind::Reference(_) | TypeKind::Function { .. } => Some(ffi_type_pointer),
             TypeKind::Struct(_) => {
                 todo!("Struct ffi is not implemented yet");

@@ -108,8 +108,8 @@ impl Display for TypeKind {
         match self {
             Self::Empty => write!(fmt, "()"),
             Self::F64 => write!(fmt, "f64"),
-            Self::I64 => write!(fmt, "i64"),
-            Self::U8 => write!(fmt, "u8"),
+            Self::F32 => write!(fmt, "f32"),
+            Self::Int(int) => int.fmt(fmt),
             Self::Reference(internal) => write!(fmt, "&{}", internal),
             Self::Function {
                 args,
@@ -157,8 +157,8 @@ pub fn to_align(value: usize, align: usize) -> usize {
 pub enum TypeKind {
     Empty,
     F64,
-    I64,
-    U8,
+    F32,
+    Int(IntTypeKind),
     Reference(Type),
     Function {
         args: Vec<Type>,
@@ -172,8 +172,9 @@ impl TypeKind {
     fn calculate_size_align(&self) -> (usize, usize) {
         match self {
             Self::Empty => (0, 1),
-            Self::U8 => (1, 1),
-            Self::F64 | Self::I64 | Self::Reference(_) | Self::Function { .. } => (8, 8),
+            Self::F64 | Self::Reference(_) | Self::Function { .. } => (8, 8),
+            Self::F32 => (4, 4),
+            Self::Int(kind) => kind.size_align(),
             Self::Struct(members) => {
                 let mut size = 0;
                 let mut align = 1;
@@ -187,6 +188,69 @@ impl TypeKind {
                 size = to_align(size, align);
                 (size, align)
             }
+        }
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+pub enum IntTypeKind {
+    Usize,
+    Isize,
+    I64,
+    U64,
+    I32,
+    U32,
+    I16,
+    U16,
+    I8,
+    U8,
+}
+
+impl IntTypeKind {
+    pub fn range(self) -> std::ops::Range<i128> {
+        match self {
+            Self::U64 | Self::Usize => u64::MIN.into()..u64::MAX.into(),
+            Self::I64 | Self::Isize => i64::MIN.into()..i64::MAX.into(),
+            Self::U32 => u32::MIN.into()..u32::MAX.into(),
+            Self::I32 => i32::MIN.into()..i32::MAX.into(),
+            Self::U16 => u16::MIN.into()..u16::MAX.into(),
+            Self::I16 => i16::MIN.into()..i16::MAX.into(),
+            Self::U8 => u8::MIN.into()..u8::MAX.into(),
+            Self::I8 => i8::MIN.into()..i8::MAX.into(),
+        }
+    }
+
+    #[inline]
+    pub fn size_align(self) -> (usize, usize) {
+        match self {
+            Self::Usize | Self::Isize => (8, 8),
+            Self::U64 | Self::I64 => (8, 8),
+            Self::U32 | Self::I32 => (4, 4),
+            Self::U16 | Self::I16 => (2, 2),
+            Self::U8 | Self::I8 => (1, 1),
+        }
+    }
+}
+
+impl From<IntTypeKind> for Type {
+    fn from(int: IntTypeKind) -> Type {
+        Type::new(TypeKind::Int(int))
+    }
+}
+
+impl Debug for IntTypeKind {
+    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Usize => write!(fmt, "usize"),
+            Self::Isize => write!(fmt, "isize"),
+            Self::I64 => write!(fmt, "i64"),
+            Self::U64 => write!(fmt, "u64"),
+            Self::I32 => write!(fmt, "i32"),
+            Self::U32 => write!(fmt, "u32"),
+            Self::I16 => write!(fmt, "i16"),
+            Self::U16 => write!(fmt, "u16"),
+            Self::I8 => write!(fmt, "i8"),
+            Self::U8 => write!(fmt, "u8"),
         }
     }
 }

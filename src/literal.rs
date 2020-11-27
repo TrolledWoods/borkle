@@ -1,5 +1,5 @@
 #[derive(Debug, Clone, PartialEq)]
 pub enum Literal {
-    Int(u64),
+    Int(i128),
     String(String),
 }

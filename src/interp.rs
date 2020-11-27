@@ -1,6 +1,7 @@
 use crate::ir::{Instr, Routine};
 use crate::operators::{BinaryOp, UnaryOp};
 use crate::program::Program;
+use crate::types::{IntTypeKind, TypeKind};
 
 #[macro_use]
 mod macros;
@@ -58,22 +59,46 @@ fn interp_internal(program: &Program, stack: &mut StackFrame<'_>, routine: &Rout
                     todo!("Operator is not implemented yet");
                 }
                 BinaryOp::Add => {
-                    all_int_types!(type_, stack.get_mut(to), (stack.get(a), stack.get(b)), +);
+                    if let TypeKind::Int(int) = *type_.kind() {
+                        all_int_types!(int, stack.get_mut(to), (stack.get(a), stack.get(b)), +);
+                    } else {
+                        todo!();
+                    }
                 }
                 BinaryOp::Sub => {
-                    all_int_types!(type_, stack.get_mut(to), (stack.get(a), stack.get(b)), -);
+                    if let TypeKind::Int(int) = *type_.kind() {
+                        all_int_types!(int, stack.get_mut(to), (stack.get(a), stack.get(b)), -);
+                    } else {
+                        todo!();
+                    }
                 }
                 BinaryOp::Mult => {
-                    all_int_types!(type_, stack.get_mut(to), (stack.get(a), stack.get(b)), *);
+                    if let TypeKind::Int(int) = *type_.kind() {
+                        all_int_types!(int, stack.get_mut(to), (stack.get(a), stack.get(b)), *);
+                    } else {
+                        todo!();
+                    }
                 }
                 BinaryOp::Div => {
-                    all_int_types!(type_, stack.get_mut(to), (stack.get(a), stack.get(b)), /);
+                    if let TypeKind::Int(int) = *type_.kind() {
+                        all_int_types!(int, stack.get_mut(to), (stack.get(a), stack.get(b)), /);
+                    } else {
+                        todo!();
+                    }
                 }
                 BinaryOp::BitAnd => {
-                    all_int_types!(type_, stack.get_mut(to), (stack.get(a), stack.get(b)), &);
+                    if let TypeKind::Int(int) = *type_.kind() {
+                        all_int_types!(int, stack.get_mut(to), (stack.get(a), stack.get(b)), &);
+                    } else {
+                        todo!();
+                    }
                 }
                 BinaryOp::BitOr => {
-                    all_int_types!(type_, stack.get_mut(to), (stack.get(a), stack.get(b)), |);
+                    if let TypeKind::Int(int) = *type_.kind() {
+                        all_int_types!(int, stack.get_mut(to), (stack.get(a), stack.get(b)), |);
+                    } else {
+                        todo!();
+                    }
                 }
             },
             Instr::Unary { op, to, from } => match op {
