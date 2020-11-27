@@ -120,6 +120,7 @@ fn worker(program: &Arc<Program>, work: &Arc<WorkPile>) -> ErrorCtx {
                     let routine = crate::ir::emit::emit(program, locals, &ast);
 
                     let mut stack = crate::interp::Stack::new(2048);
+
                     let result = crate::interp::interp(program, &mut stack, &routine);
                     // println!("value of '{}' = {:?}", member_id.to_ustr(), result);
 

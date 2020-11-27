@@ -2,6 +2,7 @@ use crate::dependencies::DependencyList;
 use crate::ir::Routine;
 use crate::types::Type;
 use bumpalo::Bump;
+use constant::Constant;
 use parking_lot::{Mutex, RwLock};
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -11,6 +12,7 @@ use std::sync::Arc;
 use thread_pool::WorkSender;
 use ustr::{Ustr, UstrMap};
 
+pub mod constant;
 pub mod ffi;
 pub mod thread_pool;
 
@@ -81,10 +83,23 @@ impl Program {
         }
     }
 
+    pub fn get_constant(&self, id: MemberId) -> *const u8 {
+        let const_table = self.const_table.read();
+        const_table
+            .get(&id.0)
+            .unwrap()
+            .value
+            .to_option()
+            .unwrap()
+            .as_ptr()
+    }
+
     pub fn copy_value_into_slice(&self, id: MemberId, slice: &mut [u8]) {
         let const_table = self.const_table.read();
         if let DependableOption::Some(value) = &const_table.get(&id.0).unwrap().value {
-            slice.copy_from_slice(value);
+            unsafe {
+                std::ptr::copy(value.as_ptr().cast(), slice.as_mut_ptr(), slice.len());
+            }
         } else {
             panic!("Can't call copy_value_into_slice if you aren't sure the value is defined");
         }
@@ -95,10 +110,10 @@ impl Program {
         const_table.get(&id).unwrap().type_.to_option().copied()
     }
 
-    pub fn set_value_of_member(&self, id: Ustr, value: Vec<u8>) {
+    pub fn set_value_of_member(&self, id: Ustr, value: Constant) {
         let mut const_table = self.const_table.write();
-        let value_entry = &mut const_table.get_mut(&id).unwrap().value;
-        let old = std::mem::replace(value_entry, DependableOption::Some(value));
+        let entry = const_table.get_mut(&id).unwrap();
+        let old = std::mem::replace(&mut entry.value, DependableOption::Some(value));
         drop(const_table);
 
         if let DependableOption::None(dependencies) = old {
@@ -242,7 +257,7 @@ impl Program {
 
 struct Member {
     type_: DependableOption<Type>,
-    value: DependableOption<Vec<u8>>,
+    value: DependableOption<Constant>,
     dependencies_left: AtomicI32,
     task: Option<Task>,
     is_defined: bool,

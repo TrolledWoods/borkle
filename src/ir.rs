@@ -26,7 +26,7 @@ pub enum Instr {
     },
     Global {
         to: Value,
-        from: MemberId,
+        from: *const u8,
     },
     Binary {
         op: BinaryOp,
@@ -64,6 +64,11 @@ pub enum Instr {
         size: usize,
     },
 }
+
+// Why is this safe? Well, because we do not have interior mutability anywhere, so the raw pointers
+// are okay.
+unsafe impl Send for Instr {}
+unsafe impl Sync for Instr {}
 
 pub struct Routine {
     pub instr: Vec<Instr>,
@@ -125,7 +130,7 @@ impl Registers {
 
 pub(crate) struct Register {
     offset: usize,
-    type_: Type,
+    pub(crate) type_: Type,
 }
 
 impl Register {

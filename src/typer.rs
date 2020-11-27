@@ -428,7 +428,8 @@ fn type_ast(
             }
         }
         ParserNodeKind::Global(id) => {
-            type_ = ctx.program.get_type_of_member(id).expect("The type of a member should have been made a dependency in the parser, so it should be defined by the time we get here, no matter what.");
+            let pointee_type = ctx.program.get_type_of_member(id).expect("The type of a member should have been made a dependency in the parser, so it should be defined by the time we get here, no matter what.");
+            type_ = Type::new(TypeKind::Reference(pointee_type));
             node.set(Node::new(
                 parsed.loc,
                 NodeKind::Global(MemberId::from_ustr(id)),

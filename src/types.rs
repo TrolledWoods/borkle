@@ -59,6 +59,10 @@ impl Type {
         }
     }
 
+    pub fn layout(self) -> std::alloc::Layout {
+        unsafe { std::alloc::Layout::from_size_align_unchecked(self.size(), self.align()) }
+    }
+
     pub const fn size(self) -> usize {
         self.0.size
     }

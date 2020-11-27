@@ -6,16 +6,8 @@ const dealloc = extern "borkle_lib/hello" "dealloc" : extern fn (&(), usize);
 
 const print_i64 = extern "borkle_lib/hello" "print_i64" : extern fn (i64) -> i64;
 
+const string = 42 : i64;
+
 const main = {
-    let literal = uninit : i64;
-    literal = 25;
-    print_i64(literal);
-
-    let complex = {
-        let y = 42 : i64;
-        *&*&y = y + 2;
-        y
-    };
-
-    print_i64(complex);
+    (*print_i64)(*string);
 };

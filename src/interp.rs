@@ -1,6 +1,6 @@
 use crate::ir::{Instr, Routine};
 use crate::operators::{BinaryOp, UnaryOp};
-use crate::program::Program;
+use crate::program::{constant::Constant, Program};
 use crate::types::TypeKind;
 
 #[macro_use]
@@ -10,10 +10,13 @@ mod stack;
 pub use stack::Stack;
 use stack::StackFrame;
 
-pub fn interp(program: &Program, stack: &mut Stack, routine: &Routine) -> Vec<u8> {
+pub fn interp(program: &Program, stack: &mut Stack, routine: &Routine) -> Constant {
     let mut stack_frame = stack.stack_frame(&routine.registers);
     interp_internal(program, &mut stack_frame, routine);
-    stack_frame.get(routine.result).into()
+
+    let result_type = routine.registers.get(routine.result).type_;
+    let ptr = stack_frame.get(routine.result).as_ptr();
+    unsafe { Constant::create(result_type, ptr.cast()) }
 }
 
 // The stack frame has to be set up ahead of time here. That is necessary; because
@@ -70,7 +73,9 @@ fn interp_internal(program: &Program, stack: &mut StackFrame<'_>, routine: &Rout
                 stack.get_mut(to).copy_from_slice(from);
             }
             Instr::Global { to, from } => {
-                program.copy_value_into_slice(from, stack.get_mut(to));
+                stack
+                    .get_mut(to)
+                    .copy_from_slice(&(from as usize).to_le_bytes());
             }
             Instr::Binary {
                 op,

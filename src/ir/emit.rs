@@ -168,7 +168,10 @@ fn emit_node(ctx: &mut Context<'_>, node: &Node<'_>) -> Value {
         }
         NodeKind::Global(id) => {
             let to = ctx.registers.create(node.type_());
-            ctx.instr.push(Instr::Global { to, from: *id });
+            ctx.instr.push(Instr::Global {
+                to,
+                from: ctx.program.get_constant(*id),
+            });
             to
         }
         NodeKind::FunctionCall { is_extern } => {
