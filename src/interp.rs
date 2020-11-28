@@ -23,6 +23,7 @@ pub fn interp(program: &Program, stack: &mut Stack, routine: &Routine) -> Consta
 // we need some way to access the result afterwards as well.
 fn interp_internal(program: &Program, stack: &mut StackFrame<'_>, routine: &Routine) {
     for instr in &routine.instr {
+        // println!("Running {:?}", instr);
         match *instr {
             Instr::CallExtern {
                 to,

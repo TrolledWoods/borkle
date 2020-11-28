@@ -94,15 +94,14 @@ impl Program {
             .as_ptr()
     }
 
-    pub fn copy_value_into_slice(&self, id: MemberId, slice: &mut [u8]) {
+    pub fn get_constant_as_value(&self, id: MemberId) -> crate::ir::Value {
         let const_table = self.const_table.read();
-        if let DependableOption::Some(value) = &const_table.get(&id.0).unwrap().value {
-            unsafe {
-                std::ptr::copy(value.as_ptr().cast(), slice.as_mut_ptr(), slice.len());
-            }
-        } else {
-            panic!("Can't call copy_value_into_slice if you aren't sure the value is defined");
-        }
+        let element = const_table.get(&id.0).unwrap();
+
+        let type_ = *element.type_.to_option().unwrap();
+        let value_ptr = element.value.to_option().unwrap().as_non_null();
+
+        crate::ir::Value::Global(value_ptr, type_)
     }
 
     pub fn get_type_of_member(&self, id: Ustr) -> Option<Type> {

@@ -133,27 +133,45 @@ fn emit_node(ctx: &mut Context<'_>, node: &Node<'_>) -> Value {
             ctx.instr.push(Instr::Unary { op: *op, to, from });
             to
         }
-        NodeKind::AssignToPtr => {
-            let to = ctx.registers.zst();
+        NodeKind::Assign => {
             let mut children = node.children();
-            let ptr_to = emit_node(ctx, &children.next().unwrap());
+
+            let to = emit_lvalue(ctx, &children.next().unwrap());
+
             let from_node = children.next().unwrap();
             let from = emit_node(ctx, &from_node);
-            ctx.instr.push(Instr::MoveIndirect {
-                to: ptr_to,
-                from,
-                size: from_node.type_().size(),
-            });
-            to
+
+            let empty_result = ctx.registers.zst();
+
+            match to {
+                LValue::Reference(to) => {
+                    ctx.instr.push(Instr::MoveIndirect {
+                        to,
+                        from,
+                        size: from_node.type_().size(),
+                    });
+                    empty_result
+                }
+                LValue::Value(to) => {
+                    ctx.instr.push(Instr::Move {
+                        to,
+                        from,
+                        size: from_node.type_().size(),
+                    });
+                    empty_result
+                }
+            }
         }
-        NodeKind::AssignLocal(local_id) => {
-            let to = ctx.registers.create(node.type_());
-            let from_node = node.children().next().unwrap();
-            let from = emit_node(ctx, &from_node);
+        NodeKind::Declare(id) => {
+            let mut children = node.children();
+            let child = children.next().unwrap();
+            let from = emit_node(ctx, &child);
+            let to = ctx.registers.create(child.type_());
+            ctx.locals.get_mut(*id).value = Some(to);
             ctx.instr.push(Instr::Move {
-                to: ctx.locals.get(*local_id).value.unwrap(),
+                to,
                 from,
-                size: from_node.type_().size(),
+                size: from.type_().size(),
             });
             to
         }
@@ -166,14 +184,7 @@ fn emit_node(ctx: &mut Context<'_>, node: &Node<'_>) -> Value {
             }
             emit_node(ctx, &children.next().unwrap())
         }
-        NodeKind::Global(id) => {
-            let to = ctx.registers.create(node.type_());
-            ctx.instr.push(Instr::Global {
-                to,
-                from: ctx.program.get_constant(*id),
-            });
-            to
-        }
+        NodeKind::Global(id) => ctx.program.get_constant_as_value(*id),
         NodeKind::FunctionCall { is_extern } => {
             let to = ctx.registers.create_min_align(node.type_(), 8);
             let mut children = node.children();
@@ -198,4 +209,25 @@ fn emit_node(ctx: &mut Context<'_>, node: &Node<'_>) -> Value {
             to
         }
     }
+}
+
+fn emit_lvalue(ctx: &mut Context<'_>, node: &Node<'_>) -> LValue {
+    match node.kind() {
+        NodeKind::Unary(UnaryOp::Dereference) => {
+            let mut children = node.children();
+            let pointee = children.next().unwrap();
+            LValue::Reference(emit_node(ctx, &pointee))
+        }
+        NodeKind::Local(id) => LValue::Value(ctx.locals.get(*id).value.unwrap()),
+        NodeKind::Global(id) => LValue::Value(ctx.program.get_constant_as_value(*id)),
+        kind => unreachable!(
+            "{:?} is not valid as an lvalue and should hence not exist",
+            kind
+        ),
+    }
+}
+
+enum LValue {
+    Reference(Value),
+    Value(Value),
 }

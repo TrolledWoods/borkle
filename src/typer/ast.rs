@@ -44,9 +44,9 @@ impl bump_tree::MetaData for Node {
             NodeKind::FunctionDeclaration { locals: _ }
             | NodeKind::BitCast
             | NodeKind::Member(_)
-            | NodeKind::AssignLocal(_)
+            | NodeKind::Declare(_)
             | NodeKind::Unary(_) => num_args == 1,
-            NodeKind::AssignToPtr | NodeKind::Binary(_) => num_args == 2,
+            NodeKind::Assign | NodeKind::Binary(_) => num_args == 2,
         }
     }
 }
@@ -117,9 +117,9 @@ pub enum NodeKind {
     Block,
 
     Uninit,
-    AssignToPtr,
-    AssignLocal(LocalId),
+    Assign,
     Local(LocalId),
+    Declare(LocalId),
 
     Binary(BinaryOp),
     Unary(UnaryOp),

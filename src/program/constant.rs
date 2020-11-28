@@ -4,7 +4,6 @@ use std::ptr::NonNull;
 
 pub struct Constant {
     ptr: NonNull<u8>,
-    type_: Type,
 }
 
 // Safety: Since there is no interior mutability or weirdness, in fact, no mutability in this type,
@@ -22,11 +21,14 @@ impl Constant {
 
         Self {
             ptr: NonNull::new(ptr).unwrap(),
-            type_,
         }
     }
 
     pub fn as_ptr(&self) -> *const u8 {
         self.ptr.as_ptr()
+    }
+
+    pub fn as_non_null(&self) -> NonNull<u8> {
+        self.ptr
     }
 }
