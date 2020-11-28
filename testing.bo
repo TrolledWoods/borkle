@@ -6,8 +6,8 @@ const dealloc = extern "borkle_lib/hello" "dealloc" : extern fn (&(), usize);
 
 const print_i64 = extern "borkle_lib/hello" "print_i64" : extern fn (i64) -> i64;
 
-const string = 42 : i64;
+const number = 42 : i64;
 
 const main = {
-    (*print_i64)(*string);
+    (*print_i64)(*number);
 };

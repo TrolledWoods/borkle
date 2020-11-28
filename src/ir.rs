@@ -1,6 +1,7 @@
 use crate::operators::{BinaryOp, UnaryOp};
-use crate::program::{ffi, MemberId};
+use crate::program::ffi;
 use crate::types::{to_align, Type, TypeKind};
+use std::ptr::NonNull;
 use ustr::Ustr;
 
 pub mod emit;
@@ -92,15 +93,7 @@ impl Registers {
     }
 
     fn create(&mut self, type_: impl Into<Type>) -> Value {
-        let type_ = type_.into();
-        self.buffer_size = to_align(self.buffer_size, type_.align());
-        let value = Value(self.locals.len());
-        self.locals.push(Register {
-            offset: self.buffer_size,
-            type_,
-        });
-        self.buffer_size += type_.size();
-        value
+        self.create_min_align(type_.into(), 1)
     }
 
     fn zst(&mut self) -> Value {
@@ -114,7 +107,7 @@ impl Registers {
             align = min_align;
         }
         self.buffer_size = to_align(self.buffer_size, align);
-        let value = Value(self.locals.len());
+        let value = Value::Register(self.locals.len(), type_);
         self.locals.push(Register {
             offset: self.buffer_size,
             type_,
@@ -123,8 +116,8 @@ impl Registers {
         value
     }
 
-    pub(crate) fn get(&self, value: Value) -> &'_ Register {
-        &self.locals[value.0]
+    pub(crate) fn get(&self, index: usize) -> &'_ Register {
+        &self.locals[index]
     }
 }
 
@@ -144,4 +137,19 @@ impl Register {
 }
 
 #[derive(Debug, Clone, Copy)]
-pub struct Value(usize);
+pub enum Value {
+    Register(usize, Type),
+    Global(NonNull<u8>, Type),
+}
+
+unsafe impl Send for Value {}
+unsafe impl Sync for Value {}
+
+impl Value {
+    pub fn type_(&self) -> Type {
+        match self {
+            Self::Register(_, type_) => *type_,
+            Self::Global(_, type_) => *type_,
+        }
+    }
+}

@@ -42,9 +42,16 @@ pub struct StackFrame<'a> {
 
 impl<'a> StackFrame<'a> {
     pub fn get(&self, value: Value) -> &[u8] {
-        let reg = self.registers.get(value);
-        let offset = reg.offset();
-        &self.stack[offset..offset + reg.size()]
+        match value {
+            Value::Register(reg, type_) => {
+                let reg = self.registers.get(reg);
+                let offset = reg.offset();
+                &self.stack[offset..offset + type_.size()]
+            }
+            Value::Global(ptr, type_) => unsafe {
+                std::slice::from_raw_parts(ptr.as_ptr(), type_.size())
+            },
+        }
     }
 
     pub(crate) fn get_mut_from_reg(&mut self, reg: &Register) -> &mut [u8] {
@@ -53,9 +60,16 @@ impl<'a> StackFrame<'a> {
     }
 
     pub fn get_mut(&mut self, value: Value) -> &mut [u8] {
-        let reg = self.registers.get(value);
-        let offset = reg.offset();
-        &mut self.stack[offset..offset + reg.size()]
+        match value {
+            Value::Register(reg, type_) => {
+                let reg = self.registers.get(reg);
+                let offset = reg.offset();
+                &mut self.stack[offset..offset + type_.size()]
+            }
+            Value::Global(ptr, type_) => unsafe {
+                std::slice::from_raw_parts_mut(ptr.as_ptr(), type_.size())
+            },
+        }
     }
 
     /// Creates a new stack frame on top of the previous one, and returns a tuple with the previous

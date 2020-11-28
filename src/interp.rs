@@ -14,7 +14,7 @@ pub fn interp(program: &Program, stack: &mut Stack, routine: &Routine) -> Consta
     let mut stack_frame = stack.stack_frame(&routine.registers);
     interp_internal(program, &mut stack_frame, routine);
 
-    let result_type = routine.registers.get(routine.result).type_;
+    let result_type = routine.result.type_();
     let ptr = stack_frame.get(routine.result).as_ptr();
     unsafe { Constant::create(result_type, ptr.cast()) }
 }
