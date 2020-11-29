@@ -42,7 +42,6 @@ pub struct ImperativeContext<'a> {
     pub dependencies: &'a mut DependencyList,
 
     scope_boundaries: Vec<ScopeBoundary>,
-    defers: Vec<Ast>,
     local_map: Vec<(Ustr, LocalId)>,
 }
 
@@ -53,7 +52,6 @@ impl<'a> ImperativeContext<'a> {
             dependencies,
 
             scope_boundaries: Vec::new(),
-            defers: Vec::new(),
             local_map: Vec::new(),
         }
     }
@@ -61,7 +59,6 @@ impl<'a> ImperativeContext<'a> {
     pub fn push_scope_boundary(&mut self) -> ScopeBoundaryId {
         let id = ScopeBoundaryId(self.scope_boundaries.len());
         self.scope_boundaries.push(ScopeBoundary {
-            defers: self.defers.len(),
             locals: self.local_map.len(),
         });
         id
@@ -73,12 +70,6 @@ impl<'a> ImperativeContext<'a> {
             .pop()
             .expect("called pop_scope_boundary without anything to pop");
 
-        // Insert all the defers that have to do with this scope boundary.
-        for deferred in self.defers[boundary.defers..].iter().rev() {
-            node.arg().set_cloned(&deferred.root().unwrap());
-        }
-
-        self.defers.truncate(boundary.defers);
         self.local_map.truncate(boundary.locals);
     }
 
@@ -95,20 +86,8 @@ impl<'a> ImperativeContext<'a> {
             .rev()
             .find_map(|&(local_name, id)| if local_name == name { Some(id) } else { None })
     }
-
-    pub fn push_defer(&mut self, defer: Ast) {
-        self.defers.push(defer);
-    }
-
-    #[allow(unused)]
-    pub fn defers_to(&self, index: ScopeBoundaryId) -> impl Iterator<Item = &Ast> {
-        self.defers[self.scope_boundaries[index.0].defers..]
-            .iter()
-            .rev()
-    }
 }
 
 struct ScopeBoundary {
-    defers: usize,
     locals: usize,
 }

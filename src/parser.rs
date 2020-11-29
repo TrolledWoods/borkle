@@ -196,6 +196,11 @@ fn type_(
             global.tokens.next();
             function_type(global, dependencies, loc, node, false)?;
         }
+        TokenKind::Keyword(Keyword::Bool) => {
+            global.tokens.next();
+            node.set(Node::new(loc, NodeKind::LiteralType(TypeKind::Bool.into())));
+            node.validate();
+        }
         TokenKind::PrimitiveInt(type_) => {
             global.tokens.next();
             node.set(Node::new(loc, NodeKind::LiteralType(type_.into())));
@@ -280,22 +285,6 @@ fn atom_value(
                     global.error(token.loc, "Expected identifier".to_string());
                     return Err(());
                 }
-            }
-            TokenKind::Keyword(Keyword::Defer) => {
-                let mut ast = Ast::new();
-                {
-                    let mut builder = ast.builder();
-                    builder.set(Node::new(token.loc, NodeKind::Block));
-
-                    imperative.push_scope_boundary();
-                    expression(global, imperative, builder.arg())?;
-                    imperative.pop_scope_boundary(&mut builder);
-                }
-                ast.set_root();
-                imperative.push_defer(ast);
-
-                arg_node.set(Node::new(token.loc, NodeKind::Empty));
-                arg_node.validate();
             }
             TokenKind::Keyword(Keyword::Extern) => {
                 let loc = token.loc;

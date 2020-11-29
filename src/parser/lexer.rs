@@ -43,6 +43,7 @@ pub enum Keyword {
     Function,
     BitCast,
     Uninit,
+    Bool,
 }
 
 pub fn process_string(errors: &mut ErrorCtx, file: Ustr, string: &str) -> Result<TokenStream, ()> {
@@ -105,6 +106,7 @@ pub fn process_string(errors: &mut ErrorCtx, file: Ustr, string: &str) -> Result
                     "extern" => TokenKind::Keyword(Keyword::Extern),
                     "bit_cast" => TokenKind::Keyword(Keyword::BitCast),
                     "uninit" => TokenKind::Keyword(Keyword::Uninit),
+                    "bool" => TokenKind::Keyword(Keyword::Bool),
 
                     "isize" => TokenKind::PrimitiveInt(IntTypeKind::Isize),
                     "usize" => TokenKind::PrimitiveInt(IntTypeKind::Usize),

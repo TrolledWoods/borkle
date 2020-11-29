@@ -114,6 +114,7 @@ impl Display for TypeKind {
             Self::F64 => write!(fmt, "f64"),
             Self::F32 => write!(fmt, "f32"),
             Self::Int(int) => int.fmt(fmt),
+            Self::Bool => write!(fmt, "bool"),
             Self::Reference(internal) => write!(fmt, "&{}", internal),
             Self::Function {
                 args,
@@ -163,6 +164,7 @@ pub enum TypeKind {
     Empty,
     F64,
     F32,
+    Bool,
     Int(IntTypeKind),
     Reference(Type),
     Function {
@@ -179,6 +181,7 @@ impl TypeKind {
             Self::Empty => (0, 1),
             Self::F64 | Self::Reference(_) | Self::Function { .. } => (8, 8),
             Self::F32 => (4, 4),
+            Self::Bool => (1, 1),
             Self::Int(kind) => kind.size_align(),
             Self::Struct(members) => {
                 let mut size = 0;

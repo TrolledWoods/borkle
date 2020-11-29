@@ -57,3 +57,9 @@ operator!(BinaryOp {
 operator!(AccessOp {
     Member = (".", 0),
 });
+
+impl BinaryOp {
+    (TypeKind::U8, BinaryOp::Add, TypeKind::U8) => |a: &u8, b: &u8, c: &mut u8| *c = *a + *b,
+    (TypeKind::U16, BinaryOp::Add, TypeKind::U16) => |a: &u16, b: &u16, c: &mut u16| *c = *a + *b,
+    (TypeKind::U32, BinaryOp::Add, TypeKind::U32) => |a: &u32, b: &u32, c: &mut u32| *c = *a + *b,
+    (TypeKind::U64, BinaryOp::Add, TypeKind::U64) => |a: &u64, b: &u64, c: &mut u64| *c = *a + *b,

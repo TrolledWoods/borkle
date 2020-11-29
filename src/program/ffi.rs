@@ -139,6 +139,7 @@ fn type_to_ffi_type(type_: Type) -> Option<ffi_type> {
             TypeKind::Int(IntTypeKind::I8) => Some(ffi_type_sint8),
             TypeKind::F64 => Some(ffi_type_double),
             TypeKind::F32 => Some(ffi_type_float),
+            TypeKind::Bool => Some(ffi_type_uint8),
             TypeKind::Int(IntTypeKind::Usize) => Some(ffi_type_pointer),
             TypeKind::Int(IntTypeKind::Isize) => Some(ffi_type_pointer),
             TypeKind::Reference(_) | TypeKind::Function { .. } => Some(ffi_type_pointer),
