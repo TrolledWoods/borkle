@@ -14,24 +14,10 @@ const print_bool = fn (val: bool) {
 };
 
 const main = {
-    let number = 5 + 2 : i64;
-    
-    // u8  + u8  -> u8  => |a: &u8, b: &u8, c: &mut u8| *c = *a + *b,
-    // u16 + u16 -> u16 => |a: &u16, b: &u16, c: &mut u16| *c = *a + *b,
-    // u32 + u32 -> u32 => |a: &u32, b: &u32, c: &mut u32| *c = *a + *b,
-    // u64 + u64 -> u64 => |a: &u64, b: &u64, c: &mut u64| *c = *a + *b,
-    // i8  + i8  -> i8  => |a: &i8, b: &i8, c: &mut i8| *c = *a + *b,
-    // i16 + i16 -> i16 => |a: &i16, b: &i16, c: &mut i16| *c = *a + *b,
-    // i32 + i32 -> i32 => |a: &i32, b: &i32, c: &mut i32| *c = *a + *b,
-    // i64 + i64 -> i64 => |a: &i64, b: &i64, c: &mut i64| *c = *a + *b,
-    + - / * & | << >> == != < > <= >=
-
-    let x = 42 + 20 : i64;
-    let y = &x;
-    *y = 20;
-
-    print_i64(x);
-
-    print_bool(true);
-    print_bool(false);
+    let number = 0 : i64;
+    if number {
+        print_i64(42);
+    } else {
+        print_i64(69);
+    };
 };

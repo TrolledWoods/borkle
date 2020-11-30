@@ -47,6 +47,13 @@ impl bump_tree::MetaData for Node {
             | NodeKind::Declare(_)
             | NodeKind::Unary(_) => num_args == 1,
             NodeKind::Assign | NodeKind::Binary(_) => num_args == 2,
+            NodeKind::If { has_else } => {
+                if has_else {
+                    num_args == 3
+                } else {
+                    num_args == 2
+                }
+            }
         }
     }
 }
@@ -115,6 +122,8 @@ pub enum NodeKind {
     FunctionCall { is_extern: bool },
     FunctionDeclaration { locals: LocalVariables },
     Block,
+
+    If { has_else: bool },
 
     Uninit,
     Assign,

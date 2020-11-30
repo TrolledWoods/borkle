@@ -40,6 +40,8 @@ pub fn emit(program: &Program, locals: LocalVariables, ast: &Ast) -> Routine {
 
 fn emit_node(ctx: &mut Context<'_>, node: &Node<'_>) -> Value {
     match node.kind() {
+        NodeKind::If { has_else: false } => todo!(),
+        NodeKind::If { has_else: true } => todo!(),
         NodeKind::Uninit => {
             // We don't need an instruction to initialize the memory, because it's uninit!
             ctx.registers.create(node.type_())

@@ -59,6 +59,66 @@ fn type_ast(
     let type_: Type;
     match parsed.kind {
         ParserNodeKind::Literal(Literal::String(_)) => todo!(),
+        ParserNodeKind::If { has_else: false } => {
+            type_ = Type::new(TypeKind::Empty);
+
+            let mut children = parsed.children();
+
+            let condition_node = children.next().unwrap();
+            let condition_type = type_ast(ctx, None, &condition_node, node.arg())?;
+
+            if !matches!(condition_type.kind(), TypeKind::Int(_)) {
+                ctx.errors.error(
+                    condition_node.loc,
+                    format!("Expected an integer type, found '{}'", condition_type),
+                );
+                return Err(());
+            }
+
+            let body_type = type_ast(ctx, Some(type_), &children.next().unwrap(), node.arg())?;
+
+            node.set(Node::new(
+                parsed.loc,
+                NodeKind::If { has_else: false },
+                type_,
+            ));
+            node.validate();
+        }
+        ParserNodeKind::If { has_else: true } => {
+            let mut children = parsed.children();
+
+            let condition_node = children.next().unwrap();
+            let condition_type = type_ast(ctx, None, &condition_node, node.arg())?;
+
+            if !matches!(condition_type.kind(), TypeKind::Int(_)) {
+                ctx.errors.error(
+                    condition_node.loc,
+                    format!("Expected an integer type, found '{}'", condition_type),
+                );
+                return Err(());
+            }
+
+            let true_body_type = type_ast(ctx, wanted_type, &children.next().unwrap(), node.arg())?;
+            let false_body_type =
+                type_ast(ctx, wanted_type, &children.next().unwrap(), node.arg())?;
+
+            if true_body_type != false_body_type {
+                ctx.errors.error(
+                    parsed.loc,
+                    format!("Both the if and the else body have to return the same type. The if body has type '{}' while the else body has type '{}'", true_body_type, false_body_type),
+                );
+                return Err(());
+            }
+
+            type_ = true_body_type;
+
+            node.set(Node::new(
+                parsed.loc,
+                NodeKind::If { has_else: true },
+                type_,
+            ));
+            node.validate();
+        }
         ParserNodeKind::Assign => {
             let mut children = parsed.children();
             type_ = Type::new(TypeKind::Empty);

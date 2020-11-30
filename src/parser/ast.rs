@@ -27,6 +27,10 @@ pub enum NodeKind {
         symbol_name: String,
     },
 
+    If {
+        has_else: bool,
+    },
+
     Member(Ustr),
 
     FunctionDeclaration {
@@ -77,6 +81,13 @@ impl bump_tree::MetaData for Node {
             | NodeKind::ReferenceType
             | NodeKind::Unary(_) => num_args == 1,
             NodeKind::Assign | NodeKind::Binary(_) | NodeKind::TypeBound => num_args == 2,
+            NodeKind::If { has_else } => {
+                if has_else {
+                    num_args == 3
+                } else {
+                    num_args == 2
+                }
+            }
             NodeKind::FunctionDeclaration { locals: _ } => num_args >= 2,
             NodeKind::Block | NodeKind::FunctionCall | NodeKind::FunctionType { is_extern: _ } => {
                 num_args >= 1
