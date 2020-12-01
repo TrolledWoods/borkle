@@ -1,5 +1,4 @@
 use super::token_stream::TokenStream;
-use super::{Ast, NodeBuilder};
 use crate::dependencies::DependencyList;
 use crate::errors::ErrorCtx;
 use crate::locals::{Local, LocalId, LocalVariables};
@@ -64,7 +63,7 @@ impl<'a> ImperativeContext<'a> {
         id
     }
 
-    pub fn pop_scope_boundary(&mut self, node: &mut NodeBuilder<'_>) {
+    pub fn pop_scope_boundary(&mut self) {
         let boundary = self
             .scope_boundaries
             .pop()

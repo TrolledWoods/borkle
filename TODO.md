@@ -1,8 +1,7 @@
 # Version 0.0.1 features
 * [.] Simple control flow, if, while.
 * [ ] Function arguments are implicitly dereferenced/referenced
-* [ ] Mutable references, so that accidentally mutating constants doesn't happen.
-* [ ] Buffer pointer type(and mutable counterpart)
+* [ ] Buffer pointer type
 * [ ] Generalise operators
 * [ ] 'Any' type, the same as C void\*
 * [ ] C backend

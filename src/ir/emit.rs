@@ -1,4 +1,4 @@
-use super::{Instr, Registers, Routine, Value};
+use super::{Instr, LabelId, Registers, Routine, Value};
 use crate::locals::LocalVariables;
 use crate::operators::UnaryOp;
 use crate::program::Program;
@@ -12,6 +12,20 @@ struct Context<'a> {
     registers: Registers,
     locals: LocalVariables,
     program: &'a Program,
+    label_locations: Vec<usize>,
+}
+
+impl Context<'_> {
+    fn create_label(&mut self) -> LabelId {
+        let id = LabelId(self.label_locations.len());
+        self.label_locations.push(0xffff_ffff);
+        id
+    }
+
+    fn define_label(&mut self, label_id: LabelId) {
+        self.label_locations[label_id.0] = self.instr.len();
+        self.instr.push(Instr::LabelDefinition(label_id));
+    }
 }
 
 /// Emit instructions for an Ast.
@@ -21,6 +35,7 @@ pub fn emit(program: &Program, locals: LocalVariables, ast: &Ast) -> Routine {
         registers: Registers::new(),
         locals,
         program,
+        label_locations: Vec::new(),
     };
 
     // Allocate registers for all the locals
@@ -35,12 +50,29 @@ pub fn emit(program: &Program, locals: LocalVariables, ast: &Ast) -> Routine {
         instr: ctx.instr,
         registers: ctx.registers,
         result,
+        label_locations: ctx.label_locations,
     }
 }
 
 fn emit_node(ctx: &mut Context<'_>, node: &Node<'_>) -> Value {
     match node.kind() {
-        NodeKind::If { has_else: false } => todo!(),
+        NodeKind::If { has_else: false } => {
+            let mut children = node.children();
+            let condition = emit_node(ctx, &children.next().unwrap());
+
+            let end_of_body = ctx.create_label();
+            ctx.instr.push(Instr::JumpIfZero {
+                condition,
+                to: end_of_body,
+            });
+
+            // Emit the body
+            emit_node(ctx, &children.next().unwrap());
+
+            ctx.define_label(end_of_body);
+
+            ctx.registers.zst()
+        }
         NodeKind::If { has_else: true } => todo!(),
         NodeKind::Uninit => {
             // We don't need an instruction to initialize the memory, because it's uninit!
@@ -52,6 +84,7 @@ fn emit_node(ctx: &mut Context<'_>, node: &Node<'_>) -> Value {
                 registers: Registers::new(),
                 locals: locals.clone(),
                 program: ctx.program,
+                label_locations: Vec::new(),
             };
 
             // Allocate registers for all the locals
@@ -63,6 +96,7 @@ fn emit_node(ctx: &mut Context<'_>, node: &Node<'_>) -> Value {
             let result = emit_node(&mut sub_ctx, &node.children().next().unwrap());
 
             let id = sub_ctx.program.insert_function(Routine {
+                label_locations: sub_ctx.label_locations,
                 instr: sub_ctx.instr,
                 registers: sub_ctx.registers,
                 result,

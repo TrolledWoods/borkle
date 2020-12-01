@@ -70,7 +70,7 @@ pub fn process_string(errors: &mut ErrorCtx, file: Ustr, string: &str) -> Result
         // must be at the bottom.
         #[allow(overlapping_patterns)]
         let kind = match character {
-            ' ' | '\t' | '\n' => {
+            c if c.is_whitespace() => {
                 chars.next();
                 continue;
             }

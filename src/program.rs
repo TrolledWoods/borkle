@@ -83,17 +83,6 @@ impl Program {
         }
     }
 
-    pub fn get_constant(&self, id: MemberId) -> *const u8 {
-        let const_table = self.const_table.read();
-        const_table
-            .get(&id.0)
-            .unwrap()
-            .value
-            .to_option()
-            .unwrap()
-            .as_ptr()
-    }
-
     pub fn get_constant_as_value(&self, id: MemberId) -> crate::ir::Value {
         let const_table = self.const_table.read();
         let element = const_table.get(&id.0).unwrap();

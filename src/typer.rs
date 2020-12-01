@@ -75,7 +75,7 @@ fn type_ast(
                 return Err(());
             }
 
-            let body_type = type_ast(ctx, Some(type_), &children.next().unwrap(), node.arg())?;
+            type_ast(ctx, Some(type_), &children.next().unwrap(), node.arg())?;
 
             node.set(Node::new(
                 parsed.loc,

@@ -408,7 +408,7 @@ fn atom_value(
                     }
                 }
 
-                imperative.pop_scope_boundary(&mut arg_node);
+                imperative.pop_scope_boundary();
                 arg_node.set(Node::new(token.loc, NodeKind::Block));
                 arg_node.validate();
             }

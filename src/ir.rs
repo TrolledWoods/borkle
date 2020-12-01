@@ -25,10 +25,6 @@ pub enum Instr {
         to: Value,
         from: Vec<u8>,
     },
-    Global {
-        to: Value,
-        from: *const u8,
-    },
     Binary {
         op: BinaryOp,
         to: Value,
@@ -64,6 +60,14 @@ pub enum Instr {
         from: Value,
         size: usize,
     },
+    JumpIfZero {
+        condition: Value,
+        to: LabelId,
+    },
+    Jump {
+        to: LabelId,
+    },
+    LabelDefinition(LabelId),
 }
 
 // Why is this safe? Well, because we do not have interior mutability anywhere, so the raw pointers
@@ -72,6 +76,7 @@ unsafe impl Send for Instr {}
 unsafe impl Sync for Instr {}
 
 pub struct Routine {
+    pub label_locations: Vec<usize>,
     pub instr: Vec<Instr>,
     pub registers: Registers,
     pub result: Value,
@@ -153,3 +158,6 @@ impl Value {
         }
     }
 }
+
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+pub struct LabelId(pub usize);

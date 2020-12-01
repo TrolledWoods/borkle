@@ -22,9 +22,21 @@ pub fn interp(program: &Program, stack: &mut Stack, routine: &Routine) -> Consta
 // The stack frame has to be set up ahead of time here. That is necessary; because
 // we need some way to access the result afterwards as well.
 fn interp_internal(program: &Program, stack: &mut StackFrame<'_>, routine: &Routine) {
-    for instr in &routine.instr {
+    let mut instr_pointer = 0;
+    while instr_pointer < routine.instr.len() {
+        let instr = &routine.instr[instr_pointer];
         // println!("Running {:?}", instr);
         match *instr {
+            Instr::LabelDefinition(_) => {}
+            Instr::JumpIfZero { condition, to } => {
+                // FIXME: This is just temporary zero check, it's not great.
+                if stack.get(condition).iter().all(|&value| value == 0) {
+                    instr_pointer = routine.label_locations[to.0];
+                }
+            }
+            Instr::Jump { to } => {
+                instr_pointer = routine.label_locations[to.0];
+            }
             Instr::CallExtern {
                 to,
                 pointer,
@@ -72,11 +84,6 @@ fn interp_internal(program: &Program, stack: &mut StackFrame<'_>, routine: &Rout
             }
             Instr::Constant { to, ref from } => {
                 stack.get_mut(to).copy_from_slice(from);
-            }
-            Instr::Global { to, from } => {
-                stack
-                    .get_mut(to)
-                    .copy_from_slice(&(from as usize).to_le_bytes());
             }
             Instr::Binary {
                 op,
@@ -186,6 +193,8 @@ fn interp_internal(program: &Program, stack: &mut StackFrame<'_>, routine: &Rout
                 }
             }
         }
+
+        instr_pointer += 1;
     }
 }
 

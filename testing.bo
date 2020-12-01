@@ -6,18 +6,17 @@ const dealloc = extern "borkle_lib/hello" "dealloc" : extern fn (&(), usize);
 
 const print_i64 = extern "borkle_lib/hello" "print_i64" : extern fn (i64) -> i64;
 
-const true  = bit_cast (1 : u8) : bool;
-const false = bit_cast (0 : u8) : bool;
+const true  = 1 : u8;
+const false = 0 : u8;
 
 const print_bool = fn (val: bool) {
     print_u8(bit_cast val);
 };
 
 const main = {
-    let number = 0 : i64;
-    if number {
-        print_i64(42);
-    } else {
-        print_i64(69);
+    if true {
+        if true {
+            print_i64(42);
+        };
     };
 };
