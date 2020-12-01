@@ -73,7 +73,44 @@ fn emit_node(ctx: &mut Context<'_>, node: &Node<'_>) -> Value {
 
             ctx.registers.zst()
         }
-        NodeKind::If { has_else: true } => todo!(),
+        NodeKind::If { has_else: true } => {
+            let mut children = node.children();
+            let condition = emit_node(ctx, &children.next().unwrap());
+
+            let start_of_false_body = ctx.create_label();
+            let end_of_false_body = ctx.create_label();
+
+            ctx.instr.push(Instr::JumpIfZero {
+                condition,
+                to: start_of_false_body,
+            });
+
+            let to = ctx.registers.create(node.type_());
+
+            // True body
+            let true_body = emit_node(ctx, &children.next().unwrap());
+            ctx.instr.push(Instr::Move {
+                to,
+                from: true_body,
+                size: node.type_().size(),
+            });
+            ctx.instr.push(Instr::Jump {
+                to: end_of_false_body,
+            });
+
+            // False body
+            ctx.define_label(start_of_false_body);
+            let false_body = emit_node(ctx, &children.next().unwrap());
+            ctx.instr.push(Instr::Move {
+                to,
+                from: false_body,
+                size: node.type_().size(),
+            });
+
+            ctx.define_label(end_of_false_body);
+
+            to
+        }
         NodeKind::Uninit => {
             // We don't need an instruction to initialize the memory, because it's uninit!
             ctx.registers.create(node.type_())

@@ -13,10 +13,17 @@ const print_bool = fn (val: bool) {
     print_u8(bit_cast val);
 };
 
+const get_response = fn () -> u8 { 1 };
+
 const main = {
-    if true {
-        if true {
-            print_i64(42);
-        };
+    let new_number = 102 : i64;
+
+    // Does the user want this number?
+    let number = if get_response() {
+        new_number
+    } else {
+        0
     };
+
+    print_i64(number);
 };

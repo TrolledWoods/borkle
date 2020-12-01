@@ -99,8 +99,12 @@ fn type_ast(
             }
 
             let true_body_type = type_ast(ctx, wanted_type, &children.next().unwrap(), node.arg())?;
-            let false_body_type =
-                type_ast(ctx, wanted_type, &children.next().unwrap(), node.arg())?;
+            let false_body_type = type_ast(
+                ctx,
+                Some(true_body_type),
+                &children.next().unwrap(),
+                node.arg(),
+            )?;
 
             if true_body_type != false_body_type {
                 ctx.errors.error(
