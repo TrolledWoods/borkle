@@ -95,6 +95,19 @@ impl Type {
 
                 None
             }
+            TypeKind::Buffer(internal) => match member_name.as_str() {
+                "ptr" => Some(Member {
+                    parent_type: self,
+                    bit_offset: 0,
+                    type_: *internal,
+                }),
+                "len" => Some(Member {
+                    parent_type: self,
+                    bit_offset: 8,
+                    type_: Type::new(TypeKind::Int(IntTypeKind::Usize)),
+                }),
+                _ => None,
+            },
             _ => None,
         }
     }
@@ -116,6 +129,7 @@ impl Display for TypeKind {
             Self::Int(int) => int.fmt(fmt),
             Self::Bool => write!(fmt, "bool"),
             Self::Reference(internal) => write!(fmt, "&{}", internal),
+            Self::Buffer(internal) => write!(fmt, "[]{}", internal),
             Self::Function {
                 args,
                 returns,
@@ -167,6 +181,7 @@ pub enum TypeKind {
     Bool,
     Int(IntTypeKind),
     Reference(Type),
+    Buffer(Type),
     Function {
         args: Vec<Type>,
         returns: Type,
@@ -180,6 +195,7 @@ impl TypeKind {
         match self {
             Self::Empty => (0, 1),
             Self::F64 | Self::Reference(_) | Self::Function { .. } => (8, 8),
+            Self::Buffer(_) => (16, 8),
             Self::F32 => (4, 4),
             Self::Bool => (1, 1),
             Self::Int(kind) => kind.size_align(),

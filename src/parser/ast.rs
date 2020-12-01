@@ -38,6 +38,7 @@ pub enum NodeKind {
         locals: LocalVariables,
     },
 
+    BufferType,
     FunctionType {
         is_extern: bool,
     },
@@ -79,6 +80,7 @@ impl bump_tree::MetaData for Node {
             NodeKind::Declare(_)
             | NodeKind::BitCast
             | NodeKind::Member(_)
+            | NodeKind::BufferType
             | NodeKind::ReferenceType
             | NodeKind::Unary(_) => num_args == 1,
             NodeKind::While | NodeKind::Assign | NodeKind::Binary(_) | NodeKind::TypeBound => {

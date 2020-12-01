@@ -170,6 +170,24 @@ fn type_(
             node.set(Node::new(loc, NodeKind::Global(name)));
             node.validate();
         }
+        TokenKind::Open(Bracket::Square) => {
+            global.tokens.next();
+            let token = global.tokens.expect_next(global.errors)?;
+            match token.kind {
+                TokenKind::Close(Bracket::Square) => {
+                    type_(global, dependencies, node.arg())?;
+                    node.set(Node::new(loc, NodeKind::BufferType));
+                    node.validate();
+                }
+                TokenKind::Literal(Literal::Int(_)) => {
+                    todo!("Arrays");
+                }
+                _ => {
+                    global.error(loc, "Expected integer or ']'".to_string());
+                    return Err(());
+                }
+            }
+        }
         TokenKind::Open(Bracket::Round) => {
             global.tokens.next();
             if global.tokens.try_consume(&TokenKind::Close(Bracket::Round)) {

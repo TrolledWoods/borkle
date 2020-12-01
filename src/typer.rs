@@ -502,6 +502,7 @@ fn type_ast(
         }
         ParserNodeKind::LiteralType(_)
         | ParserNodeKind::FunctionType { .. }
+        | ParserNodeKind::BufferType
         | ParserNodeKind::ReferenceType => {
             ctx.errors.error(
                 parsed.loc,
@@ -527,6 +528,11 @@ fn type_ast(
 fn const_fold_type_expr(errors: &mut ErrorCtx, parsed: &ParsedNode<'_>) -> Result<Type, ()> {
     match parsed.kind {
         ParserNodeKind::LiteralType(type_) => Ok(type_),
+        ParserNodeKind::BufferType => {
+            let mut children = parsed.children();
+            let pointee = const_fold_type_expr(errors, &children.next().unwrap())?;
+            Ok(TypeKind::Buffer(pointee).into())
+        }
         ParserNodeKind::ReferenceType => {
             let mut children = parsed.children();
             let pointee = const_fold_type_expr(errors, &children.next().unwrap())?;
