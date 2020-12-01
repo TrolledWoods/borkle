@@ -59,6 +59,27 @@ fn type_ast(
     let type_: Type;
     match parsed.kind {
         ParserNodeKind::Literal(Literal::String(_)) => todo!(),
+        ParserNodeKind::While => {
+            type_ = Type::new(TypeKind::Empty);
+
+            let mut children = parsed.children();
+
+            let condition_node = children.next().unwrap();
+            let condition_type = type_ast(ctx, None, &condition_node, node.arg())?;
+
+            if !matches!(condition_type.kind(), TypeKind::Int(_)) {
+                ctx.errors.error(
+                    condition_node.loc,
+                    format!("Expected an integer type, found '{}'", condition_type),
+                );
+                return Err(());
+            }
+
+            type_ast(ctx, None, &children.next().unwrap(), node.arg())?;
+
+            node.set(Node::new(parsed.loc, NodeKind::While, type_));
+            node.validate();
+        }
         ParserNodeKind::If { has_else: false } => {
             type_ = Type::new(TypeKind::Empty);
 

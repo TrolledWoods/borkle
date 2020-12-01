@@ -9,21 +9,15 @@ const print_i64 = extern "borkle_lib/hello" "print_i64" : extern fn (i64) -> i64
 const true  = 1 : u8;
 const false = 0 : u8;
 
-const print_bool = fn (val: bool) {
-    print_u8(bit_cast val);
-};
-
-const get_response = fn () -> u8 { 1 };
+const mod = fn (a: i64, b: i64) -> i64  (a / b) * b;
 
 const main = {
-    let new_number = 102 : i64;
-
-    // Does the user want this number?
-    let number = if get_response() {
-        new_number
-    } else {
-        0
+    let ctr = 10 : i64;
+    while ctr {
+        print_i64(ctr);
+        ctr = ctr - 1;
     };
 
-    print_i64(number);
+    let x = mod(45, 10);
+    print_i64(x);
 };

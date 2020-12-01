@@ -248,6 +248,12 @@ fn atom_value(
                 arg_node.set(Node::new(token.loc, NodeKind::Literal(literal)));
                 arg_node.validate();
             }
+            TokenKind::Keyword(Keyword::While) => {
+                expression(global, imperative, arg_node.arg())?;
+                value(global, imperative, arg_node.arg())?;
+                arg_node.set(Node::new(token.loc, NodeKind::While));
+                arg_node.validate();
+            }
             TokenKind::Keyword(Keyword::If) => {
                 expression(global, imperative, arg_node.arg())?;
                 value(global, imperative, arg_node.arg())?;

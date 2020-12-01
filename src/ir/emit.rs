@@ -56,6 +56,30 @@ pub fn emit(program: &Program, locals: LocalVariables, ast: &Ast) -> Routine {
 
 fn emit_node(ctx: &mut Context<'_>, node: &Node<'_>) -> Value {
     match node.kind() {
+        NodeKind::While => {
+            let mut children = node.children();
+
+            let end_label = ctx.create_label();
+
+            let condition_label = ctx.create_label();
+            ctx.define_label(condition_label);
+            let condition = emit_node(ctx, &children.next().unwrap());
+
+            ctx.instr.push(Instr::JumpIfZero {
+                condition,
+                to: end_label,
+            });
+
+            emit_node(ctx, &children.next().unwrap());
+
+            ctx.instr.push(Instr::Jump {
+                to: condition_label,
+            });
+
+            ctx.define_label(end_label);
+
+            ctx.registers.zst()
+        }
         NodeKind::If { has_else: false } => {
             let mut children = node.children();
             let condition = emit_node(ctx, &children.next().unwrap());

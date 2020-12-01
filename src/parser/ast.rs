@@ -27,6 +27,7 @@ pub enum NodeKind {
         symbol_name: String,
     },
 
+    While,
     If {
         has_else: bool,
     },
@@ -80,7 +81,9 @@ impl bump_tree::MetaData for Node {
             | NodeKind::Member(_)
             | NodeKind::ReferenceType
             | NodeKind::Unary(_) => num_args == 1,
-            NodeKind::Assign | NodeKind::Binary(_) | NodeKind::TypeBound => num_args == 2,
+            NodeKind::While | NodeKind::Assign | NodeKind::Binary(_) | NodeKind::TypeBound => {
+                num_args == 2
+            }
             NodeKind::If { has_else } => {
                 if has_else {
                     num_args == 3
