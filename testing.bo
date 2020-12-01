@@ -1,26 +1,55 @@
+const for_each_u8 = fn (buf: [] u8, data: &(), func: fn (&(), &u8)) {
+    let to = bit_cast (buf.len + bit_cast buf.ptr) : &u8;
+    while bit_cast to - bit_cast buf.ptr : u64 {
+        func(data, buf.ptr);
+        
+        buf.ptr = bit_cast (bit_cast buf.ptr + 1 : i64);
+    };
+};
+
+const main = {
+    let bytes = alloc(8);
+    
+    let counter = 0 : u8;
+    for_each_u8(bytes, bit_cast &counter, fn (data: &(), byte: &u8) {
+        let counter = bit_cast data : &u8;
+        *counter = *counter + 1;
+        print_u8(*byte);
+        *byte = *counter;
+    });
+
+    for_each_u8(bytes, bit_cast &counter, fn (_: &(), byte: &u8) {
+        print_u8(*byte);
+    });
+
+    dealloc(bytes);
+};
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 const print_u8  = extern "borkle_lib/hello" "print_u8"  : extern fn (u8) -> u8;
 const callback  = extern "borkle_lib/hello" "callback"  : extern fn () -> extern fn (i64) -> i64;
 
 const alloc = fn (len: usize) -> [] u8 {
-    // buf.ptr = (extern "borkle_lib/hello" "alloc" : extern fn (usize) -> &())(len);
-    uninit
+    let buf = uninit : [] u8;
+    buf.ptr = (extern "borkle_lib/hello" "alloc" : extern fn (usize) -> &u8)(len);
+    buf.len = len;
+    buf
 };
-const dealloc = extern "borkle_lib/hello" "dealloc" : extern fn (&(), usize);
+
+const dealloc = fn (buf: [] u8) {
+    (extern "borkle_lib/hello" "dealloc" : extern fn (&u8, usize))(buf.ptr, buf.len);
+};
 
 const print_i64 = extern "borkle_lib/hello" "print_i64" : extern fn (i64) -> i64;
-
-const true  = 1 : u8;
-const false = 0 : u8;
-
-const mod = fn (a: i64, b: i64) -> i64  (a / b) * b;
-
-const main = {
-    let ctr = 2 : i64;
-    while ctr {
-        print_i64(ctr);
-        ctr = ctr - 1;
-    };
-
-    let x = mod(45, 10);
-    print_i64(x);
-};

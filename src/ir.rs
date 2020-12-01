@@ -40,7 +40,9 @@ pub enum Instr {
     Member {
         to: Value,
         of: Value,
+        offset: usize,
         name: Ustr,
+        size: usize,
     },
     Dereference {
         to: Value,
@@ -51,14 +53,18 @@ pub enum Instr {
         from: Value,
     },
     Move {
+        // FIXME: rename to 'target' maybe?
         to: Value,
         from: Value,
         size: usize,
+        offset_to_target: usize,
     },
     MoveIndirect {
+        // FIXME: rename to 'target' maybe?
         to: Value,
         from: Value,
         size: usize,
+        offset_to_target: usize,
     },
     JumpIfZero {
         condition: Value,

@@ -118,6 +118,7 @@ pub enum NodeKind {
     // FIXME: `MemberId` might be a bad name here, because we also have the `Member`
     // node, and they have nothing to do with each other despite having similar names.
     Global(MemberId),
+    // FIXME: This should be the 'Member' struct from the types, not a string.
     Member(Ustr),
     FunctionCall { is_extern: bool },
     FunctionDeclaration { locals: LocalVariables },

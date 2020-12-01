@@ -155,9 +155,17 @@ fn interp_internal(program: &Program, stack: &mut StackFrame<'_>, routine: &Rout
                     unreachable!("This operator is supposed to be a special case");
                 }
             },
-            Instr::Member { .. } => {
-                todo!();
-            }
+            Instr::Member {
+                to,
+                of,
+                offset,
+                size,
+                name: _,
+            } => unsafe {
+                let from: *const u8 = stack.get(of).as_ptr().add(offset);
+                let to: *mut u8 = stack.get_mut(to).as_mut_ptr();
+                std::ptr::copy_nonoverlapping(from, to, size);
+            },
             Instr::Dereference { to, from } => {
                 let mut arr = [0_u8; 8];
                 arr.copy_from_slice(stack.get(from));
@@ -174,24 +182,30 @@ fn interp_internal(program: &Program, stack: &mut StackFrame<'_>, routine: &Rout
                     .get_mut(to)
                     .copy_from_slice(&(ptr as usize).to_le_bytes());
             }
-            Instr::Move { to, from, size } => {
+            Instr::Move {
+                to,
+                from,
+                size,
+                offset_to_target,
+            } => unsafe {
                 let from: *const u8 = stack.get(from).as_ptr();
-                let to: *mut u8 = stack.get_mut(to).as_mut_ptr();
-                unsafe {
-                    std::ptr::copy_nonoverlapping(from, to, size);
-                }
-            }
-            Instr::MoveIndirect { to, from, size } => {
+                let to: *mut u8 = stack.get_mut(to).as_mut_ptr().add(offset_to_target);
+                std::ptr::copy_nonoverlapping(from, to, size);
+            },
+            Instr::MoveIndirect {
+                to,
+                from,
+                size,
+                offset_to_target,
+            } => unsafe {
                 let from: *const u8 = stack.get(from).as_ptr();
 
                 let mut arr = [0_u8; 8];
                 arr.copy_from_slice(stack.get(to));
-                let to = usize::from_le_bytes(arr) as *mut u8;
+                let to = (usize::from_le_bytes(arr) as *mut u8).add(offset_to_target);
 
-                unsafe {
-                    std::ptr::copy_nonoverlapping(from, to, size);
-                }
-            }
+                std::ptr::copy_nonoverlapping(from, to, size);
+            },
         }
 
         instr_pointer += 1;

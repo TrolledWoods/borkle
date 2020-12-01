@@ -78,19 +78,19 @@ impl Type {
     pub fn member(self, member_name: Ustr) -> Option<Member> {
         match self.kind() {
             TypeKind::Struct(members) => {
-                let mut bit_offset = 0;
+                let mut byte_offset = 0;
                 for &(name, type_) in members {
-                    bit_offset = to_align(bit_offset, type_.align());
+                    byte_offset = to_align(byte_offset, type_.align());
 
                     if name == member_name {
                         return Some(Member {
                             parent_type: self,
-                            bit_offset,
+                            byte_offset,
                             type_,
                         });
                     }
 
-                    bit_offset += type_.size();
+                    byte_offset += type_.size();
                 }
 
                 None
@@ -98,12 +98,12 @@ impl Type {
             TypeKind::Buffer(internal) => match member_name.as_str() {
                 "ptr" => Some(Member {
                     parent_type: self,
-                    bit_offset: 0,
-                    type_: *internal,
+                    byte_offset: 0,
+                    type_: Type::new(TypeKind::Reference(*internal)),
                 }),
                 "len" => Some(Member {
                     parent_type: self,
-                    bit_offset: 8,
+                    byte_offset: 8,
                     type_: Type::new(TypeKind::Int(IntTypeKind::Usize)),
                 }),
                 _ => None,
@@ -281,6 +281,6 @@ impl Debug for IntTypeKind {
 
 pub struct Member {
     pub parent_type: Type,
-    pub bit_offset: usize,
+    pub byte_offset: usize,
     pub type_: Type,
 }

@@ -2,6 +2,16 @@
 macro_rules! all_int_types {
     ($int_kind:expr, $out:expr, ($a:expr, $b:expr), $op:tt) => {{
         match $int_kind {
+            crate::types::IntTypeKind::Isize => unsafe {
+                let a: isize = *$a.as_ptr().cast();
+                let b: isize = *$b.as_ptr().cast();
+                *$out.as_mut_ptr().cast::<isize>() = a $op b;
+            },
+            crate::types::IntTypeKind::Usize => unsafe {
+                let a: usize = *$a.as_ptr().cast();
+                let b: usize = *$b.as_ptr().cast();
+                *$out.as_mut_ptr().cast::<usize>() = a $op b;
+            },
             crate::types::IntTypeKind::I64 => unsafe {
                 let a: i64 = *$a.as_ptr().cast();
                 let b: i64 = *$b.as_ptr().cast();

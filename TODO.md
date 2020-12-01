@@ -1,9 +1,10 @@
 # Version 0.0.1 features
 * [X] Simple control flow, if, while.
+* [X] Buffer pointer type
+
 * [ ] Function arguments are implicitly dereferenced/referenced
-* [.] Buffer pointer type
-* [ ] Generalise operators
 * [ ] 'Any' type, the same as C void\*
+* [ ] Generalise operators
 * [ ] C backend
 
 # Version 0.0.2 features
