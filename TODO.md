@@ -2,8 +2,7 @@
 * [X] Simple control flow, if, while.
 * [X] Buffer pointer type
 
-* [ ] Function arguments are implicitly dereferenced/referenced
-* [ ] 'Any' type, the same as C void\*
+* [.] Pointers in globals
 * [ ] Generalise operators
 * [ ] C backend
 
@@ -12,3 +11,5 @@
         Maybe it's fine to use unsafe, because if we do we can also include other data types in the ast buffer.
 * [ ] Variable arguments for functions
 * [ ] Defer
+* [ ] Function arguments are implicitly dereferenced/referenced(maybe we want this?)
+* [ ] 'Any' type, the same as C void\*

@@ -52,7 +52,6 @@ macro_rules! all_int_types {
                 let b: u8 = *$b.as_ptr().cast();
                 *$out.as_mut_ptr().cast::<u8>() = a $op b;
             }
-            _ => unreachable!("Invalid operator combination"),
         }
     }};
 }

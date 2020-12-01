@@ -1,29 +1,45 @@
-const for_each_u8 = fn (buf: [] u8, data: &(), func: fn (&(), &u8)) {
-    let to = bit_cast (buf.len + bit_cast buf.ptr) : &u8;
-    while bit_cast to - bit_cast buf.ptr : u64 {
-        func(data, buf.ptr);
-        
-        buf.ptr = bit_cast (bit_cast buf.ptr + 1 : i64);
-    };
-};
-
 const main = {
-    let bytes = alloc(8);
-    
-    let counter = 0 : u8;
-    for_each_u8(bytes, bit_cast &counter, fn (data: &(), byte: &u8) {
-        let counter = bit_cast data : &u8;
-        *counter = *counter + 1;
-        print_u8(*byte);
-        *byte = *counter;
-    });
-
-    for_each_u8(bytes, bit_cast &counter, fn (_: &(), byte: &u8) {
-        print_u8(*byte);
-    });
-
-    dealloc(bytes);
+    print_u8(*number);
 };
+
+const number_internal = 4 : u8;
+const number = &number_internal : &u8;
+
+const a = 5 : u8;
+const b = 5 : u8;
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

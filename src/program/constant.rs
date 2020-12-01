@@ -1,9 +1,12 @@
 use crate::program::Type;
 use std::alloc;
+use std::hash::{Hash, Hasher};
+use std::ops::Deref;
 use std::ptr::NonNull;
 
 pub struct Constant {
     ptr: NonNull<u8>,
+    size: usize,
 }
 
 // Safety: Since there is no interior mutability or weirdness, in fact, no mutability in this type,
@@ -21,6 +24,7 @@ impl Constant {
 
         Self {
             ptr: NonNull::new(ptr).unwrap(),
+            size: type_.size(),
         }
     }
 
@@ -30,5 +34,23 @@ impl Constant {
 
     pub fn as_non_null(&self) -> NonNull<u8> {
         self.ptr
+    }
+
+    pub fn as_slice(&self) -> &'_ [u8] {
+        unsafe { std::slice::from_raw_parts(self.as_ptr(), self.size) }
+    }
+}
+
+impl Hash for Constant {
+    fn hash<H: Hasher>(&self, hasher: &mut H) {
+        self.as_slice().hash(hasher);
+    }
+}
+
+impl Deref for Constant {
+    type Target = [u8];
+
+    fn deref(&self) -> &'_ Self::Target {
+        self.as_slice()
     }
 }

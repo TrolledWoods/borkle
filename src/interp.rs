@@ -10,13 +10,13 @@ mod stack;
 pub use stack::Stack;
 use stack::StackFrame;
 
-pub fn interp(program: &Program, stack: &mut Stack, routine: &Routine) -> Constant {
+pub fn interp(program: &Program, stack: &mut Stack, routine: &Routine) -> *const u8 {
     let mut stack_frame = stack.stack_frame(&routine.registers);
     interp_internal(program, &mut stack_frame, routine);
 
     let result_type = routine.result.type_();
     let ptr = stack_frame.get(routine.result).as_ptr();
-    unsafe { Constant::create(result_type, ptr.cast()) }
+    ptr.cast()
 }
 
 // The stack frame has to be set up ahead of time here. That is necessary; because

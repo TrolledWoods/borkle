@@ -4,7 +4,7 @@ use crate::types::Type;
 use bumpalo::Bump;
 use constant::Constant;
 use parking_lot::{Mutex, RwLock};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::pin::Pin;
 use std::sync::atomic::{AtomicI32, Ordering};
@@ -45,6 +45,7 @@ pub struct Program {
     // so we have to just have them all alive for the entire duration of the program.
     functions: Mutex<Vec<Pin<Arc<Routine>>>>,
     extern_fn_calling_conventions: RwLock<HashMap<Type, ffi::CallingConvention>>,
+    constant_data: RwLock<HashSet<Constant>>,
     work: WorkSender,
     pub libraries: Mutex<ffi::Libraries>,
 }
@@ -57,6 +58,7 @@ impl Program {
             calling_conventions_alloc: Mutex::default(),
             functions: Mutex::default(),
             libraries: Mutex::new(ffi::Libraries::new()),
+            constant_data: RwLock::default(),
             work,
         }
     }
@@ -98,10 +100,15 @@ impl Program {
         const_table.get(&id).unwrap().type_.to_option().copied()
     }
 
-    pub fn set_value_of_member(&self, id: Ustr, value: Constant) {
+    pub fn set_value_of_member(&self, id: Ustr, data: *const u8) {
         let mut const_table = self.const_table.write();
         let entry = const_table.get_mut(&id).unwrap();
+
+        let type_ = *entry.type_.unwrap();
+        let value = unsafe { Constant::create(type_, data) };
+
         let old = std::mem::replace(&mut entry.value, DependableOption::Some(value));
+
         drop(const_table);
 
         if let DependableOption::None(dependencies) = old {
@@ -277,6 +284,10 @@ impl<T> DependableOption<T> {
                 true
             }
         }
+    }
+
+    pub fn unwrap(&self) -> &T {
+        self.to_option().unwrap()
     }
 
     const fn to_option(&self) -> Option<&T> {
