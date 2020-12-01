@@ -1,5 +1,7 @@
 use crate::program::Type;
 use std::alloc;
+use std::borrow::Borrow;
+use std::cmp::{Eq, PartialEq};
 use std::hash::{Hash, Hasher};
 use std::ops::Deref;
 use std::ptr::NonNull;
@@ -41,6 +43,14 @@ impl Constant {
     }
 }
 
+impl PartialEq for Constant {
+    fn eq(&self, other: &Self) -> bool {
+        self.as_slice() == other.as_slice()
+    }
+}
+
+impl Eq for Constant {}
+
 impl Hash for Constant {
     fn hash<H: Hasher>(&self, hasher: &mut H) {
         self.as_slice().hash(hasher);
@@ -51,6 +61,12 @@ impl Deref for Constant {
     type Target = [u8];
 
     fn deref(&self) -> &'_ Self::Target {
+        self.as_slice()
+    }
+}
+
+impl Borrow<[u8]> for Constant {
+    fn borrow(&self) -> &[u8] {
         self.as_slice()
     }
 }

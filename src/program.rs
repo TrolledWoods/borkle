@@ -7,6 +7,7 @@ use parking_lot::{Mutex, RwLock};
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::pin::Pin;
+use std::ptr::NonNull;
 use std::sync::atomic::{AtomicI32, Ordering};
 use std::sync::Arc;
 use thread_pool::WorkSender;
@@ -45,7 +46,7 @@ pub struct Program {
     // so we have to just have them all alive for the entire duration of the program.
     functions: Mutex<Vec<Pin<Arc<Routine>>>>,
     extern_fn_calling_conventions: RwLock<HashMap<Type, ffi::CallingConvention>>,
-    constant_data: RwLock<HashSet<Constant>>,
+    constant_data: Mutex<HashSet<Constant>>,
     work: WorkSender,
     pub libraries: Mutex<ffi::Libraries>,
 }
@@ -58,7 +59,7 @@ impl Program {
             calling_conventions_alloc: Mutex::default(),
             functions: Mutex::default(),
             libraries: Mutex::new(ffi::Libraries::new()),
-            constant_data: RwLock::default(),
+            constant_data: Mutex::default(),
             work,
         }
     }
@@ -90,7 +91,7 @@ impl Program {
         let element = const_table.get(&id.0).unwrap();
 
         let type_ = *element.type_.to_option().unwrap();
-        let value_ptr = element.value.to_option().unwrap().as_non_null();
+        let value_ptr = *element.value.to_option().unwrap();
 
         crate::ir::Value::Global(value_ptr, type_)
     }
@@ -100,13 +101,24 @@ impl Program {
         const_table.get(&id).unwrap().type_.to_option().copied()
     }
 
+    pub fn insert_buffer(&self, type_: Type, data: *const u8) -> NonNull<u8> {
+        let mut constant_data = self.constant_data.lock();
+        let data_slice = unsafe { std::slice::from_raw_parts(data, type_.size()) };
+        if let Some(constant) = constant_data.get(data_slice) {
+            constant.as_non_null()
+        } else {
+            let constant = unsafe { Constant::create(type_, data) };
+            let ptr = constant.as_non_null();
+            constant_data.insert(constant);
+            ptr
+        }
+    }
+
     pub fn set_value_of_member(&self, id: Ustr, data: *const u8) {
         let mut const_table = self.const_table.write();
         let entry = const_table.get_mut(&id).unwrap();
 
-        let type_ = *entry.type_.unwrap();
-        let value = unsafe { Constant::create(type_, data) };
-
+        let value = self.insert_buffer(*entry.type_.unwrap(), data);
         let old = std::mem::replace(&mut entry.value, DependableOption::Some(value));
 
         drop(const_table);
@@ -252,11 +264,14 @@ impl Program {
 
 struct Member {
     type_: DependableOption<Type>,
-    value: DependableOption<Constant>,
+    value: DependableOption<NonNull<u8>>,
     dependencies_left: AtomicI32,
     task: Option<Task>,
     is_defined: bool,
 }
+
+unsafe impl Send for Member {}
+unsafe impl Sync for Member {}
 
 impl Member {
     const fn new(is_defined: bool) -> Self {

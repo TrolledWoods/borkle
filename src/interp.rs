@@ -1,6 +1,6 @@
 use crate::ir::{Instr, Routine};
 use crate::operators::{BinaryOp, UnaryOp};
-use crate::program::{constant::Constant, Program};
+use crate::program::Program;
 use crate::types::TypeKind;
 
 #[macro_use]
@@ -14,7 +14,6 @@ pub fn interp(program: &Program, stack: &mut Stack, routine: &Routine) -> *const
     let mut stack_frame = stack.stack_frame(&routine.registers);
     interp_internal(program, &mut stack_frame, routine);
 
-    let result_type = routine.result.type_();
     let ptr = stack_frame.get(routine.result).as_ptr();
     ptr.cast()
 }

@@ -1,11 +1,11 @@
 const main = {
-    print_u8(*number);
+    let a_ptr = &a;
+    let b_ptr = &b;
+
+    print_i64(bit_cast a_ptr - bit_cast b_ptr : i64);
 };
 
-const number_internal = 4 : u8;
-const number = &number_internal : &u8;
-
-const a = 5 : u8;
+const a = 3 : u8;
 const b = 5 : u8;
 
 
