@@ -5,6 +5,9 @@
 * [.] Pointers in globals
 * [ ] Generalise operators
 * [ ] C backend
+* [ ] Fix bug where things try to be computed without dependencies
+* [ ] Add error for unresolved dependencies
+* [ ] Deduplicated constants can have the wrong alignment
 
 # Version 0.0.2 features
 * [ ] Redo ast nodes to be more readable, like right now what the heck is it even!? 

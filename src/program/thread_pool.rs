@@ -128,8 +128,12 @@ fn worker(program: &Arc<Program>, work: &Arc<WorkPile>) -> ErrorCtx {
 
                     let result = crate::interp::interp(program, &mut stack, &routine);
 
+                    // println!("value of '{}' = {}", member_id.to_ustr(), unsafe {
+                    //     *(result as *const u64)
+                    // });
+                    //
                     // println!("value of '{}' = {:?}", member_id.to_ustr(), unsafe {
-                    //     *result.as_ptr().cast::<*const ()>()
+                    //     *result.cast::<*const ()>()
                     // });
 
                     program.set_value_of_member(member_id.to_ustr(), result);

@@ -1,9 +1,10 @@
 use crate::dependencies::DependencyList;
 use crate::ir::Routine;
-use crate::types::Type;
+use crate::types::{Type, TypeKind};
 use bumpalo::Bump;
 use constant::Constant;
 use parking_lot::{Mutex, RwLock};
+use std::alloc;
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::pin::Pin;
@@ -101,13 +102,61 @@ impl Program {
         const_table.get(&id).unwrap().type_.to_option().copied()
     }
 
+    fn insert_sub_buffers(
+        &self,
+        type_: Type,
+        data: *mut u8,
+        offset: usize,
+        internal_pointers: &mut Vec<(usize, NonNull<u8>)>,
+    ) {
+        match type_.kind() {
+            TypeKind::Reference(internal) => unsafe {
+                let sub_buffer = self.insert_buffer(*internal, *data.cast::<*const u8>());
+
+                *data.cast::<*mut u8>() = sub_buffer.as_ptr();
+                internal_pointers.push((offset, sub_buffer));
+            },
+            TypeKind::Buffer(_) => {
+                todo!("Until arrays are done, buffers will not be allowed in constants")
+            }
+            TypeKind::Struct { .. } => todo!("Structs don't exist in my world :D"),
+            TypeKind::Function { .. }
+            | TypeKind::Bool
+            | TypeKind::Int(_)
+            | TypeKind::F64
+            | TypeKind::F32
+            | TypeKind::Empty => {}
+        }
+    }
+
     pub fn insert_buffer(&self, type_: Type, data: *const u8) -> NonNull<u8> {
+        if type_.size() == 0 {
+            return NonNull::dangling();
+        }
+
+        let owned_data =
+            unsafe { alloc::alloc(alloc::Layout::from_size_align(type_.size(), 16).unwrap()) };
+        unsafe {
+            std::ptr::copy(data, owned_data, type_.size());
+        }
+
+        let mut constant_pointers = Vec::new();
+
+        self.insert_sub_buffers(type_, owned_data, 0, &mut constant_pointers);
+
         let mut constant_data = self.constant_data.lock();
-        let data_slice = unsafe { std::slice::from_raw_parts(data, type_.size()) };
+        let data_slice = unsafe { std::slice::from_raw_parts(owned_data, type_.size()) };
         if let Some(constant) = constant_data.get(data_slice) {
+            unsafe {
+                alloc::dealloc(owned_data, type_.layout());
+            }
             constant.as_non_null()
         } else {
-            let constant = unsafe { Constant::create(type_, data) };
+            let constant = Constant {
+                ptr: NonNull::new(owned_data).unwrap(),
+                size: type_.size(),
+                constant_pointers,
+            };
             let ptr = constant.as_non_null();
             constant_data.insert(constant);
             ptr

@@ -1,12 +1,13 @@
-const main = {
-    let a_ptr = &a;
-    let b_ptr = &b;
+const x = &&(42 : i64);
+const y = &(42 : i64);
 
-    print_i64(bit_cast a_ptr - bit_cast b_ptr : i64);
+const main = {
+    print_i64(bit_cast y);
+    print_i64(bit_cast *x);
 };
 
-const a = 3 : u8;
-const b = 5 : u8;
+
+
 
 
 
