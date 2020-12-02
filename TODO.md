@@ -2,10 +2,10 @@
 * [X] Simple control flow, if, while.
 * [X] Buffer pointer type
 
-* [.] Pointers in globals
+* [X] Pointers in globals
 * [ ] Generalise operators
 * [ ] C backend
-* [ ] Fix bug where things try to be computed without dependencies
+* [X] Fix bug where things try to be computed without dependencies
 * [ ] Add error for unresolved dependencies
 * [ ] Deduplicated constants can have the wrong alignment
 
