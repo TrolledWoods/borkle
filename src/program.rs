@@ -134,11 +134,15 @@ impl Program {
             return NonNull::dangling();
         }
 
-        let owned_data =
-            unsafe { alloc::alloc(alloc::Layout::from_size_align(type_.size(), 16).unwrap()) };
-        unsafe {
-            std::ptr::copy(data, owned_data, type_.size());
-        }
+        let layout = alloc::Layout::from_size_align(type_.size(), 16).unwrap();
+        let owned_data = unsafe {
+            // The alignment of the buffer is '16' here, no matter what the type is, because
+            // different types of constants might have the same memory in static memory,
+            // but their alignment might be different, so it's better to be safe here than sorry.
+            let buffer = alloc::alloc(layout);
+            std::ptr::copy(data, buffer, type_.size());
+            buffer
+        };
 
         let mut constant_pointers = Vec::new();
 
@@ -148,7 +152,7 @@ impl Program {
         let data_slice = unsafe { std::slice::from_raw_parts(owned_data, type_.size()) };
         if let Some(constant) = constant_data.get(data_slice) {
             unsafe {
-                alloc::dealloc(owned_data, type_.layout());
+                alloc::dealloc(owned_data, layout);
             }
             constant.as_non_null()
         } else {

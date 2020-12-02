@@ -11,6 +11,18 @@ pub extern "C" fn dealloc(ptr: *mut u8, size: usize) {
 }
 
 #[no_mangle]
+pub extern "C" fn put_string(pointer: *const u8, length: usize) {
+    let buffer = unsafe { std::slice::from_raw_parts(pointer, length) };
+    print!("{}", std::str::from_utf8(buffer).unwrap());
+}
+
+#[no_mangle]
+pub extern "C" fn flush_stdout() {
+    use std::io::Write;
+    std::io::stdout().flush().expect("Flushing stdout failed");
+}
+
+#[no_mangle]
 pub extern "C" fn print_i64(num: i64) -> i64 {
     println!("{}", num);
     num

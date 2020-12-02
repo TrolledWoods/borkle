@@ -1,13 +1,17 @@
 # Version 0.0.1 features
 * [X] Simple control flow, if, while.
 * [X] Buffer pointer type
-
 * [X] Pointers in globals
+* [X] Fix bug where things try to be computed without dependencies
+* [X] Deduplicated constants can have the wrong alignment
+        (do we want something more 'proper' than just forcing alignment to be 8?)
+
+* [ ] String literals
+* [ ] Array types
 * [ ] Generalise operators
 * [ ] C backend
-* [X] Fix bug where things try to be computed without dependencies
 * [ ] Add error for unresolved dependencies
-* [ ] Deduplicated constants can have the wrong alignment
+* [ ] Check for duplicate constants
 
 # Version 0.0.2 features
 * [ ] Redo ast nodes to be more readable, like right now what the heck is it even!? 
