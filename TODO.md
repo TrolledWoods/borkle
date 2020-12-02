@@ -6,9 +6,12 @@
 * [X] Deduplicated constants can have the wrong alignment
         (do we want something more 'proper' than just forcing alignment to be 8?)
 * [X] Array types
+* [X] String literals
+* [X] Generalise operators
+* [X] Make if use booleans
 
-* [.] String literals
-* [ ] Generalise operators
+* [ ] Make comparison operators care about sign bits
+* [ ] More comparison operators
 * [ ] C backend
 * [ ] Add error for unresolved dependencies
 * [ ] Check for duplicate constants

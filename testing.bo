@@ -1,11 +1,11 @@
-const message = "Hello, world!\n";
-const message2 = "Hello, world!\n";
-
 const main = {
-    print_i64(bit_cast message.ptr - bit_cast message2.ptr);
+    let x = 10 : i64;
 
-    print(message);
-    print(message2);
+    while x > 0 {
+        print("x is: ");
+        print_i64(x);
+        x = x - 1;
+    };
 };
 
 const alloc = fn (len: usize) -> [] u8 {

@@ -2,7 +2,7 @@ use crate::dependencies::{DependencyKind, DependencyList};
 use crate::errors::ErrorCtx;
 use crate::literal::Literal;
 use crate::locals::LocalVariables;
-use crate::operators::UnaryOp;
+use crate::operators::{BinaryOp, UnaryOp};
 use crate::parser::{self, ast::NodeKind as ParserNodeKind};
 use crate::program::{MemberId, Program};
 use crate::types::{IntTypeKind, Type, TypeKind};
@@ -78,15 +78,12 @@ fn type_ast(
             let mut children = parsed.children();
 
             let condition_node = children.next().unwrap();
-            let condition_type = type_ast(ctx, None, &condition_node, node.arg())?;
-
-            if !matches!(condition_type.kind(), TypeKind::Int(_)) {
-                ctx.errors.error(
-                    condition_node.loc,
-                    format!("Expected an integer type, found '{}'", condition_type),
-                );
-                return Err(());
-            }
+            type_ast(
+                ctx,
+                Some(Type::new(TypeKind::Bool)),
+                &condition_node,
+                node.arg(),
+            )?;
 
             type_ast(ctx, None, &children.next().unwrap(), node.arg())?;
 
@@ -99,15 +96,12 @@ fn type_ast(
             let mut children = parsed.children();
 
             let condition_node = children.next().unwrap();
-            let condition_type = type_ast(ctx, None, &condition_node, node.arg())?;
-
-            if !matches!(condition_type.kind(), TypeKind::Int(_)) {
-                ctx.errors.error(
-                    condition_node.loc,
-                    format!("Expected an integer type, found '{}'", condition_type),
-                );
-                return Err(());
-            }
+            type_ast(
+                ctx,
+                Some(Type::new(TypeKind::Bool)),
+                &condition_node,
+                node.arg(),
+            )?;
 
             type_ast(ctx, Some(type_), &children.next().unwrap(), node.arg())?;
 
@@ -122,15 +116,12 @@ fn type_ast(
             let mut children = parsed.children();
 
             let condition_node = children.next().unwrap();
-            let condition_type = type_ast(ctx, None, &condition_node, node.arg())?;
-
-            if !matches!(condition_type.kind(), TypeKind::Int(_)) {
-                ctx.errors.error(
-                    condition_node.loc,
-                    format!("Expected an integer type, found '{}'", condition_type),
-                );
-                return Err(());
-            }
+            type_ast(
+                ctx,
+                Some(Type::new(TypeKind::Bool)),
+                &condition_node,
+                node.arg(),
+            )?;
 
             let true_body_type = type_ast(ctx, wanted_type, &children.next().unwrap(), node.arg())?;
             let false_body_type = type_ast(
@@ -393,16 +384,40 @@ fn type_ast(
             let left = children.next().unwrap();
             let right = children.next().unwrap();
 
-            let left_type = type_ast(ctx, wanted_type, &left, node.arg())?;
-            let right_type = type_ast(ctx, Some(left_type), &right, node.arg())?;
+            match op {
+                BinaryOp::And | BinaryOp::Or => {
+                    type_ = Type::new(TypeKind::Bool);
+                    type_ast(ctx, Some(type_), &left, node.arg())?;
+                    type_ast(ctx, Some(type_), &right, node.arg())?;
+                }
+                BinaryOp::Equals
+                | BinaryOp::LargerThanEquals
+                | BinaryOp::LargerThan
+                | BinaryOp::LessThanEquals
+                | BinaryOp::LessThan => {
+                    type_ = Type::new(TypeKind::Bool);
+                    let left_type = type_ast(ctx, None, &left, node.arg())?;
+                    type_ast(ctx, Some(left_type), &right, node.arg())?;
+                }
+                BinaryOp::Add
+                | BinaryOp::Sub
+                | BinaryOp::Mult
+                | BinaryOp::Div
+                | BinaryOp::BitAnd
+                | BinaryOp::BitOr => {
+                    let left_type = type_ast(ctx, wanted_type, &left, node.arg())?;
+                    let right_type = type_ast(ctx, Some(left_type), &right, node.arg())?;
 
-            if left_type != right_type {
-                ctx.errors
-                    .error(parsed.loc, "Operands do not have the same type".to_string());
+                    if left_type != right_type {
+                        ctx.errors
+                            .error(parsed.loc, "Operands do not have the same type".to_string());
+                    }
+
+                    type_ = left_type;
+                }
             }
 
-            type_ = left_type;
-            node.set(Node::new(parsed.loc, NodeKind::Binary(op), left_type));
+            node.set(Node::new(parsed.loc, NodeKind::Binary(op), type_));
             node.validate();
         }
         ParserNodeKind::Unary(op) => {

@@ -44,7 +44,12 @@ operator!(UnaryOp {
 operator!(BinaryOp {
     And = ("&&", 1),
     Or  = ("||", 2),
+
     Equals = ("==", 3),
+    LargerThanEquals = (">=", 3),
+    LargerThan = (">", 3),
+    LessThanEquals = ("<=", 3),
+    LessThan = ("<", 3),
 
     Add = ("+", 100),
     Sub = ("-", 100),

@@ -28,8 +28,7 @@ fn interp_internal(program: &Program, stack: &mut StackFrame<'_>, routine: &Rout
         match *instr {
             Instr::LabelDefinition(_) => {}
             Instr::JumpIfZero { condition, to } => {
-                // FIXME: This is just temporary zero check, it's not great.
-                if stack.get(condition).iter().all(|&value| value == 0) {
+                if stack.get(condition)[0] == 0 {
                     instr_pointer = routine.label_locations[to.0];
                 }
             }
@@ -94,8 +93,33 @@ fn interp_internal(program: &Program, stack: &mut StackFrame<'_>, routine: &Rout
                 b,
                 type_,
             } => match op {
-                BinaryOp::And | BinaryOp::Or | BinaryOp::Equals => {
-                    todo!("Operator is not implemented yet");
+                BinaryOp::And => {
+                    let is_true = stack.get(a)[0] > 0 && stack.get(b)[0] > 0;
+                    stack.get_mut(to)[0] = is_true as u8;
+                }
+                BinaryOp::Or => {
+                    let is_true = stack.get(a)[0] + stack.get(b)[0] > 0;
+                    stack.get_mut(to)[0] = is_true as u8;
+                }
+                BinaryOp::Equals => {
+                    let is_true = stack.get(a) == stack.get(b);
+                    stack.get_mut(to)[0] = is_true as u8;
+                }
+                BinaryOp::LargerThan => {
+                    let is_true = stack.get(a) > stack.get(b);
+                    stack.get_mut(to)[0] = is_true as u8;
+                }
+                BinaryOp::LargerThanEquals => {
+                    let is_true = stack.get(a) >= stack.get(b);
+                    stack.get_mut(to)[0] = is_true as u8;
+                }
+                BinaryOp::LessThan => {
+                    let is_true = stack.get(a) < stack.get(b);
+                    stack.get_mut(to)[0] = is_true as u8;
+                }
+                BinaryOp::LessThanEquals => {
+                    let is_true = stack.get(a) <= stack.get(b);
+                    stack.get_mut(to)[0] = is_true as u8;
                 }
                 BinaryOp::Add => {
                     if let TypeKind::Int(int) = *type_.kind() {
