@@ -1,6 +1,23 @@
+const answer = &42 : &i64;
+
 const x = {
-    let buffer = alloc(8);
-    dealloc(buffer);
+    let array = uninit : [4] &i64;
+    *get(&array, 0) = &42;
+    *get(&array, 1) = &50;
+    *get(&array, 2) = &1;
+    *get(&array, 3) = &2;
+
+    print_array(array);
+    &array
+};
+
+const y = print_array(*x);
+
+const print_array = fn (array: [4] &i64) {
+    print_i64(**get(&array, 0));
+    print_i64(**get(&array, 1));
+    print_i64(**get(&array, 2));
+    print_i64(**get(&array, 3));
 };
 
 const alloc = fn (len: usize) -> [] u8 {
@@ -14,27 +31,9 @@ const dealloc = fn (buf: [] u8) {
     (extern "borkle_lib/hello" "dealloc" : extern fn (&u8, usize))(buf.ptr, buf.len);
 };
 
-const set = fn (buf: []u8, offset: usize, value: u8) {
-    let ptr = bit_cast (offset + bit_cast buf.ptr) : &u8;
-    *ptr = value;
-};
-
-const main = {
-    let buffer = alloc(8);
-
-    set(buffer, 0, 99);
-    set(buffer, 1, 99);
-    set(buffer, 2, 99);
-    set(buffer, 3, 99);
-    set(buffer, 4, 99);
-    set(buffer, 5, 99);
-    set(buffer, 6, 99);
-    set(buffer, 7, 99);
-
-    print(buffer);
-    flush();
- 
-    dealloc(buffer);
+const get = fn (array: &[4] &i64, index: usize) -> &&i64 {
+    let first = bit_cast array : &i64;
+    bit_cast ((index * 8) + bit_cast first)
 };
 
 const print = fn (buffer: [] u8) {

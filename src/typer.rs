@@ -501,6 +501,7 @@ fn type_ast(
             node.validate();
         }
         ParserNodeKind::LiteralType(_)
+        | ParserNodeKind::ArrayType(_)
         | ParserNodeKind::FunctionType { .. }
         | ParserNodeKind::BufferType
         | ParserNodeKind::ReferenceType => {
@@ -532,6 +533,11 @@ fn const_fold_type_expr(errors: &mut ErrorCtx, parsed: &ParsedNode<'_>) -> Resul
             let mut children = parsed.children();
             let pointee = const_fold_type_expr(errors, &children.next().unwrap())?;
             Ok(TypeKind::Buffer(pointee).into())
+        }
+        ParserNodeKind::ArrayType(length) => {
+            let mut children = parsed.children();
+            let member = const_fold_type_expr(errors, &children.next().unwrap())?;
+            Ok(TypeKind::Array(member, length).into())
         }
         ParserNodeKind::ReferenceType => {
             let mut children = parsed.children();

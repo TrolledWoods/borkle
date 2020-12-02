@@ -16,23 +16,20 @@ mod types;
 pub const MAX_FUNCTION_ARGUMENTS: usize = 32;
 
 fn main() {
-    for i in 0..1000 {
-        println!("Trying for {} time", i);
-        let mut thread_pool = program::thread_pool::ThreadPool::new(std::iter::once(
-            program::Task::Parse("testing".into(), "testing.bo".into()),
-        ));
+    let mut thread_pool = program::thread_pool::ThreadPool::new(std::iter::once(
+        program::Task::Parse("testing".into(), "testing.bo".into()),
+    ));
 
-        let time = std::time::Instant::now();
+    let time = std::time::Instant::now();
 
-        // for _ in 0..2 {
-        //     thread_pool.spawn_thread();
-        // }
-
-        let errors = thread_pool.join();
-
-        errors.print();
-
-        let elapsed = time.elapsed();
-        println!("Finished in {:.4} seconds", elapsed.as_secs_f32());
+    for _ in 0..2 {
+        thread_pool.spawn_thread();
     }
+
+    let errors = thread_pool.join();
+
+    errors.print();
+
+    let elapsed = time.elapsed();
+    println!("Finished in {:.4} seconds", elapsed.as_secs_f32());
 }

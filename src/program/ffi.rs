@@ -143,6 +143,9 @@ fn type_to_ffi_type(type_: Type) -> Option<ffi_type> {
             TypeKind::Int(IntTypeKind::Usize) => Some(ffi_type_pointer),
             TypeKind::Int(IntTypeKind::Isize) => Some(ffi_type_pointer),
             TypeKind::Reference(_) | TypeKind::Function { .. } => Some(ffi_type_pointer),
+            TypeKind::Array(_, _) => {
+                todo!("Array ffi is not implemented yet");
+            }
             TypeKind::Buffer(_) => {
                 todo!("Buffer ffi is not implemented yet");
             }

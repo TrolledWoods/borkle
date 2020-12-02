@@ -129,7 +129,8 @@ impl Display for TypeKind {
             Self::Int(int) => int.fmt(fmt),
             Self::Bool => write!(fmt, "bool"),
             Self::Reference(internal) => write!(fmt, "&{}", internal),
-            Self::Buffer(internal) => write!(fmt, "[]{}", internal),
+            Self::Buffer(internal) => write!(fmt, "[] {}", internal),
+            Self::Array(internal, length) => write!(fmt, "[{}] {}", length, internal),
             Self::Function {
                 args,
                 returns,
@@ -180,6 +181,7 @@ pub enum TypeKind {
     F32,
     Bool,
     Int(IntTypeKind),
+    Array(Type, usize),
     Reference(Type),
     Buffer(Type),
     Function {
@@ -198,6 +200,11 @@ impl TypeKind {
             Self::Buffer(_) => (16, 8),
             Self::F32 => (4, 4),
             Self::Bool => (1, 1),
+            Self::Array(internal, length) => {
+                let (member_size, align) = internal.kind().calculate_size_align();
+                let member_size = to_align(member_size, align);
+                (member_size * length, align)
+            }
             Self::Int(kind) => kind.size_align(),
             Self::Struct(members) => {
                 let mut size = 0;

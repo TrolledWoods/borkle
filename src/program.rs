@@ -116,8 +116,15 @@ impl Program {
                 *data.cast::<*mut u8>() = sub_buffer.as_ptr();
                 internal_pointers.push((offset, sub_buffer));
             },
+            TypeKind::Array(element_type, length) => {
+                for element in 0..*length {
+                    let element_offset = element * element_type.size();
+                    let ptr = unsafe { data.add(element_offset) };
+                    self.insert_sub_buffers(*element_type, ptr, element_offset, internal_pointers);
+                }
+            }
             TypeKind::Buffer(_) => {
-                todo!("Until arrays are done, buffers will not be allowed in constants")
+                todo!("Until arrays are done, buffers will not be allowed in constants");
             }
             TypeKind::Struct { .. } => todo!("Structs don't exist in my world :D"),
             TypeKind::Function { .. }

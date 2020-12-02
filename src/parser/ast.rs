@@ -39,6 +39,7 @@ pub enum NodeKind {
     },
 
     BufferType,
+    ArrayType(usize),
     FunctionType {
         is_extern: bool,
     },
@@ -82,6 +83,7 @@ impl bump_tree::MetaData for Node {
             | NodeKind::Member(_)
             | NodeKind::BufferType
             | NodeKind::ReferenceType
+            | NodeKind::ArrayType(_)
             | NodeKind::Unary(_) => num_args == 1,
             NodeKind::While | NodeKind::Assign | NodeKind::Binary(_) | NodeKind::TypeBound => {
                 num_args == 2

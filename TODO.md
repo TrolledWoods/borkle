@@ -5,9 +5,9 @@
 * [X] Fix bug where things try to be computed without dependencies
 * [X] Deduplicated constants can have the wrong alignment
         (do we want something more 'proper' than just forcing alignment to be 8?)
+* [X] Array types
 
-* [ ] String literals
-* [ ] Array types
+* [.] String literals
 * [ ] Generalise operators
 * [ ] C backend
 * [ ] Add error for unresolved dependencies

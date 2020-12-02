@@ -15,6 +15,7 @@ pub use ast::{Node, NodeKind};
 use bump_tree::Tree;
 use context::{DataContext, ImperativeContext};
 use lexer::{Bracket, Keyword, Token, TokenKind};
+use std::convert::TryFrom;
 use ustr::Ustr;
 
 pub type Ast = Tree<Node>;
@@ -179,8 +180,24 @@ fn type_(
                     node.set(Node::new(loc, NodeKind::BufferType));
                     node.validate();
                 }
-                TokenKind::Literal(Literal::Int(_)) => {
-                    todo!("Arrays");
+                TokenKind::Literal(Literal::Int(num)) => {
+                    global
+                        .tokens
+                        .expect_next_is(global.errors, &TokenKind::Close(Bracket::Square))?;
+                    type_(global, dependencies, node.arg())?;
+
+                    let length = if let Ok(length) = usize::try_from(num) {
+                        length
+                    } else {
+                        global.error(
+                            loc,
+                            "This number is too big to be the size of an array".to_string(),
+                        );
+                        return Err(());
+                    };
+
+                    node.set(Node::new(loc, NodeKind::ArrayType(length)));
+                    node.validate();
                 }
                 _ => {
                     global.error(loc, "Expected integer or ']'".to_string());
