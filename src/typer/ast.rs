@@ -60,6 +60,16 @@ impl bump_tree::MetaData for Node {
 
 pub struct ByteArray(pub Vec<u8>);
 
+impl ByteArray {
+    pub fn create_buffer_bytes(ptr: *mut u8, length: usize) -> Self {
+        let mut bytes = vec![0_u8; 16];
+        let ptr = ptr as usize;
+        bytes[0..8].copy_from_slice(&ptr.to_le_bytes());
+        bytes[8..16].copy_from_slice(&length.to_le_bytes());
+        Self(bytes)
+    }
+}
+
 impl Debug for ByteArray {
     fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
         for (i, byte) in self.0.iter().enumerate() {

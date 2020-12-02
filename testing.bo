@@ -1,23 +1,11 @@
-const answer = &42 : &i64;
+const message = "Hello, world!\n";
+const message2 = "Hello, world!\n";
 
-const x = {
-    let array = uninit : [4] &i64;
-    *get(&array, 0) = &42;
-    *get(&array, 1) = &50;
-    *get(&array, 2) = &1;
-    *get(&array, 3) = &2;
+const main = {
+    print_i64(bit_cast message.ptr - bit_cast message2.ptr);
 
-    print_array(array);
-    &array
-};
-
-const y = print_array(*x);
-
-const print_array = fn (array: [4] &i64) {
-    print_i64(**get(&array, 0));
-    print_i64(**get(&array, 1));
-    print_i64(**get(&array, 2));
-    print_i64(**get(&array, 3));
+    print(message);
+    print(message2);
 };
 
 const alloc = fn (len: usize) -> [] u8 {

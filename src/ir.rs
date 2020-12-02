@@ -23,7 +23,7 @@ pub enum Instr {
     },
     Constant {
         to: Value,
-        from: Vec<u8>,
+        from: NonNull<u8>,
     },
     Binary {
         op: BinaryOp,

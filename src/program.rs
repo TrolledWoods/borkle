@@ -123,8 +123,24 @@ impl Program {
                     self.insert_sub_buffers(*element_type, ptr, element_offset, internal_pointers);
                 }
             }
-            TypeKind::Buffer(_) => {
-                todo!("Until arrays are done, buffers will not be allowed in constants");
+            TypeKind::Buffer(internal) => {
+                // FIXME: Might want to generalize it, so that more parts of the compiler uses this
+                // type
+                #[repr(C)]
+                #[derive(Clone, Copy)]
+                struct Buffer {
+                    ptr: *mut u8,
+                    length: usize,
+                }
+
+                let buffer = unsafe { &mut *data.cast::<Buffer>() };
+                let sub_buffer = self.insert_buffer(
+                    Type::new(TypeKind::Array(*internal, buffer.length)),
+                    buffer.ptr,
+                );
+
+                buffer.ptr = sub_buffer.as_ptr();
+                internal_pointers.push((offset, sub_buffer));
             }
             TypeKind::Struct { .. } => todo!("Structs don't exist in my world :D"),
             TypeKind::Function { .. }

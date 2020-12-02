@@ -5,8 +5,8 @@ use crate::locals::LocalVariables;
 use crate::operators::UnaryOp;
 use crate::parser::{self, ast::NodeKind as ParserNodeKind};
 use crate::program::{MemberId, Program};
-use crate::types::{Type, TypeKind};
-use ast::{Node, NodeKind};
+use crate::types::{IntTypeKind, Type, TypeKind};
+use ast::{ByteArray, Node, NodeKind};
 
 type ParsedAst = bump_tree::Tree<parser::ast::Node>;
 type ParsedNode<'a> = bump_tree::Node<'a, parser::ast::Node>;
@@ -58,7 +58,20 @@ fn type_ast(
 ) -> Result<Type, ()> {
     let type_: Type;
     match parsed.kind {
-        ParserNodeKind::Literal(Literal::String(_)) => todo!(),
+        ParserNodeKind::Literal(Literal::String(ref data)) => {
+            let u8_type = Type::new(TypeKind::Int(IntTypeKind::U8));
+            let ptr = ctx.program.insert_buffer(
+                Type::new(TypeKind::Array(u8_type, data.len())),
+                data.as_ptr(),
+            );
+            type_ = Type::new(TypeKind::Buffer(u8_type));
+            node.set(Node::new(
+                parsed.loc,
+                NodeKind::Constant(ByteArray::create_buffer_bytes(ptr.as_ptr(), data.len())),
+                type_,
+            ));
+            node.validate();
+        }
         ParserNodeKind::While => {
             type_ = Type::new(TypeKind::Empty);
 

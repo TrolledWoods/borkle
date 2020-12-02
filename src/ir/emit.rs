@@ -26,6 +26,11 @@ impl Context<'_> {
         self.label_locations[label_id.0] = self.instr.len();
         self.instr.push(Instr::LabelDefinition(label_id));
     }
+
+    fn emit_constant_from_buffer(&mut self, to: Value, buffer: &[u8]) {
+        let from = self.program.insert_buffer(to.type_(), buffer.as_ptr());
+        self.instr.push(Instr::Constant { to, from });
+    }
 }
 
 /// Emit instructions for an Ast.
@@ -166,10 +171,7 @@ fn emit_node(ctx: &mut Context<'_>, node: &Node<'_>) -> Value {
             });
 
             let to = ctx.registers.create(node.type_());
-            ctx.instr.push(Instr::Constant {
-                to,
-                from: id.to_le_bytes().into(),
-            });
+            ctx.emit_constant_from_buffer(to, &id.to_le_bytes());
             to
         }
         NodeKind::BitCast => {
@@ -185,10 +187,7 @@ fn emit_node(ctx: &mut Context<'_>, node: &Node<'_>) -> Value {
         }
         NodeKind::Constant(bytes) => {
             let to = ctx.registers.create(node.type_());
-            ctx.instr.push(Instr::Constant {
-                to,
-                from: bytes.0.clone(),
-            });
+            ctx.emit_constant_from_buffer(to, &bytes.0);
             to
         }
         NodeKind::Member(name) => {

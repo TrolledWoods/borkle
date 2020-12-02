@@ -82,7 +82,10 @@ fn interp_internal(program: &Program, stack: &mut StackFrame<'_>, routine: &Rout
                     .copy_from_slice(new_stack.get(routine.result));
             }
             Instr::Constant { to, ref from } => {
-                stack.get_mut(to).copy_from_slice(from);
+                let to = stack.get_mut(to);
+                unsafe {
+                    std::ptr::copy(from.as_ptr(), to.as_mut_ptr(), to.len());
+                }
             }
             Instr::Binary {
                 op,
