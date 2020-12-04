@@ -12,10 +12,11 @@
 * [X] Add error for unresolved dependencies
 * [X] Check for duplicate constants
 
+* [.] Command line arguments
+
 * [ ] Make comparison operators care about sign bits
 * [ ] More comparison operators
 * [ ] C backend
-* [ ] Command line arguments #functionality
 * [ ] Optional logging #robustness
 
 # Version 0.0.2 features

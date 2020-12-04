@@ -1,15 +1,8 @@
-const main = 5 : i64;
-
 const main = {
-    let x = 10 : i64;
-
+    let x = 100 : i64;
     while x > 0 {
-        print("x is: ");
-        print_i64(x);
         x = x - 1;
     };
-
-    5 : u8
 };
 
 const alloc = fn (len: usize) -> [] u8 {
