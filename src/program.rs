@@ -1,5 +1,7 @@
 use crate::dependencies::DependencyList;
+use crate::errors::ErrorCtx;
 use crate::ir::Routine;
+use crate::location::Location;
 use crate::types::{Type, TypeKind};
 use bumpalo::Bump;
 use constant::Constant;
@@ -38,8 +40,10 @@ impl MemberId {
 /// We deal with constants(and possibly in the future globals too),
 /// e.g. data scopes, and the dependency system.
 pub struct Program {
-    // TODO: We will have scopes eventually, but for now
+    // FIXME: We will have scopes eventually, but for now
     // everything is just in the same scope.
+    // FIXME: Fix up the terminology here, 'Constant' vs 'StaticData' maybe? Instaed of
+    // 'const_table', 'member'?, 'constant_data'.
     const_table: RwLock<UstrMap<Member>>,
     calling_conventions_alloc: Mutex<Bump>,
     // This has to live for as long as the interpreter runs, because, we have no idea
@@ -62,6 +66,27 @@ impl Program {
             libraries: Mutex::new(ffi::Libraries::new()),
             constant_data: Mutex::default(),
             work,
+        }
+    }
+
+    pub fn check_for_completion(&self, errors: &mut ErrorCtx) {
+        let const_table = self.const_table.read();
+        for (name, constant) in const_table.iter() {
+            for &(loc, dependant) in constant.type_.dependants() {
+                if constant.is_defined {
+                    errors.error(loc, format!("'{}' can't be evaluated", name));
+                } else {
+                    errors.error(loc, format!("'{}' is not defined", name));
+                }
+            }
+
+            for &(loc, dependant) in constant.value.dependants() {
+                if constant.is_defined {
+                    errors.error(loc, format!("'{}' can't be evaluated", name));
+                } else {
+                    errors.error(loc, format!("'{}' is not defined", name));
+                }
+            }
         }
     }
 
@@ -200,7 +225,7 @@ impl Program {
         drop(const_table);
 
         if let DependableOption::None(dependencies) = old {
-            for dependency in dependencies {
+            for (_, dependency) in dependencies {
                 self.resolve_dependency(dependency);
             }
         } else {
@@ -215,7 +240,7 @@ impl Program {
         drop(const_table);
 
         if let DependableOption::None(dependencies) = old {
-            for dependency in dependencies {
+            for (_, dependency) in dependencies {
                 self.resolve_dependency(dependency);
             }
         } else {
@@ -267,7 +292,13 @@ impl Program {
     ///
     /// FIXME: The 'impl' here will increase code size; we should break this into 2 functions, one
     /// that just constructs the task and another that actually does the inserting.
-    pub fn insert(&self, name: Ustr, deps: DependencyList, task: impl FnOnce(MemberId) -> Task) {
+    pub fn insert(
+        &self,
+        loc: Location,
+        name: Ustr,
+        deps: DependencyList,
+        task: impl FnOnce(MemberId) -> Task,
+    ) {
         let mut const_table = self.const_table.write();
 
         let mut num_deps = 0;
@@ -291,28 +322,28 @@ impl Program {
             0
         );
 
-        for dependency in deps.values {
+        for (dependency, loc) in deps.values {
             if let Some(member) = const_table.get_mut(&dependency) {
-                if member.value.add_dependant(name) {
+                if member.value.add_dependant(loc, name) {
                     num_deps += 1;
                 }
             } else {
                 num_deps += 1;
                 let mut member = Member::new(false);
-                member.value.add_dependant(name);
+                member.value.add_dependant(loc, name);
                 const_table.insert(dependency, member);
             }
         }
 
-        for dependency in deps.types {
+        for (dependency, loc) in deps.types {
             if let Some(member) = const_table.get_mut(&dependency) {
-                if member.value.add_dependant(name) {
+                if member.value.add_dependant(loc, name) {
                     num_deps += 1;
                 }
             } else {
                 num_deps += 1;
                 let mut member = Member::new(false);
-                member.type_.add_dependant(name);
+                member.type_.add_dependant(loc, name);
                 const_table.insert(dependency, member);
             }
         }
@@ -363,17 +394,24 @@ impl Member {
 
 pub enum DependableOption<T> {
     Some(T),
-    None(Vec<Ustr>),
+    None(Vec<(Location, Ustr)>),
 }
 
 impl<T> DependableOption<T> {
-    fn add_dependant(&mut self, dependant: Ustr) -> bool {
+    fn add_dependant(&mut self, loc: Location, dependant: Ustr) -> bool {
         match self {
             Self::Some(_) => false,
             Self::None(dependants) => {
-                dependants.push(dependant);
+                dependants.push((loc, dependant));
                 true
             }
+        }
+    }
+
+    fn dependants(&self) -> &[(Location, Ustr)] {
+        match self {
+            Self::Some(_) => &[],
+            Self::None(dependants) => dependants,
         }
     }
 

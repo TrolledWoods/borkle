@@ -7,18 +7,18 @@ use std::fmt::{self, Debug};
 use ustr::Ustr;
 
 pub struct Node {
-    // loc: Location,
+    pub loc: Location,
     type_: Type,
     kind: NodeKind,
 }
 
 impl Node {
-    pub fn new<T>(_loc: Location, kind: NodeKind, type_: T) -> Self
+    pub fn new<T>(loc: Location, kind: NodeKind, type_: T) -> Self
     where
         T: Into<Type>,
     {
         Self {
-            // loc,
+            loc,
             kind,
             type_: type_.into(),
         }

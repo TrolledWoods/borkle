@@ -513,7 +513,7 @@ fn type_ast(
                 type_,
             ));
             node.validate();
-            ctx.deps.add(id, DependencyKind::Value);
+            ctx.deps.add(parsed.loc, id, DependencyKind::Value);
         }
         ParserNodeKind::Local(local) => {
             type_ = ctx.locals.get(local).type_.unwrap();

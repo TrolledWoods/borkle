@@ -57,9 +57,9 @@ fn constant(global: &mut DataContext<'_>) -> Result<(), ()> {
         let locals = imperative.locals;
         ast.set_root();
 
-        global
-            .program
-            .insert(name, dependencies, |id| Task::Type(id, locals, ast));
+        global.program.insert(token.loc, name, dependencies, |id| {
+            Task::Type(id, locals, ast)
+        });
 
         global
             .tokens
@@ -167,7 +167,7 @@ fn type_(
     match token.kind {
         TokenKind::Identifier(name) => {
             global.tokens.next();
-            dependencies.add(name, DependencyKind::Value);
+            dependencies.add(loc, name, DependencyKind::Value);
             node.set(Node::new(loc, NodeKind::Global(name)));
             node.validate();
         }
@@ -274,7 +274,9 @@ fn atom_value(
                     arg_node.set(Node::new(token.loc, NodeKind::Local(local_id)));
                     arg_node.validate();
                 } else {
-                    imperative.dependencies.add(name, DependencyKind::Type);
+                    imperative
+                        .dependencies
+                        .add(token.loc, name, DependencyKind::Type);
                     arg_node.set(Node::new(token.loc, NodeKind::Global(name)));
                     arg_node.validate();
                 }

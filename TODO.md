@@ -9,14 +9,15 @@
 * [X] String literals
 * [X] Generalise operators
 * [X] Make if use booleans
+* [X] Add error for unresolved dependencies
 
 * [ ] Make comparison operators care about sign bits
 * [ ] More comparison operators
 * [ ] C backend
-* [ ] Add error for unresolved dependencies
 * [ ] Check for duplicate constants
 
 # Version 0.0.2 features
+* [ ] Implement the proper separation between 'thread pool' and 'program'
 * [ ] Redo ast nodes to be more readable, like right now what the heck is it even!? 
         Maybe it's fine to use unsafe, because if we do we can also include other data types in the ast buffer.
 * [ ] Variable arguments for functions
