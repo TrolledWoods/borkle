@@ -10,11 +10,13 @@
 * [X] Generalise operators
 * [X] Make if use booleans
 * [X] Add error for unresolved dependencies
+* [X] Check for duplicate constants
 
 * [ ] Make comparison operators care about sign bits
 * [ ] More comparison operators
 * [ ] C backend
-* [ ] Check for duplicate constants
+* [ ] Command line arguments #functionality
+* [ ] Optional logging #robustness
 
 # Version 0.0.2 features
 * [ ] Implement the proper separation between 'thread pool' and 'program'

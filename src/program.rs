@@ -72,7 +72,7 @@ impl Program {
     pub fn check_for_completion(&self, errors: &mut ErrorCtx) {
         let const_table = self.const_table.read();
         for (name, constant) in const_table.iter() {
-            for &(loc, dependant) in constant.type_.dependants() {
+            for &(loc, _) in constant.type_.dependants() {
                 if constant.is_defined {
                     errors.error(loc, format!("'{}' can't be evaluated", name));
                 } else {
@@ -80,7 +80,7 @@ impl Program {
                 }
             }
 
-            for &(loc, dependant) in constant.value.dependants() {
+            for &(loc, _) in constant.value.dependants() {
                 if constant.is_defined {
                     errors.error(loc, format!("'{}' can't be evaluated", name));
                 } else {
@@ -292,18 +292,27 @@ impl Program {
     ///
     /// FIXME: The 'impl' here will increase code size; we should break this into 2 functions, one
     /// that just constructs the task and another that actually does the inserting.
+    /// FIXME: Once we separate program and tasks, we probably want to move this into the task
+    /// system, and not have it here. But that might not be desirable.
     pub fn insert(
         &self,
+        errors: &mut ErrorCtx,
         loc: Location,
         name: Ustr,
         deps: DependencyList,
+        expect_it_is_new_thing: bool,
         task: impl FnOnce(MemberId) -> Task,
-    ) {
+    ) -> Result<(), ()> {
         let mut const_table = self.const_table.write();
 
         let mut num_deps = 0;
         if const_table.contains_key(&name) {
-            const_table.get_mut(&name).unwrap().is_defined = true;
+            let member = const_table.get_mut(&name).unwrap();
+            if member.is_defined && expect_it_is_new_thing {
+                errors.error(loc, format!("'{}' is already defined", name));
+                return Err(());
+            }
+            member.is_defined = true;
         } else {
             // There is some subtelty here that is quite important;
             // we do not insert the task yet. That is because otherwise,
@@ -366,6 +375,8 @@ impl Program {
             let entry = const_table.get_mut(&name).unwrap();
             entry.task = Some(task(MemberId(name)));
         }
+
+        Ok(())
     }
 }
 

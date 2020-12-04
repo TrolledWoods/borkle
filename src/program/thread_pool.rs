@@ -109,9 +109,14 @@ fn worker(program: &Arc<Program>, work: &Arc<WorkPile>) -> ErrorCtx {
                             let type_ = root.type_();
                             // println!("type of '{}' = '{:?}'", member_id.to_ustr(), type_);
                             program.set_type_of_member(member_id.to_ustr(), type_);
-                            program.insert(root.loc, member_id.to_ustr(), dependencies, |id| {
-                                Task::Value(id, locals, ast)
-                            });
+                            let _ = program.insert(
+                                &mut errors,
+                                root.loc,
+                                member_id.to_ustr(),
+                                dependencies,
+                                false,
+                                |id| Task::Value(id, locals, ast),
+                            );
                         }
                         Err(()) => {
                             // TODO: Here we want to poison the Value parameter of the thing this
