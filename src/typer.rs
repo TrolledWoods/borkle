@@ -44,8 +44,6 @@ pub fn process_ast(
     Ok((deps, locals, ast))
 }
 
-// NOTE: ParsedNode is both Copy and 8 bytes. I don't see why the lint is triggered
-// in this case.
 /// If the `wanted_type` is Some(type_), this function itself will generate an error if the types
 /// do not match, i.e., if Some(type_) is passed as the `wanted_type`, if the function returns Ok
 /// that is guaranteed to be the type_ passed in.

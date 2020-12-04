@@ -92,7 +92,7 @@ macro_rules! create_arguments {
             pub fn from_args(args: &[&str]) -> Option<Self> {
                 let mut creating = Self {
                     $(
-                        $field_name: $field_value,
+                        $field_name: $field_value.into(),
                     )*
                 };
 
@@ -107,6 +107,7 @@ macro_rules! create_arguments {
                             println!("# Help information:");
                             $(
                                 println!("'{}': {}", stringify!($field_name), $field_description);
+                                println!("   (default: {:?})", $field_value);
                             )*
                         } else {
                             if let Some((name, start)) = argument.take() {
@@ -144,7 +145,16 @@ macro_rules! create_arguments {
 create_arguments!(
     #[derive(Debug)]
     struct Arguments {
-        num_threads: usize = 3; "The number of threads to use for compilation",
-        file: String = "testing.bo".to_string(); "The file to compile",
+        file: String = "testing.bo";
+            "The file to compile",
+
+        output: String = "target/borkle/";
+            "The folder to put output files into",
+
+        c_compiler: String = "gcc";
+            "The name of the command to invoke a c compiler",
+
+        num_threads: usize = 3_usize;
+            "The number of threads to use for compilation",
     }
 );

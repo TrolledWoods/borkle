@@ -2,6 +2,7 @@ use crate::dependencies::DependencyList;
 use crate::errors::ErrorCtx;
 use crate::ir::Routine;
 use crate::location::Location;
+use crate::logging::Logger;
 use crate::types::{Type, TypeKind};
 use bumpalo::Bump;
 use constant::Constant;
@@ -40,6 +41,7 @@ impl MemberId {
 /// We deal with constants(and possibly in the future globals too),
 /// e.g. data scopes, and the dependency system.
 pub struct Program {
+    pub logger: Logger,
     // FIXME: We will have scopes eventually, but for now
     // everything is just in the same scope.
     // FIXME: Fix up the terminology here, 'Constant' vs 'StaticData' maybe? Instaed of
@@ -57,8 +59,9 @@ pub struct Program {
 }
 
 impl Program {
-    pub fn new(work: WorkSender) -> Self {
+    pub fn new(logger: Logger, work: WorkSender) -> Self {
         Self {
+            logger,
             const_table: RwLock::default(),
             extern_fn_calling_conventions: RwLock::default(),
             calling_conventions_alloc: Mutex::default(),
@@ -338,6 +341,10 @@ impl Program {
                 }
             } else {
                 num_deps += 1;
+                self.logger.log(format_args!(
+                    "Temporary member '{}' added for dependency resolution",
+                    dependency
+                ));
                 let mut member = Member::new(false);
                 member.value.add_dependant(loc, name);
                 const_table.insert(dependency, member);
@@ -351,6 +358,10 @@ impl Program {
                 }
             } else {
                 num_deps += 1;
+                self.logger.log(format_args!(
+                    "Temporary member '{}' added for dependency resolution",
+                    dependency
+                ));
                 let mut member = Member::new(false);
                 member.type_.add_dependant(loc, name);
                 const_table.insert(dependency, member);

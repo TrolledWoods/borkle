@@ -1,4 +1,5 @@
 use crate::errors::ErrorCtx;
+use crate::logging::Logger;
 use crate::program::{Program, Task};
 use parking_lot::Mutex;
 use std::collections::VecDeque;
@@ -35,7 +36,7 @@ pub struct ThreadPool {
 }
 
 impl ThreadPool {
-    pub fn new(tasks: impl IntoIterator<Item = Task>) -> Self {
+    pub fn new(logger: Logger, tasks: impl IntoIterator<Item = Task>) -> Self {
         let work = Arc::new(WorkPile {
             queue: Mutex::new(tasks.into_iter().collect()),
             // Set this to one to begin with so that no thread ever stops working,
@@ -45,9 +46,12 @@ impl ThreadPool {
         });
         Self {
             threads: Vec::new(),
-            program: Arc::new(Program::new(WorkSender {
-                work: Arc::clone(&work),
-            })),
+            program: Arc::new(Program::new(
+                logger,
+                WorkSender {
+                    work: Arc::clone(&work),
+                },
+            )),
             work,
         }
     }
@@ -107,7 +111,13 @@ fn worker(program: &Arc<Program>, work: &Arc<WorkPile>) -> ErrorCtx {
                         Ok((dependencies, locals, ast)) => {
                             let root = ast.root().unwrap();
                             let type_ = root.type_();
-                            // println!("type of '{}' = '{:?}'", member_id.to_ustr(), type_);
+
+                            program.logger.log(format_args!(
+                                "type of '{}' = '{:?}'",
+                                member_id.to_ustr(),
+                                type_
+                            ));
+
                             program.set_type_of_member(member_id.to_ustr(), type_);
                             let _ = program.insert(
                                 &mut errors,
@@ -127,22 +137,15 @@ fn worker(program: &Arc<Program>, work: &Arc<WorkPile>) -> ErrorCtx {
                 Task::Value(member_id, locals, ast) => {
                     let routine = crate::ir::emit::emit(program, locals, &ast);
 
-                    // println!("\n\nDoing routine: ");
-                    // for instr in &routine.instr {
-                    //     println!("{:?}", instr);
-                    // }
-
                     let mut stack = crate::interp::Stack::new(2048);
 
                     let result = crate::interp::interp(program, &mut stack, &routine);
 
-                    // println!("value of '{}' = {}", member_id.to_ustr(), unsafe {
-                    //     *(result as *const u64)
-                    // });
-                    //
-                    // println!("value of '{}' = {:?}", member_id.to_ustr(), unsafe {
-                    //     *result.cast::<*const ()>()
-                    // });
+                    program.logger.log(format_args!(
+                        "value of '{}' = {}",
+                        member_id.to_ustr(),
+                        unsafe { *(result as *const u64) }
+                    ));
 
                     program.set_value_of_member(member_id.to_ustr(), result);
                 }

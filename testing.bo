@@ -1,8 +1,22 @@
+const y = &42 : &i64;
+
+const _0 = 4 : i64;
+const _1 = 4 : i64;
+const _2 = 4 : i64;
+const _3 = 4 : i64;
+const _4 = 4 : i64;
+const _5 = _0 : i64;
+const _6 = 4 : i64;
+const _7 = 4 : i64;
+const _8 = 4 : i64;
+const _9 = 4 : i64;
+
 const main = {
-    let x = 100 : i64;
-    while x > 0 {
-        x = x - 1;
-    };
+    let x = 1000 : i64;
+    print_i64(*y);
+
+    let buffer = alloc(8);
+    dealloc(buffer);
 };
 
 const alloc = fn (len: usize) -> [] u8 {
