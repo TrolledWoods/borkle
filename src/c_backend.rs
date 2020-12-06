@@ -9,16 +9,34 @@ use crate::types::{IntTypeKind, TypeKind, TYPES};
 use std::fmt::Write;
 use ustr::Ustr;
 
+pub fn entry_point(output: &mut String, entry: *const u8) {
+    output.push_str("int main() {\n");
+    output.push_str("    init();\n");
+    write!(output, "    return global_{}();\n", entry as usize).unwrap();
+    output.push_str("}\n");
+}
+
 fn value_to_c(output: &mut String, value: &Value) {
     match value {
         Value::Register(id, _) => write!(output, "reg_{}", id).unwrap(),
-        Value::Global(ptr, type_) => write!(
-            output,
-            "(*({}*)&global_{})",
-            type_.c_format(),
-            ptr.as_ptr() as usize
-        )
-        .unwrap(),
+        Value::Global(ptr, type_) => {
+            if let TypeKind::Function { .. } = type_.kind() {
+                write!(
+                    output,
+                    "global_{}",
+                    unsafe { *ptr.as_ptr().cast::<*const u8>() } as usize
+                )
+                .unwrap();
+            } else {
+                write!(
+                    output,
+                    "(*({}*)&global_{})",
+                    type_.c_format(),
+                    ptr.as_ptr() as usize
+                )
+                .unwrap();
+            }
+        }
     }
 }
 
@@ -26,6 +44,9 @@ pub fn declare_constants(output: &mut String, program: &Program) {
     let constant_data = program.constant_data.lock();
     for constant in constant_data.iter() {
         let ptr = constant.ptr.as_ptr();
+        if constant.constant_pointers.is_empty() {
+            output.push_str("const ");
+        }
         write!(
             output,
             "uint64_t global_{}[{}] = {{",
@@ -88,19 +109,33 @@ pub fn routine_to_c(output: &mut String, routine: &Routine, num_args: usize) {
         write!(output, "    // {:?}\n", instr).unwrap();
         output.push_str("    ");
         match instr {
-            Instr::Call { .. } | Instr::CallExtern { .. } => todo!(),
+            Instr::Call { to, pointer, args }
+            | Instr::CallExtern {
+                to, pointer, args, ..
+            } => {
+                value_to_c(output, to);
+                output.push_str(" = ");
+                value_to_c(output, pointer);
+                output.push('(');
+                for (i, arg) in args.iter().enumerate() {
+                    if i > 0 {
+                        output.push_str(", ");
+                    }
+                    value_to_c(output, arg);
+                }
+                output.push_str(");\n");
+            }
             Instr::Constant { to, from } => {
                 let type_ = to.type_();
 
-                write!(output, "{{uint8_t temp[{}] = {{", type_.size()).unwrap();
-                for i in 0..type_.size() {
-                    write!(output, "{}, ", unsafe { *from.as_ptr().add(i) }).unwrap();
-                }
-                write!(output, "}};\n").unwrap();
-
-                output.push_str("    ");
                 value_to_c(output, to);
-                write!(output, " = *({}*)&temp;}}\n", type_.c_format()).unwrap();
+                write!(
+                    output,
+                    " = *({}*)&global_{};\n",
+                    type_.c_format(),
+                    from.as_ptr() as usize
+                )
+                .unwrap();
             }
             Instr::Binary {
                 op,

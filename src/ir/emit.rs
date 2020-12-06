@@ -61,8 +61,6 @@ pub fn emit(
     let result = emit_node(&mut ctx, &ast.root().unwrap());
 
     Routine {
-        // This is not a routine that will ever be called from c code.
-        c_name: "".into(),
         instr: ctx.instr,
         registers: ctx.registers,
         result,
@@ -174,14 +172,13 @@ fn emit_node(ctx: &mut Context<'_>, node: &Node<'_>) -> Value {
             }
 
             let result = emit_node(&mut sub_ctx, &node.children().next().unwrap());
-            let c_name = sub_ctx.program.function_name_mangler.lock().generate();
             let routine = Routine {
-                c_name,
                 label_locations: sub_ctx.label_locations,
                 instr: sub_ctx.instr,
                 registers: sub_ctx.registers,
                 result,
             };
+            let id = sub_ctx.program.insert_function(routine);
             if sub_ctx.program.emit_c_code {
                 use std::fmt::Write;
 
@@ -193,19 +190,19 @@ fn emit_node(ctx: &mut Context<'_>, node: &Node<'_>) -> Value {
                 {
                     write!(
                         &mut sub_ctx.thread_context.c_headers,
-                        "{} ",
-                        returns.c_format()
+                        "{} global_{}",
+                        returns.c_format(),
+                        id,
                     )
                     .unwrap();
                     write!(
                         &mut sub_ctx.thread_context.c_declarations,
-                        "{} ",
-                        returns.c_format()
+                        "{} global_{}",
+                        returns.c_format(),
+                        id,
                     )
                     .unwrap();
 
-                    sub_ctx.thread_context.c_headers.push_str(&*c_name);
-                    sub_ctx.thread_context.c_declarations.push_str(&*c_name);
                     sub_ctx.thread_context.c_headers.push('(');
                     sub_ctx.thread_context.c_declarations.push('(');
 
@@ -236,7 +233,7 @@ fn emit_node(ctx: &mut Context<'_>, node: &Node<'_>) -> Value {
                     sub_ctx.thread_context.c_declarations.push_str(") {\n");
                     crate::c_backend::routine_to_c(
                         &mut sub_ctx.thread_context.c_declarations,
-                        &routine,
+                        unsafe { &*(id as *const Routine) },
                         args.len(),
                     );
                     sub_ctx.thread_context.c_declarations.push_str("}\n");
@@ -244,8 +241,6 @@ fn emit_node(ctx: &mut Context<'_>, node: &Node<'_>) -> Value {
                     unreachable!("A function type node has to have a function type kind!!!!!!");
                 }
             }
-
-            let id = sub_ctx.program.insert_function(routine);
 
             let to = ctx.registers.create(node.type_());
             ctx.emit_constant_from_buffer(to, &id.to_le_bytes());

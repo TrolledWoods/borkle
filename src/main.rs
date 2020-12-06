@@ -40,16 +40,28 @@ fn main() {
             thread_pool.spawn_thread();
         }
 
+        let program = thread_pool.program();
         // FIXME: We should make a more proper system to handle c outputting
-        let (c_output, errors) = thread_pool.join();
+        let (mut c_output, errors) = thread_pool.join();
+
+        errors.print();
+
+        // FIXME: Make a proper error message for when the entry point doesn't exist.
+        let entry_point = program
+            .get_entry_point()
+            .expect("Entry point 'main' of program has to exist and be of type 'fn () -> ()'");
 
         if output_c {
             let mut c_file = output_folder;
             c_file.push("output.c");
+            c_backend::entry_point(&mut c_output, entry_point);
             std::fs::write(&c_file, c_output).unwrap();
+        } else {
+            let mut stack = interp::Stack::new(1024);
+            interp::interp(&program, &mut stack, unsafe {
+                &*entry_point.cast::<ir::Routine>()
+            });
         }
-
-        errors.print();
 
         let elapsed = time.elapsed();
         println!("Finished in {:.4} seconds", elapsed.as_secs_f32());

@@ -64,6 +64,10 @@ impl ThreadPool {
         self.threads.push(spawn(move || worker(&program, &work)));
     }
 
+    pub fn program(&self) -> Arc<Program> {
+        Arc::clone(&self.program)
+    }
+
     /// Makes the main thread also do work, and finally
     /// joins them all together once the work is done.
     pub fn join(self) -> (String, ErrorCtx) {

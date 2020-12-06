@@ -12,10 +12,8 @@ use parking_lot::{Mutex, RwLock};
 use std::alloc;
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
-use std::pin::Pin;
 use std::ptr::NonNull;
 use std::sync::atomic::{AtomicI32, Ordering};
-use std::sync::Arc;
 use thread_pool::WorkSender;
 use ustr::{Ustr, UstrMap};
 
@@ -57,7 +55,7 @@ pub struct Program {
 
     pub function_name_mangler: Mutex<NameMangler>,
 
-    functions: Mutex<Vec<Pin<Arc<Routine>>>>,
+    functions: Mutex<HashSet<*const Routine>>,
     calling_conventions_alloc: Mutex<Bump>,
     extern_fn_calling_conventions: RwLock<HashMap<Type, ffi::CallingConvention>>,
 
@@ -66,6 +64,12 @@ pub struct Program {
     // so we have to just have them all alive for the entire duration of the program.
     work: WorkSender,
 }
+
+// FIXME: Make a wrapper type for *const _ and have Send and Sync for that.
+// The thing about the *const _ that I use is that they are truly immutable; and immutable in other
+// points, and ALSO they do not allow interior mutability, which means they are threadsafe.
+unsafe impl Send for Program {}
+unsafe impl Sync for Program {}
 
 impl Program {
     pub fn new(
@@ -111,10 +115,9 @@ impl Program {
 
     pub fn insert_function(&self, routine: Routine) -> usize {
         let mut functions = self.functions.lock();
-        let arc = Arc::pin(routine);
-        let ptr = arc.as_ref().get_ref() as *const Routine as usize;
-        functions.push(arc);
-        ptr
+        let leaked = Box::leak(Box::new(routine)) as *const Routine;
+        functions.insert(leaked);
+        leaked as usize
     }
 
     pub fn ffi_calling_convention(&self, function_type: Type) -> ffi::CallingConvention {
@@ -128,6 +131,28 @@ impl Program {
             let convention = ffi::CallingConvention::new(&alloc, function_type);
             guard.insert(function_type, convention);
             convention
+        }
+    }
+
+    pub fn get_entry_point(&self) -> Option<*const u8> {
+        let const_table = self.const_table.read();
+        let element = const_table.get(&"main".into())?;
+
+        let type_ = element.type_.to_option()?;
+
+        if let TypeKind::Function {
+            args,
+            returns,
+            is_extern: false,
+        } = type_.kind()
+        {
+            if args.is_empty() && matches!(returns.kind(), TypeKind::Int(_)) {
+                Some(unsafe { *element.value.to_option()?.as_ptr().cast::<*const u8>() })
+            } else {
+                None
+            }
+        } else {
+            None
         }
     }
 
@@ -187,12 +212,14 @@ impl Program {
                 internal_pointers.push((offset, sub_buffer));
             }
             TypeKind::Struct { .. } => todo!("Structs don't exist in my world :D"),
-            TypeKind::Function { .. }
-            | TypeKind::Bool
-            | TypeKind::Int(_)
-            | TypeKind::F64
-            | TypeKind::F32
-            | TypeKind::Empty => {}
+            TypeKind::Function { .. } => {
+                internal_pointers.push((
+                    offset,
+                    NonNull::new(unsafe { *data.cast::<*mut u8>() }).unwrap(),
+                ));
+            }
+            TypeKind::Bool | TypeKind::Int(_) | TypeKind::F64 | TypeKind::F32 | TypeKind::Empty => {
+            }
         }
     }
 
@@ -202,12 +229,15 @@ impl Program {
         }
 
         let layout = alloc::Layout::from_size_align(type_.size(), 16).unwrap();
+        let size = crate::types::to_align(type_.size(), 8);
+
         let owned_data = unsafe {
             // The alignment of the buffer is '16' here, no matter what the type is, because
             // different types of constants might have the same memory in static memory,
             // but their alignment might be different, so it's better to be safe here than sorry.
             let buffer = alloc::alloc(layout);
             std::ptr::copy(data, buffer, type_.size());
+            buffer.add(type_.size()).write_bytes(0, size - type_.size());
             buffer
         };
 
@@ -215,7 +245,6 @@ impl Program {
 
         self.insert_sub_buffers(type_, owned_data, 0, &mut constant_pointers);
 
-        let size = crate::types::to_align(type_.size(), 8);
         let mut constant_data = self.constant_data.lock();
         let data_slice = unsafe { std::slice::from_raw_parts(owned_data, size) };
         if let Some(constant) = constant_data.get(data_slice) {

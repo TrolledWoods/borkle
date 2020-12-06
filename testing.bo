@@ -1,8 +1,7 @@
-const get_string_literal_pointer = fn () -> &u8 {
-    "Hello, world!\n\0".ptr
+const main = fn() -> u64 {
+    bit_cast "Hello, world!\n".len
 };
 
-// const y = &&&&&&&&&&&&&&&&&&&&&&&&&(42 : i64);
 // 
 // const main = {
 //     let x = 1000 : i64;

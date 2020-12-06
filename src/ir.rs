@@ -86,7 +86,6 @@ pub struct Routine {
     pub instr: Vec<Instr>,
     pub registers: Registers,
     pub result: Value,
-    pub c_name: Ustr,
 }
 
 pub struct Registers {
