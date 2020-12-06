@@ -51,7 +51,7 @@ pub struct Program {
     // FIXME: Fix up the terminology here, 'Constant' vs 'StaticData' maybe? Instaed of
     // 'const_table', 'member'?, 'constant_data'.
     const_table: RwLock<UstrMap<Member>>,
-    constant_data: Mutex<HashSet<Constant>>,
+    pub constant_data: Mutex<HashSet<Constant>>,
 
     pub libraries: Mutex<ffi::Libraries>,
 
@@ -215,8 +215,9 @@ impl Program {
 
         self.insert_sub_buffers(type_, owned_data, 0, &mut constant_pointers);
 
+        let size = crate::types::to_align(type_.size(), 8);
         let mut constant_data = self.constant_data.lock();
-        let data_slice = unsafe { std::slice::from_raw_parts(owned_data, type_.size()) };
+        let data_slice = unsafe { std::slice::from_raw_parts(owned_data, size) };
         if let Some(constant) = constant_data.get(data_slice) {
             unsafe {
                 alloc::dealloc(owned_data, layout);
@@ -225,7 +226,7 @@ impl Program {
         } else {
             let constant = Constant {
                 ptr: NonNull::new(owned_data).unwrap(),
-                size: type_.size(),
+                size,
                 constant_pointers,
             };
             let ptr = constant.as_non_null();

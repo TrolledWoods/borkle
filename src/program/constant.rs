@@ -5,9 +5,9 @@ use std::ops::Deref;
 use std::ptr::NonNull;
 
 pub struct Constant {
-    pub(super) ptr: NonNull<u8>,
-    pub(super) size: usize,
-    pub(super) constant_pointers: Vec<(usize, NonNull<u8>)>,
+    pub ptr: NonNull<u8>,
+    pub size: usize,
+    pub constant_pointers: Vec<(usize, NonNull<u8>)>,
 }
 
 // FIXME: Implement drop for Constant since that is like the whole point of having it in the first

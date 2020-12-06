@@ -66,13 +66,14 @@ impl ThreadPool {
 
     /// Makes the main thread also do work, and finally
     /// joins them all together once the work is done.
-    pub fn join(self) -> ErrorCtx {
+    pub fn join(self) -> (String, ErrorCtx) {
         self.work
             .num_currently_working
             .fetch_sub(1, Ordering::SeqCst);
         let (thread_context, mut errors) = worker(&self.program, &self.work);
 
         let mut c_headers = String::new();
+        c_headers.push_str("#include <stdint.h>\n");
 
         if self.program.emit_c_code {
             crate::c_backend::append_c_type_headers(&mut c_headers);
@@ -91,15 +92,13 @@ impl ThreadPool {
             errors.join(other_errors);
         }
 
-        println!("\n--- C HEADERS ---\n");
-        println!("{}", c_headers);
-
-        println!("\n--- C DECLARATIONS ---\n");
-        println!("{}", c_declarations);
+        crate::c_backend::declare_constants(&mut c_headers, &self.program);
+        c_headers.push_str(&c_declarations);
+        crate::c_backend::instantiate_pointers_in_constants(&mut c_headers, &self.program);
 
         self.program.check_for_completion(&mut errors);
 
-        errors
+        (c_headers, errors)
     }
 }
 

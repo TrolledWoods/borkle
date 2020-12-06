@@ -175,7 +175,13 @@ fn emit_node(ctx: &mut Context<'_>, node: &Node<'_>) -> Value {
 
             let result = emit_node(&mut sub_ctx, &node.children().next().unwrap());
             let c_name = sub_ctx.program.function_name_mangler.lock().generate();
-
+            let routine = Routine {
+                c_name,
+                label_locations: sub_ctx.label_locations,
+                instr: sub_ctx.instr,
+                registers: sub_ctx.registers,
+                result,
+            };
             if sub_ctx.program.emit_c_code {
                 use std::fmt::Write;
 
@@ -191,37 +197,55 @@ fn emit_node(ctx: &mut Context<'_>, node: &Node<'_>) -> Value {
                         returns.c_format()
                     )
                     .unwrap();
+                    write!(
+                        &mut sub_ctx.thread_context.c_declarations,
+                        "{} ",
+                        returns.c_format()
+                    )
+                    .unwrap();
 
                     sub_ctx.thread_context.c_headers.push_str(&*c_name);
+                    sub_ctx.thread_context.c_declarations.push_str(&*c_name);
                     sub_ctx.thread_context.c_headers.push('(');
+                    sub_ctx.thread_context.c_declarations.push('(');
 
                     for (i, arg) in args.iter().enumerate() {
                         if i > 0 {
                             sub_ctx.thread_context.c_headers.push_str(", ");
+                            sub_ctx.thread_context.c_declarations.push_str(", ");
                         }
 
                         write!(
                             &mut sub_ctx.thread_context.c_headers,
-                            "{} local_{}",
-                            returns.c_format(),
-                            arg,
+                            "{} arg_{}",
+                            arg.c_format(),
+                            i,
+                        )
+                        .unwrap();
+                        write!(
+                            &mut sub_ctx.thread_context.c_declarations,
+                            "{} arg_{}",
+                            arg.c_format(),
+                            i,
                         )
                         .unwrap();
                     }
 
                     sub_ctx.thread_context.c_headers.push_str(");\n");
+
+                    sub_ctx.thread_context.c_declarations.push_str(") {\n");
+                    crate::c_backend::routine_to_c(
+                        &mut sub_ctx.thread_context.c_declarations,
+                        &routine,
+                        args.len(),
+                    );
+                    sub_ctx.thread_context.c_declarations.push_str("}\n");
                 } else {
                     unreachable!("A function type node has to have a function type kind!!!!!!");
                 }
             }
 
-            let id = sub_ctx.program.insert_function(Routine {
-                c_name,
-                label_locations: sub_ctx.label_locations,
-                instr: sub_ctx.instr,
-                registers: sub_ctx.registers,
-                result,
-            });
+            let id = sub_ctx.program.insert_function(routine);
 
             let to = ctx.registers.create(node.type_());
             ctx.emit_constant_from_buffer(to, &id.to_le_bytes());

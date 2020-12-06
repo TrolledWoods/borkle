@@ -1,36 +1,40 @@
-const y = &&&&&&&&&&&&&&&&&&&&&&&&&(42 : i64);
-
-const main = {
-    let x = 1000 : i64;
-
-    let buffer = alloc(8);
-    dealloc(buffer);
+const get_string_literal_pointer = fn () -> &u8 {
+    "Hello, world!\n\0".ptr
 };
 
-const alloc = fn (len: usize) -> [] u8 {
-    let buf = uninit : [] u8;
-    buf.ptr = (extern "borkle_lib/hello" "alloc" : extern fn (usize) -> &u8)(len);
-    buf.len = len;
-    buf
-};
-
-const dealloc = fn (buf: [] u8) {
-    (extern "borkle_lib/hello" "dealloc" : extern fn (&u8, usize))(buf.ptr, buf.len);
-};
-
-const get = fn (array: &[4] &i64, index: usize) -> &&i64 {
-    let first = bit_cast array : &i64;
-    bit_cast ((index * 8) + bit_cast first)
-};
-
-const print = fn (buffer: [] u8) {
-    (extern "borkle_lib/hello" "put_string" : extern fn(&u8, usize))
-        (buffer.ptr, buffer.len);
-};
-
-const flush = extern "borkle_lib/hello" "flush_stdout" : extern fn();
-
-const print_u8  = extern "borkle_lib/hello" "print_u8"  : extern fn (u8) -> u8;
-const callback  = extern "borkle_lib/hello" "callback"  : extern fn () -> extern fn (i64) -> i64;
-
-const print_i64 = extern "borkle_lib/hello" "print_i64" : extern fn (i64) -> i64;
+// const y = &&&&&&&&&&&&&&&&&&&&&&&&&(42 : i64);
+// 
+// const main = {
+//     let x = 1000 : i64;
+// 
+//     let buffer = alloc(8);
+//     dealloc(buffer);
+// };
+// 
+// const alloc = fn (len: usize) -> [] u8 {
+//     let buf = uninit : [] u8;
+//     buf.ptr = (extern "borkle_lib/hello" "alloc" : extern fn (usize) -> &u8)(len);
+//     buf.len = len;
+//     buf
+// };
+// 
+// const dealloc = fn (buf: [] u8) {
+//     (extern "borkle_lib/hello" "dealloc" : extern fn (&u8, usize))(buf.ptr, buf.len);
+// };
+// 
+// const get = fn (array: &[4] &i64, index: usize) -> &&i64 {
+//     let first = bit_cast array : &i64;
+//     bit_cast ((index * 8) + bit_cast first)
+// };
+// 
+// const print = fn (buffer: [] u8) {
+//     (extern "borkle_lib/hello" "put_string" : extern fn(&u8, usize))
+//         (buffer.ptr, buffer.len);
+// };
+// 
+// const flush = extern "borkle_lib/hello" "flush_stdout" : extern fn();
+// 
+// const print_u8  = extern "borkle_lib/hello" "print_u8"  : extern fn (u8) -> u8;
+// const callback  = extern "borkle_lib/hello" "callback"  : extern fn () -> extern fn (i64) -> i64;
+// 
+// const print_i64 = extern "borkle_lib/hello" "print_i64" : extern fn (i64) -> i64;

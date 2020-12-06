@@ -148,7 +148,7 @@ create_arguments!(
         file: String = "testing.bo";
             "The file to compile",
 
-        output: String = "target/borkle/";
+        output: String = "target/borkle";
             "The folder to put output files into",
 
         release: bool = false;
