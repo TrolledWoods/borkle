@@ -1,3 +1,4 @@
+use crate::command_line_arguments::Arguments;
 use crate::errors::ErrorCtx;
 use crate::logging::Logger;
 use crate::program::{Program, Task};
@@ -30,13 +31,13 @@ struct WorkPile {
 
 /// This guy is in charge of running all the Tasks that we queue up.
 pub struct ThreadPool {
-    threads: Vec<JoinHandle<ErrorCtx>>,
+    threads: Vec<JoinHandle<(ThreadContext, ErrorCtx)>>,
     program: Arc<Program>,
     work: Arc<WorkPile>,
 }
 
 impl ThreadPool {
-    pub fn new(logger: Logger, tasks: impl IntoIterator<Item = Task>) -> Self {
+    pub fn new(options: Arguments, logger: Logger, tasks: impl IntoIterator<Item = Task>) -> Self {
         let work = Arc::new(WorkPile {
             queue: Mutex::new(tasks.into_iter().collect()),
             // Set this to one to begin with so that no thread ever stops working,
@@ -51,6 +52,7 @@ impl ThreadPool {
                 WorkSender {
                     work: Arc::clone(&work),
                 },
+                options,
             )),
             work,
         }
@@ -68,11 +70,32 @@ impl ThreadPool {
         self.work
             .num_currently_working
             .fetch_sub(1, Ordering::SeqCst);
-        let mut errors = worker(&self.program, &self.work);
+        let (thread_context, mut errors) = worker(&self.program, &self.work);
+
+        let mut c_headers = String::new();
+
+        if self.program.emit_c_code {
+            crate::c_backend::append_c_type_headers(&mut c_headers);
+        }
+        c_headers.push_str(&thread_context.c_headers);
+
+        let ThreadContext {
+            c_headers: _,
+            mut c_declarations,
+        } = thread_context;
 
         for thread in self.threads {
-            errors.join(thread.join().unwrap());
+            let (ctx, other_errors) = thread.join().unwrap();
+            c_headers.push_str(&ctx.c_headers);
+            c_declarations.push_str(&ctx.c_declarations);
+            errors.join(other_errors);
         }
+
+        println!("\n--- C HEADERS ---\n");
+        println!("{}", c_headers);
+
+        println!("\n--- C DECLARATIONS ---\n");
+        println!("{}", c_declarations);
 
         self.program.check_for_completion(&mut errors);
 
@@ -80,8 +103,21 @@ impl ThreadPool {
     }
 }
 
-fn worker(program: &Arc<Program>, work: &Arc<WorkPile>) -> ErrorCtx {
+/// Data that is local to each thread. This is useful to have because
+/// it lets us reduce the amount of syncronisation necessary, and instead just
+/// combine all the collective thread data at the end of the compilation.
+pub struct ThreadContext {
+    pub c_headers: String,
+    pub c_declarations: String,
+}
+
+fn worker(program: &Arc<Program>, work: &Arc<WorkPile>) -> (ThreadContext, ErrorCtx) {
     let mut errors = ErrorCtx::new();
+
+    let mut thread_context = ThreadContext {
+        c_headers: String::new(),
+        c_declarations: String::new(),
+    };
 
     loop {
         // We explicitly take the lock here so that we make sure to increase
@@ -135,7 +171,7 @@ fn worker(program: &Arc<Program>, work: &Arc<WorkPile>) -> ErrorCtx {
                     }
                 }
                 Task::Value(member_id, locals, ast) => {
-                    let routine = crate::ir::emit::emit(program, locals, &ast);
+                    let routine = crate::ir::emit::emit(&mut thread_context, program, locals, &ast);
 
                     let mut stack = crate::interp::Stack::new(2048);
 
@@ -168,7 +204,7 @@ fn worker(program: &Arc<Program>, work: &Arc<WorkPile>) -> ErrorCtx {
         }
     }
 
-    errors
+    (thread_context, errors)
 }
 
 struct Count<'a>(&'a AtomicU32);

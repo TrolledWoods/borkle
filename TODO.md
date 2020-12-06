@@ -1,4 +1,4 @@
-# Version 0.0.1 features
+# Version 0.0.1
 * [X] Simple control flow, if, while.
 * [X] Buffer pointer type
 * [X] Pointers in globals
@@ -12,16 +12,16 @@
 * [X] Add error for unresolved dependencies
 * [X] Check for duplicate constants
 * [X] Command line arguments
+* [X] Optional logging
 
-* [.] Optional logging #robustness
+* [ ] C backend
 
 * [ ] Make comparison operators care about sign bits
 * [ ] More comparison operators
-* [ ] C backend
 * [ ] Indexing operations
 * [ ] Stress test the language!
 
-# Version 0.0.2 features
+# Version 0.0.2
 * [ ] Implement the proper separation between 'thread pool' and 'program'
 * [ ] Redo ast nodes to be more readable, like right now what the heck is it even!? 
         Maybe it's fine to use unsafe, because if we do we can also include other data types in the ast buffer.
@@ -29,3 +29,4 @@
 * [ ] Defer
 * [ ] Function arguments are implicitly dereferenced/referenced(maybe we want this?)
 * [ ] 'Any' type, the same as C void\*
+    (do we want it to behave this way or do we want 'Any' to use a type id, and have some other type that works like c void)

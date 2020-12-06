@@ -1,12 +1,11 @@
 use lazy_static::lazy_static;
 use parking_lot::Mutex;
-use std::collections::HashSet;
 use std::fmt::{self, Debug, Display};
 use std::hash::{Hash, Hasher};
 use ustr::Ustr;
 
 lazy_static! {
-    static ref TYPES: Mutex<HashSet<&'static TypeData>> = Mutex::new(HashSet::new());
+    pub static ref TYPES: Mutex<Vec<&'static TypeData>> = Mutex::new(Vec::new());
 }
 
 #[derive(Clone, Copy)]
@@ -50,13 +49,17 @@ impl Type {
 
         let data = TypeData { size, align, kind };
         let mut types = TYPES.lock();
-        if let Some(content) = types.get(&data) {
+        if let Some(content) = types.iter().find(|&&c| c == &data) {
             Self(content)
         } else {
             let leaked = Box::leak(Box::new(data));
-            types.insert(leaked);
+            types.push(leaked);
             Self(leaked)
         }
+    }
+
+    pub fn c_format(self) -> CType {
+        CType(self)
     }
 
     pub fn layout(self) -> std::alloc::Layout {
@@ -114,10 +117,10 @@ impl Type {
 }
 
 #[derive(Hash, PartialEq, Eq)]
-struct TypeData {
+pub struct TypeData {
     size: usize,
     align: usize,
-    kind: TypeKind,
+    pub kind: TypeKind,
 }
 
 impl Display for TypeKind {
@@ -290,4 +293,12 @@ pub struct Member {
     pub parent_type: Type,
     pub byte_offset: usize,
     pub type_: Type,
+}
+
+pub struct CType(Type);
+
+impl Display for CType {
+    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(fmt, "t_{}", self.0 .0 as *const _ as usize)
+    }
 }

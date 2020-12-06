@@ -151,6 +151,9 @@ create_arguments!(
         output: String = "target/borkle/";
             "The folder to put output files into",
 
+        release: bool = false;
+            "If set to true, c code will be emitted",
+
         c_compiler: String = "gcc";
             "The name of the command to invoke a c compiler",
 

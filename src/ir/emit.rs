@@ -1,13 +1,16 @@
 use super::{Instr, LabelId, Registers, Routine, Value};
 use crate::locals::LocalVariables;
 use crate::operators::UnaryOp;
+use crate::program::thread_pool::ThreadContext;
 use crate::program::Program;
 use crate::typer::ast::NodeKind;
 use crate::typer::Ast;
+use crate::types::TypeKind;
 
 type Node<'a> = bump_tree::Node<'a, crate::typer::ast::Node>;
 
 struct Context<'a> {
+    thread_context: &'a mut ThreadContext,
     instr: Vec<Instr>,
     registers: Registers,
     locals: LocalVariables,
@@ -34,8 +37,14 @@ impl Context<'_> {
 }
 
 /// Emit instructions for an Ast.
-pub fn emit(program: &Program, locals: LocalVariables, ast: &Ast) -> Routine {
+pub fn emit(
+    thread_context: &mut ThreadContext,
+    program: &Program,
+    locals: LocalVariables,
+    ast: &Ast,
+) -> Routine {
     let mut ctx = Context {
+        thread_context,
         instr: Vec::new(),
         registers: Registers::new(),
         locals,
@@ -52,6 +61,8 @@ pub fn emit(program: &Program, locals: LocalVariables, ast: &Ast) -> Routine {
     let result = emit_node(&mut ctx, &ast.root().unwrap());
 
     Routine {
+        // This is not a routine that will ever be called from c code.
+        c_name: "".into(),
         instr: ctx.instr,
         registers: ctx.registers,
         result,
@@ -148,6 +159,7 @@ fn emit_node(ctx: &mut Context<'_>, node: &Node<'_>) -> Value {
         }
         NodeKind::FunctionDeclaration { locals } => {
             let mut sub_ctx = Context {
+                thread_context: ctx.thread_context,
                 instr: Vec::new(),
                 registers: Registers::new(),
                 locals: locals.clone(),
@@ -162,8 +174,49 @@ fn emit_node(ctx: &mut Context<'_>, node: &Node<'_>) -> Value {
             }
 
             let result = emit_node(&mut sub_ctx, &node.children().next().unwrap());
+            let c_name = sub_ctx.program.function_name_mangler.lock().generate();
+
+            if sub_ctx.program.emit_c_code {
+                use std::fmt::Write;
+
+                if let TypeKind::Function {
+                    args,
+                    returns,
+                    is_extern: _,
+                } = node.type_().kind()
+                {
+                    write!(
+                        &mut sub_ctx.thread_context.c_headers,
+                        "{} ",
+                        returns.c_format()
+                    )
+                    .unwrap();
+
+                    sub_ctx.thread_context.c_headers.push_str(&*c_name);
+                    sub_ctx.thread_context.c_headers.push('(');
+
+                    for (i, arg) in args.iter().enumerate() {
+                        if i > 0 {
+                            sub_ctx.thread_context.c_headers.push_str(", ");
+                        }
+
+                        write!(
+                            &mut sub_ctx.thread_context.c_headers,
+                            "{} local_{}",
+                            returns.c_format(),
+                            arg,
+                        )
+                        .unwrap();
+                    }
+
+                    sub_ctx.thread_context.c_headers.push_str(");\n");
+                } else {
+                    unreachable!("A function type node has to have a function type kind!!!!!!");
+                }
+            }
 
             let id = sub_ctx.program.insert_function(Routine {
+                c_name,
                 label_locations: sub_ctx.label_locations,
                 instr: sub_ctx.instr,
                 registers: sub_ctx.registers,

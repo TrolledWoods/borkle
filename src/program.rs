@@ -1,3 +1,5 @@
+use crate::c_backend::NameMangler;
+use crate::command_line_arguments;
 use crate::dependencies::DependencyList;
 use crate::errors::ErrorCtx;
 use crate::ir::Routine;
@@ -41,30 +43,44 @@ impl MemberId {
 /// We deal with constants(and possibly in the future globals too),
 /// e.g. data scopes, and the dependency system.
 pub struct Program {
+    pub emit_c_code: bool,
+
     pub logger: Logger,
     // FIXME: We will have scopes eventually, but for now
     // everything is just in the same scope.
     // FIXME: Fix up the terminology here, 'Constant' vs 'StaticData' maybe? Instaed of
     // 'const_table', 'member'?, 'constant_data'.
     const_table: RwLock<UstrMap<Member>>,
+    constant_data: Mutex<HashSet<Constant>>,
+
+    pub libraries: Mutex<ffi::Libraries>,
+
+    pub function_name_mangler: Mutex<NameMangler>,
+
+    functions: Mutex<Vec<Pin<Arc<Routine>>>>,
     calling_conventions_alloc: Mutex<Bump>,
+    extern_fn_calling_conventions: RwLock<HashMap<Type, ffi::CallingConvention>>,
+
     // This has to live for as long as the interpreter runs, because, we have no idea
     // how long the pointers to functions might live inside of the compile time execution things,
     // so we have to just have them all alive for the entire duration of the program.
-    functions: Mutex<Vec<Pin<Arc<Routine>>>>,
-    extern_fn_calling_conventions: RwLock<HashMap<Type, ffi::CallingConvention>>,
-    constant_data: Mutex<HashSet<Constant>>,
     work: WorkSender,
-    pub libraries: Mutex<ffi::Libraries>,
 }
 
 impl Program {
-    pub fn new(logger: Logger, work: WorkSender) -> Self {
+    pub fn new(
+        logger: Logger,
+        work: WorkSender,
+        options: command_line_arguments::Arguments,
+    ) -> Self {
         Self {
+            emit_c_code: options.release,
+
             logger,
             const_table: RwLock::default(),
             extern_fn_calling_conventions: RwLock::default(),
             calling_conventions_alloc: Mutex::default(),
+            function_name_mangler: Mutex::new(NameMangler::new("func_".to_string())),
             functions: Mutex::default(),
             libraries: Mutex::new(ffi::Libraries::new()),
             constant_data: Mutex::default(),

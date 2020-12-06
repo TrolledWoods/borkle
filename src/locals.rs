@@ -29,6 +29,10 @@ impl LocalVariables {
         id
     }
 
+    pub fn iter(&mut self) -> impl Iterator<Item = &'_ Local> {
+        self.locals.iter()
+    }
+
     pub fn iter_mut(&mut self) -> impl Iterator<Item = &'_ mut Local> {
         self.locals.iter_mut()
     }
