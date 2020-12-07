@@ -48,7 +48,10 @@ fn c_format_value(value: &Value) -> impl fmt::Display + '_ {
     Formatter(move |f| match value {
         Value::Register(id, _) => write!(f, "reg_{}", id),
         Value::Global(ptr, type_) => {
-            if let TypeKind::Function { .. } = type_.kind() {
+            if let TypeKind::Function {
+                is_extern: false, ..
+            } = type_.kind()
+            {
                 write!(f, "global_{}", unsafe { *ptr.as_ptr().cast::<*const u8>() }
                     as usize)?;
             } else {
@@ -113,7 +116,7 @@ pub fn instantiate_pointers_in_constants(output: &mut String, program: &Program)
             {
                 write!(
                     output,
-                    "    global_{}[{}] = (uint64_t){};\n",
+                    "    global_{}[{}] = (uint64_t)&{};\n",
                     constant.ptr.as_ptr() as usize,
                     offset / 8,
                     external_symbols
