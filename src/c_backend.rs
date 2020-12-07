@@ -5,9 +5,20 @@
 use crate::ir::{Instr, Routine, Value};
 use crate::operators::{BinaryOp, UnaryOp};
 use crate::program::Program;
-use crate::types::{IntTypeKind, TypeKind, TYPES};
+use crate::types::{IntTypeKind, Type, TypeKind, TYPES};
+use std::fmt;
 use std::fmt::Write;
-use ustr::Ustr;
+
+pub fn function_declaration(output: &mut String, ptr: usize, args: &[Type], returns: Type) {
+    write!(output, "{} global_{}(", c_format_type_or_void(returns), ptr).unwrap();
+    for (i, arg) in args.iter().enumerate() {
+        if i > 0 {
+            output.push_str(", ");
+        }
+        write!(output, "{}", c_format_type(*arg)).unwrap();
+    }
+    output.push(')');
+}
 
 pub fn entry_point(output: &mut String, entry: *const u8) {
     output.push_str("int main() {\n");
@@ -16,28 +27,27 @@ pub fn entry_point(output: &mut String, entry: *const u8) {
     output.push_str("}\n");
 }
 
-fn value_to_c(output: &mut String, value: &Value) {
-    match value {
-        Value::Register(id, _) => write!(output, "reg_{}", id).unwrap(),
+fn c_format_value(value: &Value) -> impl fmt::Display + '_ {
+    Formatter(move |f| match value {
+        Value::Register(id, _) => write!(f, "reg_{}", id),
         Value::Global(ptr, type_) => {
             if let TypeKind::Function { .. } = type_.kind() {
-                write!(
-                    output,
-                    "global_{}",
-                    unsafe { *ptr.as_ptr().cast::<*const u8>() } as usize
-                )
-                .unwrap();
+                write!(f, "global_{}", unsafe { *ptr.as_ptr().cast::<*const u8>() }
+                    as usize)?;
             } else {
+                debug_assert!(type_.size() != 0);
+
                 write!(
-                    output,
+                    f,
                     "(*({}*)&global_{})",
-                    type_.c_format(),
+                    c_format_type(*type_),
                     ptr.as_ptr() as usize
-                )
-                .unwrap();
+                )?;
             }
+
+            Ok(())
         }
-    }
+    })
 }
 
 pub fn declare_constants(output: &mut String, program: &Program) {
@@ -90,7 +100,7 @@ pub fn routine_to_c(output: &mut String, routine: &Routine, num_args: usize) {
             write!(
                 output,
                 "    {} reg_{}; // {}\n",
-                register.type_.c_format(),
+                c_format_type(register.type_),
                 i,
                 register.type_
             )
@@ -113,26 +123,29 @@ pub fn routine_to_c(output: &mut String, routine: &Routine, num_args: usize) {
             | Instr::CallExtern {
                 to, pointer, args, ..
             } => {
-                value_to_c(output, to);
-                output.push_str(" = ");
-                value_to_c(output, pointer);
-                output.push('(');
+                write!(
+                    output,
+                    "{} = {}(",
+                    c_format_value(to),
+                    c_format_value(pointer),
+                )
+                .unwrap();
                 for (i, arg) in args.iter().enumerate() {
                     if i > 0 {
                         output.push_str(", ");
                     }
-                    value_to_c(output, arg);
+                    write!(output, "{}", c_format_value(arg)).unwrap();
                 }
                 output.push_str(");\n");
             }
             Instr::Constant { to, from } => {
                 let type_ = to.type_();
 
-                value_to_c(output, to);
                 write!(
                     output,
-                    " = *({}*)&global_{};\n",
-                    type_.c_format(),
+                    "{} = *({}*)&global_{};\n",
+                    c_format_value(to),
+                    c_format_type(type_),
                     from.as_ptr() as usize
                 )
                 .unwrap();
@@ -142,7 +155,7 @@ pub fn routine_to_c(output: &mut String, routine: &Routine, num_args: usize) {
                 to,
                 a,
                 b,
-                type_,
+                type_: _,
             } => {
                 let op_name = match op {
                     BinaryOp::And => "&&",
@@ -160,12 +173,15 @@ pub fn routine_to_c(output: &mut String, routine: &Routine, num_args: usize) {
                     BinaryOp::BitOr => "|",
                 };
 
-                value_to_c(output, to);
-                write!(output, " = ").unwrap();
-                value_to_c(output, a);
-                write!(output, " {} ", op_name).unwrap();
-                value_to_c(output, b);
-                write!(output, ";\n").unwrap();
+                write!(
+                    output,
+                    "{} = {} {} {};\n",
+                    c_format_value(to),
+                    c_format_value(a),
+                    op_name,
+                    c_format_value(b)
+                )
+                .unwrap();
             }
             Instr::Unary { op, to, from } => {
                 let op_name = match op {
@@ -174,10 +190,14 @@ pub fn routine_to_c(output: &mut String, routine: &Routine, num_args: usize) {
                     UnaryOp::Dereference | UnaryOp::Reference => unreachable!(),
                 };
 
-                value_to_c(output, to);
-                write!(output, " = {}", op_name).unwrap();
-                value_to_c(output, from);
-                write!(output, ";\n").unwrap();
+                write!(
+                    output,
+                    "{} = {}{};",
+                    c_format_value(to),
+                    op_name,
+                    c_format_value(from)
+                )
+                .unwrap();
             }
             Instr::Member {
                 to,
@@ -186,24 +206,32 @@ pub fn routine_to_c(output: &mut String, routine: &Routine, num_args: usize) {
                 name,
                 size: _,
             } => {
-                value_to_c(output, to);
-                output.push_str(" = ");
-                value_to_c(output, of);
-                output.push('.');
-                output.push_str(name);
-                output.push_str(";\n");
+                write!(
+                    output,
+                    "{} = {}.{};\n",
+                    c_format_value(to),
+                    c_format_value(of),
+                    name
+                )
+                .unwrap();
             }
             Instr::Dereference { to, from } => {
-                value_to_c(output, to);
-                output.push_str(" = *");
-                value_to_c(output, from);
-                output.push_str(";\n");
+                write!(
+                    output,
+                    "{} = *{};\n",
+                    c_format_value(to),
+                    c_format_value(from)
+                )
+                .unwrap();
             }
             Instr::Reference { to, from } => {
-                value_to_c(output, to);
-                output.push_str(" = &");
-                value_to_c(output, from);
-                output.push_str(";\n");
+                write!(
+                    output,
+                    "{} = &{};\n",
+                    c_format_value(to),
+                    c_format_value(from)
+                )
+                .unwrap();
             }
             Instr::Move {
                 to,
@@ -216,10 +244,13 @@ pub fn routine_to_c(output: &mut String, routine: &Routine, num_args: usize) {
                     "Offset to target is not done yet in c backend"
                 );
 
-                value_to_c(output, to);
-                output.push_str(" = ");
-                value_to_c(output, from);
-                output.push_str(";\n");
+                write!(
+                    output,
+                    "{} = {};\n",
+                    c_format_value(to),
+                    c_format_value(from)
+                )
+                .unwrap();
             }
             Instr::MoveIndirect {
                 to,
@@ -232,17 +263,22 @@ pub fn routine_to_c(output: &mut String, routine: &Routine, num_args: usize) {
                     "Offset to target is not done yet in c backend"
                 );
 
-                output.push('*');
-                value_to_c(output, to);
-                output.push_str(" = ");
-                value_to_c(output, from);
-                output.push_str(";\n");
+                write!(
+                    output,
+                    "*{} = {};\n",
+                    c_format_value(to),
+                    c_format_value(from)
+                )
+                .unwrap();
             }
             Instr::JumpIfZero { condition, to } => {
-                output.push_str("if (");
-                value_to_c(output, condition);
-                output.push_str(") ");
-                write!(output, "goto label_{};\n", to.0).unwrap();
+                write!(
+                    output,
+                    "if ({}) goto label_{};\n",
+                    c_format_value(condition),
+                    to.0
+                )
+                .unwrap();
             }
             Instr::Jump { to } => {
                 write!(output, "goto label_{};\n", to.0).unwrap();
@@ -253,9 +289,7 @@ pub fn routine_to_c(output: &mut String, routine: &Routine, num_args: usize) {
         }
     }
 
-    output.push_str("    return ");
-    value_to_c(output, &routine.result);
-    output.push_str(";\n");
+    write!(output, "    return {};\n", c_format_value(&routine.result)).unwrap();
 }
 
 pub fn append_c_type_headers(output: &mut String) {
@@ -286,12 +320,14 @@ pub fn append_c_type_headers(output: &mut String) {
             TypeKind::F32 => output.push_str("float "),
             TypeKind::F64 => output.push_str("double "),
 
-            TypeKind::Reference(internal) => write!(output, "{} *", internal.c_format()).unwrap(),
+            TypeKind::Reference(internal) => {
+                write!(output, "{} *", c_format_type(*internal)).unwrap()
+            }
             TypeKind::Buffer(internal) => {
                 write!(
                     output,
                     "struct{{\n  {} *ptr;\n  uint64_t len;\n}}",
-                    internal.c_format()
+                    c_format_type(*internal),
                 )
                 .unwrap();
             }
@@ -304,7 +340,7 @@ pub fn append_c_type_headers(output: &mut String) {
                 write!(
                     output,
                     "{} (*t_{}) ",
-                    returns.c_format(),
+                    c_format_type(*returns),
                     type_ as *const _ as usize
                 )
                 .unwrap();
@@ -315,7 +351,7 @@ pub fn append_c_type_headers(output: &mut String) {
                         output.push_str(", ");
                     }
 
-                    write!(output, "{}", arg.c_format()).unwrap();
+                    write!(output, "{}", c_format_type(*arg)).unwrap();
                 }
                 output.push(')');
 
@@ -332,22 +368,33 @@ pub fn append_c_type_headers(output: &mut String) {
     }
 }
 
-pub struct NameMangler {
-    prefix: String,
-    count: u32,
+/// Formats a type as C. The type can't be zero sized.
+pub fn c_format_type(type_: Type) -> impl fmt::Display {
+    debug_assert!(type_.size() != 0);
+
+    Formatter(move |f| write!(f, "t_{}", type_.as_ptr() as usize))
 }
 
-impl NameMangler {
-    pub fn new(prefix: String) -> Self {
-        Self { prefix, count: 0 }
-    }
+/// Formats a type as C. If the type is zero sized, it uses void instead
+pub fn c_format_type_or_void(type_: Type) -> impl fmt::Display {
+    Formatter(move |f| {
+        if type_.size() == 0 {
+            write!(f, "void")
+        } else {
+            write!(f, "t_{}", type_.as_ptr() as usize)
+        }
+    })
+}
 
-    pub fn generate(&mut self) -> Ustr {
-        let old_len = self.prefix.len();
-        write!(&mut self.prefix, "{}", self.count).unwrap();
-        self.count += 1;
-        let output = (&*self.prefix).into();
-        self.prefix.truncate(old_len);
-        output
+pub struct Formatter<F>(F)
+where
+    F: for<'a> Fn(&mut fmt::Formatter<'a>) -> fmt::Result;
+
+impl<F> fmt::Display for Formatter<F>
+where
+    F: for<'a> Fn(&mut fmt::Formatter<'a>) -> fmt::Result,
+{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        (self.0)(f)
     }
 }

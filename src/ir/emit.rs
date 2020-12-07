@@ -180,57 +180,28 @@ fn emit_node(ctx: &mut Context<'_>, node: &Node<'_>) -> Value {
             };
             let id = sub_ctx.program.insert_function(routine);
             if sub_ctx.program.emit_c_code {
-                use std::fmt::Write;
-
                 if let TypeKind::Function {
                     args,
                     returns,
                     is_extern: _,
                 } = node.type_().kind()
                 {
-                    write!(
+                    crate::c_backend::function_declaration(
                         &mut sub_ctx.thread_context.c_headers,
-                        "{} global_{}",
-                        returns.c_format(),
                         id,
-                    )
-                    .unwrap();
-                    write!(
+                        args,
+                        *returns,
+                    );
+                    crate::c_backend::function_declaration(
                         &mut sub_ctx.thread_context.c_declarations,
-                        "{} global_{}",
-                        returns.c_format(),
                         id,
-                    )
-                    .unwrap();
+                        args,
+                        *returns,
+                    );
 
-                    sub_ctx.thread_context.c_headers.push('(');
-                    sub_ctx.thread_context.c_declarations.push('(');
+                    sub_ctx.thread_context.c_headers.push_str(";\n");
 
-                    for (i, arg) in args.iter().enumerate() {
-                        if i > 0 {
-                            sub_ctx.thread_context.c_headers.push_str(", ");
-                            sub_ctx.thread_context.c_declarations.push_str(", ");
-                        }
-
-                        write!(
-                            &mut sub_ctx.thread_context.c_headers,
-                            "{} arg_{}",
-                            arg.c_format(),
-                            i,
-                        )
-                        .unwrap();
-                        write!(
-                            &mut sub_ctx.thread_context.c_declarations,
-                            "{} arg_{}",
-                            arg.c_format(),
-                            i,
-                        )
-                        .unwrap();
-                    }
-
-                    sub_ctx.thread_context.c_headers.push_str(");\n");
-
-                    sub_ctx.thread_context.c_declarations.push_str(") {\n");
+                    sub_ctx.thread_context.c_declarations.push_str(" {\n");
                     crate::c_backend::routine_to_c(
                         &mut sub_ctx.thread_context.c_declarations,
                         unsafe { &*(id as *const Routine) },

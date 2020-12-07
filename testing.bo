@@ -1,5 +1,13 @@
+const N_ITERATIONS = 42 : u64;
+
 const main = fn() -> u64 {
-    bit_cast "Hello, world!\n".len
+    let i = N_ITERATIONS;
+    let counter = 0 : u64;
+    while i > 0 {
+        counter = counter + N_ITERATIONS;
+        i = i - 1;
+    };
+    counter
 };
 
 // 
@@ -26,9 +34,9 @@ const main = fn() -> u64 {
 //     bit_cast ((index * 8) + bit_cast first)
 // };
 // 
-// const print = fn (buffer: [] u8) {
-//     (extern "borkle_lib/hello" "put_string" : extern fn(&u8, usize))
-//         (buffer.ptr, buffer.len);
+// const print = fn (buffer: [] u8) -> u64 {
+//     (extern "borkle_lib/hello" "put_string" : extern fn(&u8, usize) -> u64)
+//         (buffer.ptr, buffer.len)
 // };
 // 
 // const flush = extern "borkle_lib/hello" "flush_stdout" : extern fn();

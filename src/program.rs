@@ -1,4 +1,3 @@
-use crate::c_backend::NameMangler;
 use crate::command_line_arguments;
 use crate::dependencies::DependencyList;
 use crate::errors::ErrorCtx;
@@ -53,8 +52,6 @@ pub struct Program {
 
     pub libraries: Mutex<ffi::Libraries>,
 
-    pub function_name_mangler: Mutex<NameMangler>,
-
     functions: Mutex<HashSet<*const Routine>>,
     calling_conventions_alloc: Mutex<Bump>,
     extern_fn_calling_conventions: RwLock<HashMap<Type, ffi::CallingConvention>>,
@@ -84,7 +81,6 @@ impl Program {
             const_table: RwLock::default(),
             extern_fn_calling_conventions: RwLock::default(),
             calling_conventions_alloc: Mutex::default(),
-            function_name_mangler: Mutex::new(NameMangler::new("func_".to_string())),
             functions: Mutex::default(),
             libraries: Mutex::new(ffi::Libraries::new()),
             constant_data: Mutex::default(),

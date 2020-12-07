@@ -58,8 +58,8 @@ impl Type {
         }
     }
 
-    pub fn c_format(self) -> CType {
-        CType(self)
+    pub fn as_ptr(self) -> *const u8 {
+        self.0 as *const TypeData as *const _
     }
 
     pub fn layout(self) -> std::alloc::Layout {
@@ -293,12 +293,4 @@ pub struct Member {
     pub parent_type: Type,
     pub byte_offset: usize,
     pub type_: Type,
-}
-
-pub struct CType(Type);
-
-impl Display for CType {
-    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(fmt, "t_{}", self.0 .0 as *const _ as usize)
-    }
 }
