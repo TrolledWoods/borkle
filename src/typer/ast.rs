@@ -4,6 +4,7 @@ use crate::operators::{BinaryOp, UnaryOp};
 use crate::program::MemberId;
 use crate::types::Type;
 use std::fmt::{self, Debug};
+use std::ptr::NonNull;
 use ustr::Ustr;
 
 pub struct Node {
@@ -58,73 +59,9 @@ impl bump_tree::MetaData for Node {
     }
 }
 
-pub struct ByteArray(pub Vec<u8>);
-
-impl ByteArray {
-    pub fn create_buffer_bytes(ptr: *mut u8, length: usize) -> Self {
-        let mut bytes = vec![0_u8; 16];
-        let ptr = ptr as usize;
-        bytes[0..8].copy_from_slice(&ptr.to_le_bytes());
-        bytes[8..16].copy_from_slice(&length.to_le_bytes());
-        Self(bytes)
-    }
-}
-
-impl Debug for ByteArray {
-    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
-        for (i, byte) in self.0.iter().enumerate() {
-            if i > 0 {
-                write!(fmt, " ")?;
-            }
-
-            write!(fmt, "{:X}", byte)?;
-        }
-
-        Ok(())
-    }
-}
-
-impl<'a> From<&'a [u8]> for ByteArray {
-    fn from(other: &'a [u8]) -> Self {
-        Self(other.into())
-    }
-}
-
-impl From<u64> for ByteArray {
-    fn from(other: u64) -> Self {
-        Self(other.to_le_bytes().into())
-    }
-}
-
-impl From<unsafe extern "C" fn()> for ByteArray {
-    fn from(other: unsafe extern "C" fn()) -> Self {
-        (other as usize).into()
-    }
-}
-
-impl From<usize> for ByteArray {
-    fn from(other: usize) -> Self {
-        Self(other.to_le_bytes().into())
-    }
-}
-
-impl From<u8> for ByteArray {
-    fn from(other: u8) -> Self {
-        Self(vec![other])
-    }
-}
-
-impl From<()> for ByteArray {
-    fn from(_: ()) -> Self {
-        Self(vec![])
-    }
-}
-
 #[derive(Debug)]
 pub enum NodeKind {
-    // FIXME: The bump_tree should allow for storing buffers in the tree itself.
-    // Having a vec here is fine for now though.
-    Constant(ByteArray),
+    Constant(NonNull<u8>),
     // FIXME: `MemberId` might be a bad name here, because we also have the `Member`
     // node, and they have nothing to do with each other despite having similar names.
     Global(MemberId),
@@ -147,6 +84,9 @@ pub enum NodeKind {
 
     BitCast,
 }
+
+unsafe impl Send for NodeKind {}
+unsafe impl Sync for NodeKind {}
 
 impl Debug for Node {
     fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {

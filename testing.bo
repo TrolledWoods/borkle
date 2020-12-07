@@ -1,3 +1,5 @@
+const LONG_FRICKING_MESSAGE = "jjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjj";
+
 const MESSAGE = "Hello One Lone Coders!\n";
 
 const testing_constant = {
@@ -9,6 +11,8 @@ const testing_constant = {
 };
 
 const main = fn() -> u64 {
+    print(if (1 : i64) > 2  "Impossible!\n" else "Ok we're in reality now\n");
+
     print(*(bit_cast &testing_constant));
     print(*(bit_cast (bit_cast &testing_constant + 16 : u64)));
     print(MESSAGE);

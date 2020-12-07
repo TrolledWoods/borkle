@@ -193,16 +193,7 @@ impl Program {
                     *data.cast::<*mut u8>() = sub_buffer.as_ptr();
                 },
                 PointerInType::Buffer(internal) => {
-                    // FIXME: Might want to generalize it, so that more parts of the compiler uses this
-                    // type
-                    #[repr(C)]
-                    #[derive(Clone, Copy)]
-                    struct Buffer {
-                        ptr: *mut u8,
-                        length: usize,
-                    }
-
-                    let buffer = unsafe { &mut *data.cast::<Buffer>() };
+                    let buffer = unsafe { &mut *data.cast::<crate::types::BufferRepr>() };
                     let array_type = Type::new(TypeKind::Array(*internal, buffer.length));
                     let sub_buffer = self.insert_buffer(array_type, buffer.ptr);
 
@@ -233,6 +224,20 @@ impl Program {
 
         self.insert_sub_buffers(type_, owned_data);
 
+        let mut constant_data = self.constant_data.lock();
+
+        let slice_version = unsafe { std::slice::from_raw_parts(owned_data, size) };
+        for pre_computed_constant in constant_data.iter() {
+            if pre_computed_constant.type_ == type_
+                && pre_computed_constant.as_slice() == slice_version
+            {
+                unsafe {
+                    alloc::dealloc(owned_data, layout);
+                }
+                return pre_computed_constant.as_non_null();
+            }
+        }
+
         let constant = Constant {
             ptr: NonNull::new(owned_data).unwrap(),
             size,
@@ -240,7 +245,6 @@ impl Program {
         };
 
         let ptr = constant.as_non_null();
-        let mut constant_data = self.constant_data.lock();
         constant_data.push(constant);
 
         ptr

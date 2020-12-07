@@ -6,6 +6,7 @@ use crate::program::Program;
 use crate::typer::ast::NodeKind;
 use crate::typer::Ast;
 use crate::types::TypeKind;
+use std::ptr::NonNull;
 
 type Node<'a> = bump_tree::Node<'a, crate::typer::ast::Node>;
 
@@ -28,6 +29,12 @@ impl Context<'_> {
     fn define_label(&mut self, label_id: LabelId) {
         self.label_locations[label_id.0] = self.instr.len();
         self.instr.push(Instr::LabelDefinition(label_id));
+    }
+
+    fn emit_constant_from_constant_buffer(&mut self, to: Value, buffer: NonNull<u8>) {
+        if to.size() != 0 {
+            self.instr.push(Instr::Constant { to, from: buffer });
+        }
     }
 
     fn emit_constant_from_buffer(&mut self, to: Value, buffer: &[u8]) {
@@ -243,7 +250,7 @@ fn emit_node(ctx: &mut Context<'_>, node: &Node<'_>) -> Value {
         }
         NodeKind::Constant(bytes) => {
             let to = ctx.registers.create(node.type_());
-            ctx.emit_constant_from_buffer(to, &bytes.0);
+            ctx.emit_constant_from_constant_buffer(to, *bytes);
             to
         }
         NodeKind::Member(name) => {

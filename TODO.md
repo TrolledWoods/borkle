@@ -15,6 +15,7 @@
 * [X] Optional logging
 * [X] C backend
 * [X] Bug! Extern functions break when stored in constants
+* [X] Reimplement deduplication for constants
 
 * [ ] Make comparison operators care about sign bits
 * [ ] More comparison operators
@@ -23,7 +24,7 @@
 * [ ] Implement lvalue members in c backend
 
 # Version 0.0.2
-* [ ] Reimplement deduplication for constants
+* [ ] Use hashes for deduplication like before
 * [ ] Implement the proper separation between 'thread pool' and 'program'
 * [ ] Redo ast nodes to be more readable, like right now what the heck is it even!? 
         Maybe it's fine to use unsafe, because if we do we can also include other data types in the ast buffer.

@@ -354,6 +354,13 @@ impl Debug for IntTypeKind {
     }
 }
 
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct BufferRepr {
+    pub ptr: *mut u8,
+    pub length: usize,
+}
+
 pub struct Member {
     pub parent_type: Type,
     pub byte_offset: usize,

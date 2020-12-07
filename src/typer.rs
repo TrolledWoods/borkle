@@ -6,7 +6,7 @@ use crate::operators::{BinaryOp, UnaryOp};
 use crate::parser::{self, ast::NodeKind as ParserNodeKind};
 use crate::program::{MemberId, Program};
 use crate::types::{IntTypeKind, Type, TypeKind};
-use ast::{ByteArray, Node, NodeKind};
+use ast::{Node, NodeKind};
 
 type ParsedAst = bump_tree::Tree<parser::ast::Node>;
 type ParsedNode<'a> = bump_tree::Node<'a, parser::ast::Node>;
@@ -58,16 +58,15 @@ fn type_ast(
     match parsed.kind {
         ParserNodeKind::Literal(Literal::String(ref data)) => {
             let u8_type = Type::new(TypeKind::Int(IntTypeKind::U8));
-            let ptr = ctx.program.insert_buffer(
-                Type::new(TypeKind::Array(u8_type, data.len())),
-                data.as_ptr(),
-            );
             type_ = Type::new(TypeKind::Buffer(u8_type));
-            node.set(Node::new(
-                parsed.loc,
-                NodeKind::Constant(ByteArray::create_buffer_bytes(ptr.as_ptr(), data.len())),
+            let ptr = ctx.program.insert_buffer(
                 type_,
-            ));
+                &crate::types::BufferRepr {
+                    ptr: data.as_ptr() as *mut _,
+                    length: data.len(),
+                } as *const _ as *const _,
+            );
+            node.set(Node::new(parsed.loc, NodeKind::Constant(ptr), type_));
             node.validate();
         }
         ParserNodeKind::While => {
@@ -300,7 +299,10 @@ fn type_ast(
                             type_ = wanted_type;
                             node.set(Node::new(
                                 parsed.loc,
-                                NodeKind::Constant(func.into()),
+                                NodeKind::Constant(ctx.program.insert_buffer(
+                                    wanted_type,
+                                    &(func as usize) as *const usize as *const _,
+                                )),
                                 wanted_type,
                             ));
                             node.validate();
@@ -340,10 +342,9 @@ fn type_ast(
                 }
 
                 type_ = (*int).into();
-                let (size, _) = int.size_align();
                 node.set(Node::new(
                     parsed.loc,
-                    NodeKind::Constant(bytes[..size].into()),
+                    NodeKind::Constant(ctx.program.insert_buffer(type_, bytes.as_ptr())),
                     type_,
                 ));
                 node.validate();
@@ -468,7 +469,11 @@ fn type_ast(
         }
         ParserNodeKind::Empty => {
             type_ = TypeKind::Empty.into();
-            node.set(Node::new(parsed.loc, NodeKind::Constant(().into()), type_));
+            node.set(Node::new(
+                parsed.loc,
+                NodeKind::Constant(std::ptr::NonNull::dangling()),
+                type_,
+            ));
             node.validate();
         }
         ParserNodeKind::Block => {
