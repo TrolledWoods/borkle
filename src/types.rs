@@ -47,7 +47,15 @@ impl Type {
     pub fn new(kind: TypeKind) -> Self {
         let (size, align) = kind.calculate_size_align();
 
-        let data = TypeData { size, align, kind };
+        let mut pointers = Vec::new();
+        kind.get_pointers(0, &mut pointers);
+
+        let data = TypeData {
+            size,
+            align,
+            kind,
+            pointers,
+        };
         let mut types = TYPES.lock();
         if let Some(content) = types.iter().find(|&&c| c == &data) {
             Self(content)
@@ -56,6 +64,10 @@ impl Type {
             types.push(leaked);
             Self(leaked)
         }
+    }
+
+    pub fn pointers(self) -> &'static [(usize, PointerInType)] {
+        &self.0.pointers
     }
 
     pub fn as_ptr(self) -> *const u8 {
@@ -121,6 +133,7 @@ pub struct TypeData {
     size: usize,
     align: usize,
     pub kind: TypeKind,
+    pointers: Vec<(usize, PointerInType)>,
 }
 
 impl Display for TypeKind {
@@ -224,6 +237,45 @@ impl TypeKind {
             }
         }
     }
+
+    /// Appends all the pointers in this type to a vector, with the offset offsetted by the offset. Does not include indirect
+    /// pointers(i.e. pointers behind other pointers).
+    fn get_pointers(&self, offset: usize, pointers: &mut Vec<(usize, PointerInType)>) {
+        match self {
+            Self::Empty | Self::Int(_) | Self::F32 | Self::F64 | Self::Bool => {}
+            Self::Reference(internal) => {
+                pointers.push((offset, PointerInType::Pointer(*internal)));
+            }
+            Self::Buffer(internal) => {
+                pointers.push((offset, PointerInType::Pointer(*internal)));
+            }
+            Self::Array(internal, len) => {
+                let element_offset = to_align(internal.size(), internal.align());
+                for i in 0..*len {
+                    for (internal_offset, internal_type) in internal.pointers() {
+                        pointers.push((
+                            offset + i * element_offset + internal_offset,
+                            internal_type.clone(),
+                        ));
+                    }
+                }
+            }
+            Self::Function { args, returns, .. } => {
+                pointers.push((
+                    offset,
+                    PointerInType::FunctionPointer(args.clone(), *returns),
+                ));
+            }
+            Self::Struct { .. } => todo!(),
+        }
+    }
+}
+
+#[derive(Clone, Hash, Eq, PartialEq)]
+pub enum PointerInType {
+    Pointer(Type),
+    // FIXME: This 'Vec' here is fairly inefficient
+    FunctionPointer(Vec<Type>, Type),
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]

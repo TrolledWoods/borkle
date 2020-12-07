@@ -1,13 +1,11 @@
-const MESSAGE = "The number is: ";
+const MESSAGE = "Hello One Lone Coders!\n";
 
 const main = fn() -> u64 {
     print(MESSAGE);
-    print_i64(get_num());
-    print("\n");
-
-    42
+    0
 };
 
+const tmep = get_num;
 const get_num = fn() -> i64 { 90 + 40 };
 
 const print = fn (buffer: [] u8) -> u64 {
@@ -16,6 +14,7 @@ const print = fn (buffer: [] u8) -> u64 {
 };
 
 const print_i64 = extern "borkle_lib/hello" "print_i64" : extern fn (i64) -> i64;
+
 // const print_i64 = fn (num: i64) -> i64 {
 //     (extern "borkle_lib/hello" "print_i64" : extern fn (i64) -> i64)(num)
 // };
