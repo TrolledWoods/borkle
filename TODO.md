@@ -16,12 +16,12 @@
 * [X] C backend
 * [X] Bug! Extern functions break when stored in constants
 * [X] Reimplement deduplication for constants
+* [X] Implement lvalue members in c backend
 
 * [ ] Make comparison operators care about sign bits
 * [ ] More comparison operators
 * [ ] Indexing operations
 * [ ] Stress test the language!
-* [ ] Implement lvalue members in c backend
 
 # Version 0.0.2
 * [ ] Use hashes for deduplication like before

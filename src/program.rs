@@ -4,7 +4,7 @@ use crate::errors::ErrorCtx;
 use crate::ir::Routine;
 use crate::location::Location;
 use crate::logging::Logger;
-use crate::types::{PointerInType, Type, TypeKind};
+use crate::types::{IntTypeKind, PointerInType, Type, TypeKind};
 use bumpalo::Bump;
 use constant::Constant;
 use parking_lot::{Mutex, RwLock};
@@ -145,7 +145,7 @@ impl Program {
             is_extern: false,
         } = type_.kind()
         {
-            if args.is_empty() && matches!(returns.kind(), TypeKind::Int(_)) {
+            if args.is_empty() && matches!(returns.kind(), TypeKind::Int(IntTypeKind::U64)) {
                 Some(unsafe { *element.value.to_option()?.as_ptr().cast::<*const u8>() })
             } else {
                 None

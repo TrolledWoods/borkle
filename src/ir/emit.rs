@@ -1,4 +1,4 @@
-use super::{Instr, LabelId, Registers, Routine, Value};
+use super::{Instr, LabelId, Member, Registers, Routine, Value};
 use crate::locals::LocalVariables;
 use crate::operators::UnaryOp;
 use crate::program::thread_pool::ThreadContext;
@@ -45,27 +45,25 @@ impl Context<'_> {
     }
 
     /// Emits a move instruction unless the values are zero sized.
-    fn emit_move(&mut self, to: Value, from: Value, offset: usize) {
+    fn emit_move(&mut self, to: Value, from: Value, member: Member) {
         if from.size() != 0 {
             self.instr.push(Instr::Move {
                 to,
                 from,
                 size: from.size(),
-                // FIXME: This doesn't work in the c backend, fix that!!!
-                offset_to_target: offset,
+                member,
             });
         }
     }
 
     /// Emits an indirect move instruction unless the values are zero sized.
-    fn emit_move_indirect(&mut self, to: Value, from: Value, offset: usize) {
+    fn emit_move_indirect(&mut self, to: Value, from: Value, member: Member) {
         if from.size() != 0 {
             self.instr.push(Instr::MoveIndirect {
                 to,
                 from,
                 size: from.size(),
-                // FIXME: This doesn't work in the c backend, fix that!!!
-                offset_to_target: offset,
+                member,
             });
         }
     }
@@ -162,7 +160,7 @@ fn emit_node(ctx: &mut Context<'_>, node: &Node<'_>) -> Value {
 
             // True body
             let true_body = emit_node(ctx, &children.next().unwrap());
-            ctx.emit_move(to, true_body, 0);
+            ctx.emit_move(to, true_body, Member::default());
             ctx.instr.push(Instr::Jump {
                 to: end_of_false_body,
             });
@@ -170,7 +168,7 @@ fn emit_node(ctx: &mut Context<'_>, node: &Node<'_>) -> Value {
             // False body
             ctx.define_label(start_of_false_body);
             let false_body = emit_node(ctx, &children.next().unwrap());
-            ctx.emit_move(to, false_body, 0);
+            ctx.emit_move(to, false_body, Member::default());
 
             ctx.define_label(end_of_false_body);
 
@@ -245,7 +243,7 @@ fn emit_node(ctx: &mut Context<'_>, node: &Node<'_>) -> Value {
         NodeKind::BitCast => {
             let from = emit_node(ctx, &node.children().next().unwrap());
             let to = ctx.registers.create(node.type_());
-            ctx.emit_move(to, from, 0);
+            ctx.emit_move(to, from, Member::default());
             to
         }
         NodeKind::Constant(bytes) => {
@@ -325,7 +323,7 @@ fn emit_node(ctx: &mut Context<'_>, node: &Node<'_>) -> Value {
             let from = emit_node(ctx, &child);
             let to = ctx.registers.create(child.type_());
             ctx.locals.get_mut(*id).value = Some(to);
-            ctx.emit_move(to, from, 0);
+            ctx.emit_move(to, from, Member::default());
             to
         }
         NodeKind::Local(id) => ctx.locals.get(*id).value.unwrap(),
@@ -377,19 +375,43 @@ fn emit_lvalue(ctx: &mut Context<'_>, node: &Node<'_>) -> LValue {
                 .expect("This should have already been made sure to exist in the typer");
 
             match parent_value {
-                LValue::Reference(value, offset) => {
-                    LValue::Reference(value, offset + member.byte_offset)
+                LValue::Reference(value, mut ref_member) => {
+                    ref_member.name_list.push(*name);
+                    ref_member.offset += member.byte_offset;
+                    LValue::Reference(value, ref_member)
                 }
-                LValue::Value(value, offset) => LValue::Value(value, offset + member.byte_offset),
+                LValue::Value(value, mut ref_member) => {
+                    ref_member.name_list.push(*name);
+                    ref_member.offset += member.byte_offset;
+                    LValue::Value(value, ref_member)
+                }
             }
         }
         NodeKind::Unary(UnaryOp::Dereference) => {
             let mut children = node.children();
             let pointee = children.next().unwrap();
-            LValue::Reference(emit_node(ctx, &pointee), 0)
+            LValue::Reference(
+                emit_node(ctx, &pointee),
+                Member {
+                    offset: 0,
+                    name_list: Vec::new(),
+                },
+            )
         }
-        NodeKind::Local(id) => LValue::Value(ctx.locals.get(*id).value.unwrap(), 0),
-        NodeKind::Global(id) => LValue::Value(ctx.program.get_constant_as_value(*id), 0),
+        NodeKind::Local(id) => LValue::Value(
+            ctx.locals.get(*id).value.unwrap(),
+            Member {
+                offset: 0,
+                name_list: Vec::new(),
+            },
+        ),
+        NodeKind::Global(id) => LValue::Value(
+            ctx.program.get_constant_as_value(*id),
+            Member {
+                offset: 0,
+                name_list: Vec::new(),
+            },
+        ),
         kind => unreachable!(
             "{:?} is not valid as an lvalue and should hence not exist",
             kind
@@ -398,6 +420,6 @@ fn emit_lvalue(ctx: &mut Context<'_>, node: &Node<'_>) -> LValue {
 }
 
 enum LValue {
-    Reference(Value, usize),
-    Value(Value, usize),
+    Reference(Value, Member),
+    Value(Value, Member),
 }

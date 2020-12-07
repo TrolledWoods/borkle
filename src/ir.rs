@@ -53,18 +53,16 @@ pub enum Instr {
         from: Value,
     },
     Move {
-        // FIXME: rename to 'target' maybe?
         to: Value,
         from: Value,
         size: usize,
-        offset_to_target: usize,
+        member: Member,
     },
     MoveIndirect {
-        // FIXME: rename to 'target' maybe?
         to: Value,
         from: Value,
         size: usize,
-        offset_to_target: usize,
+        member: Member,
     },
     JumpIfZero {
         condition: Value,
@@ -74,6 +72,13 @@ pub enum Instr {
         to: LabelId,
     },
     LabelDefinition(LabelId),
+}
+
+#[derive(Default, Debug, Clone)]
+pub struct Member {
+    pub offset: usize,
+    // FIXME: This is inefficient af!!!!
+    pub name_list: Vec<Ustr>,
 }
 
 // Why is this safe? Well, because we do not have interior mutability anywhere, so the raw pointers

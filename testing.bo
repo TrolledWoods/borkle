@@ -11,6 +11,12 @@ const testing_constant = {
 };
 
 const main = fn() -> u64 {
+    callback()(42);
+
+    let buf = alloc(60);
+    dealloc(buf);
+
+    print(LONG_FRICKING_MESSAGE);
     print(if (1 : i64) > 2  "Impossible!\n" else "Ok we're in reality now\n");
 
     print(*(bit_cast &testing_constant));
@@ -29,28 +35,19 @@ const print = fn (buffer: [] u8) -> u64 {
 
 const print_i64 = extern "borkle_lib/hello" "print_i64" : extern fn (i64) -> i64;
 
-// const print_i64 = fn (num: i64) -> i64 {
-//     (extern "borkle_lib/hello" "print_i64" : extern fn (i64) -> i64)(num)
-// };
+const alloc = fn (len: usize) -> [] u8 {
+    let buf = uninit : [] u8;
+    buf.ptr = (extern "borkle_lib/hello" "alloc" : extern fn (usize) -> &u8)(len);
+    buf.len = len;
+    buf
+};
 
-// const alloc = fn (len: usize) -> [] u8 {
-//     let buf = uninit : [] u8;
-//     buf.ptr = (extern "borkle_lib/hello" "alloc" : extern fn (usize) -> &u8)(len);
-//     buf.len = len;
-//     buf
-// };
-// 
-// const dealloc = fn (buf: [] u8) {
-//     (extern "borkle_lib/hello" "dealloc" : extern fn (&u8, usize))(buf.ptr, buf.len);
-// };
-// 
-// const get = fn (array: &[4] &i64, index: usize) -> &&i64 {
-//     let first = bit_cast array : &i64;
-//     bit_cast ((index * 8) + bit_cast first)
-// };
+const dealloc = fn (buf: [] u8) {
+    (extern "borkle_lib/hello" "dealloc" : extern fn (&u8, usize))(buf.ptr, buf.len);
+};
 
 // const flush = extern "borkle_lib/hello" "flush_stdout" : extern fn();
-// 
-// const print_u8  = extern "borkle_lib/hello" "print_u8"  : extern fn (u8) -> u8;
-// const callback  = extern "borkle_lib/hello" "callback"  : extern fn () -> extern fn (i64) -> i64;
+
+const print_u8  = extern "borkle_lib/hello" "print_u8"  : extern fn (u8) -> u8;
+const callback  = extern "borkle_lib/hello" "callback"  : extern fn () -> extern fn (i64) -> i64;
 

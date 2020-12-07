@@ -49,7 +49,7 @@ fn main() {
         // FIXME: Make a proper error message for when the entry point doesn't exist.
         let entry_point = program
             .get_entry_point()
-            .expect("Entry point 'main' of program has to exist and be of type 'fn () -> ()'");
+            .expect("Entry point 'main' of program has to exist and be of type 'fn () -> u64'");
 
         if output_c {
             let mut c_file = output_folder;
@@ -57,12 +57,12 @@ fn main() {
             c_backend::entry_point(&mut c_output, entry_point);
             std::fs::write(&c_file, c_output).unwrap();
         } else {
-            let mut stack = interp::Stack::new(1024);
+            let mut stack = interp::Stack::new(1 << 16);
             let result = interp::interp(&program, &mut stack, unsafe {
                 &*entry_point.cast::<ir::Routine>()
             });
 
-            println!("main exited with '{}'", unsafe { *(result as *const u64) });
+            println!("[main returned: {}]", unsafe { *(result as *const u64) });
         }
 
         let elapsed = time.elapsed();

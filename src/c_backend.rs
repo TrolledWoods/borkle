@@ -56,11 +56,11 @@ pub fn function_pointer_type(
 }
 
 pub fn entry_point(output: &mut String, entry: *const u8) {
-    output.push_str("void main() {\n");
+    output.push_str("int main() {\n");
     write!(
         output,
-        "    printf(\"%d\\n\", global_{}());\n",
-        entry as usize
+        "    return {}();\n",
+        c_format_global(entry as usize)
     )
     .unwrap();
     output.push_str("}\n");
@@ -219,13 +219,17 @@ pub fn routine_to_c(output: &mut String, routine: &Routine, num_args: usize) {
             | Instr::CallExtern {
                 to, pointer, args, ..
             } => {
-                write!(
-                    output,
-                    "{} = {}(",
-                    c_format_value(to),
-                    c_format_value(pointer),
-                )
-                .unwrap();
+                if to.size() != 0 {
+                    write!(
+                        output,
+                        "{} = {}(",
+                        c_format_value(to),
+                        c_format_value(pointer),
+                    )
+                    .unwrap();
+                } else {
+                    write!(output, "{}(", c_format_value(pointer),).unwrap();
+                }
                 let mut has_emitted = false;
                 for arg in args.iter() {
                     if arg.size() == 0 {
@@ -339,39 +343,31 @@ pub fn routine_to_c(output: &mut String, routine: &Routine, num_args: usize) {
                 to,
                 from,
                 size: _,
-                offset_to_target,
+                member,
             } => {
-                assert_eq!(
-                    *offset_to_target, 0,
-                    "Offset to target is not done yet in c backend"
-                );
+                write!(output, "{}", c_format_value(to)).unwrap();
 
-                write!(
-                    output,
-                    "{} = {};\n",
-                    c_format_value(to),
-                    c_format_value(from)
-                )
-                .unwrap();
+                for name in member.name_list.iter() {
+                    output.push('.');
+                    output.push_str(name);
+                }
+
+                write!(output, " = {};\n", c_format_value(from)).unwrap();
             }
             Instr::MoveIndirect {
                 to,
                 from,
                 size: _,
-                offset_to_target,
+                member,
             } => {
-                assert_eq!(
-                    *offset_to_target, 0,
-                    "Offset to target is not done yet in c backend"
-                );
+                write!(output, "(*{})", c_format_value(to)).unwrap();
 
-                write!(
-                    output,
-                    "*{} = {};\n",
-                    c_format_value(to),
-                    c_format_value(from)
-                )
-                .unwrap();
+                for name in member.name_list.iter() {
+                    output.push('.');
+                    output.push_str(name);
+                }
+
+                write!(output, " = {};\n", c_format_value(from)).unwrap();
             }
             Instr::JumpIfZero { condition, to } => {
                 write!(
