@@ -9,7 +9,7 @@ lazy_static! {
 }
 
 #[derive(Clone, Copy)]
-pub struct Type(&'static TypeData);
+pub struct Type(pub &'static TypeData);
 
 impl Hash for Type {
     fn hash<H: Hasher>(&self, state: &mut H) {

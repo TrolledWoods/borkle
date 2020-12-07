@@ -39,6 +39,7 @@ operator!(UnaryOp {
     Not = ("!", 0),
     Reference = ("&", 0),
     Dereference = ("*", 0),
+    AutoCast = ("<", 0),
 });
 
 operator!(BinaryOp {

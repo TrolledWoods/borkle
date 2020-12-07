@@ -5,7 +5,7 @@ use crate::program::thread_pool::ThreadContext;
 use crate::program::Program;
 use crate::typer::ast::NodeKind;
 use crate::typer::Ast;
-use crate::types::TypeKind;
+use crate::types::{IntTypeKind, Type, TypeKind};
 use std::ptr::NonNull;
 
 type Node<'a> = bump_tree::Node<'a, crate::typer::ast::Node>;
@@ -244,6 +244,33 @@ fn emit_node(ctx: &mut Context<'_>, node: &Node<'_>) -> Value {
             let from = emit_node(ctx, &node.children().next().unwrap());
             let to = ctx.registers.create(node.type_());
             ctx.emit_move(to, from, Member::default());
+            to
+        }
+        NodeKind::ArrayToBuffer(len) => {
+            let from = emit_node(ctx, &node.children().next().unwrap());
+            let to = ctx.registers.create(node.type_());
+
+            let len_reg = ctx
+                .registers
+                .create(Type::new(TypeKind::Int(IntTypeKind::Usize)));
+            ctx.emit_constant_from_buffer(len_reg, &len.to_le_bytes());
+
+            ctx.emit_move(
+                to,
+                from,
+                Member {
+                    offset: 0,
+                    name_list: vec!["ptr".into()],
+                },
+            );
+            ctx.emit_move(
+                to,
+                len_reg,
+                Member {
+                    offset: 8,
+                    name_list: vec!["len".into()],
+                },
+            );
             to
         }
         NodeKind::Constant(bytes) => {

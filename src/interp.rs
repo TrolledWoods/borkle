@@ -177,7 +177,7 @@ fn interp_internal(program: &Program, stack: &mut StackFrame<'_>, routine: &Rout
                     let to = stack.get_mut(to);
                     to.copy_from_slice(&result.to_le_bytes()[..to.len()]);
                 }
-                UnaryOp::Reference | UnaryOp::Dereference => {
+                UnaryOp::AutoCast | UnaryOp::Reference | UnaryOp::Dereference => {
                     unreachable!("This operator is supposed to be a special case");
                 }
             },

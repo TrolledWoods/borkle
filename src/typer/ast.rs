@@ -44,6 +44,7 @@ impl bump_tree::MetaData for Node {
             NodeKind::Block => num_args > 0,
             NodeKind::FunctionDeclaration { locals: _ }
             | NodeKind::BitCast
+            | NodeKind::ArrayToBuffer(_)
             | NodeKind::Member(_)
             | NodeKind::Declare(_)
             | NodeKind::Unary(_) => num_args == 1,
@@ -83,6 +84,7 @@ pub enum NodeKind {
     Unary(UnaryOp),
 
     BitCast,
+    ArrayToBuffer(usize),
 }
 
 unsafe impl Send for NodeKind {}

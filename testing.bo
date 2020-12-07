@@ -2,31 +2,50 @@ const LONG_FRICKING_MESSAGE = "jjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjj
 
 const MESSAGE = "Hello One Lone Coders!\n";
 
+const crazy_static_memory_usage = uninit : [420] u8;
+
 const testing_constant = {
     let constant = uninit : [3] [] u8;
-    *(bit_cast (bit_cast &constant + 0 : u64) : &[]u8) = "One!\n";
+    *(bit_cast (bit_cast &constant + 0  : u64) : &[]u8) = "One!\n";
     *(bit_cast (bit_cast &constant + 16 : u64) : &[]u8) = "Two!\n";
     *(bit_cast (bit_cast &constant + 32 : u64) : &[]u8) = "Three!\n";
     constant
 };
 
-const main = fn() -> u64 {
-    callback()(42);
-
-    let buf = alloc(60);
-    dealloc(buf);
-
-    print(LONG_FRICKING_MESSAGE);
-    print(if (1 : i64) > 2  "Impossible!\n" else "Ok we're in reality now\n");
-
-    print(*(bit_cast &testing_constant));
-    print(*(bit_cast (bit_cast &testing_constant + 16 : u64)));
-    print(MESSAGE);
-    0
+const get = fn(buf: [] u8, index: usize) -> &u8 {
+    bit_cast (bit_cast buf.ptr + index : usize)
 };
 
-const tmep = get_num;
-const get_num = fn() -> i64 { 90 + 40 };
+const copy = fn(from: [] u8, to: [] u8) {
+    let i = 0 : usize;
+    while i < from.len {
+        *(bit_cast (i + bit_cast to.ptr) : &u8) = *bit_cast (i + bit_cast from.ptr);
+        i = i + 1;
+    };
+};
+
+const slice = fn(buf: [] u8, start: usize, end: usize) -> [] u8 {
+    let new_buf = uninit : [] u8;
+    new_buf.ptr = bit_cast ( start + bit_cast buf.ptr );
+    if end == 0 {
+        new_buf.len = buf.len - start;
+    } else {
+        new_buf.len = end - start;
+    };
+    new_buf
+};
+
+const main = fn() -> u64 {
+    let stack_string = uninit : [50] u8;
+
+    let from = "Hello, world!\n";
+    copy(from, < &stack_string);
+
+    let sliced = slice(< &stack_string, 0, from.len);
+    print(sliced);
+
+    0
+};
 
 const print = fn (buffer: [] u8) -> u64 {
     (extern "borkle_lib/hello" "put_string" : extern fn(&u8, usize) -> u64)
@@ -34,6 +53,7 @@ const print = fn (buffer: [] u8) -> u64 {
 };
 
 const print_i64 = extern "borkle_lib/hello" "print_i64" : extern fn (i64) -> i64;
+const does_this_work_maybe = callback();
 
 const alloc = fn (len: usize) -> [] u8 {
     let buf = uninit : [] u8;
@@ -50,4 +70,3 @@ const dealloc = fn (buf: [] u8) {
 
 const print_u8  = extern "borkle_lib/hello" "print_u8"  : extern fn (u8) -> u8;
 const callback  = extern "borkle_lib/hello" "callback"  : extern fn () -> extern fn (i64) -> i64;
-

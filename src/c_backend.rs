@@ -293,7 +293,7 @@ pub fn routine_to_c(output: &mut String, routine: &Routine, num_args: usize) {
                 let op_name = match op {
                     UnaryOp::Negate => "-",
                     UnaryOp::Not => "!",
-                    UnaryOp::Dereference | UnaryOp::Reference => unreachable!(),
+                    UnaryOp::AutoCast | UnaryOp::Dereference | UnaryOp::Reference => unreachable!(),
                 };
 
                 write!(
@@ -406,13 +406,11 @@ pub fn append_c_type_headers(output: &mut String) {
             TypeKind::Array(internal, len) => {
                 write!(
                     output,
-                    "{} t_{}[{}]",
+                    "struct {{ {} _0[{}] }} ",
                     c_format_type(*internal),
-                    type_ as *const _ as usize,
                     len
                 )
                 .unwrap();
-                name_is_needed = false;
             }
 
             TypeKind::Bool => output.push_str("uint8_t "),

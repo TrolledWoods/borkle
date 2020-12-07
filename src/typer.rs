@@ -2,10 +2,11 @@ use crate::dependencies::{DependencyKind, DependencyList};
 use crate::errors::ErrorCtx;
 use crate::literal::Literal;
 use crate::locals::LocalVariables;
+use crate::location::Location;
 use crate::operators::{BinaryOp, UnaryOp};
 use crate::parser::{self, ast::NodeKind as ParserNodeKind};
 use crate::program::{MemberId, Program};
-use crate::types::{IntTypeKind, Type, TypeKind};
+use crate::types::{IntTypeKind, Type, TypeData, TypeKind};
 use ast::{Node, NodeKind};
 
 type ParsedAst = bump_tree::Tree<parser::ast::Node>;
@@ -431,6 +432,18 @@ fn type_ast(
             // special treatment. It might be nice to push this complexity out where there is
             // already such difference in behaviour between nodes.
             match op {
+                UnaryOp::AutoCast => {
+                    if let Some(wanted_type) = wanted_type {
+                        let internal_type =
+                            type_ast(ctx, None, &parsed.children().next().unwrap(), node.arg())?;
+
+                        create_auto_cast(ctx, parsed.loc, internal_type, wanted_type, node)?;
+                        type_ = wanted_type;
+                    } else {
+                        ctx.errors.error(parsed.loc, "Casting can only be done if the type is known; are you sure you want to cast here?".to_string());
+                        return Err(());
+                    }
+                }
                 UnaryOp::Reference => {
                     let wanted_inner =
                         if let Some(&TypeKind::Reference(inner)) = wanted_type.map(Type::kind) {
@@ -441,6 +454,9 @@ fn type_ast(
 
                     let operand = type_ast(ctx, wanted_inner, &operand, node.arg())?;
                     type_ = Type::new(TypeKind::Reference(operand));
+
+                    node.set(Node::new(parsed.loc, NodeKind::Unary(op), type_));
+                    node.validate();
                 }
                 UnaryOp::Dereference => {
                     let wanted_inner = wanted_type.map(|v| Type::new(TypeKind::Reference(v)));
@@ -458,14 +474,17 @@ fn type_ast(
                         );
                         return Err(());
                     }
+
+                    node.set(Node::new(parsed.loc, NodeKind::Unary(op), type_));
+                    node.validate();
                 }
                 _ => {
                     type_ = type_ast(ctx, wanted_type, &operand, node.arg())?;
+
+                    node.set(Node::new(parsed.loc, NodeKind::Unary(op), type_));
+                    node.validate();
                 }
             }
-
-            node.set(Node::new(parsed.loc, NodeKind::Unary(op), type_));
-            node.validate();
         }
         ParserNodeKind::Empty => {
             type_ = TypeKind::Empty.into();
@@ -599,6 +618,49 @@ fn const_fold_type_expr(errors: &mut ErrorCtx, parsed: &ParsedNode<'_>) -> Resul
                 parsed.loc,
                 "This is not a valid type expression(possible internal compiler error, because the parser should have a special state for parsing type expressions and that should not generate an invalid node that the const type expression thing can't handle)"
                     .to_string(),
+            );
+            Err(())
+        }
+    }
+}
+
+/// Creates an auto cast. The 'node' is expected to have an argument which is the node whom we cast
+/// from.
+fn create_auto_cast(
+    ctx: &mut Context<'_>,
+    loc: Location,
+    from_type: Type,
+    to_type: Type,
+    mut node: NodeBuilder<'_>,
+) -> Result<(), ()> {
+    if from_type == to_type {
+        node.into_arg();
+        ctx.errors.warning(
+            loc,
+            format!(
+                "You don't need a cast here, because '{}' and '{}' are the same types",
+                from_type, to_type
+            ),
+        );
+        return Ok(());
+    }
+
+    match (from_type.kind(), to_type.kind()) {
+        (
+            TypeKind::Reference(Type(TypeData {
+                kind: TypeKind::Array(from_inner, len),
+                ..
+            })),
+            TypeKind::Buffer(to_inner),
+        ) if from_inner == to_inner => {
+            node.set(Node::new(loc, NodeKind::ArrayToBuffer(*len), to_type));
+            node.validate();
+            Ok(())
+        }
+        (_, _) => {
+            ctx.errors.error(
+                loc,
+                format!("No cast available for '{}' to '{}'", from_type, to_type),
             );
             Err(())
         }

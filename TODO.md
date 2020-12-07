@@ -17,6 +17,7 @@
 * [X] Bug! Extern functions break when stored in constants
 * [X] Reimplement deduplication for constants
 * [X] Implement lvalue members in c backend
+* [X] Auto casts
 
 * [ ] Make comparison operators care about sign bits
 * [ ] More comparison operators
