@@ -32,9 +32,31 @@ pub fn function_declaration(
     output.push(')');
 }
 
+pub fn function_pointer_type(
+    output: &mut String,
+    name: impl fmt::Display,
+    args: &[Type],
+    returns: Type,
+) {
+    write!(output, "{} (*{})(", c_format_type_or_void(returns), name).unwrap();
+    let mut has_emitted = false;
+    for arg in args.iter() {
+        if arg.size() == 0 {
+            continue;
+        }
+
+        if has_emitted {
+            output.push_str(", ");
+        }
+
+        write!(output, "{}", c_format_type(*arg)).unwrap();
+        has_emitted = true;
+    }
+    output.push(')');
+}
+
 pub fn entry_point(output: &mut String, entry: *const u8) {
     output.push_str("void main() {\n");
-    output.push_str("    init();\n");
     write!(
         output,
         "    printf(\"%d\\n\", global_{}());\n",
@@ -84,66 +106,94 @@ pub fn declare_constants(output: &mut String, program: &Program) {
     }
     for constant in constant_data.iter() {
         let ptr = constant.ptr.as_ptr();
-        if constant.type_.pointers().is_empty() {
-            output.push_str("const ");
-        }
         write!(
             output,
-            "uint64_t global_{}[{}] = {{",
-            ptr as usize,
-            constant.size / 8
+            "const struct {} {{\n",
+            c_format_global_temp_type(ptr as usize),
         )
         .unwrap();
 
-        let u64_ptr = ptr.cast::<u64>();
-        for i in 0..constant.size / 8 {
-            write!(output, "{}, ", unsafe { *u64_ptr.add(i) }).unwrap();
-        }
-        output.push_str("}; \n");
-    }
-}
-
-pub fn instantiate_pointers_in_constants(output: &mut String, program: &Program) {
-    output.push_str("void init(void) {\n");
-
-    let external_symbols = program.external_symbols.lock();
-    let constant_data = program.constant_data.lock();
-    for constant in constant_data.iter() {
-        for (offset, ptr) in constant.type_.pointers() {
-            match ptr {
-                PointerInType::Function {
-                    is_extern: true, ..
-                } => {
-                    write!(
-                        output,
-                        "    global_{}[{}] = (uint64_t)&{};\n",
-                        constant.ptr.as_ptr() as usize,
-                        offset / 8,
-                        external_symbols
-                            .get(&unsafe { *constant.ptr.as_ptr().cast::<*const u8>() })
-                            .unwrap()
-                            .1
-                    )
-                    .unwrap();
+        let mut pointers = constant.type_.pointers().iter().peekable();
+        for i in (0..constant.type_.size()).step_by(8) {
+            match pointers.peek() {
+                Some(&(offset, ptr_type)) if *offset == i => {
+                    match ptr_type {
+                        PointerInType::Function { args, returns, .. } => {
+                            output.push_str("    ");
+                            function_pointer_type(
+                                output,
+                                c_format_struct_member(i),
+                                args,
+                                *returns,
+                            );
+                            output.push_str(";\n");
+                        }
+                        _ => {
+                            write!(output, "    void *{};\n", c_format_struct_member(i)).unwrap();
+                        }
+                    }
+                    pointers.next();
                 }
-                PointerInType::Pointer(_)
-                | PointerInType::Buffer(_)
-                | PointerInType::Function { .. } => {
-                    let ptr = unsafe { *constant.as_ptr().add(*offset).cast::<*const u8>() };
-                    write!(
-                        output,
-                        "    global_{}[{}] = (uint64_t)&global_{};\n",
-                        constant.ptr.as_ptr() as usize,
-                        *offset / 8,
-                        ptr as usize,
-                    )
-                    .unwrap();
+                Some(_) | None => {
+                    write!(output, "    uint64_t {};\n", c_format_struct_member(i)).unwrap();
                 }
             }
         }
-    }
 
-    output.push_str("}\n");
+        write!(output, "}} {};\n", c_format_global(ptr as usize),).unwrap();
+    }
+}
+
+pub fn instantiate_constants(output: &mut String, program: &Program) {
+    let constant_data = program.constant_data.lock();
+    let external_symbols = program.external_symbols.lock();
+    for constant in constant_data.iter() {
+        let ptr = constant.ptr.as_ptr();
+        write!(
+            output,
+            "const struct {} {} = {{",
+            c_format_global_temp_type(ptr as usize),
+            c_format_global(ptr as usize),
+        )
+        .unwrap();
+
+        let mut pointers = constant.type_.pointers().iter().peekable();
+        for i in (0..constant.size).step_by(8) {
+            match pointers.peek() {
+                Some(&(offset, ptr_kind)) if *offset == i => {
+                    match ptr_kind {
+                        PointerInType::Function {
+                            is_extern: true, ..
+                        } => {
+                            output.push('&');
+                            output.push_str(
+                                external_symbols
+                                    .get(&unsafe { *constant.ptr.as_ptr().cast::<*const u8>() })
+                                    .unwrap()
+                                    .1
+                                    .as_str(),
+                            );
+                        }
+                        _ => {
+                            write!(
+                                output,
+                                "&{}",
+                                c_format_global(unsafe { *ptr.add(i).cast::<usize>() })
+                            )
+                            .unwrap();
+                        }
+                    }
+                    pointers.next();
+                }
+                _ => {
+                    write!(output, "{}", unsafe { *ptr.add(i).cast::<u64>() }).unwrap();
+                }
+            }
+
+            output.push_str(", ");
+        }
+        output.push_str("}; \n");
+    }
 }
 
 pub fn routine_to_c(output: &mut String, routine: &Routine, num_args: usize) {
@@ -426,6 +476,14 @@ pub fn append_c_type_headers(output: &mut String) {
 
         output.push_str(";\n");
     }
+}
+
+pub fn c_format_struct_member(member_id: usize) -> impl fmt::Display {
+    Formatter(move |f| write!(f, "_{}", member_id))
+}
+
+pub fn c_format_global_temp_type(global: usize) -> impl fmt::Display {
+    Formatter(move |f| write!(f, "t_global_{}", global))
 }
 
 pub fn c_format_global(global: usize) -> impl fmt::Display {

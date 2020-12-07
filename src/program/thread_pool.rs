@@ -99,8 +99,8 @@ impl ThreadPool {
         }
 
         crate::c_backend::declare_constants(&mut c_headers, &self.program);
+        crate::c_backend::instantiate_constants(&mut c_headers, &self.program);
         c_headers.push_str(&c_declarations);
-        crate::c_backend::instantiate_pointers_in_constants(&mut c_headers, &self.program);
 
         self.program.check_for_completion(&mut errors);
 
