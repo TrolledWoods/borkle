@@ -9,21 +9,38 @@ use crate::types::{IntTypeKind, Type, TypeKind, TYPES};
 use std::fmt;
 use std::fmt::Write;
 
-pub fn function_declaration(output: &mut String, ptr: usize, args: &[Type], returns: Type) {
-    write!(output, "{} global_{}(", c_format_type_or_void(returns), ptr).unwrap();
+pub fn function_declaration(
+    output: &mut String,
+    name: impl fmt::Display,
+    args: &[Type],
+    returns: Type,
+) {
+    write!(output, "{} {}(", c_format_type_or_void(returns), name).unwrap();
+    let mut has_emitted = false;
     for (i, arg) in args.iter().enumerate() {
-        if i > 0 {
+        if arg.size() == 0 {
+            continue;
+        }
+
+        if has_emitted {
             output.push_str(", ");
         }
-        write!(output, "{}", c_format_type(*arg)).unwrap();
+
+        write!(output, "{} arg_{}", c_format_type(*arg), i).unwrap();
+        has_emitted = true;
     }
     output.push(')');
 }
 
 pub fn entry_point(output: &mut String, entry: *const u8) {
-    output.push_str("int main() {\n");
+    output.push_str("void main() {\n");
     output.push_str("    init();\n");
-    write!(output, "    return global_{}();\n", entry as usize).unwrap();
+    write!(
+        output,
+        "    printf(\"%d\\n\", global_{}());\n",
+        entry as usize
+    )
+    .unwrap();
     output.push_str("}\n");
 }
 
@@ -52,6 +69,16 @@ fn c_format_value(value: &Value) -> impl fmt::Display + '_ {
 
 pub fn declare_constants(output: &mut String, program: &Program) {
     let constant_data = program.constant_data.lock();
+    let external_symbols = program.external_symbols.lock();
+    for (_, &(type_, name)) in external_symbols.iter() {
+        if let TypeKind::Function { args, returns, .. } = type_.kind() {
+            output.push_str("extern ");
+            function_declaration(output, name, args, *returns);
+            output.push_str(";\n");
+        } else {
+            unreachable!();
+        }
+    }
     for constant in constant_data.iter() {
         let ptr = constant.ptr.as_ptr();
         if constant.constant_pointers.is_empty() {
@@ -76,17 +103,35 @@ pub fn declare_constants(output: &mut String, program: &Program) {
 pub fn instantiate_pointers_in_constants(output: &mut String, program: &Program) {
     output.push_str("void init(void) {\n");
 
+    let external_symbols = program.external_symbols.lock();
     let constant_data = program.constant_data.lock();
     for constant in constant_data.iter() {
-        for (offset, ptr) in constant.constant_pointers.iter() {
-            write!(
-                output,
-                "    global_{}[{}] = &global_{};\n",
-                constant.ptr.as_ptr() as usize,
-                offset / 8,
-                ptr.as_ptr() as usize,
-            )
-            .unwrap();
+        for (offset, ptr, type_) in constant.constant_pointers.iter() {
+            if let TypeKind::Function {
+                is_extern: true, ..
+            } = type_.kind()
+            {
+                write!(
+                    output,
+                    "    global_{}[{}] = (uint64_t){};\n",
+                    constant.ptr.as_ptr() as usize,
+                    offset / 8,
+                    external_symbols
+                        .get(&unsafe { *constant.ptr.as_ptr().cast::<*const u8>() })
+                        .unwrap()
+                        .1
+                )
+                .unwrap();
+            } else {
+                write!(
+                    output,
+                    "    global_{}[{}] = (uint64_t)&global_{};\n",
+                    constant.ptr.as_ptr() as usize,
+                    offset / 8,
+                    ptr.as_ptr() as usize,
+                )
+                .unwrap();
+            }
         }
     }
 
@@ -97,22 +142,15 @@ pub fn routine_to_c(output: &mut String, routine: &Routine, num_args: usize) {
     write!(output, "    // Declare registers\n").unwrap();
     for (i, register) in routine.registers.locals.iter().enumerate() {
         if register.type_.size() != 0 {
-            write!(
-                output,
-                "    {} reg_{}; // {}\n",
-                c_format_type(register.type_),
-                i,
-                register.type_
-            )
-            .unwrap();
+            write!(output, "    {} reg_{}", c_format_type(register.type_), i,).unwrap();
+
+            if i < num_args {
+                write!(output, " = arg_{}", i).unwrap();
+            }
+
+            write!(output, "; // {}\n", register.type_).unwrap();
         }
     }
-    output.push_str("\n    ");
-
-    for i in 0..num_args {
-        write!(output, "reg_{0} = arg_{0}; ", i).unwrap();
-    }
-    output.push_str("\n\n");
 
     write!(output, "    // Code\n").unwrap();
     for instr in &routine.instr {
@@ -130,11 +168,17 @@ pub fn routine_to_c(output: &mut String, routine: &Routine, num_args: usize) {
                     c_format_value(pointer),
                 )
                 .unwrap();
+                let mut has_emitted = false;
                 for (i, arg) in args.iter().enumerate() {
-                    if i > 0 {
+                    if arg.size() == 0 {
+                        continue;
+                    }
+
+                    if has_emitted {
                         output.push_str(", ");
                     }
                     write!(output, "{}", c_format_value(arg)).unwrap();
+                    has_emitted = true;
                 }
                 output.push_str(");\n");
             }
@@ -274,7 +318,7 @@ pub fn routine_to_c(output: &mut String, routine: &Routine, num_args: usize) {
             Instr::JumpIfZero { condition, to } => {
                 write!(
                     output,
-                    "if ({}) goto label_{};\n",
+                    "if ({} == 0) goto label_{};\n",
                     c_format_value(condition),
                     to.0
                 )
@@ -289,7 +333,9 @@ pub fn routine_to_c(output: &mut String, routine: &Routine, num_args: usize) {
         }
     }
 
-    write!(output, "    return {};\n", c_format_value(&routine.result)).unwrap();
+    if routine.result.size() != 0 {
+        write!(output, "    return {};\n", c_format_value(&routine.result)).unwrap();
+    }
 }
 
 pub fn append_c_type_headers(output: &mut String) {
@@ -340,18 +386,24 @@ pub fn append_c_type_headers(output: &mut String) {
                 write!(
                     output,
                     "{} (*t_{}) ",
-                    c_format_type(*returns),
+                    c_format_type_or_void(*returns),
                     type_ as *const _ as usize
                 )
                 .unwrap();
 
                 output.push('(');
+                let mut has_emitted = false;
                 for (i, arg) in args.iter().enumerate() {
-                    if i > 0 {
+                    if arg.size() == 0 {
+                        continue;
+                    }
+
+                    if has_emitted {
                         output.push_str(", ");
                     }
 
                     write!(output, "{}", c_format_type(*arg)).unwrap();
+                    has_emitted = true;
                 }
                 output.push(')');
 
@@ -368,9 +420,13 @@ pub fn append_c_type_headers(output: &mut String) {
     }
 }
 
+pub fn c_format_global(global: usize) -> impl fmt::Display {
+    Formatter(move |f| write!(f, "global_{}", global))
+}
+
 /// Formats a type as C. The type can't be zero sized.
 pub fn c_format_type(type_: Type) -> impl fmt::Display {
-    debug_assert!(type_.size() != 0);
+    debug_assert_ne!(type_.size(), 0);
 
     Formatter(move |f| write!(f, "t_{}", type_.as_ptr() as usize))
 }

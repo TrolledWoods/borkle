@@ -51,6 +51,7 @@ pub struct Program {
     pub constant_data: Mutex<HashSet<Constant>>,
 
     pub libraries: Mutex<ffi::Libraries>,
+    pub external_symbols: Mutex<HashMap<*const u8, (Type, Ustr)>>,
 
     functions: Mutex<HashSet<*const Routine>>,
     calling_conventions_alloc: Mutex<Bump>,
@@ -76,6 +77,8 @@ impl Program {
     ) -> Self {
         Self {
             emit_c_code: options.release,
+
+            external_symbols: Mutex::default(),
 
             logger,
             const_table: RwLock::default(),
@@ -167,19 +170,33 @@ impl Program {
         const_table.get(&id).unwrap().type_.to_option().copied()
     }
 
+    pub fn load_extern_library(
+        &self,
+        library_name: Ustr,
+        symbol_name: Ustr,
+        type_: Type,
+    ) -> Result<unsafe extern "C" fn(), libloading::Error> {
+        let mut libraries = self.libraries.lock();
+        let mut external_symbols = self.external_symbols.lock();
+        let func =
+            libraries.load_symbol(library_name.as_str().into(), symbol_name.as_str().into())?;
+        external_symbols.insert(func as *const u8, (type_, symbol_name));
+        Ok(func)
+    }
+
     fn insert_sub_buffers(
         &self,
         type_: Type,
         data: *mut u8,
         offset: usize,
-        internal_pointers: &mut Vec<(usize, NonNull<u8>)>,
+        internal_pointers: &mut Vec<(usize, NonNull<u8>, Type)>,
     ) {
         match type_.kind() {
             TypeKind::Reference(internal) => unsafe {
                 let sub_buffer = self.insert_buffer(*internal, *data.cast::<*const u8>());
 
                 *data.cast::<*mut u8>() = sub_buffer.as_ptr();
-                internal_pointers.push((offset, sub_buffer));
+                internal_pointers.push((offset, sub_buffer, *internal));
             },
             TypeKind::Array(element_type, length) => {
                 for element in 0..*length {
@@ -199,19 +216,18 @@ impl Program {
                 }
 
                 let buffer = unsafe { &mut *data.cast::<Buffer>() };
-                let sub_buffer = self.insert_buffer(
-                    Type::new(TypeKind::Array(*internal, buffer.length)),
-                    buffer.ptr,
-                );
+                let array_type = Type::new(TypeKind::Array(*internal, buffer.length));
+                let sub_buffer = self.insert_buffer(array_type, buffer.ptr);
 
                 buffer.ptr = sub_buffer.as_ptr();
-                internal_pointers.push((offset, sub_buffer));
+                internal_pointers.push((offset, sub_buffer, array_type));
             }
             TypeKind::Struct { .. } => todo!("Structs don't exist in my world :D"),
             TypeKind::Function { .. } => {
                 internal_pointers.push((
                     offset,
                     NonNull::new(unsafe { *data.cast::<*mut u8>() }).unwrap(),
+                    type_,
                 ));
             }
             TypeKind::Bool | TypeKind::Int(_) | TypeKind::F64 | TypeKind::F32 | TypeKind::Empty => {

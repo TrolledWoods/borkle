@@ -78,6 +78,8 @@ impl ThreadPool {
 
         let mut c_headers = String::new();
         c_headers.push_str("#include <stdint.h>\n");
+        c_headers.push_str("#include <stdio.h>\n");
+        c_headers.push('\n');
 
         if self.program.emit_c_code {
             crate::c_backend::append_c_type_headers(&mut c_headers);

@@ -1,23 +1,22 @@
-const N_ITERATIONS = 42 : u64;
+const MESSAGE = "The number is: ";
 
 const main = fn() -> u64 {
-    let i = N_ITERATIONS;
-    let counter = 0 : u64;
-    while i > 0 {
-        counter = counter + N_ITERATIONS;
-        i = i - 1;
-    };
-    counter
+    print(MESSAGE);
+    print_i64(90);
+    print("\n");
+
+    42
 };
 
-// 
-// const main = {
-//     let x = 1000 : i64;
-// 
-//     let buffer = alloc(8);
-//     dealloc(buffer);
-// };
-// 
+const print = fn (buffer: [] u8) -> u64 {
+    (extern "borkle_lib/hello" "put_string" : extern fn(&u8, usize) -> u64)
+        (buffer.ptr, buffer.len)
+};
+
+const print_i64 = fn (num: i64) -> i64 {
+    (extern "borkle_lib/hello" "print_i64" : extern fn (i64) -> i64)(num)
+};
+
 // const alloc = fn (len: usize) -> [] u8 {
 //     let buf = uninit : [] u8;
 //     buf.ptr = (extern "borkle_lib/hello" "alloc" : extern fn (usize) -> &u8)(len);
@@ -33,15 +32,9 @@ const main = fn() -> u64 {
 //     let first = bit_cast array : &i64;
 //     bit_cast ((index * 8) + bit_cast first)
 // };
-// 
-// const print = fn (buffer: [] u8) -> u64 {
-//     (extern "borkle_lib/hello" "put_string" : extern fn(&u8, usize) -> u64)
-//         (buffer.ptr, buffer.len)
-// };
-// 
+
 // const flush = extern "borkle_lib/hello" "flush_stdout" : extern fn();
 // 
 // const print_u8  = extern "borkle_lib/hello" "print_u8"  : extern fn (u8) -> u8;
 // const callback  = extern "borkle_lib/hello" "callback"  : extern fn () -> extern fn (i64) -> i64;
-// 
-// const print_i64 = extern "borkle_lib/hello" "print_i64" : extern fn (i64) -> i64;
+

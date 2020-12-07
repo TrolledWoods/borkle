@@ -291,10 +291,11 @@ fn type_ast(
                     is_extern: true,
                 } = wanted_type.kind()
                 {
-                    let mut libraries = ctx.program.libraries.lock();
-                    match libraries
-                        .load_symbol(library_name.as_str().into(), symbol_name.as_str().into())
-                    {
+                    match ctx.program.load_extern_library(
+                        library_name.as_str().into(),
+                        symbol_name.as_str().into(),
+                        wanted_type,
+                    ) {
                         Ok(func) => {
                             type_ = wanted_type;
                             node.set(Node::new(

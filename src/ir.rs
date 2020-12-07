@@ -163,6 +163,10 @@ impl Value {
             Self::Global(_, type_) => *type_,
         }
     }
+
+    pub fn size(&self) -> usize {
+        self.type_().size()
+    }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]

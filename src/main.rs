@@ -58,9 +58,11 @@ fn main() {
             std::fs::write(&c_file, c_output).unwrap();
         } else {
             let mut stack = interp::Stack::new(1024);
-            interp::interp(&program, &mut stack, unsafe {
+            let result = interp::interp(&program, &mut stack, unsafe {
                 &*entry_point.cast::<ir::Routine>()
             });
+
+            println!("main exited with '{}'", unsafe { *(result as *const u64) });
         }
 
         let elapsed = time.elapsed();

@@ -13,13 +13,14 @@
 * [X] Check for duplicate constants
 * [X] Command line arguments
 * [X] Optional logging
-
-* [ ] C backend
+* [X] C backend
 
 * [ ] Make comparison operators care about sign bits
 * [ ] More comparison operators
 * [ ] Indexing operations
 * [ ] Stress test the language!
+* [ ] Implement lvalue members in c backend
+* [ ] Bug! Extern functions break when stored in constants
 
 # Version 0.0.2
 * [ ] Implement the proper separation between 'thread pool' and 'program'

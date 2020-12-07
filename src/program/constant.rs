@@ -1,3 +1,4 @@
+use crate::types::Type;
 use std::borrow::Borrow;
 use std::cmp::{Eq, PartialEq};
 use std::hash::{Hash, Hasher};
@@ -7,7 +8,7 @@ use std::ptr::NonNull;
 pub struct Constant {
     pub ptr: NonNull<u8>,
     pub size: usize,
-    pub constant_pointers: Vec<(usize, NonNull<u8>)>,
+    pub constant_pointers: Vec<(usize, NonNull<u8>, Type)>,
 }
 
 // FIXME: Implement drop for Constant since that is like the whole point of having it in the first

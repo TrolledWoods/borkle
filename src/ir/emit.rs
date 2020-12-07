@@ -31,8 +31,36 @@ impl Context<'_> {
     }
 
     fn emit_constant_from_buffer(&mut self, to: Value, buffer: &[u8]) {
-        let from = self.program.insert_buffer(to.type_(), buffer.as_ptr());
-        self.instr.push(Instr::Constant { to, from });
+        if to.size() != 0 {
+            let from = self.program.insert_buffer(to.type_(), buffer.as_ptr());
+            self.instr.push(Instr::Constant { to, from });
+        }
+    }
+
+    /// Emits a move instruction unless the values are zero sized.
+    fn emit_move(&mut self, to: Value, from: Value, offset: usize) {
+        if from.size() != 0 {
+            self.instr.push(Instr::Move {
+                to,
+                from,
+                size: from.size(),
+                // FIXME: This doesn't work in the c backend, fix that!!!
+                offset_to_target: offset,
+            });
+        }
+    }
+
+    /// Emits an indirect move instruction unless the values are zero sized.
+    fn emit_move_indirect(&mut self, to: Value, from: Value, offset: usize) {
+        if from.size() != 0 {
+            self.instr.push(Instr::MoveIndirect {
+                to,
+                from,
+                size: from.size(),
+                // FIXME: This doesn't work in the c backend, fix that!!!
+                offset_to_target: offset,
+            });
+        }
     }
 }
 
@@ -127,12 +155,7 @@ fn emit_node(ctx: &mut Context<'_>, node: &Node<'_>) -> Value {
 
             // True body
             let true_body = emit_node(ctx, &children.next().unwrap());
-            ctx.instr.push(Instr::Move {
-                to,
-                from: true_body,
-                size: node.type_().size(),
-                offset_to_target: 0,
-            });
+            ctx.emit_move(to, true_body, 0);
             ctx.instr.push(Instr::Jump {
                 to: end_of_false_body,
             });
@@ -140,12 +163,7 @@ fn emit_node(ctx: &mut Context<'_>, node: &Node<'_>) -> Value {
             // False body
             ctx.define_label(start_of_false_body);
             let false_body = emit_node(ctx, &children.next().unwrap());
-            ctx.instr.push(Instr::Move {
-                to,
-                from: false_body,
-                size: node.type_().size(),
-                offset_to_target: 0,
-            });
+            ctx.emit_move(to, false_body, 0);
 
             ctx.define_label(end_of_false_body);
 
@@ -188,13 +206,13 @@ fn emit_node(ctx: &mut Context<'_>, node: &Node<'_>) -> Value {
                 {
                     crate::c_backend::function_declaration(
                         &mut sub_ctx.thread_context.c_headers,
-                        id,
+                        crate::c_backend::c_format_global(id),
                         args,
                         *returns,
                     );
                     crate::c_backend::function_declaration(
                         &mut sub_ctx.thread_context.c_declarations,
-                        id,
+                        crate::c_backend::c_format_global(id),
                         args,
                         *returns,
                     );
@@ -220,12 +238,7 @@ fn emit_node(ctx: &mut Context<'_>, node: &Node<'_>) -> Value {
         NodeKind::BitCast => {
             let from = emit_node(ctx, &node.children().next().unwrap());
             let to = ctx.registers.create(node.type_());
-            ctx.instr.push(Instr::Move {
-                to,
-                from,
-                size: node.type_().size(),
-                offset_to_target: 0,
-            });
+            ctx.emit_move(to, from, 0);
             to
         }
         NodeKind::Constant(bytes) => {
@@ -290,21 +303,11 @@ fn emit_node(ctx: &mut Context<'_>, node: &Node<'_>) -> Value {
 
             match to {
                 LValue::Reference(to, offset_to_target) => {
-                    ctx.instr.push(Instr::MoveIndirect {
-                        to,
-                        from,
-                        size: from_node.type_().size(),
-                        offset_to_target,
-                    });
+                    ctx.emit_move_indirect(to, from, offset_to_target);
                     empty_result
                 }
                 LValue::Value(to, offset_to_target) => {
-                    ctx.instr.push(Instr::Move {
-                        to,
-                        from,
-                        size: from_node.type_().size(),
-                        offset_to_target,
-                    });
+                    ctx.emit_move(to, from, offset_to_target);
                     empty_result
                 }
             }
@@ -315,12 +318,7 @@ fn emit_node(ctx: &mut Context<'_>, node: &Node<'_>) -> Value {
             let from = emit_node(ctx, &child);
             let to = ctx.registers.create(child.type_());
             ctx.locals.get_mut(*id).value = Some(to);
-            ctx.instr.push(Instr::Move {
-                to,
-                from,
-                size: from.type_().size(),
-                offset_to_target: 0,
-            });
+            ctx.emit_move(to, from, 0);
             to
         }
         NodeKind::Local(id) => ctx.locals.get(*id).value.unwrap(),
