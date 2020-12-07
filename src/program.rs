@@ -4,7 +4,7 @@ use crate::errors::ErrorCtx;
 use crate::ir::Routine;
 use crate::location::Location;
 use crate::logging::Logger;
-use crate::types::{Type, TypeKind};
+use crate::types::{PointerInType, Type, TypeKind};
 use bumpalo::Bump;
 use constant::Constant;
 use parking_lot::{Mutex, RwLock};
@@ -48,7 +48,7 @@ pub struct Program {
     // FIXME: Fix up the terminology here, 'Constant' vs 'StaticData' maybe? Instaed of
     // 'const_table', 'member'?, 'constant_data'.
     const_table: RwLock<UstrMap<Member>>,
-    pub constant_data: Mutex<HashSet<Constant>>,
+    pub constant_data: Mutex<Vec<Constant>>,
 
     pub libraries: Mutex<ffi::Libraries>,
     pub external_symbols: Mutex<HashMap<*const u8, (Type, Ustr)>>,
@@ -184,53 +184,31 @@ impl Program {
         Ok(func)
     }
 
-    fn insert_sub_buffers(
-        &self,
-        type_: Type,
-        data: *mut u8,
-        offset: usize,
-        internal_pointers: &mut Vec<(usize, NonNull<u8>, Type)>,
-    ) {
-        match type_.kind() {
-            TypeKind::Reference(internal) => unsafe {
-                let sub_buffer = self.insert_buffer(*internal, *data.cast::<*const u8>());
+    fn insert_sub_buffers(&self, type_: Type, data: *mut u8) {
+        for (offset, ptr) in type_.pointers() {
+            match ptr {
+                PointerInType::Pointer(internal) => unsafe {
+                    let sub_buffer =
+                        self.insert_buffer(*internal, *data.add(*offset).cast::<*const u8>());
+                    *data.cast::<*mut u8>() = sub_buffer.as_ptr();
+                },
+                PointerInType::Buffer(internal) => {
+                    // FIXME: Might want to generalize it, so that more parts of the compiler uses this
+                    // type
+                    #[repr(C)]
+                    #[derive(Clone, Copy)]
+                    struct Buffer {
+                        ptr: *mut u8,
+                        length: usize,
+                    }
 
-                *data.cast::<*mut u8>() = sub_buffer.as_ptr();
-                internal_pointers.push((offset, sub_buffer, *internal));
-            },
-            TypeKind::Array(element_type, length) => {
-                for element in 0..*length {
-                    let element_offset = element * element_type.size();
-                    let ptr = unsafe { data.add(element_offset) };
-                    self.insert_sub_buffers(*element_type, ptr, element_offset, internal_pointers);
+                    let buffer = unsafe { &mut *data.cast::<Buffer>() };
+                    let array_type = Type::new(TypeKind::Array(*internal, buffer.length));
+                    let sub_buffer = self.insert_buffer(array_type, buffer.ptr);
+
+                    buffer.ptr = sub_buffer.as_ptr();
                 }
-            }
-            TypeKind::Buffer(internal) => {
-                // FIXME: Might want to generalize it, so that more parts of the compiler uses this
-                // type
-                #[repr(C)]
-                #[derive(Clone, Copy)]
-                struct Buffer {
-                    ptr: *mut u8,
-                    length: usize,
-                }
-
-                let buffer = unsafe { &mut *data.cast::<Buffer>() };
-                let array_type = Type::new(TypeKind::Array(*internal, buffer.length));
-                let sub_buffer = self.insert_buffer(array_type, buffer.ptr);
-
-                buffer.ptr = sub_buffer.as_ptr();
-                internal_pointers.push((offset, sub_buffer, array_type));
-            }
-            TypeKind::Struct { .. } => todo!("Structs don't exist in my world :D"),
-            TypeKind::Function { .. } => {
-                internal_pointers.push((
-                    offset,
-                    NonNull::new(unsafe { *data.cast::<*mut u8>() }).unwrap(),
-                    type_,
-                ));
-            }
-            TypeKind::Bool | TypeKind::Int(_) | TypeKind::F64 | TypeKind::F32 | TypeKind::Empty => {
+                PointerInType::Function { .. } => {}
             }
         }
     }
@@ -253,27 +231,19 @@ impl Program {
             buffer
         };
 
-        let mut constant_pointers = Vec::new();
+        self.insert_sub_buffers(type_, owned_data);
 
-        self.insert_sub_buffers(type_, owned_data, 0, &mut constant_pointers);
+        let constant = Constant {
+            ptr: NonNull::new(owned_data).unwrap(),
+            size,
+            type_,
+        };
 
+        let ptr = constant.as_non_null();
         let mut constant_data = self.constant_data.lock();
-        let data_slice = unsafe { std::slice::from_raw_parts(owned_data, size) };
-        if let Some(constant) = constant_data.get(data_slice) {
-            unsafe {
-                alloc::dealloc(owned_data, layout);
-            }
-            constant.as_non_null()
-        } else {
-            let constant = Constant {
-                ptr: NonNull::new(owned_data).unwrap(),
-                size,
-                constant_pointers,
-            };
-            let ptr = constant.as_non_null();
-            constant_data.insert(constant);
-            ptr
-        }
+        constant_data.push(constant);
+
+        ptr
     }
 
     pub fn set_value_of_member(&self, id: Ustr, data: *const u8) {

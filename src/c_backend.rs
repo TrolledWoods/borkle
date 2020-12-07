@@ -5,7 +5,7 @@
 use crate::ir::{Instr, Routine, Value};
 use crate::operators::{BinaryOp, UnaryOp};
 use crate::program::Program;
-use crate::types::{IntTypeKind, Type, TypeKind, TYPES};
+use crate::types::{IntTypeKind, PointerInType, Type, TypeKind, TYPES};
 use std::fmt;
 use std::fmt::Write;
 
@@ -84,7 +84,7 @@ pub fn declare_constants(output: &mut String, program: &Program) {
     }
     for constant in constant_data.iter() {
         let ptr = constant.ptr.as_ptr();
-        if constant.constant_pointers.is_empty() {
+        if constant.type_.pointers().is_empty() {
             output.push_str("const ");
         }
         write!(
@@ -109,31 +109,36 @@ pub fn instantiate_pointers_in_constants(output: &mut String, program: &Program)
     let external_symbols = program.external_symbols.lock();
     let constant_data = program.constant_data.lock();
     for constant in constant_data.iter() {
-        for (offset, ptr, type_) in constant.constant_pointers.iter() {
-            if let TypeKind::Function {
-                is_extern: true, ..
-            } = type_.kind()
-            {
-                write!(
-                    output,
-                    "    global_{}[{}] = (uint64_t)&{};\n",
-                    constant.ptr.as_ptr() as usize,
-                    offset / 8,
-                    external_symbols
-                        .get(&unsafe { *constant.ptr.as_ptr().cast::<*const u8>() })
-                        .unwrap()
-                        .1
-                )
-                .unwrap();
-            } else {
-                write!(
-                    output,
-                    "    global_{}[{}] = (uint64_t)&global_{};\n",
-                    constant.ptr.as_ptr() as usize,
-                    offset / 8,
-                    ptr.as_ptr() as usize,
-                )
-                .unwrap();
+        for (offset, ptr) in constant.type_.pointers() {
+            match ptr {
+                PointerInType::Function {
+                    is_extern: true, ..
+                } => {
+                    write!(
+                        output,
+                        "    global_{}[{}] = (uint64_t)&{};\n",
+                        constant.ptr.as_ptr() as usize,
+                        offset / 8,
+                        external_symbols
+                            .get(&unsafe { *constant.ptr.as_ptr().cast::<*const u8>() })
+                            .unwrap()
+                            .1
+                    )
+                    .unwrap();
+                }
+                PointerInType::Pointer(_)
+                | PointerInType::Buffer(_)
+                | PointerInType::Function { .. } => {
+                    let ptr = unsafe { *constant.as_ptr().add(*offset).cast::<*const u8>() };
+                    write!(
+                        output,
+                        "    global_{}[{}] = (uint64_t)&global_{};\n",
+                        constant.ptr.as_ptr() as usize,
+                        *offset / 8,
+                        ptr as usize,
+                    )
+                    .unwrap();
+                }
             }
         }
     }
@@ -172,7 +177,7 @@ pub fn routine_to_c(output: &mut String, routine: &Routine, num_args: usize) {
                 )
                 .unwrap();
                 let mut has_emitted = false;
-                for (i, arg) in args.iter().enumerate() {
+                for arg in args.iter() {
                     if arg.size() == 0 {
                         continue;
                     }
@@ -396,7 +401,7 @@ pub fn append_c_type_headers(output: &mut String) {
 
                 output.push('(');
                 let mut has_emitted = false;
-                for (i, arg) in args.iter().enumerate() {
+                for arg in args.iter() {
                     if arg.size() == 0 {
                         continue;
                     }

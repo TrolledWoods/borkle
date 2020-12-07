@@ -247,7 +247,7 @@ impl TypeKind {
                 pointers.push((offset, PointerInType::Pointer(*internal)));
             }
             Self::Buffer(internal) => {
-                pointers.push((offset, PointerInType::Pointer(*internal)));
+                pointers.push((offset, PointerInType::Buffer(*internal)));
             }
             Self::Array(internal, len) => {
                 let element_offset = to_align(internal.size(), internal.align());
@@ -260,10 +260,18 @@ impl TypeKind {
                     }
                 }
             }
-            Self::Function { args, returns, .. } => {
+            Self::Function {
+                args,
+                returns,
+                is_extern,
+            } => {
                 pointers.push((
                     offset,
-                    PointerInType::FunctionPointer(args.clone(), *returns),
+                    PointerInType::Function {
+                        args: args.clone(),
+                        returns: *returns,
+                        is_extern: *is_extern,
+                    },
                 ));
             }
             Self::Struct { .. } => todo!(),
@@ -274,8 +282,13 @@ impl TypeKind {
 #[derive(Clone, Hash, Eq, PartialEq)]
 pub enum PointerInType {
     Pointer(Type),
+    Buffer(Type),
     // FIXME: This 'Vec' here is fairly inefficient
-    FunctionPointer(Vec<Type>, Type),
+    Function {
+        args: Vec<Type>,
+        returns: Type,
+        is_extern: bool,
+    },
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
