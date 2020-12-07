@@ -1,6 +1,16 @@
 const MESSAGE = "Hello One Lone Coders!\n";
 
+const testing_constant = {
+    let constant = uninit : [3] [] u8;
+    *(bit_cast (bit_cast &constant + 0 : u64) : &[]u8) = "One!\n";
+    *(bit_cast (bit_cast &constant + 16 : u64) : &[]u8) = "Two!\n";
+    *(bit_cast (bit_cast &constant + 32 : u64) : &[]u8) = "Three!\n";
+    constant
+};
+
 const main = fn() -> u64 {
+    print(*(bit_cast &testing_constant));
+    print(*(bit_cast (bit_cast &testing_constant + 16 : u64)));
     print(MESSAGE);
     0
 };

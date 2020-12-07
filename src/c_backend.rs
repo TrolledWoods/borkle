@@ -398,7 +398,7 @@ pub fn routine_to_c(output: &mut String, routine: &Routine, num_args: usize) {
 
 pub fn append_c_type_headers(output: &mut String) {
     for &type_ in TYPES.lock().iter() {
-        if let TypeKind::Empty | TypeKind::Array(_, _) = type_.kind {
+        if let TypeKind::Empty = type_.kind {
             continue;
         }
 
@@ -407,7 +407,17 @@ pub fn append_c_type_headers(output: &mut String) {
         let mut name_is_needed = true;
         match &type_.kind {
             TypeKind::Empty => unreachable!(),
-            TypeKind::Array(_, _) => unreachable!(),
+            TypeKind::Array(internal, len) => {
+                write!(
+                    output,
+                    "{} t_{}[{}]",
+                    c_format_type(*internal),
+                    type_ as *const _ as usize,
+                    len
+                )
+                .unwrap();
+                name_is_needed = false;
+            }
 
             TypeKind::Bool => output.push_str("uint8_t "),
             TypeKind::Int(IntTypeKind::U8) => output.push_str("uint8_t "),
@@ -474,7 +484,7 @@ pub fn append_c_type_headers(output: &mut String) {
             write!(output, "t_{}", type_ as *const _ as usize).unwrap();
         }
 
-        output.push_str(";\n");
+        write!(output, "; // {}\n", type_.kind).unwrap();
     }
 }
 
