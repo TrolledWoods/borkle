@@ -62,10 +62,17 @@ const slice = fn(buf: [] u8, start: usize, end: usize) -> [] u8 {
 
 const main = fn() -> u64 {
     let ptr = &testing_constant();
-    
+
     print_number_string(2482);
 
     print_usize(<< ptr);
+
+    let x = -5 : i64;
+    let y = 3 : i64;
+
+    if x < y {
+        print("-5 is less than -3!\n");
+    };
 
     let ptr_to_elem = << ptr : &[] u8;
     print_usize(<< ptr_to_elem);

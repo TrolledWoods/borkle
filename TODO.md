@@ -23,6 +23,7 @@
 
 * [ ] Make comparison operators care about sign bits
 * [ ] Stress test the language!
+* [ ] Make a setup file for projects!
 
 # Version 0.0.2
 * [ ] Type definitions

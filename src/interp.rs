@@ -105,22 +105,30 @@ fn interp_internal(program: &Program, stack: &mut StackFrame<'_>, routine: &Rout
                     let is_true = stack.get(a) == stack.get(b);
                     stack.get_mut(to)[0] = is_true as u8;
                 }
-                BinaryOp::LargerThan => {
-                    let is_true = stack.get(a) > stack.get(b);
-                    stack.get_mut(to)[0] = is_true as u8;
-                }
-                BinaryOp::LargerThanEquals => {
-                    let is_true = stack.get(a) >= stack.get(b);
-                    stack.get_mut(to)[0] = is_true as u8;
-                }
-                BinaryOp::LessThan => {
-                    let is_true = stack.get(a) < stack.get(b);
-                    stack.get_mut(to)[0] = is_true as u8;
-                }
-                BinaryOp::LessThanEquals => {
-                    let is_true = stack.get(a) <= stack.get(b);
-                    stack.get_mut(to)[0] = is_true as u8;
-                }
+                BinaryOp::LargerThan => match *a.type_().kind() {
+                    TypeKind::Int(int) => {
+                        all_int_types!(int, stack.get_mut(to), (stack.get(a), stack.get(b)), >);
+                    }
+                    _ => unreachable!(),
+                },
+                BinaryOp::LargerThanEquals => match *a.type_().kind() {
+                    TypeKind::Int(int) => {
+                        all_int_types!(int, stack.get_mut(to), (stack.get(a), stack.get(b)), >=);
+                    }
+                    _ => unreachable!(),
+                },
+                BinaryOp::LessThan => match *a.type_().kind() {
+                    TypeKind::Int(int) => {
+                        all_int_types!(int, stack.get_mut(to), (stack.get(a), stack.get(b)), <);
+                    }
+                    _ => unreachable!(),
+                },
+                BinaryOp::LessThanEquals => match *a.type_().kind() {
+                    TypeKind::Int(int) => {
+                        all_int_types!(int, stack.get_mut(to), (stack.get(a), stack.get(b)), <=);
+                    }
+                    _ => unreachable!(),
+                },
                 BinaryOp::Add => match *type_.kind() {
                     TypeKind::Int(int) => {
                         all_int_types!(int, stack.get_mut(to), (stack.get(a), stack.get(b)), +);

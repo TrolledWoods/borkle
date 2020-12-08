@@ -104,11 +104,14 @@ pub fn declare_constants(output: &mut String, program: &Program) {
             unreachable!();
         }
     }
-    for constant in constant_data.iter() {
+    for constant in constant_data
+        .iter()
+        .filter(|constant| !constant.type_.pointers().is_empty())
+    {
         let ptr = constant.ptr.as_ptr();
         write!(
             output,
-            "const struct {} {{\n",
+            "const struct {} {{ ",
             c_format_global_temp_type(ptr as usize),
         )
         .unwrap();
@@ -119,23 +122,22 @@ pub fn declare_constants(output: &mut String, program: &Program) {
                 Some(&(offset, ptr_type)) if *offset == i => {
                     match ptr_type {
                         PointerInType::Function { args, returns, .. } => {
-                            output.push_str("    ");
                             function_pointer_type(
                                 output,
                                 c_format_struct_member(i),
                                 args,
                                 *returns,
                             );
-                            output.push_str(";\n");
+                            output.push_str("; ");
                         }
                         _ => {
-                            write!(output, "    void *{};\n", c_format_struct_member(i)).unwrap();
+                            write!(output, "void *{}; ", c_format_struct_member(i)).unwrap();
                         }
                     }
                     pointers.next();
                 }
                 Some(_) | None => {
-                    write!(output, "    uint64_t {};\n", c_format_struct_member(i)).unwrap();
+                    write!(output, "uint64_t {}; ", c_format_struct_member(i)).unwrap();
                 }
             }
         }
@@ -149,13 +151,23 @@ pub fn instantiate_constants(output: &mut String, program: &Program) {
     let external_symbols = program.external_symbols.lock();
     for constant in constant_data.iter() {
         let ptr = constant.ptr.as_ptr();
-        write!(
-            output,
-            "const struct {} {} = {{",
-            c_format_global_temp_type(ptr as usize),
-            c_format_global(ptr as usize),
-        )
-        .unwrap();
+        if constant.type_.pointers().is_empty() {
+            write!(
+                output,
+                "const uint64_t {}[{}] = {{",
+                c_format_global(ptr as usize),
+                (constant.type_.size() + 7) / 8,
+            )
+            .unwrap();
+        } else {
+            write!(
+                output,
+                "const struct {} {} = {{",
+                c_format_global_temp_type(ptr as usize),
+                c_format_global(ptr as usize),
+            )
+            .unwrap();
+        }
 
         let mut pointers = constant.type_.pointers().iter().peekable();
         for i in (0..constant.size).step_by(8) {
@@ -212,7 +224,6 @@ pub fn routine_to_c(output: &mut String, routine: &Routine, num_args: usize) {
 
     write!(output, "    // Code\n").unwrap();
     for instr in &routine.instr {
-        write!(output, "    // {:?}\n", instr).unwrap();
         output.push_str("    ");
         match instr {
             Instr::Call { to, pointer, args }
