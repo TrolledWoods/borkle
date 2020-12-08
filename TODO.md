@@ -19,12 +19,18 @@
 * [X] Implement lvalue members in c backend
 * [X] Auto casts
 
+* [ ] Pointer offset operators
+
+* [ ] Array literals
 * [ ] Make comparison operators care about sign bits
-* [ ] More comparison operators
-* [ ] Indexing operations
 * [ ] Stress test the language!
 
 # Version 0.0.2
+* [ ] Type definitions
+* [ ] Struct types
+* [ ] Struct literals
+* [ ] Structs in c
+* [ ] Indexing operations
 * [ ] Use hashes for deduplication like before
 * [ ] Implement the proper separation between 'thread pool' and 'program'
 * [ ] Redo ast nodes to be more readable, like right now what the heck is it even!? 
@@ -34,3 +40,4 @@
 * [ ] Function arguments are implicitly dereferenced/referenced(maybe we want this?)
 * [ ] 'Any' type, the same as C void\*
     (do we want it to behave this way or do we want 'Any' to use a type id, and have some other type that works like c void)
+* [ ] Change the type inference system to allow for more nuanced things, since right now it's cracking at the seems.

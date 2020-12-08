@@ -121,20 +121,30 @@ fn interp_internal(program: &Program, stack: &mut StackFrame<'_>, routine: &Rout
                     let is_true = stack.get(a) <= stack.get(b);
                     stack.get_mut(to)[0] = is_true as u8;
                 }
-                BinaryOp::Add => {
-                    if let TypeKind::Int(int) = *type_.kind() {
+                BinaryOp::Add => match *type_.kind() {
+                    TypeKind::Int(int) => {
                         all_int_types!(int, stack.get_mut(to), (stack.get(a), stack.get(b)), +);
-                    } else {
-                        todo!();
                     }
-                }
-                BinaryOp::Sub => {
-                    if let TypeKind::Int(int) = *type_.kind() {
+                    TypeKind::Reference(internal) => unsafe {
+                        let ptr: *const u8 = *stack.get(a).as_ptr().cast();
+                        let offset: usize = *stack.get(b).as_ptr().cast();
+                        *stack.get_mut(to).as_mut_ptr().cast::<*const u8>() =
+                            ptr.add(offset * internal.size());
+                    },
+                    _ => unreachable!(),
+                },
+                BinaryOp::Sub => match *type_.kind() {
+                    TypeKind::Int(int) => {
                         all_int_types!(int, stack.get_mut(to), (stack.get(a), stack.get(b)), -);
-                    } else {
-                        todo!();
                     }
-                }
+                    TypeKind::Reference(internal) => unsafe {
+                        let ptr: *const u8 = *stack.get(a).as_ptr().cast();
+                        let offset: usize = *stack.get(b).as_ptr().cast();
+                        *stack.get_mut(to).as_mut_ptr().cast::<*const u8>() =
+                            ptr.sub(offset * internal.size());
+                    },
+                    _ => unreachable!(),
+                },
                 BinaryOp::Mult => {
                     if let TypeKind::Int(int) = *type_.kind() {
                         all_int_types!(int, stack.get_mut(to), (stack.get(a), stack.get(b)), *);

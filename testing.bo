@@ -6,20 +6,22 @@ const crazy_static_memory_usage = uninit : [420] u8;
 
 const testing_constant = {
     let constant = uninit : [3] [] u8;
-    *(bit_cast (bit_cast &constant + 0  : u64) : &[]u8) = "One!\n";
-    *(bit_cast (bit_cast &constant + 16 : u64) : &[]u8) = "Two!\n";
-    *(bit_cast (bit_cast &constant + 32 : u64) : &[]u8) = "Three!\n";
+
+    let ptr = bit_cast &constant : &[] u8;
+    *ptr = "One!\n";
+    *(ptr + 1) = "Two!\n";
+    *(ptr + 2) = "Three!\n";
     constant
 };
 
 const get = fn(buf: [] u8, index: usize) -> &u8 {
-    bit_cast (bit_cast buf.ptr + index : usize)
+    buf.ptr + index
 };
 
 const copy = fn(from: [] u8, to: [] u8) {
     let i = 0 : usize;
     while i < from.len {
-        *(bit_cast (i + bit_cast to.ptr) : &u8) = *bit_cast (i + bit_cast from.ptr);
+        *(to.ptr + i) = *(from.ptr + i);
         i = i + 1;
     };
 };
@@ -36,13 +38,14 @@ const slice = fn(buf: [] u8, start: usize, end: usize) -> [] u8 {
 };
 
 const main = fn() -> u64 {
-    let stack_string = uninit : [50] u8;
-    let from = "Hello, world!\n";
+    let ptr = bit_cast &testing_constant : &[] u8;
 
-    copy(from, < &stack_string);
+    let x = 5 : u64;
+    let y = bit_cast x : &u64;
 
-    let sliced = slice(< &stack_string, 0, from.len);
-    print(sliced);
+    print(*ptr);
+    print(*(ptr + 1));
+    print(*(ptr + 2));
 
     0
 };

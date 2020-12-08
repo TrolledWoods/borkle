@@ -401,18 +401,53 @@ fn type_ast(
                     let left_type = type_ast(ctx, None, &left, node.arg())?;
                     type_ast(ctx, Some(left_type), &right, node.arg())?;
                 }
-                BinaryOp::Add
-                | BinaryOp::Sub
-                | BinaryOp::Mult
-                | BinaryOp::Div
-                | BinaryOp::BitAnd
-                | BinaryOp::BitOr => {
+                BinaryOp::Add | BinaryOp::Sub => {
+                    let left_type = type_ast(ctx, wanted_type, &left, node.arg())?;
+
+                    match left_type.kind() {
+                        TypeKind::Int(a) => {
+                            let right_type = type_ast(ctx, Some(left_type), &right, node.arg())?;
+
+                            if left_type != right_type {
+                                ctx.errors.error(
+                                    parsed.loc,
+                                    "Can only operate on integers of the same type!".to_string(),
+                                );
+                                return Err(());
+                            }
+
+                            type_ = left_type;
+                        }
+                        TypeKind::Reference(_) => {
+                            type_ast(
+                                ctx,
+                                Some(Type::new(TypeKind::Int(IntTypeKind::Usize))),
+                                &right,
+                                node.arg(),
+                            )?;
+
+                            type_ = left_type;
+                        }
+                        _ => {
+                            ctx.errors.error(
+                                parsed.loc,
+                                format!(
+                                    "No overload takes type '{}' as left hand operand",
+                                    left_type
+                                ),
+                            );
+                            return Err(());
+                        }
+                    }
+                }
+                BinaryOp::Mult | BinaryOp::Div | BinaryOp::BitAnd | BinaryOp::BitOr => {
                     let left_type = type_ast(ctx, wanted_type, &left, node.arg())?;
                     let right_type = type_ast(ctx, Some(left_type), &right, node.arg())?;
 
                     if left_type != right_type {
                         ctx.errors
                             .error(parsed.loc, "Operands do not have the same type".to_string());
+                        return Err(());
                     }
 
                     type_ = left_type;
