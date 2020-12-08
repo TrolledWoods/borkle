@@ -693,6 +693,11 @@ fn auto_cast(
             node.validate();
             Ok(())
         }
+        (TypeKind::Reference(_), TypeKind::Int(IntTypeKind::Usize)) => {
+            node.set(Node::new(loc, NodeKind::BitCast, to_type));
+            node.validate();
+            Ok(())
+        }
         (
             TypeKind::Reference(Type(TypeData {
                 kind: TypeKind::Array(from_inner, _),

@@ -28,7 +28,7 @@ const copy = fn(from: [] u8, to: [] u8) {
 
 const slice = fn(buf: [] u8, start: usize, end: usize) -> [] u8 {
     let new_buf = uninit : [] u8;
-    new_buf.ptr = bit_cast ( start + bit_cast buf.ptr );
+    new_buf.ptr = buf.ptr + start;
     if end == 0 {
         new_buf.len = buf.len - start;
     } else {
@@ -38,17 +38,16 @@ const slice = fn(buf: [] u8, start: usize, end: usize) -> [] u8 {
 };
 
 const main = fn() -> u64 {
-    let ptr = < &testing_constant : &[] u8;
+    let ptr = &testing_constant;
+    
+    print_usize(<< ptr);
 
-    let x = 5 : u64;
-    let y = bit_cast x : &u64;
-    let z = bit_cast y : i64;
+    let ptr_to_elem = << ptr : &[] u8;
+    print_usize(<< ptr_to_elem);
 
-    print_i64(z);
-
-    print(*ptr);
-    print(*(ptr + 1));
-    print(*(ptr + 2));
+    print(* <<ptr);
+    print(*(<<ptr + 1));
+    print(*(<<ptr + 2));
 
     0
 };
@@ -58,6 +57,7 @@ const print = fn (buffer: [] u8) -> u64 {
         (buffer.ptr, buffer.len)
 };
 
+const print_usize = fn (num: usize) { print_i64(bit_cast num); };
 const print_i64 = extern "borkle_lib/hello" "print_i64" : extern fn (i64) -> i64;
 const does_this_work_maybe = callback();
 
