@@ -47,6 +47,7 @@ pub enum Keyword {
     BitCast,
     Uninit,
     Bool,
+    Import,
 }
 
 pub fn process_string(errors: &mut ErrorCtx, file: Ustr, string: &str) -> Result<TokenStream, ()> {
@@ -113,6 +114,7 @@ pub fn process_string(errors: &mut ErrorCtx, file: Ustr, string: &str) -> Result
                     "uninit" => TokenKind::Keyword(Keyword::Uninit),
                     "bool" => TokenKind::Keyword(Keyword::Bool),
                     "while" => TokenKind::Keyword(Keyword::While),
+                    "import" => TokenKind::Keyword(Keyword::Import),
 
                     "isize" => TokenKind::PrimitiveInt(IntTypeKind::Isize),
                     "usize" => TokenKind::PrimitiveInt(IntTypeKind::Usize),

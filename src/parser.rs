@@ -31,11 +31,30 @@ pub fn process_string(
 
     let mut context = DataContext::new(errors, program, &mut tokens);
 
-    while context
-        .tokens
-        .try_consume(&TokenKind::Keyword(Keyword::Const))
-    {
-        constant(&mut context)?;
+    while let Some(token) = context.tokens.next() {
+        match token.kind {
+            TokenKind::Keyword(Keyword::Const) => constant(&mut context)?,
+            TokenKind::Keyword(Keyword::Import) => {
+                let name = context.tokens.expect_next(context.errors)?;
+                if let TokenKind::Literal(Literal::String(name)) = name.kind {
+                    context
+                        .tokens
+                        .expect_next_is(context.errors, &TokenKind::SemiColon)?;
+
+                    program.add_file(&name);
+                } else {
+                    context.error(
+                        name.loc,
+                        "Expected string literal for file name".to_string(),
+                    );
+                    return Err(());
+                }
+            }
+            _ => {
+                context.error(token.loc, "Expected 'const' or 'import'".to_string());
+                return Err(());
+            }
+        }
     }
 
     Ok(())

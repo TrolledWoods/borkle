@@ -21,13 +21,13 @@
 * [X] Pointer offset operators
 * [X] Array literals
 * [X] Make comparison operators care about sign bits
+* [X] File imports
 
-* [ ] File imports
 * [ ] Stress test the language!
-* [ ] Make a setup file for projects!
 * [ ] Make a readme file
 
 # Version 0.0.2
+* [ ] Make a setup file for projects!
 * [ ] Type definitions
 * [ ] Struct types
 * [ ] Struct literals

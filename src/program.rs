@@ -209,6 +209,11 @@ impl Program {
         }
     }
 
+    pub fn add_file(&self, file_name: &str) {
+        self.work
+            .send(Task::Parse(file_name.into(), file_name.into()));
+    }
+
     pub fn insert_buffer(&self, type_: Type, data: *const u8) -> ConstantRef {
         if type_.size() == 0 {
             return ConstantRef::dangling();
