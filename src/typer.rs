@@ -451,6 +451,7 @@ fn type_ast(
                     type_ast(ctx, Some(type_), &right, node.arg())?;
                 }
                 BinaryOp::Equals
+                | BinaryOp::NotEquals
                 | BinaryOp::LargerThanEquals
                 | BinaryOp::LargerThan
                 | BinaryOp::LessThanEquals

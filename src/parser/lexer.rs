@@ -248,6 +248,6 @@ fn string_literal(
 const fn is_operator_token(c: char) -> bool {
     matches!(
         c,
-        '+' | '-' | '*' | '/' | '&' | '!' | '=' | ':' | '<' | '>' | '.'
+        '+' | '-' | '*' | '/' | '&' | '!' | '=' | ':' | '<' | '>' | '.' | '|'
     )
 }

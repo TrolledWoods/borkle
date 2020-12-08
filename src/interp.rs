@@ -105,6 +105,10 @@ fn interp_internal(program: &Program, stack: &mut StackFrame<'_>, routine: &Rout
                     let is_true = stack.get(a) == stack.get(b);
                     stack.get_mut(to)[0] = is_true as u8;
                 }
+                BinaryOp::NotEquals => {
+                    let is_true = stack.get(a) != stack.get(b);
+                    stack.get_mut(to)[0] = is_true as u8;
+                }
                 BinaryOp::LargerThan => {
                     all_num_types!(*a.type_().kind(), stack.get_mut(to), (stack.get(a), stack.get(b)), >);
                 }

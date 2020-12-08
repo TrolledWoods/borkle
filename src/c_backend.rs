@@ -278,6 +278,7 @@ pub fn routine_to_c(output: &mut String, routine: &Routine, num_args: usize) {
                     BinaryOp::And => "&&",
                     BinaryOp::Or => "||",
                     BinaryOp::Equals => "==",
+                    BinaryOp::NotEquals => "!=",
                     BinaryOp::LargerThanEquals => ">",
                     BinaryOp::LargerThan => ">",
                     BinaryOp::LessThanEquals => "<=",

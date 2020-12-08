@@ -47,6 +47,7 @@ operator!(BinaryOp {
     Or  = ("||", 2),
 
     Equals = ("==", 3),
+    NotEquals = ("!=", 3),
     LargerThanEquals = (">=", 3),
     LargerThan = (">", 3),
     LessThanEquals = ("<=", 3),

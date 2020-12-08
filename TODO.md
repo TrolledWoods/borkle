@@ -27,6 +27,7 @@
 * [X] Add floating point literals and types
 
 * [ ] Stress test the language!
+* [ ] BUG! Pointer to members do not seem to work properly
 
 # Version 0.0.2
 * [ ] Make a setup file for projects!
