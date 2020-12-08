@@ -257,6 +257,11 @@ fn type_(
             node.set(Node::new(loc, NodeKind::LiteralType(TypeKind::Bool.into())));
             node.validate();
         }
+        TokenKind::Type(type_) => {
+            global.tokens.next();
+            node.set(Node::new(loc, NodeKind::LiteralType(type_)));
+            node.validate();
+        }
         TokenKind::PrimitiveInt(type_) => {
             global.tokens.next();
             node.set(Node::new(loc, NodeKind::LiteralType(type_.into())));

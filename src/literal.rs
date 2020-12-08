@@ -2,4 +2,5 @@
 pub enum Literal {
     Int(i128),
     String(String),
+    Float(f64),
 }

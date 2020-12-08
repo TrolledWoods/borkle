@@ -58,6 +58,44 @@ fn type_ast(
 ) -> Result<Type, ()> {
     let type_: Type;
     match parsed.kind {
+        ParserNodeKind::Literal(Literal::Float(num)) => match wanted_type.map(Type::kind) {
+            Some(TypeKind::F32) => {
+                let bytes = (num as f32).to_bits().to_le_bytes();
+                type_ = Type::new(TypeKind::F32);
+
+                node.set(Node::new(
+                    parsed.loc,
+                    NodeKind::Constant(ctx.program.insert_buffer(type_, bytes.as_ptr())),
+                    type_,
+                ));
+                node.validate();
+            }
+            Some(TypeKind::F64) => {
+                let bytes = num.to_bits().to_le_bytes();
+                type_ = Type::new(TypeKind::F64);
+
+                node.set(Node::new(
+                    parsed.loc,
+                    NodeKind::Constant(ctx.program.insert_buffer(type_, bytes.as_ptr())),
+                    type_,
+                ));
+                node.validate();
+            }
+            Some(wanted_type) => {
+                ctx.errors.error(
+                    parsed.loc,
+                    format!("Expected '{}', found float", wanted_type),
+                );
+                return Err(());
+            }
+            None => {
+                ctx.errors.error(
+                    parsed.loc,
+                    "A float literal has to know what type it's supposed to be, consider adding a type bound to it.".to_string(),
+                );
+                return Err(());
+            }
+        },
         ParserNodeKind::Literal(Literal::String(ref data)) => {
             let u8_type = Type::new(TypeKind::Int(IntTypeKind::U8));
             type_ = Type::new(TypeKind::Buffer(u8_type));
@@ -425,17 +463,8 @@ fn type_ast(
                     let left_type = type_ast(ctx, wanted_type, &left, node.arg())?;
 
                     match left_type.kind() {
-                        TypeKind::Int(a) => {
-                            let right_type = type_ast(ctx, Some(left_type), &right, node.arg())?;
-
-                            if left_type != right_type {
-                                ctx.errors.error(
-                                    parsed.loc,
-                                    "Can only operate on integers of the same type!".to_string(),
-                                );
-                                return Err(());
-                            }
-
+                        TypeKind::Int(_) | TypeKind::F32 | TypeKind::F64 => {
+                            type_ast(ctx, Some(left_type), &right, node.arg())?;
                             type_ = left_type;
                         }
                         TypeKind::Reference(_) => {

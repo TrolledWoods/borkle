@@ -1,3 +1,22 @@
+macro_rules! all_num_types {
+    ($type_kind:expr, $out:expr, ($a:expr, $b:expr), $op:tt) => {{
+        match $type_kind {
+            crate::types::TypeKind::Int(int_kind) => all_int_types!(int_kind, $out, ($a, $b), $op),
+            crate::types::TypeKind::F32 => unsafe {
+                let a: f32 = *$a.as_ptr().cast();
+                let b: f32 = *$b.as_ptr().cast();
+                *$out.as_mut_ptr().cast() = a $op b;
+            },
+            crate::types::TypeKind::F64 => unsafe {
+                let a: f64 = *$a.as_ptr().cast();
+                let b: f64 = *$b.as_ptr().cast();
+                *$out.as_mut_ptr().cast() = a $op b;
+            },
+            _ => unreachable!(),
+        }
+    }};
+}
+
 #[macro_export]
 macro_rules! all_int_types {
     ($int_kind:expr, $out:expr, ($a:expr, $b:expr), $op:tt) => {{

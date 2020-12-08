@@ -22,10 +22,11 @@
 * [X] Array literals
 * [X] Make comparison operators care about sign bits
 * [X] File imports
+* [X] Make a readme file
+* [X] BUG! Pointer to zst doesn't work
+* [X] Add floating point literals and types
 
 * [ ] Stress test the language!
-* [ ] Make a readme file
-* [ ] BUG! Pointer to zst doesn't work
 
 # Version 0.0.2
 * [ ] Make a setup file for projects!
