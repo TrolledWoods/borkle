@@ -5,6 +5,7 @@ use crate::locals::LocalVariables;
 use crate::location::Location;
 use crate::operators::{BinaryOp, UnaryOp};
 use crate::parser::{self, ast::NodeKind as ParserNodeKind};
+use crate::program::constant::ConstantRef;
 use crate::program::{MemberId, Program};
 use crate::types::{IntTypeKind, Type, TypeData, TypeKind};
 use ast::{Node, NodeKind};
@@ -490,7 +491,7 @@ fn type_ast(
             type_ = TypeKind::Empty.into();
             node.set(Node::new(
                 parsed.loc,
-                NodeKind::Constant(std::ptr::NonNull::dangling()),
+                NodeKind::Constant(ConstantRef::dangling()),
                 type_,
             ));
             node.validate();

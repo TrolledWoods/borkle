@@ -67,7 +67,7 @@ impl<'a> StackFrame<'a> {
                 &mut self.stack[offset..offset + type_.size()]
             }
             Value::Global(ptr, type_) => unsafe {
-                std::slice::from_raw_parts_mut(ptr.as_ptr(), type_.size())
+                std::slice::from_raw_parts_mut(ptr.as_ptr() as *mut _, type_.size())
             },
         }
     }

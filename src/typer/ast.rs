@@ -1,10 +1,10 @@
 use crate::locals::{LocalId, LocalVariables};
 use crate::location::Location;
 use crate::operators::{BinaryOp, UnaryOp};
+use crate::program::constant::ConstantRef;
 use crate::program::MemberId;
 use crate::types::Type;
 use std::fmt::{self, Debug};
-use std::ptr::NonNull;
 use ustr::Ustr;
 
 pub struct Node {
@@ -62,7 +62,7 @@ impl bump_tree::MetaData for Node {
 
 #[derive(Debug)]
 pub enum NodeKind {
-    Constant(NonNull<u8>),
+    Constant(ConstantRef),
     // FIXME: `MemberId` might be a bad name here, because we also have the `Member`
     // node, and they have nothing to do with each other despite having similar names.
     Global(MemberId),

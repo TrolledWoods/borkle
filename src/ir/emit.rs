@@ -1,12 +1,12 @@
 use super::{Instr, LabelId, Member, Registers, Routine, Value};
 use crate::locals::LocalVariables;
 use crate::operators::UnaryOp;
+use crate::program::constant::ConstantRef;
 use crate::program::thread_pool::ThreadContext;
 use crate::program::Program;
 use crate::typer::ast::NodeKind;
 use crate::typer::Ast;
 use crate::types::{IntTypeKind, Type, TypeKind};
-use std::ptr::NonNull;
 
 type Node<'a> = bump_tree::Node<'a, crate::typer::ast::Node>;
 
@@ -31,9 +31,9 @@ impl Context<'_> {
         self.instr.push(Instr::LabelDefinition(label_id));
     }
 
-    fn emit_constant_from_constant_buffer(&mut self, to: Value, buffer: NonNull<u8>) {
+    fn emit_constant_from_constant_buffer(&mut self, to: Value, from: ConstantRef) {
         if to.size() != 0 {
-            self.instr.push(Instr::Constant { to, from: buffer });
+            self.instr.push(Instr::Constant { to, from });
         }
     }
 

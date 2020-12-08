@@ -1,7 +1,7 @@
 use crate::operators::{BinaryOp, UnaryOp};
+use crate::program::constant::ConstantRef;
 use crate::program::ffi;
 use crate::types::{to_align, Type, TypeKind};
-use std::ptr::NonNull;
 use ustr::Ustr;
 
 pub mod emit;
@@ -23,7 +23,7 @@ pub enum Instr {
     },
     Constant {
         to: Value,
-        from: NonNull<u8>,
+        from: ConstantRef,
     },
     Binary {
         op: BinaryOp,
@@ -155,7 +155,7 @@ impl Register {
 #[derive(Debug, Clone, Copy)]
 pub enum Value {
     Register(usize, Type),
-    Global(NonNull<u8>, Type),
+    Global(ConstantRef, Type),
 }
 
 unsafe impl Send for Value {}

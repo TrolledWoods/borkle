@@ -37,8 +37,8 @@ const slice = fn(buf: [] u8, start: usize, end: usize) -> [] u8 {
 
 const main = fn() -> u64 {
     let stack_string = uninit : [50] u8;
-
     let from = "Hello, world!\n";
+
     copy(from, < &stack_string);
 
     let sliced = slice(< &stack_string, 0, from.len);

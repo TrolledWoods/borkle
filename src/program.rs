@@ -6,7 +6,7 @@ use crate::location::Location;
 use crate::logging::Logger;
 use crate::types::{IntTypeKind, PointerInType, Type, TypeKind};
 use bumpalo::Bump;
-use constant::Constant;
+use constant::{Constant, ConstantRef};
 use parking_lot::{Mutex, RwLock};
 use std::alloc;
 use std::collections::{HashMap, HashSet};
@@ -190,23 +190,23 @@ impl Program {
                 PointerInType::Pointer(internal) => unsafe {
                     let sub_buffer =
                         self.insert_buffer(*internal, *data.add(*offset).cast::<*const u8>());
-                    *data.cast::<*mut u8>() = sub_buffer.as_ptr();
+                    *data.cast::<*const u8>() = sub_buffer.as_ptr();
                 },
                 PointerInType::Buffer(internal) => {
                     let buffer = unsafe { &mut *data.cast::<crate::types::BufferRepr>() };
                     let array_type = Type::new(TypeKind::Array(*internal, buffer.length));
                     let sub_buffer = self.insert_buffer(array_type, buffer.ptr);
 
-                    buffer.ptr = sub_buffer.as_ptr();
+                    buffer.ptr = sub_buffer.as_ptr() as *mut _;
                 }
                 PointerInType::Function { .. } => {}
             }
         }
     }
 
-    pub fn insert_buffer(&self, type_: Type, data: *const u8) -> NonNull<u8> {
+    pub fn insert_buffer(&self, type_: Type, data: *const u8) -> ConstantRef {
         if type_.size() == 0 {
-            return NonNull::dangling();
+            return ConstantRef::dangling();
         }
 
         let layout = alloc::Layout::from_size_align(type_.size(), 16).unwrap();
@@ -234,7 +234,7 @@ impl Program {
                 unsafe {
                     alloc::dealloc(owned_data, layout);
                 }
-                return pre_computed_constant.as_non_null();
+                return pre_computed_constant.as_ref();
             }
         }
 
@@ -244,10 +244,10 @@ impl Program {
             type_,
         };
 
-        let ptr = constant.as_non_null();
+        let const_ref = constant.as_ref();
         constant_data.push(constant);
 
-        ptr
+        const_ref
     }
 
     pub fn set_value_of_member(&self, id: Ustr, data: *const u8) {
@@ -425,7 +425,7 @@ impl Program {
 
 struct Member {
     type_: DependableOption<Type>,
-    value: DependableOption<NonNull<u8>>,
+    value: DependableOption<ConstantRef>,
     dependencies_left: AtomicI32,
     task: Option<Task>,
     is_defined: bool,
