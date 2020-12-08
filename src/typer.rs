@@ -473,7 +473,7 @@ fn type_ast(
                         let internal_type =
                             type_ast(ctx, None, &parsed.children().next().unwrap(), node.arg())?;
 
-                        create_auto_cast(ctx, parsed.loc, internal_type, wanted_type, node)?;
+                        auto_cast(ctx, parsed.loc, internal_type, wanted_type, node)?;
                         type_ = wanted_type;
                     } else {
                         ctx.errors.error(parsed.loc, "Casting can only be done if the type is known; are you sure you want to cast here?".to_string());
@@ -662,7 +662,7 @@ fn const_fold_type_expr(errors: &mut ErrorCtx, parsed: &ParsedNode<'_>) -> Resul
 
 /// Creates an auto cast. The 'node' is expected to have an argument which is the node whom we cast
 /// from.
-fn create_auto_cast(
+fn auto_cast(
     ctx: &mut Context<'_>,
     loc: Location,
     from_type: Type,
@@ -690,6 +690,17 @@ fn create_auto_cast(
             TypeKind::Buffer(to_inner),
         ) if from_inner == to_inner => {
             node.set(Node::new(loc, NodeKind::ArrayToBuffer(*len), to_type));
+            node.validate();
+            Ok(())
+        }
+        (
+            TypeKind::Reference(Type(TypeData {
+                kind: TypeKind::Array(from_inner, _),
+                ..
+            })),
+            TypeKind::Reference(to_inner),
+        ) if from_inner == to_inner => {
+            node.set(Node::new(loc, NodeKind::BitCast, to_type));
             node.validate();
             Ok(())
         }

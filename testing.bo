@@ -38,10 +38,13 @@ const slice = fn(buf: [] u8, start: usize, end: usize) -> [] u8 {
 };
 
 const main = fn() -> u64 {
-    let ptr = bit_cast &testing_constant : &[] u8;
+    let ptr = < &testing_constant : &[] u8;
 
     let x = 5 : u64;
     let y = bit_cast x : &u64;
+    let z = bit_cast y : i64;
+
+    print_i64(z);
 
     print(*ptr);
     print(*(ptr + 1));

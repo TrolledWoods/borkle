@@ -18,8 +18,7 @@
 * [X] Reimplement deduplication for constants
 * [X] Implement lvalue members in c backend
 * [X] Auto casts
-
-* [ ] Pointer offset operators
+* [X] Pointer offset operators
 
 * [ ] Array literals
 * [ ] Make comparison operators care about sign bits
