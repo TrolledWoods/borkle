@@ -1,0 +1,108 @@
+import "library.bo";
+
+const NEW_LINE = *"\n".ptr;
+
+const main = fn() -> u64 {
+    let numbers = uninit : [] u64;
+    let num_buffer = alloc(300 * 8);
+    numbers.ptr = bit_cast num_buffer.ptr;
+    numbers.len = num_buffer.len / 8;
+
+    let input = read_file("input.txt");
+
+    let i = 0 : usize;
+    let word_start = 0 : usize;
+    let word_index = 0 : usize;
+    while i < input.len {
+        if *(input.ptr + i) == NEW_LINE {
+            *(numbers.ptr + word_index) = string_to_int(slice_u8(input, word_start, i));
+
+            word_start = i + 1;
+            word_index = word_index + 1;
+        };
+
+        i = i + 1;
+    };
+
+    *(numbers.ptr + word_index) = string_to_int(slice_u8(input, word_start, i));
+    dealloc(input);
+
+    // Cap of the numbers to as many as actually exist
+    numbers = slice_u64(numbers, 0, word_index);
+
+    let i = 0 : usize;
+    let result_a = 0 : u64;
+    let result_b = 0 : u64;
+    while i < (numbers.len - 1) {
+        let j = i + 1;
+        while j < numbers.len {
+            if (*(numbers.ptr + i) + *(numbers.ptr + j)) == 2020 {
+                result_a = *(numbers.ptr + i);
+                result_b = *(numbers.ptr + j);
+            };
+
+            j = j + 1;
+        };
+
+        i = i + 1;
+    };
+
+    print("Found the two numbers ");
+    print_u64(result_a);
+    print(" and ");
+    print_u64(result_b);
+    print(". The product of those is ");
+    print_u64(result_a * result_b);
+    print(".\n");
+
+    let i = 0 : usize;
+    let result_a2 = 0 : u64;
+    let result_b2 = 0 : u64;
+    let result_c2 = 0 : u64;
+    while i < (numbers.len - 2) {
+        let j = i + 1;
+        while j < (numbers.len - 1) {
+            let k = j + 1;
+            while k < numbers.len {
+                if (*(numbers.ptr + i) + *(numbers.ptr + j) + *(numbers.ptr + k)) == 2020 {
+                    result_a2 = *(numbers.ptr + i);
+                    result_b2 = *(numbers.ptr + j);
+                    result_c2 = *(numbers.ptr + k);
+                };
+
+                k = k + 1;
+            };
+
+            j = j + 1;
+        };
+
+        i = i + 1;
+    };
+
+    print("Found the three numbers ");
+    print_u64(result_a2);
+    print(", ");
+    print_u64(result_b2);
+    print(" and ");
+    print_u64(result_c2);
+    print(". The product of those is ");
+    print_u64(result_a2 * result_b2 * result_c2);
+    print(".\n");
+
+    dealloc(num_buffer);
+    0
+};
+
+const slice_u64 = fn(source: [] u64, start: usize, end: usize) -> [] u64 {
+    let buf = uninit : [] u64;
+    buf.ptr = source.ptr + start;
+    buf.len = end - start;
+    buf
+};
+
+const slice_u8 = fn(source: [] u8, start: usize, end: usize) -> [] u8 {
+    let buf = uninit : [] u8;
+    buf.ptr = source.ptr + start;
+    buf.len = end - start;
+    buf
+};
