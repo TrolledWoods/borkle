@@ -181,14 +181,9 @@ fn interp_internal(program: &Program, stack: &mut StackFrame<'_>, routine: &Rout
                     unreachable!("This operator is supposed to be a special case");
                 }
             },
-            Instr::Member {
-                to,
-                of,
-                offset,
-                size,
-                name: _,
-            } => unsafe {
-                let from: *const u8 = stack.get(of).as_ptr().add(offset);
+            Instr::Member { to, of, ref member } => unsafe {
+                let size = to.size();
+                let from: *const u8 = stack.get(of).as_ptr().add(member.offset);
                 let to: *mut u8 = stack.get_mut(to).as_mut_ptr();
                 std::ptr::copy_nonoverlapping(from, to, size);
             },
@@ -202,11 +197,15 @@ fn interp_internal(program: &Program, stack: &mut StackFrame<'_>, routine: &Rout
                     std::ptr::copy(ptr, to.as_mut_ptr(), to.len());
                 }
             }
-            Instr::Reference { to, from } => {
+            Instr::Reference {
+                to,
+                from,
+                ref offset,
+            } => {
                 let ptr: *mut u8 = stack.get_mut(from).as_mut_ptr();
                 stack
                     .get_mut(to)
-                    .copy_from_slice(&(ptr as usize).to_le_bytes());
+                    .copy_from_slice(&(ptr as usize + offset.offset).to_le_bytes());
             }
             Instr::Move {
                 to,

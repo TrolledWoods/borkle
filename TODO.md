@@ -25,9 +25,9 @@
 * [X] Make a readme file
 * [X] BUG! Pointer to zst doesn't work
 * [X] Add floating point literals and types
+* [X] BUG! Pointer to members do not seem to work properly
 
 * [ ] Stress test the language!
-* [ ] BUG! Pointer to members do not seem to work properly
 
 # Version 0.0.2
 * [ ] Make a setup file for projects!

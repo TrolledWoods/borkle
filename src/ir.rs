@@ -40,9 +40,7 @@ pub enum Instr {
     Member {
         to: Value,
         of: Value,
-        offset: usize,
-        name: Ustr,
-        size: usize,
+        member: Member,
     },
     Dereference {
         to: Value,
@@ -51,6 +49,7 @@ pub enum Instr {
     Reference {
         to: Value,
         from: Value,
+        offset: Member,
     },
     Move {
         to: Value,

@@ -285,9 +285,10 @@ fn emit_node(ctx: &mut Context<'_>, node: &Node<'_>) -> Value {
             ctx.instr.push(Instr::Member {
                 to,
                 of,
-                offset: of_node.type_().member(*name).unwrap().byte_offset,
-                size: node.type_().size(),
-                name: *name,
+                member: Member {
+                    offset: of_node.type_().member(*name).unwrap().byte_offset,
+                    name_list: vec![*name],
+                },
             });
             to
         }
@@ -305,7 +306,7 @@ fn emit_node(ctx: &mut Context<'_>, node: &Node<'_>) -> Value {
             });
             to
         }
-        NodeKind::ArrayLiteral(len) => {
+        NodeKind::ArrayLiteral(_) => {
             let internal_type = if let TypeKind::Array(internal, _) = node.type_().kind() {
                 *internal
             } else {
@@ -318,6 +319,7 @@ fn emit_node(ctx: &mut Context<'_>, node: &Node<'_>) -> Value {
             ctx.instr.push(Instr::Reference {
                 to: reference,
                 from: to,
+                offset: Member::default(),
             });
             let one = ctx
                 .registers
@@ -340,8 +342,19 @@ fn emit_node(ctx: &mut Context<'_>, node: &Node<'_>) -> Value {
         }
         NodeKind::Unary(UnaryOp::Reference) => {
             let to = ctx.registers.create(node.type_());
-            let from = emit_node(ctx, &node.children().next().unwrap());
-            ctx.instr.push(Instr::Reference { to, from });
+            let from = emit_lvalue(ctx, &node.children().next().unwrap());
+            match from {
+                LValue::Reference(from, member) => {
+                    ctx.instr.push(Instr::Member {
+                        to,
+                        of: from,
+                        member,
+                    });
+                }
+                LValue::Value(from, offset) => {
+                    ctx.instr.push(Instr::Reference { to, from, offset });
+                }
+            }
             to
         }
         NodeKind::Unary(UnaryOp::Dereference) => {

@@ -317,21 +317,15 @@ pub fn routine_to_c(output: &mut String, routine: &Routine, num_args: usize) {
                 )
                 .unwrap();
             }
-            Instr::Member {
-                to,
-                of,
-                offset: _,
-                name,
-                size: _,
-            } => {
-                write!(
-                    output,
-                    "{} = {}.{};\n",
-                    c_format_value(to),
-                    c_format_value(of),
-                    name
-                )
-                .unwrap();
+            Instr::Member { to, of, member } => {
+                write!(output, "{} = {}", c_format_value(to), c_format_value(of)).unwrap();
+
+                for name in member.name_list.iter() {
+                    output.push('.');
+                    output.push_str(name);
+                }
+
+                write!(output, ";\n").unwrap();
             }
             Instr::Dereference { to, from } => {
                 write!(
@@ -342,14 +336,15 @@ pub fn routine_to_c(output: &mut String, routine: &Routine, num_args: usize) {
                 )
                 .unwrap();
             }
-            Instr::Reference { to, from } => {
-                write!(
-                    output,
-                    "{} = &{};\n",
-                    c_format_value(to),
-                    c_format_value(from)
-                )
-                .unwrap();
+            Instr::Reference { to, from, offset } => {
+                write!(output, "{} = &{}", c_format_value(to), c_format_value(from)).unwrap();
+
+                for name in offset.name_list.iter() {
+                    output.push('.');
+                    output.push_str(name.as_str());
+                }
+
+                output.push_str(";\n");
             }
             Instr::Move {
                 to,

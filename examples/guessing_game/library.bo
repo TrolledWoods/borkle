@@ -8,9 +8,7 @@ const print = fn (buffer: [] u8) -> u64 {
 
 const read_input = fn () -> [] u8 {
     let buf = uninit : [] u8;
-    let ptr = uninit : &u8;
-    buf.len = (extern "target/library" "read_input" : extern fn (&&u8) -> usize)(&ptr);
-    buf.ptr = ptr;
+    buf.len = (extern "target/library" "read_input" : extern fn (&&u8) -> usize)(&buf.ptr);
     buf
 };
 

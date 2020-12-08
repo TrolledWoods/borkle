@@ -1,0 +1,18 @@
+const real = fn (num: [2] f64) -> f64  * bit_cast &num;
+const imag = fn (num: [2] f64) -> f64  *(bit_cast &num + 1);
+
+const complex_abs = fn(num: [2] f64) -> f64  (real(num) * real(num)) + (imag(num) * imag(num));
+
+const complex_add = fn (a: [2] f64, b: [2] f64) -> [2] f64  {
+    [
+        real(a) + real(b),
+        imag(a) + imag(b),
+    ]
+};
+
+const complex_mult = fn (a: [2] f64, b: [2] f64) -> [2] f64  {
+    [
+        (real(a) * real(b)) - (imag(a) * imag(b)),
+        (imag(a) * real(b)) + (real(a) * imag(b)),
+    ]
+};

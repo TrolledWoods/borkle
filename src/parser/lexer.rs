@@ -122,9 +122,6 @@ pub fn process_string(errors: &mut ErrorCtx, file: Ustr, string: &str) -> Result
                         "f32" => TokenKind::Type(Type::new(TypeKind::F32)),
                         "f64" => TokenKind::Type(Type::new(TypeKind::F64)),
 
-                        "i8" => TokenKind::PrimitiveInt(IntTypeKind::I8),
-                        "u8" => TokenKind::PrimitiveInt(IntTypeKind::U8),
-
                         "isize" => TokenKind::PrimitiveInt(IntTypeKind::Isize),
                         "usize" => TokenKind::PrimitiveInt(IntTypeKind::Usize),
                         "i64" => TokenKind::PrimitiveInt(IntTypeKind::I64),
