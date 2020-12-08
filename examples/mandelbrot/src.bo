@@ -1,0 +1,63 @@
+import "library.bo";
+
+const PIXEL_HEIGHT = 0.10 : f64;
+const PIXEL_WIDTH = 0.05 : f64;
+
+const magnitude = fn(x: f64, y: f64) -> f64  (x * x) + (y * y);
+
+const main = fn() -> u64 {
+    let timer = start_timer();
+    let y = -2.0 : f64;
+
+    let buffer = alloc(div_to_int(4.0, PIXEL_WIDTH) - 1);
+
+    while y < 2.0 {
+        let x = 0.0 - 2.0 : f64;
+        let pixel = 0 : usize;
+        while x < 2.0 {
+            let c_r = x : f64;
+            let c_i = y : f64;
+
+            let z_r = 0.0 : f64;
+            let z_i = 0.0 : f64;
+
+            let i = 0 : u64;
+            while (magnitude(z_r, z_i) <= 4.0) && (i < 1000) {
+                let a = z_r * z_r;
+                let b = z_i * z_i;
+
+                z_i = c_i + (2.0 * z_r * z_i);
+                z_r = a - b + c_r;
+
+                i = i + 1;
+            };
+
+            *(buffer.ptr + pixel) =
+                if i == 1000    { *"#".ptr }
+                else if i >= 14 { *"x".ptr }
+                else if i >= 10 { *".".ptr }
+                else            { *" ".ptr };
+
+            x = x + PIXEL_WIDTH;
+            pixel = pixel + 1;
+        };
+
+        print(buffer);
+        print("\n");
+
+        y = y + PIXEL_HEIGHT;
+    };
+
+    log_timer(timer);
+
+    0
+};
+
+const div_to_int = fn(a: f64, b: f64) -> usize {
+    let count = 0 : usize;
+    while a > 0.0 {
+        a = a - b;
+        count = count + 1;
+    };
+    count
+};
