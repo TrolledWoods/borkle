@@ -20,10 +20,12 @@
 * [X] Auto casts
 * [X] Pointer offset operators
 * [X] Array literals
+* [X] Make comparison operators care about sign bits
 
-* [ ] Make comparison operators care about sign bits
+* [ ] File imports
 * [ ] Stress test the language!
 * [ ] Make a setup file for projects!
+* [ ] Make a readme file
 
 # Version 0.0.2
 * [ ] Type definitions

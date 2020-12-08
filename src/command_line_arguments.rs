@@ -145,17 +145,14 @@ macro_rules! create_arguments {
 create_arguments!(
     #[derive(Debug)]
     struct Arguments {
-        file: String = "testing.bo";
+        file: String = "src.bo";
             "The file to compile",
 
-        output: String = "target/borkle";
+        output: String = "target/";
             "The folder to put output files into",
 
         release: bool = false;
             "If set to true, c code will be emitted",
-
-        c_compiler: String = "gcc";
-            "The name of the command to invoke a c compiler",
 
         num_threads: usize = 3_usize;
             "The number of threads to use for compilation",
