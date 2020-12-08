@@ -467,34 +467,27 @@ fn atom_value(
                         break;
                     }
 
-                    if global
-                        .tokens
-                        .try_consume(&TokenKind::Keyword(Keyword::Const))
-                    {
-                        constant(global)?;
-                    } else {
-                        expression(global, imperative, arg_node.arg())?;
+                    expression(global, imperative, arg_node.arg())?;
 
-                        let token = global.tokens.expect_next(global.errors)?;
-                        match token.kind {
-                            TokenKind::Operator(c) if c == "=" => {
-                                // Assignment!
-                                expression(global, imperative, arg_node.arg())?;
-                                arg_node.collapse(Node::new(token.loc, NodeKind::Assign), 2);
+                    let token = global.tokens.expect_next(global.errors)?;
+                    match token.kind {
+                        TokenKind::Operator(c) if c == "=" => {
+                            // Assignment!
+                            expression(global, imperative, arg_node.arg())?;
+                            arg_node.collapse(Node::new(token.loc, NodeKind::Assign), 2);
 
-                                global
-                                    .tokens
-                                    .expect_next_is(global.errors, &TokenKind::SemiColon)?;
-                            }
-                            TokenKind::SemiColon => {}
-                            TokenKind::Close(Bracket::Curly) => break,
-                            _ => {
-                                global.error(
-                                    token.loc,
-                                    "Expected ';' or '}', or a '=' for assignment".to_string(),
-                                );
-                                return Err(());
-                            }
+                            global
+                                .tokens
+                                .expect_next_is(global.errors, &TokenKind::SemiColon)?;
+                        }
+                        TokenKind::SemiColon => {}
+                        TokenKind::Close(Bracket::Curly) => break,
+                        _ => {
+                            global.error(
+                                token.loc,
+                                "Expected ';' or '}', or a '=' for assignment".to_string(),
+                            );
+                            return Err(());
                         }
                     }
                 }

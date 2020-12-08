@@ -440,13 +440,13 @@ pub fn append_c_type_headers(output: &mut String) {
             TypeKind::F64 => output.push_str("double "),
 
             TypeKind::Reference(internal) => {
-                write!(output, "{} *", c_format_type(*internal)).unwrap()
+                write!(output, "{}", c_format_pointer_type(*internal)).unwrap()
             }
             TypeKind::Buffer(internal) => {
                 write!(
                     output,
-                    "struct{{\n  {} *ptr;\n  uint64_t len;\n}}",
-                    c_format_type(*internal),
+                    "struct{{\n  {} ptr;\n  uint64_t len;\n}}",
+                    c_format_pointer_type(*internal),
                 )
                 .unwrap();
             }
@@ -503,6 +503,17 @@ pub fn c_format_global_temp_type(global: usize) -> impl fmt::Display {
 
 pub fn c_format_global(global: usize) -> impl fmt::Display {
     Formatter(move |f| write!(f, "global_{}", global))
+}
+
+/// Formats a pointer type(the given type being the inner type)
+pub fn c_format_pointer_type(type_: Type) -> impl fmt::Display {
+    Formatter(move |f| {
+        if type_.size() == 0 {
+            write!(f, "void *")
+        } else {
+            write!(f, "t_{} *", type_.as_ptr() as usize)
+        }
+    })
 }
 
 /// Formats a type as C. The type can't be zero sized.

@@ -25,6 +25,7 @@
 
 * [ ] Stress test the language!
 * [ ] Make a readme file
+* [ ] BUG! Pointer to zst doesn't work
 
 # Version 0.0.2
 * [ ] Make a setup file for projects!
