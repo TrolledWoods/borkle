@@ -378,6 +378,33 @@ fn atom_value(
                     return Err(());
                 }
             }
+            TokenKind::Open(Bracket::Square) => {
+                let mut n_args = 0;
+                loop {
+                    if global
+                        .tokens
+                        .try_consume(&TokenKind::Close(Bracket::Square))
+                    {
+                        break;
+                    }
+
+                    expression(global, imperative, arg_node.arg())?;
+                    n_args += 1;
+
+                    let token = global.tokens.expect_next(global.errors)?;
+                    match token.kind {
+                        TokenKind::Close(Bracket::Square) => break,
+                        TokenKind::Comma => {}
+                        _ => {
+                            global.error(token.loc, "Expected either ',' or ']'".to_string());
+                            return Err(());
+                        }
+                    }
+                }
+
+                arg_node.set(Node::new(token.loc, NodeKind::ArrayLiteral(n_args)));
+                arg_node.validate();
+            }
             TokenKind::Open(Bracket::Round) => {
                 let mut has_comma = false;
                 loop {

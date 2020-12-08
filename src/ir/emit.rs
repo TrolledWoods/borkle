@@ -1,6 +1,6 @@
 use super::{Instr, LabelId, Member, Registers, Routine, Value};
 use crate::locals::LocalVariables;
-use crate::operators::UnaryOp;
+use crate::operators::{BinaryOp, UnaryOp};
 use crate::program::constant::ConstantRef;
 use crate::program::thread_pool::ThreadContext;
 use crate::program::Program;
@@ -303,6 +303,39 @@ fn emit_node(ctx: &mut Context<'_>, node: &Node<'_>) -> Value {
                 b,
                 type_: node.type_(),
             });
+            to
+        }
+        NodeKind::ArrayLiteral(len) => {
+            let internal_type = if let TypeKind::Array(internal, _) = node.type_().kind() {
+                *internal
+            } else {
+                unreachable!()
+            };
+
+            let to = ctx.registers.create(node.type_());
+            let ref_type = Type::new(TypeKind::Reference(internal_type));
+            let reference = ctx.registers.create(ref_type);
+            ctx.instr.push(Instr::Reference {
+                to: reference,
+                from: to,
+            });
+            let one = ctx
+                .registers
+                .create(Type::new(TypeKind::Int(IntTypeKind::Usize)));
+            ctx.emit_constant_from_buffer(one, &1_usize.to_le_bytes());
+            for (i, child) in node.children().enumerate() {
+                if i > 0 {
+                    ctx.instr.push(Instr::Binary {
+                        op: BinaryOp::Add,
+                        to: reference,
+                        a: reference,
+                        b: one,
+                        type_: ref_type,
+                    });
+                }
+                let from = emit_node(ctx, &child);
+                ctx.emit_move_indirect(reference, from, Member::default());
+            }
             to
         }
         NodeKind::Unary(UnaryOp::Reference) => {

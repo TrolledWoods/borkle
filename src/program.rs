@@ -194,10 +194,15 @@ impl Program {
                 },
                 PointerInType::Buffer(internal) => {
                     let buffer = unsafe { &mut *data.cast::<crate::types::BufferRepr>() };
-                    let array_type = Type::new(TypeKind::Array(*internal, buffer.length));
-                    let sub_buffer = self.insert_buffer(array_type, buffer.ptr);
 
-                    buffer.ptr = sub_buffer.as_ptr() as *mut _;
+                    if buffer.length != 0 {
+                        let array_type = Type::new(TypeKind::Array(*internal, buffer.length));
+                        let sub_buffer = self.insert_buffer(array_type, buffer.ptr);
+
+                        buffer.ptr = sub_buffer.as_ptr() as *mut _;
+                    } else {
+                        buffer.ptr = std::ptr::null_mut();
+                    }
                 }
                 PointerInType::Function { .. } => {}
             }

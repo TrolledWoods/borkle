@@ -71,6 +71,26 @@ fn type_ast(
             node.set(Node::new(parsed.loc, NodeKind::Constant(ptr), type_));
             node.validate();
         }
+        ParserNodeKind::ArrayLiteral(len) => {
+            let mut element_type = None;
+            for child in parsed.children() {
+                element_type = Some(type_ast(ctx, element_type, &child, node.arg())?);
+            }
+
+            match element_type {
+                Some(element_type) => type_ = Type::new(TypeKind::Array(element_type, len)),
+                None => match wanted_type {
+                    Some(wanted_type) => type_ = wanted_type,
+                    None => {
+                        ctx.errors.error(parsed.loc, "Because this is an empty array, the types of the elements cannot be inferred; you have to specify a type bound".to_string());
+                        return Err(());
+                    }
+                },
+            }
+
+            node.set(Node::new(parsed.loc, NodeKind::ArrayLiteral(len), type_));
+            node.validate();
+        }
         ParserNodeKind::While => {
             type_ = Type::new(TypeKind::Empty);
 

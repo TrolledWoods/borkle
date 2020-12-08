@@ -19,8 +19,8 @@
 * [X] Implement lvalue members in c backend
 * [X] Auto casts
 * [X] Pointer offset operators
+* [X] Array literals
 
-* [ ] Array literals
 * [ ] Make comparison operators care about sign bits
 * [ ] Stress test the language!
 

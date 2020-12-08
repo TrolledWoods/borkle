@@ -56,6 +56,7 @@ impl bump_tree::MetaData for Node {
                     num_args == 2
                 }
             }
+            NodeKind::ArrayLiteral(len) => num_args == len,
         }
     }
 }
@@ -79,6 +80,8 @@ pub enum NodeKind {
     Assign,
     Local(LocalId),
     Declare(LocalId),
+
+    ArrayLiteral(usize),
 
     Binary(BinaryOp),
     Unary(UnaryOp),

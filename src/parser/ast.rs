@@ -21,6 +21,8 @@ impl Node {
 #[derive(Debug, Clone)]
 pub enum NodeKind {
     Literal(Literal),
+    ArrayLiteral(usize),
+
     Global(Ustr),
     Extern {
         library_name: String,
@@ -88,6 +90,7 @@ impl bump_tree::MetaData for Node {
             NodeKind::While | NodeKind::Assign | NodeKind::Binary(_) | NodeKind::TypeBound => {
                 num_args == 2
             }
+            NodeKind::ArrayLiteral(len) => num_args == len,
             NodeKind::If { has_else } => {
                 if has_else {
                     num_args == 3

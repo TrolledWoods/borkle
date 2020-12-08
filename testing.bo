@@ -1,17 +1,40 @@
-const LONG_FRICKING_MESSAGE = "jjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjj";
+const testing_constant = fn () -> [3][]u8  ["One!\n", "Two!\n", "Three!\n"];
 
-const MESSAGE = "Hello One Lone Coders!\n";
+const __ones = ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine"];
+const __teens = ["ten", "eleven", "twelve", "thirteen", "fourteen", "sixteen", "seventeen", "eighteen", "nineteen"];
+const __tens = ["", "__", "twenty", "thirty", "fourty", "fifty", "sixty", "seventy", "eighty", "ninety"];
 
-const crazy_static_memory_usage = uninit : [420] u8;
+const mod = fn(num: usize, div: usize) -> usize  num - ((num / div) * div);
 
-const testing_constant = {
-    let constant = uninit : [3] [] u8;
+const print_number_string = fn(num: usize) {
+    let thousands = mod(num / 1000, 10);
+    let hundreds = mod(num / 100, 10);
+    let tens = mod(num / 10, 10);
+    let one = mod(num, 10);
 
-    let ptr = bit_cast &constant : &[] u8;
-    *ptr = "One!\n";
-    *(ptr + 1) = "Two!\n";
-    *(ptr + 2) = "Three!\n";
-    constant
+    if thousands > 0 {
+        print(*get_string(<<&__ones, thousands));
+        print(" thousand ");
+    };
+
+    if hundreds > 0 {
+        print(*get_string(<<&__ones, hundreds));
+        print(" hundred ");
+    };
+
+    if tens == 1 {
+        print(*get_string(<<&__teens, one));
+    } else {
+        print(*get_string(<<&__tens, tens));
+
+        print(*get_string(<<&__ones, one));
+    };
+
+    print("\n");
+};
+
+const get_string = fn(buf: [][]u8, index: usize) -> &[]u8 {
+    buf.ptr + index
 };
 
 const get = fn(buf: [] u8, index: usize) -> &u8 {
@@ -38,8 +61,10 @@ const slice = fn(buf: [] u8, start: usize, end: usize) -> [] u8 {
 };
 
 const main = fn() -> u64 {
-    let ptr = &testing_constant;
+    let ptr = &testing_constant();
     
+    print_number_string(2482);
+
     print_usize(<< ptr);
 
     let ptr_to_elem = << ptr : &[] u8;

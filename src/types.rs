@@ -244,10 +244,14 @@ impl TypeKind {
         match self {
             Self::Empty | Self::Int(_) | Self::F32 | Self::F64 | Self::Bool => {}
             Self::Reference(internal) => {
-                pointers.push((offset, PointerInType::Pointer(*internal)));
+                if internal.size() > 0 {
+                    pointers.push((offset, PointerInType::Pointer(*internal)));
+                }
             }
             Self::Buffer(internal) => {
-                pointers.push((offset, PointerInType::Buffer(*internal)));
+                if internal.size() > 0 {
+                    pointers.push((offset, PointerInType::Buffer(*internal)));
+                }
             }
             Self::Array(internal, len) => {
                 let element_offset = to_align(internal.size(), internal.align());

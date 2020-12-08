@@ -175,12 +175,12 @@ pub fn instantiate_constants(output: &mut String, program: &Program) {
                             );
                         }
                         _ => {
-                            write!(
-                                output,
-                                "&{}",
-                                c_format_global(unsafe { *ptr.add(i).cast::<usize>() })
-                            )
-                            .unwrap();
+                            let ptr_num = unsafe { *ptr.add(i).cast::<usize>() };
+                            if ptr_num == 0 {
+                                output.push_str("NULL");
+                            } else {
+                                write!(output, "&{}", c_format_global(ptr_num)).unwrap();
+                            }
                         }
                     }
                     pointers.next();
@@ -192,7 +192,7 @@ pub fn instantiate_constants(output: &mut String, program: &Program) {
 
             output.push_str(", ");
         }
-        output.push_str("}; \n");
+        write!(output, "}}; // {}\n", constant.type_).unwrap();
     }
 }
 
