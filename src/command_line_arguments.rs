@@ -1,3 +1,4 @@
+use std::path::PathBuf;
 use std::str::FromStr;
 
 #[derive(Debug)]
@@ -53,6 +54,7 @@ impl_argument_with_from_str!(isize);
 impl_argument_with_from_str!(f32);
 impl_argument_with_from_str!(f64);
 impl_argument_with_from_str!(String);
+impl_argument_with_from_str!(PathBuf);
 
 impl Argument for bool {
     fn parse(input: &[&str]) -> Result<Self, Error> {
@@ -150,6 +152,13 @@ create_arguments!(
 
         output: String = "target/";
             "The folder to put output files into",
+
+        lib_path: PathBuf = {
+            let mut path = std::env::current_exe().expect("Failed to load the path of the executable");
+            path.push("library");
+            path
+        };
+            "The folder where global libraries are stored",
 
         release: bool = false;
             "If set to true, c code will be emitted",

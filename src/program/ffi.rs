@@ -7,6 +7,7 @@ use libffi_sys::*;
 use std::convert::TryFrom;
 use std::fmt;
 use std::mem::MaybeUninit;
+use std::path::Path;
 use ustr::{Ustr, UstrMap};
 
 // FIXME: This type has no multithreading synchronisation jazz whatsoever; this is kindof a
@@ -29,9 +30,10 @@ impl Libraries {
 
     pub fn load_symbol(
         &mut self,
-        lib_name: Ustr,
+        lib_name: &Path,
         symbol_name: Ustr,
     ) -> Result<unsafe extern "C" fn(), libloading::Error> {
+        let lib_name = lib_name.to_str().expect("Path not utf8? Wut!!!!").into();
         let lib = get_or_insert_lib(&mut self.libs, lib_name)?;
 
         Ok(unsafe {

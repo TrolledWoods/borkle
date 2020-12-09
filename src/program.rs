@@ -10,7 +10,7 @@ use constant::{Constant, ConstantRef};
 use parking_lot::{Mutex, RwLock};
 use std::alloc;
 use std::collections::{HashMap, HashSet};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::ptr::NonNull;
 use std::sync::atomic::{AtomicI32, Ordering};
 use thread_pool::WorkSender;
@@ -176,14 +176,13 @@ impl Program {
 
     pub fn load_extern_library(
         &self,
-        library_name: Ustr,
+        library_name: &Path,
         symbol_name: Ustr,
         type_: Type,
     ) -> Result<unsafe extern "C" fn(), libloading::Error> {
         let mut libraries = self.libraries.lock();
         let mut external_symbols = self.external_symbols.lock();
-        let func =
-            libraries.load_symbol(library_name.as_str().into(), symbol_name.as_str().into())?;
+        let func = libraries.load_symbol(library_name, symbol_name.as_str().into())?;
         external_symbols.insert(func as *const u8, (type_, symbol_name));
         Ok(func)
     }

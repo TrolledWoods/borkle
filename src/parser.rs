@@ -393,10 +393,13 @@ fn atom_value(
                 if let TokenKind::Literal(Literal::String(library_name)) = token.kind {
                     let token = global.tokens.expect_next(global.errors)?;
                     if let TokenKind::Literal(Literal::String(symbol_name)) = token.kind {
+                        let mut library_path = global.path.to_path_buf();
+                        library_path.pop();
+                        library_path.push(&library_name);
                         arg_node.set(Node::new(
                             loc,
                             NodeKind::Extern {
-                                library_name,
+                                library_name: library_path,
                                 symbol_name,
                             },
                         ));

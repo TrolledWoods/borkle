@@ -351,7 +351,7 @@ fn type_ast(
                 } = wanted_type.kind()
                 {
                     match ctx.program.load_extern_library(
-                        library_name.as_str().into(),
+                        library_name,
                         symbol_name.as_str().into(),
                         wanted_type,
                     ) {

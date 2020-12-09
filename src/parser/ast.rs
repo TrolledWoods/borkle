@@ -4,6 +4,7 @@ use crate::location::Location;
 use crate::operators::{BinaryOp, UnaryOp};
 use crate::types::Type;
 use std::fmt;
+use std::path::PathBuf;
 use ustr::Ustr;
 
 #[derive(Clone)]
@@ -25,7 +26,7 @@ pub enum NodeKind {
 
     Global(Ustr),
     Extern {
-        library_name: String,
+        library_name: PathBuf,
         symbol_name: String,
     },
 
