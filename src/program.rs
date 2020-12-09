@@ -165,6 +165,11 @@ impl Program {
         crate::ir::Value::Global(value_ptr, type_)
     }
 
+    pub fn get_value_of_member(&self, id: Ustr) -> Option<ConstantRef> {
+        let const_table = self.const_table.read();
+        const_table.get(&id).unwrap().value.to_option().copied()
+    }
+
     pub fn get_type_of_member(&self, id: Ustr) -> Option<Type> {
         let const_table = self.const_table.read();
         const_table.get(&id).unwrap().type_.to_option().copied()

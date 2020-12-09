@@ -135,7 +135,7 @@ fn type_to_ffi_type(type_: Type) -> Option<ffi_type> {
     unsafe {
         match type_.kind() {
             TypeKind::Empty => None,
-            TypeKind::Int(IntTypeKind::U64) => Some(ffi_type_uint64),
+            TypeKind::Type | TypeKind::Int(IntTypeKind::U64) => Some(ffi_type_uint64),
             TypeKind::Int(IntTypeKind::I64) => Some(ffi_type_sint64),
             TypeKind::Int(IntTypeKind::U32) => Some(ffi_type_uint32),
             TypeKind::Int(IntTypeKind::I32) => Some(ffi_type_sint32),

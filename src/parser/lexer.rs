@@ -38,6 +38,7 @@ pub enum Bracket {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Keyword {
+    Type,
     Const,
     Let,
     Defer,
@@ -108,6 +109,7 @@ pub fn process_string(errors: &mut ErrorCtx, file: Ustr, string: &str) -> Result
 
                     match identifier {
                         "const" => TokenKind::Keyword(Keyword::Const),
+                        "type" => TokenKind::Keyword(Keyword::Type),
                         "let" => TokenKind::Keyword(Keyword::Let),
                         "defer" => TokenKind::Keyword(Keyword::Defer),
                         "fn" => TokenKind::Keyword(Keyword::Function),

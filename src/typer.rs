@@ -235,12 +235,12 @@ fn type_ast(
 
             let mut arg_types = Vec::new();
             for (local, node) in locals.iter_mut().zip(children.by_ref().take(n_arguments)) {
-                let arg_type = const_fold_type_expr(ctx.errors, &node)?;
+                let arg_type = const_fold_type_expr(ctx, &node)?;
                 local.type_ = Some(arg_type);
                 arg_types.push(arg_type);
             }
 
-            let return_type = const_fold_type_expr(ctx.errors, &children.next().unwrap())?;
+            let return_type = const_fold_type_expr(ctx, &children.next().unwrap())?;
 
             type_ = Type::new(TypeKind::Function {
                 args: arg_types,
@@ -436,7 +436,7 @@ fn type_ast(
                 );
             }
 
-            type_ = const_fold_type_expr(ctx.errors, &type_expr)?;
+            type_ = const_fold_type_expr(ctx, &type_expr)?;
             type_ast(ctx, Some(type_), &internal, node)?;
         }
         ParserNodeKind::Binary(op) => {
@@ -637,6 +637,20 @@ fn type_ast(
             node.set(Node::new(parsed.loc, NodeKind::Declare(local), type_));
             node.validate();
         }
+        ParserNodeKind::TypeAsValue => {
+            let mut children = parsed.children();
+            let inner_type = const_fold_type_expr(ctx, &children.next().unwrap())?;
+            type_ = Type::new(TypeKind::Type);
+            node.set(Node::new(
+                parsed.loc,
+                NodeKind::Constant(ctx.program.insert_buffer(
+                    type_,
+                    &(inner_type.as_ptr() as usize).to_le_bytes() as *const _,
+                )),
+                type_,
+            ));
+            node.validate();
+        }
         ParserNodeKind::LiteralType(_)
         | ParserNodeKind::ArrayType(_)
         | ParserNodeKind::StructType(_)
@@ -664,30 +678,34 @@ fn type_ast(
     Ok(type_)
 }
 
-fn const_fold_type_expr(errors: &mut ErrorCtx, parsed: &ParsedNode<'_>) -> Result<Type, ()> {
+fn const_fold_type_expr(ctx: &mut Context<'_>, parsed: &ParsedNode<'_>) -> Result<Type, ()> {
     match parsed.kind {
+        ParserNodeKind::Global(id) => {
+            let ptr = ctx.program.get_value_of_member(id).unwrap().as_ptr();
+            Ok(unsafe { *ptr.cast::<Type>() })
+        }
         ParserNodeKind::LiteralType(type_) => Ok(type_),
         ParserNodeKind::StructType(ref field_names) => {
             let mut fields = Vec::with_capacity(field_names.len());
             for (&name, child) in field_names.iter().zip(parsed.children()) {
-                let field_type = const_fold_type_expr(errors, &child)?;
+                let field_type = const_fold_type_expr(ctx, &child)?;
                 fields.push((name, field_type));
             }
             Ok(Type::new(TypeKind::Struct(fields)))
         }
         ParserNodeKind::BufferType => {
             let mut children = parsed.children();
-            let pointee = const_fold_type_expr(errors, &children.next().unwrap())?;
+            let pointee = const_fold_type_expr(ctx, &children.next().unwrap())?;
             Ok(TypeKind::Buffer(pointee).into())
         }
         ParserNodeKind::ArrayType(length) => {
             let mut children = parsed.children();
-            let member = const_fold_type_expr(errors, &children.next().unwrap())?;
+            let member = const_fold_type_expr(ctx, &children.next().unwrap())?;
             Ok(TypeKind::Array(member, length).into())
         }
         ParserNodeKind::ReferenceType => {
             let mut children = parsed.children();
-            let pointee = const_fold_type_expr(errors, &children.next().unwrap())?;
+            let pointee = const_fold_type_expr(ctx, &children.next().unwrap())?;
             Ok(TypeKind::Reference(pointee).into())
         }
         ParserNodeKind::FunctionType { is_extern } => {
@@ -696,10 +714,10 @@ fn const_fold_type_expr(errors: &mut ErrorCtx, parsed: &ParsedNode<'_>) -> Resul
 
             let mut arg_types = Vec::with_capacity(n_args);
             for arg in children.by_ref().take(n_args) {
-                arg_types.push(const_fold_type_expr(errors, &arg)?);
+                arg_types.push(const_fold_type_expr(ctx, &arg)?);
             }
 
-            let returns = const_fold_type_expr(errors, &children.next().unwrap())?;
+            let returns = const_fold_type_expr(ctx, &children.next().unwrap())?;
 
             Ok(TypeKind::Function {
                 args: arg_types,
@@ -709,7 +727,7 @@ fn const_fold_type_expr(errors: &mut ErrorCtx, parsed: &ParsedNode<'_>) -> Resul
             .into())
         }
         _ => {
-            errors.error(
+            ctx.errors.error(
                 parsed.loc,
                 "This is not a valid type expression(possible internal compiler error, because the parser should have a special state for parsing type expressions and that should not generate an invalid node that the const type expression thing can't handle)"
                     .to_string(),

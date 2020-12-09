@@ -9,6 +9,7 @@ lazy_static! {
 }
 
 #[derive(Clone, Copy)]
+#[repr(C)]
 pub struct Type(pub &'static TypeData);
 
 impl Hash for Type {
@@ -130,6 +131,7 @@ pub struct TypeData {
 impl Display for TypeKind {
     fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::Type => write!(fmt, "type"),
             Self::Empty => write!(fmt, "()"),
             Self::F64 => write!(fmt, "f64"),
             Self::F32 => write!(fmt, "f32"),
@@ -183,6 +185,7 @@ pub fn to_align(value: usize, align: usize) -> usize {
 
 #[derive(Hash, PartialEq, Eq)]
 pub enum TypeKind {
+    Type,
     Empty,
     F64,
     F32,
@@ -202,6 +205,7 @@ pub enum TypeKind {
 impl TypeKind {
     fn calculate_size_align(&self) -> (usize, usize) {
         match self {
+            Self::Type => (8, 8),
             Self::Empty => (0, 1),
             Self::F64 | Self::Reference(_) | Self::Function { .. } => (8, 8),
             Self::Buffer(_) => (16, 8),
@@ -233,7 +237,7 @@ impl TypeKind {
     /// pointers(i.e. pointers behind other pointers).
     fn get_pointers(&self, pointers: &mut Vec<(usize, PointerInType)>) {
         match self {
-            Self::Empty | Self::Int(_) | Self::F32 | Self::F64 | Self::Bool => {}
+            Self::Type | Self::Empty | Self::Int(_) | Self::F32 | Self::F64 | Self::Bool => {}
             Self::Reference(internal) => {
                 if internal.size() > 0 {
                     pointers.push((0, PointerInType::Pointer(*internal)));

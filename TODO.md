@@ -1,11 +1,12 @@
 # Version 0.0.2
 * [X] Struct types
+* [X] Type definitions
 
+* [ ] Figure out if there is a way to have fewer keywords.
 * [ ] BUG! There is a bug with variable shadowing
 * [ ] If the dynamic library in the target directory is already defined, and has the same "last edited" date as the source file, don't copy the file from the source.
 * [ ] Allow running the examples folder as tests
 * [ ] Make a setup file for projects!
-* [ ] Type definitions
 * [ ] Struct literals
 * [ ] Structs in c
 * [ ] Indexing operations
@@ -23,3 +24,5 @@
 * [ ] Change the type inference system to allow for more nuanced things, since right now it's cracking at the seems.
 
 # Version 0.0.3
+* [ ] Compile time functions
+* [ ] Functions for constructing types programmatically at compile time
