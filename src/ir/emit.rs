@@ -342,7 +342,7 @@ fn emit_node(ctx: &mut Context<'_>, node: &Node<'_>) -> Value {
         }
         NodeKind::Unary(UnaryOp::Reference) => {
             let to = ctx.registers.create(node.type_());
-            let from = emit_lvalue(ctx, &node.children().next().unwrap());
+            let from = emit_lvalue(ctx, true, &node.children().next().unwrap());
             match from {
                 LValue::Reference(from, member) => {
                     ctx.instr.push(Instr::Member {
@@ -372,7 +372,7 @@ fn emit_node(ctx: &mut Context<'_>, node: &Node<'_>) -> Value {
         NodeKind::Assign => {
             let mut children = node.children();
 
-            let to = emit_lvalue(ctx, &children.next().unwrap());
+            let to = emit_lvalue(ctx, false, &children.next().unwrap());
 
             let from_node = children.next().unwrap();
             let from = emit_node(ctx, &from_node);
@@ -435,12 +435,12 @@ fn emit_node(ctx: &mut Context<'_>, node: &Node<'_>) -> Value {
     }
 }
 
-fn emit_lvalue(ctx: &mut Context<'_>, node: &Node<'_>) -> LValue {
+fn emit_lvalue(ctx: &mut Context<'_>, can_reference_temporaries: bool, node: &Node<'_>) -> LValue {
     match node.kind() {
         NodeKind::Member(name) => {
             let mut children = node.children();
             let parent_node = children.next().unwrap();
-            let parent_value = emit_lvalue(ctx, &parent_node);
+            let parent_value = emit_lvalue(ctx, can_reference_temporaries, &parent_node);
 
             let member = parent_node
                 .type_()
@@ -485,10 +485,22 @@ fn emit_lvalue(ctx: &mut Context<'_>, node: &Node<'_>) -> LValue {
                 name_list: Vec::new(),
             },
         ),
-        kind => unreachable!(
-            "{:?} is not valid as an lvalue and should hence not exist",
-            kind
-        ),
+        kind => {
+            if can_reference_temporaries {
+                LValue::Value(
+                    emit_node(ctx, node),
+                    Member {
+                        offset: 0,
+                        name_list: Vec::new(),
+                    },
+                )
+            } else {
+                unreachable!(
+                    "{:?} is not an lvalue. This is just something I haven't implemented checking for in the compiler yet",
+                    kind
+                )
+            }
+        }
     }
 }
 

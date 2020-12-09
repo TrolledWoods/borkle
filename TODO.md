@@ -1,8 +1,9 @@
 # Version 0.0.2
 * [X] Struct types
 * [X] Type definitions
-* [ ] Polymorphism
+* [X] References of temporary values
 
+* [ ] Polymorphism
 * [ ] Figure out if there is a way to have fewer keywords.
 * [ ] BUG! There is a bug with variable shadowing
 * [ ] If the dynamic library in the target directory is already defined, and has the same "last edited" date as the source file, don't copy the file from the source.
