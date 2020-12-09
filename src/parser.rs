@@ -17,6 +17,7 @@ use context::{DataContext, ImperativeContext};
 use lexer::{Bracket, Keyword, Token, TokenKind};
 use std::convert::TryFrom;
 use std::path::PathBuf;
+use ustr::Ustr;
 
 pub type Ast = Tree<Node>;
 type NodeBuilder<'a> = bump_tree::NodeBuilder<'a, Node>;
@@ -95,34 +96,7 @@ pub fn process_string(
 fn constant(global: &mut DataContext<'_>) -> Result<(), ()> {
     let token = global.tokens.expect_next(global.errors)?;
     if let TokenKind::Identifier(name) = token.kind {
-        let polymorphic_parameters = if global.tokens.try_consume(&TokenKind::Open(Bracket::Square))
-        {
-            let mut args = Vec::new();
-            loop {
-                if global
-                    .tokens
-                    .try_consume(&TokenKind::Close(Bracket::Square))
-                {
-                    break;
-                }
-
-                let (loc, name) = global.tokens.expect_identifier(global.errors)?;
-                args.push((loc, name));
-
-                let token = global.tokens.expect_next(global.errors)?;
-                match token.kind {
-                    TokenKind::Close(Bracket::Square) => break,
-                    TokenKind::Comma => {}
-                    _ => {
-                        global.error(token.loc, "Expected either ',' or ']'".to_string());
-                        return Err(());
-                    }
-                }
-            }
-            Some(args)
-        } else {
-            None
-        };
+        let polymorphic_parameters = maybe_parse_polymorphic_arguments(global)?;
 
         if global.tokens.try_consume_operator_string("=").is_none() {
             global.error(token.loc, "Expected '=' after const".to_string());
@@ -137,11 +111,22 @@ fn constant(global: &mut DataContext<'_>) -> Result<(), ()> {
         let locals = imperative.locals;
         ast.set_root();
 
-        global
-            .program
-            .insert(global.errors, token.loc, name, dependencies, true, |id| {
-                Task::Type(id, locals, ast)
-            })?;
+        if polymorphic_parameters.is_empty() {
+            let id = global
+                .program
+                .define_member(global.errors, token.loc, name)?;
+            global
+                .program
+                .queue_task(id, dependencies, Task::Type(id, locals, ast));
+        } else {
+            // global.program.insert_polymorphic(
+            //     global.errors,
+            //     token.loc,
+            //     name,
+            //     dependencies,
+            //     true,
+            // )?;
+        }
 
         global
             .tokens
@@ -790,4 +775,34 @@ fn function_declaration(
     node.validate();
 
     Ok(())
+}
+
+fn maybe_parse_polymorphic_arguments(
+    global: &mut DataContext<'_>,
+) -> Result<Vec<(Location, Ustr)>, ()> {
+    let mut args = Vec::new();
+    if global.tokens.try_consume(&TokenKind::Open(Bracket::Square)) {
+        loop {
+            if global
+                .tokens
+                .try_consume(&TokenKind::Close(Bracket::Square))
+            {
+                break;
+            }
+
+            let (loc, name) = global.tokens.expect_identifier(global.errors)?;
+            args.push((loc, name));
+
+            let token = global.tokens.expect_next(global.errors)?;
+            match token.kind {
+                TokenKind::Close(Bracket::Square) => break,
+                TokenKind::Comma => {}
+                _ => {
+                    global.error(token.loc, "Expected either ',' or ']'".to_string());
+                    return Err(());
+                }
+            }
+        }
+    }
+    Ok(args)
 }

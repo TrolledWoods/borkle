@@ -6,7 +6,7 @@ use crate::location::Location;
 use crate::operators::{BinaryOp, UnaryOp};
 use crate::parser::{self, ast::NodeKind as ParserNodeKind};
 use crate::program::constant::ConstantRef;
-use crate::program::{MemberId, Program};
+use crate::program::Program;
 use crate::types::{IntTypeKind, Type, TypeData, TypeKind};
 use ast::{Node, NodeKind};
 
@@ -614,15 +614,16 @@ fn type_ast(
                 return Err(());
             }
         }
-        ParserNodeKind::Global(id) => {
-            type_ = ctx.program.get_type_of_member(id).expect("The type of a member should have been made a dependency in the parser, so it should be defined by the time we get here, no matter what.");
-            node.set(Node::new(
-                parsed.loc,
-                NodeKind::Global(MemberId::from_ustr(id)),
-                type_,
-            ));
+        ParserNodeKind::Global(name) => {
+            let id = ctx.program.get_member_id(name).unwrap();
+            type_ = ctx.program.get_type_of_member(id);
+            node.set(Node::new(parsed.loc, NodeKind::Global(id), type_));
             node.validate();
-            ctx.deps.add(parsed.loc, id, DependencyKind::Value);
+            ctx.deps.add(
+                parsed.loc,
+                ctx.program.member_name(id),
+                DependencyKind::Value,
+            );
         }
         ParserNodeKind::Local(local) => {
             type_ = ctx.locals.get(local).type_.unwrap();
@@ -680,8 +681,9 @@ fn type_ast(
 
 fn const_fold_type_expr(ctx: &mut Context<'_>, parsed: &ParsedNode<'_>) -> Result<Type, ()> {
     match parsed.kind {
-        ParserNodeKind::Global(id) => {
-            let ptr = ctx.program.get_value_of_member(id).unwrap().as_ptr();
+        ParserNodeKind::Global(name) => {
+            let id = ctx.program.get_member_id(name).unwrap();
+            let ptr = ctx.program.get_value_of_member(id).as_ptr();
             Ok(unsafe { *ptr.cast::<Type>() })
         }
         ParserNodeKind::LiteralType(type_) => Ok(type_),

@@ -157,19 +157,16 @@ fn worker(program: &Arc<Program>, work: &Arc<WorkPile>) -> (ThreadContext, Error
                             let type_ = root.type_();
 
                             program.logger.log(format_args!(
-                                "type of '{}' = '{:?}'",
-                                member_id.to_ustr(),
+                                "type '{}' {:?}",
+                                program.member_name(member_id),
                                 type_
                             ));
 
-                            program.set_type_of_member(member_id.to_ustr(), type_);
-                            let _ = program.insert(
-                                &mut errors,
-                                root.loc,
-                                member_id.to_ustr(),
+                            program.set_type_of_member(member_id, type_);
+                            program.queue_task(
+                                member_id,
                                 dependencies,
-                                false,
-                                |id| Task::Value(id, locals, ast),
+                                Task::Value(member_id, locals, ast),
                             );
                         }
                         Err(()) => {
@@ -186,12 +183,12 @@ fn worker(program: &Arc<Program>, work: &Arc<WorkPile>) -> (ThreadContext, Error
                     let result = crate::interp::interp(program, &mut stack, &routine);
 
                     program.logger.log(format_args!(
-                        "value of '{}' = {}",
-                        member_id.to_ustr(),
+                        "value '{}' {}",
+                        program.member_name(member_id),
                         unsafe { *(result as *const u64) }
                     ));
 
-                    program.set_value_of_member(member_id.to_ustr(), result);
+                    program.set_value_of_member(member_id, result);
                 }
             }
 

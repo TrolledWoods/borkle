@@ -1,7 +1,7 @@
 use crate::location::Location;
+use std::fmt;
 use ustr::{Ustr, UstrMap};
 
-#[derive(Debug)]
 pub struct DependencyList {
     pub values: UstrMap<Location>,
     pub types: UstrMap<Location>,
@@ -27,4 +27,18 @@ impl DependencyList {
 pub enum DependencyKind {
     Type,
     Value,
+}
+
+impl fmt::Debug for DependencyList {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "types: ")?;
+        for type_ in self.types.keys() {
+            write!(f, "{}, ", type_)?;
+        }
+        write!(f, " values: ")?;
+        for value in self.values.keys() {
+            write!(f, "{}, ", value)?;
+        }
+        Ok(())
+    }
 }

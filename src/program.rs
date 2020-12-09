@@ -10,6 +10,7 @@ use constant::{Constant, ConstantRef};
 use parking_lot::{Mutex, RwLock};
 use std::alloc;
 use std::collections::{HashMap, HashSet};
+use std::fmt;
 use std::path::{Path, PathBuf};
 use std::ptr::NonNull;
 use std::sync::atomic::{AtomicI32, Ordering};
@@ -20,18 +21,12 @@ pub mod constant;
 pub mod ffi;
 pub mod thread_pool;
 
-#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
-pub struct MemberId(Ustr);
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+pub struct MemberId(usize);
 
-impl MemberId {
-    // Temporary function, will be removed once scopes are added.
-    pub const fn from_ustr(ustr: Ustr) -> Self {
-        Self(ustr)
-    }
-
-    // Temporary function, will be removed once scopes are added.
-    pub const fn to_ustr(self) -> Ustr {
-        self.0
+impl fmt::Debug for MemberId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.0)
     }
 }
 
@@ -47,7 +42,9 @@ pub struct Program {
     // everything is just in the same scope.
     // FIXME: Fix up the terminology here, 'Constant' vs 'StaticData' maybe? Instaed of
     // 'const_table', 'member'?, 'constant_data'.
-    const_table: RwLock<UstrMap<Member>>,
+    const_table: RwLock<HashMap<MemberId, Member>>,
+    scope: RwLock<UstrMap<MemberId>>,
+
     pub constant_data: Mutex<Vec<Constant>>,
 
     pub libraries: Mutex<ffi::Libraries>,
@@ -79,7 +76,10 @@ impl Program {
             external_symbols: Mutex::default(),
 
             logger,
+
             const_table: RwLock::default(),
+            scope: RwLock::default(),
+
             extern_fn_calling_conventions: RwLock::default(),
             calling_conventions_alloc: Mutex::default(),
             functions: Mutex::default(),
@@ -93,20 +93,20 @@ impl Program {
 
     pub fn check_for_completion(&self, errors: &mut ErrorCtx) {
         let const_table = self.const_table.read();
-        for (name, constant) in const_table.iter() {
-            for &(loc, _) in constant.type_.dependants() {
-                if constant.is_defined {
-                    errors.error(loc, format!("'{}' can't be evaluated", name));
+        for member in const_table.values() {
+            for &(loc, _) in member.type_.dependants() {
+                if member.is_defined {
+                    errors.error(loc, format!("'{}' can't be evaluated", member.name));
                 } else {
-                    errors.error(loc, format!("'{}' is not defined", name));
+                    errors.error(loc, format!("'{}' is not defined", member.name));
                 }
             }
 
-            for &(loc, _) in constant.value.dependants() {
-                if constant.is_defined {
-                    errors.error(loc, format!("'{}' can't be evaluated", name));
+            for &(loc, _) in member.value.dependants() {
+                if member.is_defined {
+                    errors.error(loc, format!("'{}' can't be evaluated", member.name));
                 } else {
-                    errors.error(loc, format!("'{}' is not defined", name));
+                    errors.error(loc, format!("'{}' is not defined", member.name));
                 }
             }
         }
@@ -135,9 +135,10 @@ impl Program {
 
     pub fn get_entry_point(&self) -> Option<*const u8> {
         let const_table = self.const_table.read();
-        let element = const_table.get(&"main".into())?;
+        let member_id = self.get_member_id("main".into())?;
+        let member = const_table.get(&member_id).unwrap();
 
-        let type_ = element.type_.to_option()?;
+        let type_ = member.type_.to_option()?;
 
         if let TypeKind::Function {
             args,
@@ -146,7 +147,7 @@ impl Program {
         } = type_.kind()
         {
             if args.is_empty() && matches!(returns.kind(), TypeKind::Int(IntTypeKind::U64)) {
-                Some(unsafe { *element.value.to_option()?.as_ptr().cast::<*const u8>() })
+                Some(unsafe { *member.value.to_option()?.as_ptr().cast::<*const u8>() })
             } else {
                 None
             }
@@ -157,7 +158,7 @@ impl Program {
 
     pub fn get_constant_as_value(&self, id: MemberId) -> crate::ir::Value {
         let const_table = self.const_table.read();
-        let element = const_table.get(&id.0).unwrap();
+        let element = const_table.get(&id).unwrap();
 
         let type_ = *element.type_.to_option().unwrap();
         let value_ptr = *element.value.to_option().unwrap();
@@ -165,14 +166,23 @@ impl Program {
         crate::ir::Value::Global(value_ptr, type_)
     }
 
-    pub fn get_value_of_member(&self, id: Ustr) -> Option<ConstantRef> {
-        let const_table = self.const_table.read();
-        const_table.get(&id).unwrap().value.to_option().copied()
+    pub fn get_member_id(&self, name: Ustr) -> Option<MemberId> {
+        self.scope.read().get(&name).copied()
     }
 
-    pub fn get_type_of_member(&self, id: Ustr) -> Option<Type> {
+    pub fn member_name(&self, id: MemberId) -> Ustr {
         let const_table = self.const_table.read();
-        const_table.get(&id).unwrap().type_.to_option().copied()
+        const_table.get(&id).unwrap().name
+    }
+
+    pub fn get_value_of_member(&self, id: MemberId) -> ConstantRef {
+        let const_table = self.const_table.read();
+        *const_table.get(&id).unwrap().value.unwrap()
+    }
+
+    pub fn get_type_of_member(&self, id: MemberId) -> Type {
+        let const_table = self.const_table.read();
+        *const_table.get(&id).unwrap().type_.unwrap()
     }
 
     pub fn load_extern_library(
@@ -263,7 +273,7 @@ impl Program {
         const_ref
     }
 
-    pub fn set_value_of_member(&self, id: Ustr, data: *const u8) {
+    pub fn set_value_of_member(&self, id: MemberId, data: *const u8) {
         let mut const_table = self.const_table.write();
         let entry = const_table.get_mut(&id).unwrap();
 
@@ -281,7 +291,7 @@ impl Program {
         }
     }
 
-    pub fn set_type_of_member(&self, id: Ustr, type_: Type) {
+    pub fn set_type_of_member(&self, id: MemberId, type_: Type) {
         let mut const_table = self.const_table.write();
         let type_entry = &mut const_table.get_mut(&id).unwrap().type_;
         let old = std::mem::replace(type_entry, DependableOption::Some(type_));
@@ -296,13 +306,19 @@ impl Program {
         }
     }
 
-    fn resolve_dependency(&self, id: Ustr) {
+    fn resolve_dependency(&self, id: MemberId) {
+        let name = self.member_name(id);
         let const_table = self.const_table.read();
         let dependencies_left = const_table
             .get(&id)
             .unwrap()
             .dependencies_left
             .fetch_sub(1, Ordering::SeqCst);
+
+        self.logger.log(format_args!(
+            "resolved dependency of '{}', had {} deps",
+            name, dependencies_left,
+        ));
 
         // This is not a data race. The reason why is a little complicated.
         // So, when dependencies are added, they are added first, and only afterwards
@@ -335,86 +351,94 @@ impl Program {
         }
     }
 
-    /// Inserts an element, such that after all the dependencies are resolved
-    /// the task will be run.
-    ///
-    /// FIXME: The 'impl' here will increase code size; we should break this into 2 functions, one
-    /// that just constructs the task and another that actually does the inserting.
-    /// FIXME: Once we separate program and tasks, we probably want to move this into the task
-    /// system, and not have it here. But that might not be desirable.
-    pub fn insert(
+    pub fn define_member(
         &self,
         errors: &mut ErrorCtx,
         loc: Location,
         name: Ustr,
-        deps: DependencyList,
-        expect_it_is_new_thing: bool,
-        task: impl FnOnce(MemberId) -> Task,
-    ) -> Result<(), ()> {
+    ) -> Result<MemberId, ()> {
+        let mut scope = self.scope.write();
         let mut const_table = self.const_table.write();
 
-        let mut num_deps = 0;
-        if const_table.contains_key(&name) {
-            let member = const_table.get_mut(&name).unwrap();
-            if member.is_defined && expect_it_is_new_thing {
+        if let Some(&id) = scope.get(&name) {
+            let member = const_table.get_mut(&id).unwrap();
+            if member.is_defined {
                 errors.error(loc, format!("'{}' is already defined", name));
                 return Err(());
             }
+            // Here it was already depended upon, so it had a non-defined version, so we just flag
+            // it to be defined now.
             member.is_defined = true;
+            Ok(id)
         } else {
-            // There is some subtelty here that is quite important;
-            // we do not insert the task yet. That is because otherwise,
-            // the task might be run before we have inserted all the necessary
-            // dependencies, and that would mean that the task would run
-            // without all the dependencies resolved.
-            const_table.insert(name, Member::new(true));
+            let id = MemberId(const_table.len());
+            scope.insert(name, id);
+            const_table.insert(id, Member::new(name, true));
+            Ok(id)
         }
+    }
 
-        assert_eq!(
+    /// FIXME: Once we separate program and tasks, we probably want to move this into the task
+    /// system, and not have it here. But that might not be desirable.
+    pub fn queue_task(&self, id: MemberId, deps: DependencyList, task: Task) {
+        let name = self.member_name(id);
+
+        let mut scope = self.scope.write();
+        let mut const_table = self.const_table.write();
+        let mut num_deps = 0;
+
+        self.logger
+            .log(format_args!("queued '{}' {:?}", name, deps));
+
+        // We want to make sure that there are no left over dependencies from the previous task
+        // associated with this member.
+        debug_assert_eq!(
             const_table
-                .get(&name)
+                .get(&id)
                 .unwrap()
                 .dependencies_left
                 .load(Ordering::SeqCst),
             0
         );
 
-        for (dependency, loc) in deps.values {
-            if let Some(member) = const_table.get_mut(&dependency) {
-                if member.value.add_dependant(loc, name) {
+        for (dep_name, loc) in deps.types {
+            if let Some(&dep_id) = scope.get(&dep_name) {
+                let member = const_table.get_mut(&dep_id).unwrap();
+                if member.type_.add_dependant(loc, id) {
                     num_deps += 1;
                 }
             } else {
                 num_deps += 1;
-                self.logger.log(format_args!(
-                    "Temporary member '{}' added for dependency resolution",
-                    dependency
-                ));
-                let mut member = Member::new(false);
-                member.value.add_dependant(loc, name);
-                const_table.insert(dependency, member);
+                self.logger.log(format_args!("temporary: '{}'", dep_name,));
+                let mut member = Member::new(dep_name, false);
+                member.type_.add_dependant(loc, id);
+
+                let id = MemberId(const_table.len());
+                scope.insert(dep_name, id);
+                const_table.insert(id, member);
             }
         }
 
-        for (dependency, loc) in deps.types {
-            if let Some(member) = const_table.get_mut(&dependency) {
-                if member.value.add_dependant(loc, name) {
+        for (dep_name, loc) in deps.values {
+            if let Some(dep_id) = scope.get(&dep_name) {
+                let member = const_table.get_mut(&dep_id).unwrap();
+                if member.value.add_dependant(loc, id) {
                     num_deps += 1;
                 }
             } else {
                 num_deps += 1;
-                self.logger.log(format_args!(
-                    "Temporary member '{}' added for dependency resolution",
-                    dependency
-                ));
-                let mut member = Member::new(false);
-                member.type_.add_dependant(loc, name);
-                const_table.insert(dependency, member);
+                self.logger.log(format_args!("temporary: '{}'", dep_name,));
+                let mut member = Member::new(dep_name, false);
+                member.value.add_dependant(loc, id);
+
+                let id = MemberId(const_table.len());
+                scope.insert(dep_name, id);
+                const_table.insert(id, member);
             }
         }
 
         let num_dependencies = const_table
-            .get_mut(&name)
+            .get_mut(&id)
             .unwrap()
             .dependencies_left
             .get_mut();
@@ -424,19 +448,18 @@ impl Program {
         if *num_dependencies == 0 {
             // We are already done! We can emit the task without
             // doing dependency stuff
-            self.work.send(task(MemberId(name)));
+            self.work.send(task);
         } else {
             // We are not done with our dependencies. We have to wait a bit,
             // so we have to put the task into the lock.
-            let entry = const_table.get_mut(&name).unwrap();
-            entry.task = Some(task(MemberId(name)));
+            let entry = const_table.get_mut(&id).unwrap();
+            entry.task = Some(task);
         }
-
-        Ok(())
     }
 }
 
 struct Member {
+    name: Ustr,
     type_: DependableOption<Type>,
     value: DependableOption<ConstantRef>,
     dependencies_left: AtomicI32,
@@ -448,8 +471,9 @@ unsafe impl Send for Member {}
 unsafe impl Sync for Member {}
 
 impl Member {
-    const fn new(is_defined: bool) -> Self {
+    const fn new(name: Ustr, is_defined: bool) -> Self {
         Self {
+            name,
             type_: DependableOption::None(Vec::new()),
             value: DependableOption::None(Vec::new()),
             dependencies_left: AtomicI32::new(0),
@@ -461,11 +485,11 @@ impl Member {
 
 pub enum DependableOption<T> {
     Some(T),
-    None(Vec<(Location, Ustr)>),
+    None(Vec<(Location, MemberId)>),
 }
 
 impl<T> DependableOption<T> {
-    fn add_dependant(&mut self, loc: Location, dependant: Ustr) -> bool {
+    fn add_dependant(&mut self, loc: Location, dependant: MemberId) -> bool {
         match self {
             Self::Some(_) => false,
             Self::None(dependants) => {
@@ -475,7 +499,7 @@ impl<T> DependableOption<T> {
         }
     }
 
-    fn dependants(&self) -> &[(Location, Ustr)] {
+    fn dependants(&self) -> &[(Location, MemberId)] {
         match self {
             Self::Some(_) => &[],
             Self::None(dependants) => dependants,
@@ -494,9 +518,18 @@ impl<T> DependableOption<T> {
     }
 }
 
-#[derive(Debug)]
 pub enum Task {
     Parse(PathBuf),
     Type(MemberId, crate::locals::LocalVariables, crate::parser::Ast),
     Value(MemberId, crate::locals::LocalVariables, crate::typer::Ast),
+}
+
+impl fmt::Debug for Task {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Task::Parse(buf) => write!(f, "parse({:?})", buf),
+            Task::Type(id, _, _) => write!(f, "type({:?})", id),
+            Task::Value(id, _, _) => write!(f, "value({:?})", id),
+        }
+    }
 }
