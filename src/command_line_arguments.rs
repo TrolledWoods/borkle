@@ -154,9 +154,15 @@ create_arguments!(
             "The folder to put output files into",
 
         lib_path: PathBuf = {
-            let mut path = std::env::current_exe().expect("Failed to load the path of the executable");
-            path.push("library");
+            let mut path = PathBuf::new();
+            // This is a temporary path to help with development, so it's not necessary to copy
+            // around the path too much. Eventually it will completely removed and replaced with
+            // a path relative to the executable
+            path.push("C:/dev/borkle/library");
             path
+            // let mut path = std::env::current_exe().expect("Failed to load the path of the executable");
+            // path.push("library");
+            // path
         };
             "The folder where global libraries are stored",
 

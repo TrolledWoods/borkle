@@ -31,7 +31,7 @@ fn main() {
         let output_folder: std::path::PathBuf = options.output.as_str().into();
 
         let mut thread_pool = program::thread_pool::ThreadPool::new(
-            options,
+            Box::new(options),
             logger,
             std::iter::once(program::Task::Parse(file)),
         );

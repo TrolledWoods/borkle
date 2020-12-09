@@ -27,8 +27,9 @@
 * [X] Add floating point literals and types
 * [X] BUG! Pointer to members do not seem to work properly
 * [X] Make paths(for both import and extern) relative
+* [X] Global libraries
 
-* [ ] Global libraries
+* [ ] Call c compiler automatically when running release
 * [ ] Stress test the language!
 
 # Version 0.0.2

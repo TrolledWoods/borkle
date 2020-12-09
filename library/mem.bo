@@ -1,0 +1,11 @@
+const alloc = fn (len: usize) -> [] u8 {
+    let buf = uninit : [] u8;
+    buf.ptr = (extern "target/library" "alloc" : extern fn (usize) -> &u8)(len);
+    buf.len = len;
+    buf
+};
+
+const dealloc = fn (buf: [] u8) {
+    (extern "target/library" "dealloc" : extern fn (&u8, usize))(buf.ptr, buf.len);
+};
+

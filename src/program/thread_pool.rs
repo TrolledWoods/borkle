@@ -37,7 +37,11 @@ pub struct ThreadPool {
 }
 
 impl ThreadPool {
-    pub fn new(options: Arguments, logger: Logger, tasks: impl IntoIterator<Item = Task>) -> Self {
+    pub fn new(
+        options: Box<Arguments>,
+        logger: Logger,
+        tasks: impl IntoIterator<Item = Task>,
+    ) -> Self {
         let work = Arc::new(WorkPile {
             queue: Mutex::new(tasks.into_iter().collect()),
             // Set this to one to begin with so that no thread ever stops working,
@@ -81,7 +85,7 @@ impl ThreadPool {
         c_headers.push_str("#include <stdio.h>\n");
         c_headers.push('\n');
 
-        if self.program.emit_c_code {
+        if self.program.arguments.release {
             crate::c_backend::append_c_type_headers(&mut c_headers);
         }
         c_headers.push_str(&thread_context.c_headers);

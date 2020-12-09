@@ -1,0 +1,2 @@
+const start_timer = extern "target/library" "start_timer" : extern fn() -> &u8;
+const log_timer = extern "target/library" "end_timer" : extern fn(&u8) -> u64;

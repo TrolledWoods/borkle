@@ -50,6 +50,7 @@ pub enum Keyword {
     Uninit,
     Bool,
     Import,
+    Library,
 }
 
 pub fn process_string(errors: &mut ErrorCtx, file: Ustr, string: &str) -> Result<TokenStream, ()> {
@@ -118,6 +119,7 @@ pub fn process_string(errors: &mut ErrorCtx, file: Ustr, string: &str) -> Result
                         "bool" => TokenKind::Keyword(Keyword::Bool),
                         "while" => TokenKind::Keyword(Keyword::While),
                         "import" => TokenKind::Keyword(Keyword::Import),
+                        "library" => TokenKind::Keyword(Keyword::Library),
 
                         "f32" => TokenKind::Type(Type::new(TypeKind::F32)),
                         "f64" => TokenKind::Type(Type::new(TypeKind::F64)),

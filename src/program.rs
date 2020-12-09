@@ -1,4 +1,4 @@
-use crate::command_line_arguments;
+use crate::command_line_arguments::Arguments;
 use crate::dependencies::DependencyList;
 use crate::errors::ErrorCtx;
 use crate::ir::Routine;
@@ -40,7 +40,7 @@ impl MemberId {
 /// We deal with constants(and possibly in the future globals too),
 /// e.g. data scopes, and the dependency system.
 pub struct Program {
-    pub emit_c_code: bool,
+    pub arguments: Box<Arguments>,
 
     pub logger: Logger,
     // FIXME: We will have scopes eventually, but for now
@@ -72,13 +72,9 @@ unsafe impl Send for Program {}
 unsafe impl Sync for Program {}
 
 impl Program {
-    pub fn new(
-        logger: Logger,
-        work: WorkSender,
-        options: command_line_arguments::Arguments,
-    ) -> Self {
+    pub fn new(logger: Logger, work: WorkSender, options: Box<Arguments>) -> Self {
         Self {
-            emit_c_code: options.release,
+            arguments: options,
 
             external_symbols: Mutex::default(),
 

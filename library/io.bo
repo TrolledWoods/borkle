@@ -1,0 +1,40 @@
+const print = fn (buffer: [] u8) -> u64 {
+    (extern "target/library" "put_string" : extern fn(&u8, usize) -> u64)
+        (buffer.ptr, buffer.len)
+};
+
+const print_usize = fn (num: usize)  print_u64(bit_cast num);
+const print_isize = fn (num: isize)  print_i64(bit_cast num);
+
+const print_i64 = extern "target/library" "print_i64" : extern fn (i64);
+const print_u64 = extern "target/library" "print_u64" : extern fn (u64);
+
+const read_input = fn () -> [] u8 {
+    let buf = uninit : [] u8;
+    (extern "target/library" "read_input" : extern fn (&&u8, &usize))(&buf.ptr, &buf.len);
+    buf
+};
+
+const read_file = fn (file_name: [] u8) -> [] u8 {
+    let buf = uninit : [] u8;
+    (extern "target/library" "read_file" : extern fn (&u8, usize, &&u8, &usize))
+        (file_name.ptr, file_name.len, &buf.ptr, &buf.len);
+    buf
+};
+
+const ZERO = *"0".ptr;
+
+const string_to_int = fn(string: [] u8) -> u64 {
+    let sum = 0 : u64;
+    let i = 0 : usize;
+    while i < string.len {
+        let diff_64 = 0 : u64;
+        let diff = *(string.ptr + i) - ZERO;
+        *(bit_cast &diff_64 : &u8) = diff;
+
+        sum = (10 * sum) + diff_64;
+        i = i + 1;
+    };
+
+    sum
+};

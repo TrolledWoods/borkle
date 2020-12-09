@@ -202,7 +202,7 @@ fn emit_node(ctx: &mut Context<'_>, node: &Node<'_>) -> Value {
                 result,
             };
             let id = sub_ctx.program.insert_function(routine);
-            if sub_ctx.program.emit_c_code {
+            if sub_ctx.program.arguments.release {
                 if let TypeKind::Function {
                     args,
                     returns,

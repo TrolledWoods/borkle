@@ -45,6 +45,24 @@ pub fn process_string(
     while let Some(token) = context.tokens.next() {
         match token.kind {
             TokenKind::Keyword(Keyword::Const) => constant(&mut context)?,
+            TokenKind::Keyword(Keyword::Library) => {
+                let name = context.tokens.expect_next(context.errors)?;
+                if let TokenKind::Literal(Literal::String(name)) = name.kind {
+                    context
+                        .tokens
+                        .expect_next_is(context.errors, &TokenKind::SemiColon)?;
+
+                    let mut path = context.program.arguments.lib_path.to_path_buf();
+                    path.push(&name);
+                    program.add_file(path);
+                } else {
+                    context.error(
+                        name.loc,
+                        "Expected string literal for file name".to_string(),
+                    );
+                    return Err(());
+                }
+            }
             TokenKind::Keyword(Keyword::Import) => {
                 let name = context.tokens.expect_next(context.errors)?;
                 if let TokenKind::Literal(Literal::String(name)) = name.kind {
