@@ -48,7 +48,7 @@ impl Type {
         let (size, align) = kind.calculate_size_align();
 
         let mut pointers = Vec::new();
-        kind.get_pointers(0, &mut pointers);
+        kind.get_pointers(&mut pointers);
 
         let data = TypeData {
             size,
@@ -89,19 +89,14 @@ impl Type {
     pub fn member(self, member_name: Ustr) -> Option<Member> {
         match self.kind() {
             TypeKind::Struct(members) => {
-                let mut byte_offset = 0;
-                for &(name, type_) in members {
-                    byte_offset = to_align(byte_offset, type_.align());
-
+                for (name, offset, type_) in struct_field_offsets(members) {
                     if name == member_name {
                         return Some(Member {
                             parent_type: self,
-                            byte_offset,
+                            byte_offset: offset,
                             type_,
                         });
                     }
-
-                    byte_offset += type_.size();
                 }
 
                 None
@@ -236,27 +231,25 @@ impl TypeKind {
 
     /// Appends all the pointers in this type to a vector, with the offset offsetted by the offset. Does not include indirect
     /// pointers(i.e. pointers behind other pointers).
-    fn get_pointers(&self, offset: usize, pointers: &mut Vec<(usize, PointerInType)>) {
+    fn get_pointers(&self, pointers: &mut Vec<(usize, PointerInType)>) {
         match self {
             Self::Empty | Self::Int(_) | Self::F32 | Self::F64 | Self::Bool => {}
             Self::Reference(internal) => {
                 if internal.size() > 0 {
-                    pointers.push((offset, PointerInType::Pointer(*internal)));
+                    pointers.push((0, PointerInType::Pointer(*internal)));
                 }
             }
             Self::Buffer(internal) => {
                 if internal.size() > 0 {
-                    pointers.push((offset, PointerInType::Buffer(*internal)));
+                    pointers.push((0, PointerInType::Buffer(*internal)));
                 }
             }
             Self::Array(internal, len) => {
                 let element_offset = to_align(internal.size(), internal.align());
                 for i in 0..*len {
                     for (internal_offset, internal_type) in internal.pointers() {
-                        pointers.push((
-                            offset + i * element_offset + internal_offset,
-                            internal_type.clone(),
-                        ));
+                        pointers
+                            .push((i * element_offset + internal_offset, internal_type.clone()));
                     }
                 }
             }
@@ -266,7 +259,7 @@ impl TypeKind {
                 is_extern,
             } => {
                 pointers.push((
-                    offset,
+                    0,
                     PointerInType::Function {
                         args: args.clone(),
                         returns: *returns,
@@ -274,9 +267,26 @@ impl TypeKind {
                     },
                 ));
             }
-            Self::Struct { .. } => todo!(),
+            Self::Struct(fields) => {
+                for (_name, offset, field_type) in struct_field_offsets(fields) {
+                    for &(field_pointer_offset, ref field_pointer_type) in field_type.pointers() {
+                        pointers.push((offset + field_pointer_offset, field_pointer_type.clone()));
+                    }
+                }
+            }
         }
     }
+}
+
+pub fn struct_field_offsets(
+    fields: &[(Ustr, Type)],
+) -> impl Iterator<Item = (Ustr, usize, Type)> + '_ {
+    fields.iter().scan(0, |offset, &(name, type_)| {
+        *offset = to_align(*offset, type_.align());
+        let field_offset = *offset;
+        *offset += type_.size();
+        Some((name, field_offset, type_))
+    })
 }
 
 #[derive(Clone, Hash, Eq, PartialEq)]

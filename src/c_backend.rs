@@ -478,7 +478,13 @@ pub fn append_c_type_headers(output: &mut String) {
 
                 name_is_needed = false;
             }
-            TypeKind::Struct(_) => todo!(),
+            TypeKind::Struct(fields) => {
+                output.push_str("struct {\n");
+                for (name, _, type_) in crate::types::struct_field_offsets(fields) {
+                    write!(output, "    {} {};\n", c_format_type(type_), name).unwrap();
+                }
+                output.push('}');
+            }
         }
 
         if name_is_needed {
