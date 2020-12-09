@@ -25,18 +25,13 @@ fn main() {
     let args: Vec<_> = std::env::args().skip(1).collect();
     let borrowed_args: Vec<&str> = args.iter().map(|v| &**v).collect();
     if let Some(options) = command_line_arguments::Arguments::from_args(&borrowed_args) {
-        let num_threads = options.num_threads;
-        let file = (&options.file).into();
-        let output_c = options.release;
-        let output_folder: std::path::PathBuf = options.output.as_str().into();
-
         let mut thread_pool = program::thread_pool::ThreadPool::new(
-            Box::new(options),
+            Box::new(options.clone()),
             logger,
-            std::iter::once(program::Task::Parse(file)),
+            std::iter::once(program::Task::Parse(options.file)),
         );
 
-        for _ in 1..num_threads {
+        for _ in 1..options.num_threads {
             thread_pool.spawn_thread();
         }
 
@@ -46,23 +41,72 @@ fn main() {
 
         errors.print();
 
-        // FIXME: Make a proper error message for when the entry point doesn't exist.
-        let entry_point = program
-            .get_entry_point()
-            .expect("Entry point 'main' of program has to exist and be of type 'fn () -> u64'");
+        if !options.check {
+            // FIXME: Make a proper error message for when the entry point doesn't exist.
+            let entry_point = program
+                .get_entry_point()
+                .expect("Entry point 'main' of program has to exist and be of type 'fn () -> u64'");
 
-        if output_c {
-            let mut c_file = output_folder;
-            c_file.push("output.c");
-            c_backend::entry_point(&mut c_output, entry_point);
-            std::fs::write(&c_file, c_output).unwrap();
-        } else {
-            let mut stack = interp::Stack::new(1 << 16);
-            let result = interp::interp(&program, &mut stack, unsafe {
-                &*entry_point.cast::<ir::Routine>()
-            });
+            if options.release {
+                let mut c_file = options.output.clone();
+                c_file.push("output.c");
 
-            println!("[main returned: {}]", unsafe { *(result as *const u64) });
+                let mut exe_file = options.output.clone();
+                exe_file.push("output");
+                exe_file.set_extension(std::env::consts::EXE_EXTENSION);
+
+                c_backend::entry_point(&mut c_output, entry_point);
+                std::fs::write(&c_file, c_output).unwrap();
+
+                let mut command = std::process::Command::new(&options.c_compiler);
+                command.arg(&c_file);
+                command.arg("-o");
+                command.arg(&exe_file);
+                command.arg("-O3");
+                command.arg("-Wno-everything");
+
+                for lib in program.libraries.lock().iter() {
+                    let from: &std::path::Path = lib.as_str().as_ref();
+                    let mut from_dll = from.to_path_buf();
+                    from_dll.set_extension(std::env::consts::DLL_EXTENSION);
+                    let mut to = options.output.clone();
+                    to.push(from.file_name().expect(
+                        "TODO: Make proper error message for lib path not having a file name",
+                    ));
+                    to.set_extension(std::env::consts::DLL_EXTENSION);
+
+                    if from_dll != to {
+                        println!("Copying library file {:?} to {:?}", from_dll, to);
+                        std::fs::copy(&from_dll, &to).expect(
+                            "TODO: Make an error message for failing to copy a dynamic library",
+                        );
+                    }
+
+                    command.arg("-l");
+                    command.arg(lib.as_str());
+                }
+
+                command.stdout(std::process::Stdio::inherit());
+                command.stderr(std::process::Stdio::inherit());
+
+                println!("Compilation command: {:?}", command);
+
+                match command.output() {
+                    Ok(output) => {
+                        use std::io::Write;
+                        std::io::stdout().write_all(&output.stdout).unwrap();
+                        std::io::stderr().write_all(&output.stderr).unwrap();
+                    }
+                    Err(err) => println!("Failed to run c compiler: {:?}", err),
+                }
+            } else {
+                let mut stack = interp::Stack::new(1 << 16);
+                let result = interp::interp(&program, &mut stack, unsafe {
+                    &*entry_point.cast::<ir::Routine>()
+                });
+
+                println!("[main returned: {}]", unsafe { *(result as *const u64) });
+            }
         }
 
         let elapsed = time.elapsed();

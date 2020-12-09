@@ -28,11 +28,13 @@
 * [X] BUG! Pointer to members do not seem to work properly
 * [X] Make paths(for both import and extern) relative
 * [X] Global libraries
+* [X] Call c compiler automatically when running release
+* [X] Add compiler flag to only check the code, not run it.
 
-* [ ] Call c compiler automatically when running release
 * [ ] Stress test the language!
 
 # Version 0.0.2
+* [ ] If the dynamic library in the target directory is already defined, and has the same "last edited" date as the source file, don't copy the file from the source.
 * [ ] Allow running the examples folder as tests
 * [ ] Make a setup file for projects!
 * [ ] Type definitions

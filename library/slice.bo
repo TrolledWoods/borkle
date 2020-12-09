@@ -1,0 +1,63 @@
+const slice_u8 = fn(slice: [] u8, start: usize, end: usize) -> [] u8 {
+    let sliced = uninit : [] u8;
+    sliced.ptr = slice.ptr + start;
+    if end == 0 { sliced.len = slice.len - start; }
+    else { sliced.len = end - start; };
+    sliced
+};
+
+const slice_u16 = fn(slice: [] u16, start: usize, end: usize) -> [] u16 {
+    let sliced = uninit : [] u16;
+    sliced.ptr = slice.ptr + start;
+    if end == 0 { sliced.len = slice.len - start; }
+    else { sliced.len = end - start; };
+    sliced
+};
+
+const slice_u32 = fn(slice: [] u32, start: usize, end: usize) -> [] u32 {
+    let sliced = uninit : [] u32;
+    sliced.ptr = slice.ptr + start;
+    if end == 0 { sliced.len = slice.len - start; }
+    else { sliced.len = end - start; };
+    sliced
+};
+
+const slice_u64 = fn(slice: [] u64, start: usize, end: usize) -> [] u64 {
+    let sliced = uninit : [] u64;
+    sliced.ptr = slice.ptr + start;
+    if end == 0 { sliced.len = slice.len - start; }
+    else { sliced.len = end - start; };
+    sliced
+};
+
+const slice_i8 = fn(slice: [] i8, start: usize, end: usize) -> [] i8 {
+    let sliced = uninit : [] i8;
+    sliced.ptr = slice.ptr + start;
+    if end == 0 { sliced.len = slice.len - start; }
+    else { sliced.len = end - start; };
+    sliced
+};
+
+const slice_i16 = fn(slice: [] i16, start: usize, end: usize) -> [] i16 {
+    let sliced = uninit : [] i16;
+    sliced.ptr = slice.ptr + start;
+    if end == 0 { sliced.len = slice.len - start; }
+    else { sliced.len = end - start; };
+    sliced
+};
+
+const slice_i32 = fn(slice: [] i32, start: usize, end: usize) -> [] i32 {
+    let sliced = uninit : [] i32;
+    sliced.ptr = slice.ptr + start;
+    if end == 0 { sliced.len = slice.len - start; }
+    else { sliced.len = end - start; };
+    sliced
+};
+
+const slice_i64 = fn(slice: [] i64, start: usize, end: usize) -> [] i64 {
+    let sliced = uninit : [] i64;
+    sliced.ptr = slice.ptr + start;
+    if end == 0 { sliced.len = slice.len - start; }
+    else { sliced.len = end - start; };
+    sliced
+};

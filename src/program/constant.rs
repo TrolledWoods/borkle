@@ -25,10 +25,6 @@ impl Constant {
         self.ptr.as_ptr()
     }
 
-    pub fn as_non_null(&self) -> NonNull<u8> {
-        self.ptr
-    }
-
     pub fn as_slice(&self) -> &'_ [u8] {
         unsafe { std::slice::from_raw_parts(self.as_ptr(), self.size) }
     }

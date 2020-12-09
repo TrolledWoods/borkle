@@ -41,6 +41,10 @@ impl Libraries {
                 .get::<unsafe extern "C" fn()>(symbol_name.as_bytes())?
         })
     }
+
+    pub fn iter(&self) -> impl Iterator<Item = Ustr> + '_ {
+        self.libs.keys().copied()
+    }
 }
 
 fn get_or_insert_lib(

@@ -4,13 +4,22 @@ It can compile to c code, or run the program in an interpreted mode.
 
 This is not stable software, and it might have very bad bugs and change at any time.
 
+## Building
+There are two things you need to build. First, you have to build the compiler, which you can just do with cargo. Then, you have to also build the standard library for borkle, if you want to use it that is. The ``library/build.bat`` file invokes rustc to build it for you, so if you just run that it should work out.
+
 ## Command line arguments
 * ``--file <path>`` (default value "src.bo") The path to the file to compile.
 * ``--output <path>`` (default value "target/") The directory where generated c code will be put.
 * ``--release`` If this is set c code will be generated, otherwise the code will be interpreted.
 * ``--num_threads <number>`` (default value 3) The number of threads the compiler will use.
+* There are more, run ``borkle --help`` to get information about them
 
-When compiling in release an ``output.c`` file will be generated in the output directory.
+When compiling in release, all the dll:s from libraries used will be copied into the output directory,
+an ``output.c`` file will be generated there, and the specified c compiler will be run to commpile the c code.
+
+## Examples
+Look in the ``examples`` directory for example programs. As long as you have compiled the dynamic library the standard
+library depends on, you should be able to run these by just running borkle inside of their respective folders.
 
 ## Programming language
 The language is still heavily work in progress, but some features are fairly complete;
@@ -80,27 +89,24 @@ const answer = 42 : u64;
 ```
 This is a valid borkle program; we have a constant ``main`` which is the correct type. Here it's also demonstrated how constants can be in any order; we can use ``answer`` in ``main`` even though it's declared later on.
 
-Now you say; I want a "Hello world" program! Unfortunately, there is not yet a built in way to print things. So let me show you how you could make a hello world.
+Now you say, quit it with the boring stuff, give me a hello world program!
 
-## FFI
-This language has ffi, both a compile time and at run time. To load an ffi value, you can use the ``extern`` keyword;
-
+## Hello world
 ```rust
-const print = extern "some_random_ffi_library" "print" : extern fn (string: [] u8);
-```
-There is a lot of stuff here, so let's break it down; ``some_random_ffi_library`` is the path to a dynamic library(the file extension is inserted automatically based on your operating system), ``print`` is the symbol in that library you want to load.
+library "io.bo";
 
-Since you can't know what type something is just from the information in the dynamic library, you have to type bound the extern to tell it what type ``print`` is. ``extern fn`` specifies that the function is an external ffi function. ``[] u8`` is a buffer of bytes(u8), which is what strings are.
-
-So, if you have a library that provides a print function, this is what hello world might look like;
-```rust
 const main = fn() -> u64 {
     print("Hello, world!\n");
-    0
 };
-
-const print = extern "some_random_ffi_library" "print" : extern fn (string: [] u8);
 ```
-Of course, when you compile the generated c code you have to link the library with the c compiler as well.
+Here, we import the "print" function by importing the "io.bo" file. ``library`` just imports a file relative to the ``lib_path``. This also means that you can look at the definition of "print":
 
-This is all I'll write for now, later there might be more documentation on how the language works, and also examples of programs in it.
+```rust
+const print = fn (buffer: [] u8) -> u64 {
+    (extern "target/library" "put_string" : extern fn(&u8, usize) -> u64)
+        (buffer.ptr, buffer.len)
+};
+```
+Wow that's ugly. Anyway, print calls an FFI function to do its magic.
+
+There is more documentation to come later, but take a look at the examples if you want to see more of how the language works.

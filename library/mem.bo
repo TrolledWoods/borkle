@@ -9,3 +9,10 @@ const dealloc = fn (buf: [] u8) {
     (extern "target/library" "dealloc" : extern fn (&u8, usize))(buf.ptr, buf.len);
 };
 
+const mem_copy = fn (from: &u8, to: &u8, size: usize) {
+    let i = 0 : usize;
+    while i < size {
+        *(to + i) = *(from + i);
+        i = i + 1;
+    };
+};

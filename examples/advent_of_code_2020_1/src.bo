@@ -1,4 +1,5 @@
-import "library.bo";
+library "mem.bo";
+library "io.bo";
 
 const NEW_LINE = *"\n".ptr;
 

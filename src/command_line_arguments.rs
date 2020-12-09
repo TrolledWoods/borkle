@@ -145,13 +145,19 @@ macro_rules! create_arguments {
 }
 
 create_arguments!(
-    #[derive(Debug)]
+    #[derive(Debug, Clone)]
     struct Arguments {
-        file: String = "src.bo";
+        file: PathBuf = "src.bo";
             "The file to compile",
 
-        output: String = "target/";
+        check: bool = false;
+            "If this is set, the code will only be checked for problems but main will not be called\n(it will not error if no entry point exists, either, so it's perfect for making sure libraries compile)",
+
+        output: PathBuf = "target/";
             "The folder to put output files into",
+
+        c_compiler: String = "clang";
+            "The c compiler to use",
 
         lib_path: PathBuf = {
             let mut path = PathBuf::new();
