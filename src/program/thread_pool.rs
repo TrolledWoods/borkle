@@ -138,13 +138,12 @@ fn worker(program: &Arc<Program>, work: &Arc<WorkPile>) -> (ThreadContext, Error
             drop(queue_lock);
 
             match task {
-                Task::Parse(file_name, path) => match std::fs::read_to_string(&path) {
+                Task::Parse(path) => match std::fs::read_to_string(&path) {
                     Ok(string) => {
-                        let _ =
-                            crate::parser::process_string(&mut errors, program, file_name, &string);
+                        let _ = crate::parser::process_string(&mut errors, program, path, &string);
                     }
                     Err(_) => {
-                        errors.global_error(format!("'{}' cannot be loaded", file_name));
+                        errors.global_error(format!("File {:?} cannot be loaded", path));
                     }
                 },
                 Task::Type(member_id, locals, ast) => {

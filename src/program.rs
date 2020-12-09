@@ -61,6 +61,8 @@ pub struct Program {
     // how long the pointers to functions might live inside of the compile time execution things,
     // so we have to just have them all alive for the entire duration of the program.
     work: WorkSender,
+
+    pub loaded_files: Mutex<HashSet<Ustr>>,
 }
 
 // FIXME: Make a wrapper type for *const _ and have Send and Sync for that.
@@ -88,6 +90,8 @@ impl Program {
             libraries: Mutex::new(ffi::Libraries::new()),
             constant_data: Mutex::default(),
             work,
+
+            loaded_files: Mutex::default(),
         }
     }
 
@@ -209,9 +213,8 @@ impl Program {
         }
     }
 
-    pub fn add_file(&self, file_name: &str) {
-        self.work
-            .send(Task::Parse(file_name.into(), file_name.into()));
+    pub fn add_file(&self, path: PathBuf) {
+        self.work.send(Task::Parse(path));
     }
 
     pub fn insert_buffer(&self, type_: Type, data: *const u8) -> ConstantRef {
@@ -493,7 +496,7 @@ impl<T> DependableOption<T> {
 
 #[derive(Debug)]
 pub enum Task {
-    Parse(Ustr, PathBuf),
+    Parse(PathBuf),
     Type(MemberId, crate::locals::LocalVariables, crate::parser::Ast),
     Value(MemberId, crate::locals::LocalVariables, crate::typer::Ast),
 }

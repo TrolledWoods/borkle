@@ -26,10 +26,13 @@
 * [X] BUG! Pointer to zst doesn't work
 * [X] Add floating point literals and types
 * [X] BUG! Pointer to members do not seem to work properly
+* [X] Make paths(for both import and extern) relative
 
+* [ ] Global libraries
 * [ ] Stress test the language!
 
 # Version 0.0.2
+* [ ] Allow running the examples folder as tests
 * [ ] Make a setup file for projects!
 * [ ] Type definitions
 * [ ] Struct types
@@ -41,6 +44,8 @@
 * [ ] Redo ast nodes to be more readable, like right now what the heck is it even!? 
         Maybe it's fine to use unsafe, because if we do we can also include other data types in the ast buffer.
 * [ ] Variable arguments for functions
+* [ ] For loops
+* [ ] Break out of blocks/loops
 * [ ] Defer
 * [ ] Function arguments are implicitly dereferenced/referenced(maybe we want this?)
 * [ ] 'Any' type, the same as C void\*

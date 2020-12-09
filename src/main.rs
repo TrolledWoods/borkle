@@ -33,7 +33,7 @@ fn main() {
         let mut thread_pool = program::thread_pool::ThreadPool::new(
             options,
             logger,
-            std::iter::once(program::Task::Parse("testing".into(), file)),
+            std::iter::once(program::Task::Parse(file)),
         );
 
         for _ in 1..num_threads {

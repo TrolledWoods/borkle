@@ -4,6 +4,7 @@ use crate::errors::ErrorCtx;
 use crate::locals::{Local, LocalId, LocalVariables};
 use crate::location::Location;
 use crate::program::Program;
+use std::path::Path;
 use ustr::Ustr;
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
@@ -16,6 +17,7 @@ pub struct DataContext<'a> {
     pub errors: &'a mut ErrorCtx,
     pub program: &'a Program,
     pub tokens: &'a mut TokenStream,
+    pub path: &'a Path,
 }
 
 impl<'a> DataContext<'a> {
@@ -23,11 +25,13 @@ impl<'a> DataContext<'a> {
         errors: &'a mut ErrorCtx,
         program: &'a Program,
         tokens: &'a mut TokenStream,
+        path: &'a Path,
     ) -> Self {
         Self {
             errors,
             program,
             tokens,
+            path,
         }
     }
 

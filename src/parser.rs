@@ -16,7 +16,7 @@ use bump_tree::Tree;
 use context::{DataContext, ImperativeContext};
 use lexer::{Bracket, Keyword, Token, TokenKind};
 use std::convert::TryFrom;
-use ustr::Ustr;
+use std::path::PathBuf;
 
 pub type Ast = Tree<Node>;
 type NodeBuilder<'a> = bump_tree::NodeBuilder<'a, Node>;
@@ -24,12 +24,23 @@ type NodeBuilder<'a> = bump_tree::NodeBuilder<'a, Node>;
 pub fn process_string(
     errors: &mut ErrorCtx,
     program: &Program,
-    file: Ustr,
+    file: PathBuf,
     string: &str,
 ) -> Result<(), ()> {
-    let mut tokens = lexer::process_string(errors, file, string)?;
+    let file_name_str = file.to_str().expect("File path is not a valid string, this should not happen since all paths are constructed from strings originally").into();
 
-    let mut context = DataContext::new(errors, program, &mut tokens);
+    // If the file has already been parsed, do not parse it again!
+    if !program.loaded_files.lock().insert(file_name_str) {
+        program.logger.log(format_args!(
+            "File {} was already loaded, so didn't parse it again",
+            file_name_str
+        ));
+        return Ok(());
+    }
+
+    let mut tokens = lexer::process_string(errors, file_name_str, string)?;
+
+    let mut context = DataContext::new(errors, program, &mut tokens, &file);
 
     while let Some(token) = context.tokens.next() {
         match token.kind {
@@ -41,7 +52,10 @@ pub fn process_string(
                         .tokens
                         .expect_next_is(context.errors, &TokenKind::SemiColon)?;
 
-                    program.add_file(&name);
+                    let mut path = context.path.to_path_buf();
+                    path.pop();
+                    path.push(&name);
+                    program.add_file(path);
                 } else {
                     context.error(
                         name.loc,
