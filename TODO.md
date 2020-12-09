@@ -30,10 +30,10 @@
 * [X] Global libraries
 * [X] Call c compiler automatically when running release
 * [X] Add compiler flag to only check the code, not run it.
-
-* [ ] Stress test the language!
+* [X] Stress test the language!
 
 # Version 0.0.2
+* [ ] BUG! There is a bug with variable shadowing
 * [ ] If the dynamic library in the target directory is already defined, and has the same "last edited" date as the source file, don't copy the file from the source.
 * [ ] Allow running the examples folder as tests
 * [ ] Make a setup file for projects!

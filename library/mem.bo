@@ -9,7 +9,31 @@ const dealloc = fn (buf: [] u8) {
     (extern "target/library" "dealloc" : extern fn (&u8, usize))(buf.ptr, buf.len);
 };
 
-const mem_copy = fn (from: &u8, to: &u8, size: usize) {
+const mem_compare = fn (a: &u8, b: &u8, size: usize) -> i32 {
+    let i = 0 : usize;
+    let cmp = 0 : i32;
+    while (cmp == 0) && (i < size) {
+        let a1 = *(a + i);
+        let b1 = *(b + i);
+        if a1 > b1 {
+            cmp = 1;
+        } else if a1 < b1 {
+            cmp = -1;
+        };
+        i = i + 1;
+    };
+    cmp
+};
+
+const mem_set = fn (to: &u8, value: u8, size: usize) {
+    let i = 0 : usize;
+    while i < size {
+        *(to + i) = value;
+        i = i + 1;
+    };
+};
+
+const mem_copy = fn (to: &u8, from: &u8, size: usize) {
     let i = 0 : usize;
     while i < size {
         *(to + i) = *(from + i);
