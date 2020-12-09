@@ -224,6 +224,47 @@ fn type_(
             node.set(Node::new(loc, NodeKind::Global(name)));
             node.validate();
         }
+        TokenKind::Open(Bracket::Curly) => {
+            global.tokens.next();
+            let mut field_names = Vec::new();
+            loop {
+                if global.tokens.try_consume(&TokenKind::Close(Bracket::Curly)) {
+                    break;
+                }
+
+                let identifier_token = global.tokens.expect_next(global.errors)?;
+                let name = if let TokenKind::Identifier(name) = identifier_token.kind {
+                    name
+                } else {
+                    global.error(identifier_token.loc, "Expected identifier".to_string());
+                    return Err(());
+                };
+
+                field_names.push(name);
+                if global.tokens.try_consume_operator_string(":").is_none() {
+                    global.error(
+                        global.tokens.loc(),
+                        "Expected ':' for field type".to_string(),
+                    );
+                    return Err(());
+                }
+
+                type_(global, dependencies, node.arg())?;
+
+                let token = global.tokens.expect_next(global.errors)?;
+                match token.kind {
+                    TokenKind::Close(Bracket::Curly) => break,
+                    TokenKind::Comma => {}
+                    _ => {
+                        global.error(token.loc, "Expected ',' or ')'".to_string());
+                        return Err(());
+                    }
+                }
+            }
+
+            node.set(Node::new(loc, NodeKind::StructType(field_names)));
+            node.validate();
+        }
         TokenKind::Open(Bracket::Square) => {
             global.tokens.next();
             let token = global.tokens.expect_next(global.errors)?;

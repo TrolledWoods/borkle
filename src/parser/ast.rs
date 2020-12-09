@@ -41,6 +41,7 @@ pub enum NodeKind {
         locals: LocalVariables,
     },
 
+    StructType(Vec<Ustr>),
     BufferType,
     ArrayType(usize),
     FunctionType {
@@ -91,6 +92,7 @@ impl bump_tree::MetaData for Node {
             NodeKind::While | NodeKind::Assign | NodeKind::Binary(_) | NodeKind::TypeBound => {
                 num_args == 2
             }
+            NodeKind::StructType(ref field_names) => num_args == field_names.len(),
             NodeKind::ArrayLiteral(len) => num_args == len,
             NodeKind::If { has_else } => {
                 if has_else {

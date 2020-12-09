@@ -1,44 +1,11 @@
-# Version 0.0.1
-* [X] Simple control flow, if, while.
-* [X] Buffer pointer type
-* [X] Pointers in globals
-* [X] Fix bug where things try to be computed without dependencies
-* [X] Deduplicated constants can have the wrong alignment
-        (do we want something more 'proper' than just forcing alignment to be 8?)
-* [X] Array types
-* [X] String literals
-* [X] Generalise operators
-* [X] Make if use booleans
-* [X] Add error for unresolved dependencies
-* [X] Check for duplicate constants
-* [X] Command line arguments
-* [X] Optional logging
-* [X] C backend
-* [X] Bug! Extern functions break when stored in constants
-* [X] Reimplement deduplication for constants
-* [X] Implement lvalue members in c backend
-* [X] Auto casts
-* [X] Pointer offset operators
-* [X] Array literals
-* [X] Make comparison operators care about sign bits
-* [X] File imports
-* [X] Make a readme file
-* [X] BUG! Pointer to zst doesn't work
-* [X] Add floating point literals and types
-* [X] BUG! Pointer to members do not seem to work properly
-* [X] Make paths(for both import and extern) relative
-* [X] Global libraries
-* [X] Call c compiler automatically when running release
-* [X] Add compiler flag to only check the code, not run it.
-* [X] Stress test the language!
-
 # Version 0.0.2
+* [X] Struct types
+
 * [ ] BUG! There is a bug with variable shadowing
 * [ ] If the dynamic library in the target directory is already defined, and has the same "last edited" date as the source file, don't copy the file from the source.
 * [ ] Allow running the examples folder as tests
 * [ ] Make a setup file for projects!
 * [ ] Type definitions
-* [ ] Struct types
 * [ ] Struct literals
 * [ ] Structs in c
 * [ ] Indexing operations
@@ -54,3 +21,5 @@
 * [ ] 'Any' type, the same as C void\*
     (do we want it to behave this way or do we want 'Any' to use a type id, and have some other type that works like c void)
 * [ ] Change the type inference system to allow for more nuanced things, since right now it's cracking at the seems.
+
+# Version 0.0.3

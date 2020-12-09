@@ -639,6 +639,7 @@ fn type_ast(
         }
         ParserNodeKind::LiteralType(_)
         | ParserNodeKind::ArrayType(_)
+        | ParserNodeKind::StructType(_)
         | ParserNodeKind::FunctionType { .. }
         | ParserNodeKind::BufferType
         | ParserNodeKind::ReferenceType => {
@@ -666,6 +667,14 @@ fn type_ast(
 fn const_fold_type_expr(errors: &mut ErrorCtx, parsed: &ParsedNode<'_>) -> Result<Type, ()> {
     match parsed.kind {
         ParserNodeKind::LiteralType(type_) => Ok(type_),
+        ParserNodeKind::StructType(ref field_names) => {
+            let mut fields = Vec::with_capacity(field_names.len());
+            for (&name, child) in field_names.iter().zip(parsed.children()) {
+                let field_type = const_fold_type_expr(errors, &child)?;
+                fields.push((name, field_type));
+            }
+            Ok(Type::new(TypeKind::Struct(fields)))
+        }
         ParserNodeKind::BufferType => {
             let mut children = parsed.children();
             let pointee = const_fold_type_expr(errors, &children.next().unwrap())?;
