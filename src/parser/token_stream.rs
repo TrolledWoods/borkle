@@ -2,6 +2,7 @@ use super::lexer::{Token, TokenKind};
 use crate::errors::ErrorCtx;
 use crate::location::Location;
 use crate::operators::{Operator, UnaryOp};
+use ustr::Ustr;
 
 pub struct TokenStream {
     last: Location,
@@ -26,6 +27,23 @@ impl TokenStream {
 
     pub fn peek(&self) -> Option<&'_ Token> {
         self.tokens.as_slice().first()
+    }
+
+    pub fn expect_identifier(&mut self, errors: &mut ErrorCtx) -> Result<(Location, Ustr), ()> {
+        match self.next() {
+            Some(Token {
+                loc,
+                kind: TokenKind::Identifier(name),
+            }) => Ok((loc, name)),
+            Some(Token { loc, .. }) => {
+                errors.error(loc, "Expected identifier".to_string());
+                Err(())
+            }
+            None => {
+                errors.error(self.last, "Expected identifier".to_string());
+                Err(())
+            }
+        }
     }
 
     #[allow(unused)]

@@ -95,6 +95,35 @@ pub fn process_string(
 fn constant(global: &mut DataContext<'_>) -> Result<(), ()> {
     let token = global.tokens.expect_next(global.errors)?;
     if let TokenKind::Identifier(name) = token.kind {
+        let polymorphic_parameters = if global.tokens.try_consume(&TokenKind::Open(Bracket::Square))
+        {
+            let mut args = Vec::new();
+            loop {
+                if global
+                    .tokens
+                    .try_consume(&TokenKind::Close(Bracket::Square))
+                {
+                    break;
+                }
+
+                let (loc, name) = global.tokens.expect_identifier(global.errors)?;
+                args.push((loc, name));
+
+                let token = global.tokens.expect_next(global.errors)?;
+                match token.kind {
+                    TokenKind::Close(Bracket::Square) => break,
+                    TokenKind::Comma => {}
+                    _ => {
+                        global.error(token.loc, "Expected either ',' or ']'".to_string());
+                        return Err(());
+                    }
+                }
+            }
+            Some(args)
+        } else {
+            None
+        };
+
         if global.tokens.try_consume_operator_string("=").is_none() {
             global.error(token.loc, "Expected '=' after const".to_string());
             return Err(());

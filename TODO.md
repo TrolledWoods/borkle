@@ -1,6 +1,7 @@
 # Version 0.0.2
 * [X] Struct types
 * [X] Type definitions
+* [ ] Polymorphism
 
 * [ ] Figure out if there is a way to have fewer keywords.
 * [ ] BUG! There is a bug with variable shadowing
@@ -8,7 +9,7 @@
 * [ ] Allow running the examples folder as tests
 * [ ] Make a setup file for projects!
 * [ ] Struct literals
-* [ ] Structs in c
+* [ ] Structs in ffi
 * [ ] Indexing operations
 * [ ] Use hashes for deduplication like before
 * [ ] Implement the proper separation between 'thread pool' and 'program'
