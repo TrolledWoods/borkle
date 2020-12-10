@@ -1,4 +1,5 @@
 #![deny(rust_2018_idioms, clippy::all)]
+#![deny(mutable_borrow_reservation_conflict)]
 
 mod c_backend;
 mod command_line_arguments;

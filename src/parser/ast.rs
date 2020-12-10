@@ -55,6 +55,7 @@ pub enum NodeKind {
 
     FunctionCall,
     Block {
+        label: Option<crate::locals::LabelId>,
         defers: Vec<super::Ast>,
     },
     Empty,

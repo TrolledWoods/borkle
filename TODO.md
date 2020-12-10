@@ -4,10 +4,11 @@
 * [X] References of temporary values
 * [X] Improved naming in Program.
 * [X] Defer
-* [ ] Optimize stack size for interpreter
-
-* [ ] Polymorphism
+* [X] Optimize stack size for interpreter
 * [ ] Break out of blocks/loops
+
+* [ ] Make locals/labels use pure register ids instead of values, since they are never going to be global anyway
+* [ ] Polymorphism
 * [ ] Anonymous constants
 * [ ] Figure out if there is a way to have fewer keywords.
 * [ ] BUG! There is a bug with variable shadowing

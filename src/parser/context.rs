@@ -1,7 +1,7 @@
 use super::token_stream::TokenStream;
 use crate::dependencies::DependencyList;
 use crate::errors::ErrorCtx;
-use crate::locals::{Local, LocalId, LocalVariables};
+use crate::locals::{Label, LabelId, Local, LocalId, LocalVariables};
 use crate::location::Location;
 use crate::program::Program;
 use std::path::Path;
@@ -46,6 +46,7 @@ pub struct ImperativeContext<'a> {
 
     scope_boundaries: Vec<ScopeBoundary>,
     local_map: Vec<(Ustr, LocalId)>,
+    label_map: Vec<(Ustr, LabelId)>,
 }
 
 impl<'a> ImperativeContext<'a> {
@@ -56,6 +57,7 @@ impl<'a> ImperativeContext<'a> {
 
             scope_boundaries: Vec::new(),
             local_map: Vec::new(),
+            label_map: Vec::new(),
         }
     }
 
@@ -63,6 +65,7 @@ impl<'a> ImperativeContext<'a> {
         let id = ScopeBoundaryId(self.scope_boundaries.len());
         self.scope_boundaries.push(ScopeBoundary {
             locals: self.local_map.len(),
+            labels: self.label_map.len(),
         });
         id
     }
@@ -74,6 +77,14 @@ impl<'a> ImperativeContext<'a> {
             .expect("called pop_scope_boundary without anything to pop");
 
         self.local_map.truncate(boundary.locals);
+        self.label_map.truncate(boundary.labels);
+    }
+
+    pub fn insert_label(&mut self, label: Label) -> LabelId {
+        let name = label.name;
+        let id = self.locals.insert_label(label);
+        self.label_map.push((name, id));
+        id
     }
 
     pub fn insert_local(&mut self, local: Local) -> LocalId {
@@ -93,4 +104,5 @@ impl<'a> ImperativeContext<'a> {
 
 struct ScopeBoundary {
     locals: usize,
+    labels: usize,
 }

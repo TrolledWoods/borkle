@@ -581,7 +581,12 @@ fn type_ast(
             ));
             node.validate();
         }
-        ParserNodeKind::Block { ref defers } => {
+        ParserNodeKind::Block { label, ref defers } => {
+            if let Some(label) = label {
+                let label = ctx.locals.get_label_mut(label);
+                label.type_ = wanted_type;
+            }
+
             let mut children = parsed.children();
 
             let n_children = children.len();
@@ -602,9 +607,22 @@ fn type_ast(
                 typed_defers.push(ast);
             }
 
+            if let Some(label) = label {
+                let label = ctx.locals.get_label_mut(label);
+                if let Some(label_type) = label.type_ {
+                    if label_type != type_ {
+                        ctx.errors.error(parsed.loc, format!("This blocks label has been determined to be of type '{}', but you passed '{}'", label_type, type_));
+                        return Err(());
+                    }
+                } else {
+                    label.type_ = Some(type_);
+                }
+            }
+
             node.set(Node::new(
                 parsed.loc,
                 NodeKind::Block {
+                    label,
                     defers: typed_defers,
                 },
                 type_,

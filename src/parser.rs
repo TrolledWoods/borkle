@@ -530,6 +530,8 @@ fn atom_value(
             }
 
             TokenKind::Open(Bracket::Curly) => {
+                let label = maybe_parse_label(global, imperative)?;
+
                 imperative.push_scope_boundary();
 
                 let mut defers = Vec::new();
@@ -610,7 +612,7 @@ fn atom_value(
                 }
 
                 imperative.pop_scope_boundary();
-                arg_node.set(Node::new(token.loc, NodeKind::Block { defers }));
+                arg_node.set(Node::new(token.loc, NodeKind::Block { defers, label }));
                 arg_node.validate();
             }
 
@@ -822,4 +824,23 @@ fn maybe_parse_polymorphic_arguments(
         }
     }
     Ok(args)
+}
+
+fn maybe_parse_label(
+    global: &mut DataContext<'_>,
+    imperative: &mut ImperativeContext<'_>,
+) -> Result<Option<crate::locals::LabelId>, ()> {
+    if global.tokens.try_consume(&TokenKind::SingleQuote) {
+        let (loc, name) = global.tokens.expect_identifier(global.errors)?;
+        let id = imperative.insert_label(crate::locals::Label {
+            name,
+            loc,
+            type_: None,
+            value: None,
+            ir_label: None,
+        });
+        Ok(Some(id))
+    } else {
+        Ok(None)
+    }
 }

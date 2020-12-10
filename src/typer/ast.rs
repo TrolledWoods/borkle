@@ -69,12 +69,21 @@ pub enum NodeKind {
     Global(MemberId),
     // FIXME: This should be the 'Member' struct from the types, not a string.
     Member(Ustr),
-    FunctionCall { is_extern: bool },
-    FunctionDeclaration { locals: LocalVariables },
-    Block { defers: Vec<super::Ast> },
+    FunctionCall {
+        is_extern: bool,
+    },
+    FunctionDeclaration {
+        locals: LocalVariables,
+    },
+    Block {
+        label: Option<crate::locals::LabelId>,
+        defers: Vec<super::Ast>,
+    },
 
     While,
-    If { has_else: bool },
+    If {
+        has_else: bool,
+    },
 
     Uninit,
     Assign,

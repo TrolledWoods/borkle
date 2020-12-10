@@ -400,16 +400,29 @@ fn emit_node(ctx: &mut Context<'_>, node: &Node<'_>) -> Value {
             to
         }
         NodeKind::Local(id) => ctx.locals.get(*id).value.unwrap(),
-        NodeKind::Block { ref defers } => {
+        NodeKind::Block { label, defers } => {
+            let to = ctx.registers.create(node.type_());
+
+            if let Some(label) = *label {
+                let ir_label = ctx.create_label();
+                let label_ref = ctx.locals.get_label_mut(label);
+                label_ref.ir_label = Some(ir_label);
+                label_ref.value = Some(to);
+            }
+
             let mut children = node.children();
             let len = children.len();
-
-            let to = ctx.registers.create(node.type_());
             let head = ctx.registers.get_head();
 
             for child in children.by_ref().take(len - 1) {
                 emit_node(ctx, &child);
             }
+
+            if let Some(label) = *label {
+                let ir_label = ctx.locals.get_label(label).ir_label.unwrap();
+                ctx.define_label(ir_label);
+            }
+
             for defer in defers.iter().rev() {
                 emit_node(ctx, &defer.root().unwrap());
             }

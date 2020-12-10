@@ -16,6 +16,7 @@ pub struct Token {
 pub enum TokenKind {
     SemiColon,
     Comma,
+    SingleQuote,
     Open(Bracket),
     Close(Bracket),
     Keyword(Keyword),
@@ -70,11 +71,6 @@ pub fn process_string(errors: &mut ErrorCtx, file: Ustr, string: &str) -> Result
         .peekable();
 
     while let Some(&(loc, _, character)) = chars.peek() {
-        // We allow this so that operator character matching
-        // can use ranges and be somewhat concise.
-        // This means however that the operator branch
-        // must be at the bottom.
-        #[allow(overlapping_patterns)]
         let kind =
             match character {
                 c if c.is_whitespace() => {
@@ -82,9 +78,10 @@ pub fn process_string(errors: &mut ErrorCtx, file: Ustr, string: &str) -> Result
                     continue;
                 }
 
-                ';' | ',' | '(' | ')' | '[' | ']' | '{' | '}' => {
+                ';' | '\'' | ',' | '(' | ')' | '[' | ']' | '{' | '}' => {
                     chars.next();
                     match character {
+                        '\'' => TokenKind::SingleQuote,
                         ';' => TokenKind::SemiColon,
                         ',' => TokenKind::Comma,
 
@@ -171,7 +168,7 @@ pub fn process_string(errors: &mut ErrorCtx, file: Ustr, string: &str) -> Result
                     TokenKind::Operator(string.into())
                 }
                 c => {
-                    errors.error(loc, format!("Unknown character {:?}", c));
+                    errors.error(loc, format!("jnknown character {:?}", c));
                     return Err(());
                 }
             };
