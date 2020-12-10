@@ -172,11 +172,11 @@ where
 {
     /// A way to clone nodes from a different ast into
     /// this one.
-    pub fn set_cloned(&mut self, other: &Node<'_, T>) {
+    pub fn set_cloned(&mut self, other: Node<'_, T>) {
         self.set(other.internal.value.clone());
 
         for child in other.children() {
-            self.arg().set_cloned(&child);
+            self.arg().set_cloned(child);
         }
     }
 }
@@ -194,10 +194,26 @@ where
     }
 }
 
-#[derive(Clone, Copy)]
 pub struct Node<'a, T> {
     internal: &'a InternalNode<T>,
 }
+
+impl<'a, T> Node<'a, T> {
+    #[must_use]
+    pub fn to_ref(self) -> &'a T {
+        &self.internal.value
+    }
+}
+
+impl<T> Clone for Node<'_, T> {
+    fn clone(&self) -> Self {
+        Self {
+            internal: self.internal,
+        }
+    }
+}
+
+impl<T> Copy for Node<'_, T> {}
 
 unsafe impl<T> Sync for Node<'_, T> where T: Sync {}
 unsafe impl<T> Send for Node<'_, T> where T: Send {}
@@ -234,7 +250,24 @@ impl<T>
     }
 }
 
-impl<T> Node<'_, T>, NodeMut<'_, T> {
+impl<'a, T> Node<'a, T> {
+    fn children_slice(self) -> &'a [InternalNode<T>] {
+        unsafe {
+            &*self.internal.children.as_ptr()
+        }
+    }
+
+    #[must_use]
+    pub fn child_count(self) -> usize {
+        self.children_slice().len()
+    }
+
+    pub fn children(self) -> impl Iterator<Item = Node<'a, T>> + DoubleEndedIterator + ExactSizeIterator {
+        self.children_slice().iter().map(|v| Node { internal: v })
+    }
+}
+
+impl<T> NodeMut<'_, T> {
     fn children_slice(&self) -> &[InternalNode<T>] {
         unsafe {
             &*self.internal.children.as_ptr()

@@ -403,6 +403,25 @@ fn atom_value(
                 arg_node.set(Node::new(token.loc, NodeKind::TypeAsValue));
                 arg_node.validate();
             }
+            TokenKind::Keyword(Keyword::Break) => {
+                let (loc, label_name) = global.tokens.expect_identifier(global.errors)?;
+
+                let id = match imperative.get_label(label_name) {
+                    Some(id) => id,
+                    None => {
+                        global.error(loc, format!("There is no label called '{}'", label_name));
+                        return Err(());
+                    }
+                };
+
+                let num_deduplications = imperative.locals.get_label(id).num_defers;
+                expression(global, imperative, arg_node.arg())?;
+                arg_node.set(Node::new(
+                    token.loc,
+                    NodeKind::Break(id, num_deduplications),
+                ));
+                arg_node.validate();
+            }
             TokenKind::Keyword(Keyword::While) => {
                 expression(global, imperative, arg_node.arg())?;
                 value(global, imperative, arg_node.arg())?;
@@ -534,7 +553,6 @@ fn atom_value(
 
                 imperative.push_scope_boundary();
 
-                let mut defers = Vec::new();
                 loop {
                     if let Some(loc) = global
                         .tokens
@@ -545,6 +563,7 @@ fn atom_value(
                     }
 
                     let peek_token = global.tokens.expect_peek(global.errors)?;
+                    let loc = peek_token.loc;
                     match peek_token.kind {
                         TokenKind::Keyword(Keyword::Defer) => {
                             global.tokens.next();
@@ -555,7 +574,16 @@ fn atom_value(
                                 expression(global, imperative, builder.arg())?;
                             }
                             ast.set_root();
-                            defers.push(ast);
+
+                            arg_node
+                                .arg()
+                                .set(Node::new(loc, NodeKind::Defer(Box::new(ast))));
+
+                            imperative.defer_depth += 1;
+
+                            if let Some(label) = label {
+                                imperative.locals.get_label_mut(label).num_defers += 1;
+                            }
                         }
                         TokenKind::Keyword(Keyword::Let) => {
                             global.tokens.next();
@@ -612,7 +640,7 @@ fn atom_value(
                 }
 
                 imperative.pop_scope_boundary();
-                arg_node.set(Node::new(token.loc, NodeKind::Block { defers, label }));
+                arg_node.set(Node::new(token.loc, NodeKind::Block { label }));
                 arg_node.validate();
             }
 
@@ -835,9 +863,11 @@ fn maybe_parse_label(
         let id = imperative.insert_label(crate::locals::Label {
             name,
             loc,
+            defer_depth: imperative.defer_depth,
+            num_defers: 0,
             type_: None,
             value: None,
-            ir_label: None,
+            ir_labels: None,
         });
         Ok(Some(id))
     } else {

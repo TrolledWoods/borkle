@@ -43,6 +43,7 @@ impl<'a> DataContext<'a> {
 pub struct ImperativeContext<'a> {
     pub locals: LocalVariables,
     pub dependencies: &'a mut DependencyList,
+    pub defer_depth: usize,
 
     scope_boundaries: Vec<ScopeBoundary>,
     local_map: Vec<(Ustr, LocalId)>,
@@ -54,6 +55,7 @@ impl<'a> ImperativeContext<'a> {
         Self {
             locals: LocalVariables::new(),
             dependencies,
+            defer_depth: 0,
 
             scope_boundaries: Vec::new(),
             local_map: Vec::new(),
@@ -64,6 +66,7 @@ impl<'a> ImperativeContext<'a> {
     pub fn push_scope_boundary(&mut self) -> ScopeBoundaryId {
         let id = ScopeBoundaryId(self.scope_boundaries.len());
         self.scope_boundaries.push(ScopeBoundary {
+            defer_depth: self.defer_depth,
             locals: self.local_map.len(),
             labels: self.label_map.len(),
         });
@@ -76,6 +79,7 @@ impl<'a> ImperativeContext<'a> {
             .pop()
             .expect("called pop_scope_boundary without anything to pop");
 
+        self.defer_depth = boundary.defer_depth;
         self.local_map.truncate(boundary.locals);
         self.label_map.truncate(boundary.labels);
     }
@@ -100,9 +104,17 @@ impl<'a> ImperativeContext<'a> {
             .rev()
             .find_map(|&(local_name, id)| if local_name == name { Some(id) } else { None })
     }
+
+    pub fn get_label(&self, name: Ustr) -> Option<LabelId> {
+        self.label_map
+            .iter()
+            .rev()
+            .find_map(|&(label_name, id)| if label_name == name { Some(id) } else { None })
+    }
 }
 
 struct ScopeBoundary {
+    defer_depth: usize,
     locals: usize,
     labels: usize,
 }

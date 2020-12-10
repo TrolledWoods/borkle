@@ -20,9 +20,14 @@ pub struct Local {
 pub struct Label {
     pub name: Ustr,
     pub loc: Location,
+    /// This is how many many defers exist that aren't 'after' this label. defer_depth + num_defers
+    /// is how many defers have to be inserted before jumping to the label, since num_defers
+    /// are how many defers whose instructions can be combined with the target.
+    pub defer_depth: usize,
+    pub num_defers: usize,
     pub type_: Option<Type>,
     pub value: Option<crate::ir::Value>,
-    pub ir_label: Option<crate::ir::LabelId>,
+    pub ir_labels: Option<Vec<crate::ir::LabelId>>,
 }
 
 #[derive(Debug, Clone)]

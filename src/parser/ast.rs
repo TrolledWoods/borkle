@@ -1,5 +1,5 @@
 use crate::literal::Literal;
-use crate::locals::{LocalId, LocalVariables};
+use crate::locals::{LabelId, LocalId, LocalVariables};
 use crate::location::Location;
 use crate::operators::{BinaryOp, UnaryOp};
 use crate::types::Type;
@@ -53,10 +53,13 @@ pub enum NodeKind {
     Unary(UnaryOp),
     Binary(BinaryOp),
 
+    Break(LabelId, usize),
+
+    Defer(Box<super::Ast>),
+
     FunctionCall,
     Block {
-        label: Option<crate::locals::LabelId>,
-        defers: Vec<super::Ast>,
+        label: Option<LabelId>,
     },
     Empty,
     Uninit,
@@ -83,10 +86,12 @@ impl bump_tree::MetaData for Node {
             | NodeKind::Literal(_)
             | NodeKind::Global(_)
             | NodeKind::Extern { .. }
+            | NodeKind::Defer(_)
             | NodeKind::Uninit
             | NodeKind::LiteralType(_) => num_args == 0,
             NodeKind::Declare(_)
             | NodeKind::BitCast
+            | NodeKind::Break(_, _)
             | NodeKind::Member(_)
             | NodeKind::BufferType
             | NodeKind::ReferenceType

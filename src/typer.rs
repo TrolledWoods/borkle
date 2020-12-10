@@ -40,7 +40,7 @@ pub fn process_ast(
         locals,
         deps: &mut deps,
     };
-    type_ast(&mut ctx, None, &root, ast.builder())?;
+    type_ast(&mut ctx, None, root, ast.builder())?;
     ast.set_root();
     let locals = ctx.locals;
     Ok((deps, locals, ast))
@@ -49,15 +49,27 @@ pub fn process_ast(
 /// If the `wanted_type` is Some(type_), this function itself will generate an error if the types
 /// do not match, i.e., if Some(type_) is passed as the `wanted_type`, if the function returns Ok
 /// that is guaranteed to be the type_ passed in.
-#[allow(clippy::needless_pass_by_value)]
-fn type_ast(
-    ctx: &mut Context<'_>,
+fn type_ast<'a>(
+    ctx: &mut Context<'a>,
     wanted_type: Option<Type>,
-    parsed: &ParsedNode<'_>,
+    parsed: ParsedNode<'a>,
     mut node: NodeBuilder<'_>,
 ) -> Result<Type, ()> {
     let type_: Type;
-    match parsed.kind {
+    match parsed.to_ref().kind {
+        ParserNodeKind::Defer(ref ast) => {
+            let mut typed_ast = Ast::new();
+            type_ast(ctx, None, ast.root().unwrap(), typed_ast.builder())?;
+            typed_ast.set_root();
+            type_ = Type::new(TypeKind::Empty);
+
+            node.set(Node::new(
+                parsed.loc,
+                NodeKind::Defer(Box::new(typed_ast)),
+                type_,
+            ));
+            node.validate();
+        }
         ParserNodeKind::Literal(Literal::Float(num)) => match wanted_type.map(Type::kind) {
             Some(TypeKind::F32) => {
                 let bytes = (num as f32).to_bits().to_le_bytes();
@@ -112,7 +124,7 @@ fn type_ast(
         ParserNodeKind::ArrayLiteral(len) => {
             let mut element_type = None;
             for child in parsed.children() {
-                element_type = Some(type_ast(ctx, element_type, &child, node.arg())?);
+                element_type = Some(type_ast(ctx, element_type, child, node.arg())?);
             }
 
             match element_type {
@@ -138,11 +150,11 @@ fn type_ast(
             type_ast(
                 ctx,
                 Some(Type::new(TypeKind::Bool)),
-                &condition_node,
+                condition_node,
                 node.arg(),
             )?;
 
-            type_ast(ctx, None, &children.next().unwrap(), node.arg())?;
+            type_ast(ctx, None, children.next().unwrap(), node.arg())?;
 
             node.set(Node::new(parsed.loc, NodeKind::While, type_));
             node.validate();
@@ -156,11 +168,11 @@ fn type_ast(
             type_ast(
                 ctx,
                 Some(Type::new(TypeKind::Bool)),
-                &condition_node,
+                condition_node,
                 node.arg(),
             )?;
 
-            type_ast(ctx, Some(type_), &children.next().unwrap(), node.arg())?;
+            type_ast(ctx, Some(type_), children.next().unwrap(), node.arg())?;
 
             node.set(Node::new(
                 parsed.loc,
@@ -176,15 +188,15 @@ fn type_ast(
             type_ast(
                 ctx,
                 Some(Type::new(TypeKind::Bool)),
-                &condition_node,
+                condition_node,
                 node.arg(),
             )?;
 
-            let true_body_type = type_ast(ctx, wanted_type, &children.next().unwrap(), node.arg())?;
+            let true_body_type = type_ast(ctx, wanted_type, children.next().unwrap(), node.arg())?;
             let false_body_type = type_ast(
                 ctx,
                 Some(true_body_type),
-                &children.next().unwrap(),
+                children.next().unwrap(),
                 node.arg(),
             )?;
 
@@ -209,8 +221,8 @@ fn type_ast(
             let mut children = parsed.children();
             type_ = Type::new(TypeKind::Empty);
 
-            let to_type = type_ast(ctx, None, &children.next().unwrap(), node.arg())?;
-            type_ast(ctx, Some(to_type), &children.next().unwrap(), node.arg())?;
+            let to_type = type_ast(ctx, None, children.next().unwrap(), node.arg())?;
+            type_ast(ctx, Some(to_type), children.next().unwrap(), node.arg())?;
 
             node.set(Node::new(parsed.loc, NodeKind::Assign, type_));
             node.validate();
@@ -235,12 +247,12 @@ fn type_ast(
 
             let mut arg_types = Vec::new();
             for (local, node) in locals.iter_mut().zip(children.by_ref().take(n_arguments)) {
-                let arg_type = const_fold_type_expr(ctx, &node)?;
+                let arg_type = const_fold_type_expr(ctx, node)?;
                 local.type_ = Some(arg_type);
                 arg_types.push(arg_type);
             }
 
-            let return_type = const_fold_type_expr(ctx, &children.next().unwrap())?;
+            let return_type = const_fold_type_expr(ctx, children.next().unwrap())?;
 
             type_ = Type::new(TypeKind::Function {
                 args: arg_types,
@@ -260,7 +272,7 @@ fn type_ast(
             type_ast(
                 &mut sub_ctx,
                 Some(return_type),
-                &children.next().unwrap(),
+                children.next().unwrap(),
                 node.arg(),
             )?;
 
@@ -277,7 +289,7 @@ fn type_ast(
             if let Some(casting_to) = wanted_type {
                 let mut children = parsed.children();
                 let parsed_casting = children.next().unwrap();
-                let casting_from = type_ast(ctx, None, &parsed_casting, node.arg())?;
+                let casting_from = type_ast(ctx, None, parsed_casting, node.arg())?;
 
                 if casting_from.size() != casting_to.size() {
                     ctx.errors.error(parsed.loc, format!("Cannot bit_cast from '{}' to '{}', the sizes of the types have to be the same.", casting_from, casting_to));
@@ -303,7 +315,7 @@ fn type_ast(
         ParserNodeKind::FunctionCall => {
             let mut children = parsed.children();
             let ptr_child = children.next().unwrap();
-            let ptr = type_ast(ctx, None, &ptr_child, node.arg())?;
+            let ptr = type_ast(ctx, None, ptr_child, node.arg())?;
             if let TypeKind::Function {
                 args,
                 returns,
@@ -316,7 +328,7 @@ fn type_ast(
                 }
 
                 for (&wanted, got) in args.iter().zip(children) {
-                    type_ast(ctx, Some(wanted), &got, node.arg())?;
+                    type_ast(ctx, Some(wanted), got, node.arg())?;
                 }
 
                 type_ = *returns;
@@ -436,8 +448,8 @@ fn type_ast(
                 );
             }
 
-            type_ = const_fold_type_expr(ctx, &type_expr)?;
-            type_ast(ctx, Some(type_), &internal, node)?;
+            type_ = const_fold_type_expr(ctx, type_expr)?;
+            type_ast(ctx, Some(type_), internal, node)?;
         }
         ParserNodeKind::Binary(op) => {
             let mut children = parsed.children();
@@ -447,8 +459,8 @@ fn type_ast(
             match op {
                 BinaryOp::And | BinaryOp::Or => {
                     type_ = Type::new(TypeKind::Bool);
-                    type_ast(ctx, Some(type_), &left, node.arg())?;
-                    type_ast(ctx, Some(type_), &right, node.arg())?;
+                    type_ast(ctx, Some(type_), left, node.arg())?;
+                    type_ast(ctx, Some(type_), right, node.arg())?;
                 }
                 BinaryOp::Equals
                 | BinaryOp::NotEquals
@@ -457,22 +469,22 @@ fn type_ast(
                 | BinaryOp::LessThanEquals
                 | BinaryOp::LessThan => {
                     type_ = Type::new(TypeKind::Bool);
-                    let left_type = type_ast(ctx, None, &left, node.arg())?;
-                    type_ast(ctx, Some(left_type), &right, node.arg())?;
+                    let left_type = type_ast(ctx, None, left, node.arg())?;
+                    type_ast(ctx, Some(left_type), right, node.arg())?;
                 }
                 BinaryOp::Add | BinaryOp::Sub => {
-                    let left_type = type_ast(ctx, wanted_type, &left, node.arg())?;
+                    let left_type = type_ast(ctx, wanted_type, left, node.arg())?;
 
                     match left_type.kind() {
                         TypeKind::Int(_) | TypeKind::F32 | TypeKind::F64 => {
-                            type_ast(ctx, Some(left_type), &right, node.arg())?;
+                            type_ast(ctx, Some(left_type), right, node.arg())?;
                             type_ = left_type;
                         }
                         TypeKind::Reference(_) => {
                             type_ast(
                                 ctx,
                                 Some(Type::new(TypeKind::Int(IntTypeKind::Usize))),
-                                &right,
+                                right,
                                 node.arg(),
                             )?;
 
@@ -491,8 +503,8 @@ fn type_ast(
                     }
                 }
                 BinaryOp::Mult | BinaryOp::Div | BinaryOp::BitAnd | BinaryOp::BitOr => {
-                    let left_type = type_ast(ctx, wanted_type, &left, node.arg())?;
-                    let right_type = type_ast(ctx, Some(left_type), &right, node.arg())?;
+                    let left_type = type_ast(ctx, wanted_type, left, node.arg())?;
+                    let right_type = type_ast(ctx, Some(left_type), right, node.arg())?;
 
                     if left_type != right_type {
                         ctx.errors
@@ -521,7 +533,7 @@ fn type_ast(
                 UnaryOp::AutoCast => {
                     if let Some(wanted_type) = wanted_type {
                         let internal_type =
-                            type_ast(ctx, None, &parsed.children().next().unwrap(), node.arg())?;
+                            type_ast(ctx, None, parsed.children().next().unwrap(), node.arg())?;
 
                         auto_cast(ctx, parsed.loc, internal_type, wanted_type, node)?;
                         type_ = wanted_type;
@@ -538,7 +550,7 @@ fn type_ast(
                             None
                         };
 
-                    let operand = type_ast(ctx, wanted_inner, &operand, node.arg())?;
+                    let operand = type_ast(ctx, wanted_inner, operand, node.arg())?;
                     type_ = Type::new(TypeKind::Reference(operand));
 
                     node.set(Node::new(parsed.loc, NodeKind::Unary(op), type_));
@@ -547,7 +559,7 @@ fn type_ast(
                 UnaryOp::Dereference => {
                     let wanted_inner = wanted_type.map(|v| Type::new(TypeKind::Reference(v)));
 
-                    let operand = type_ast(ctx, wanted_inner, &operand, node.arg())?;
+                    let operand = type_ast(ctx, wanted_inner, operand, node.arg())?;
                     if let TypeKind::Reference(inner) = *operand.kind() {
                         type_ = inner;
                     } else {
@@ -565,7 +577,7 @@ fn type_ast(
                     node.validate();
                 }
                 _ => {
-                    type_ = type_ast(ctx, wanted_type, &operand, node.arg())?;
+                    type_ = type_ast(ctx, wanted_type, operand, node.arg())?;
 
                     node.set(Node::new(parsed.loc, NodeKind::Unary(op), type_));
                     node.validate();
@@ -581,7 +593,28 @@ fn type_ast(
             ));
             node.validate();
         }
-        ParserNodeKind::Block { label, ref defers } => {
+        ParserNodeKind::Break(label, num_deref_deduplications) => {
+            let label_type = ctx.locals.get_label_mut(label).type_;
+            let inner_type = type_ast(
+                ctx,
+                label_type,
+                parsed.children().next().unwrap(),
+                node.arg(),
+            )?;
+
+            ctx.locals.get_label_mut(label).type_ = Some(inner_type);
+
+            // FIXME: This should eventually be the never type since the code never reaches here.
+            type_ = Type::new(TypeKind::Empty);
+
+            node.set(Node::new(
+                parsed.loc,
+                NodeKind::Break(label, num_deref_deduplications),
+                type_,
+            ));
+            node.validate();
+        }
+        ParserNodeKind::Block { label } => {
             if let Some(label) = label {
                 let label = ctx.locals.get_label_mut(label);
                 label.type_ = wanted_type;
@@ -593,19 +626,10 @@ fn type_ast(
             assert!(n_children > 0);
 
             for child in children.by_ref().take(n_children - 1) {
-                type_ast(ctx, None, &child, node.arg())?;
+                type_ast(ctx, None, child, node.arg())?;
             }
 
-            type_ = type_ast(ctx, wanted_type, &children.next().unwrap(), node.arg())?;
-
-            let mut typed_defers = Vec::with_capacity(defers.len());
-            for defer in defers {
-                let mut ast = Ast::new();
-                type_ast(ctx, None, &defer.root().unwrap(), ast.builder())?;
-                ast.set_root();
-
-                typed_defers.push(ast);
-            }
+            type_ = type_ast(ctx, wanted_type, children.next().unwrap(), node.arg())?;
 
             if let Some(label) = label {
                 let label = ctx.locals.get_label_mut(label);
@@ -619,21 +643,14 @@ fn type_ast(
                 }
             }
 
-            node.set(Node::new(
-                parsed.loc,
-                NodeKind::Block {
-                    label,
-                    defers: typed_defers,
-                },
-                type_,
-            ));
+            node.set(Node::new(parsed.loc, NodeKind::Block { label }, type_));
             node.validate();
         }
         ParserNodeKind::Member(name) => {
             let mut children = parsed.children();
             let child = children.next().unwrap();
 
-            let member_of = type_ast(ctx, None, &child, node.arg())?;
+            let member_of = type_ast(ctx, None, child, node.arg())?;
 
             if let Some(member) = member_of.member(name) {
                 type_ = member.type_;
@@ -665,7 +682,7 @@ fn type_ast(
         }
         ParserNodeKind::Declare(local) => {
             let mut children = parsed.children();
-            let local_type = type_ast(ctx, None, &children.next().unwrap(), node.arg())?;
+            let local_type = type_ast(ctx, None, children.next().unwrap(), node.arg())?;
 
             ctx.locals.get_mut(local).type_ = Some(local_type);
             type_ = Type::new(TypeKind::Empty);
@@ -674,7 +691,7 @@ fn type_ast(
         }
         ParserNodeKind::TypeAsValue => {
             let mut children = parsed.children();
-            let inner_type = const_fold_type_expr(ctx, &children.next().unwrap())?;
+            let inner_type = const_fold_type_expr(ctx, children.next().unwrap())?;
             type_ = Type::new(TypeKind::Type);
             node.set(Node::new(
                 parsed.loc,
@@ -713,7 +730,7 @@ fn type_ast(
     Ok(type_)
 }
 
-fn const_fold_type_expr(ctx: &mut Context<'_>, parsed: &ParsedNode<'_>) -> Result<Type, ()> {
+fn const_fold_type_expr<'a>(ctx: &mut Context<'a>, parsed: ParsedNode<'a>) -> Result<Type, ()> {
     match parsed.kind {
         ParserNodeKind::Global(name) => {
             let id = ctx.program.get_member_id(name).unwrap();
@@ -724,24 +741,24 @@ fn const_fold_type_expr(ctx: &mut Context<'_>, parsed: &ParsedNode<'_>) -> Resul
         ParserNodeKind::StructType(ref field_names) => {
             let mut fields = Vec::with_capacity(field_names.len());
             for (&name, child) in field_names.iter().zip(parsed.children()) {
-                let field_type = const_fold_type_expr(ctx, &child)?;
+                let field_type = const_fold_type_expr(ctx, child)?;
                 fields.push((name, field_type));
             }
             Ok(Type::new(TypeKind::Struct(fields)))
         }
         ParserNodeKind::BufferType => {
             let mut children = parsed.children();
-            let pointee = const_fold_type_expr(ctx, &children.next().unwrap())?;
+            let pointee = const_fold_type_expr(ctx, children.next().unwrap())?;
             Ok(TypeKind::Buffer(pointee).into())
         }
         ParserNodeKind::ArrayType(length) => {
             let mut children = parsed.children();
-            let member = const_fold_type_expr(ctx, &children.next().unwrap())?;
+            let member = const_fold_type_expr(ctx, children.next().unwrap())?;
             Ok(TypeKind::Array(member, length).into())
         }
         ParserNodeKind::ReferenceType => {
             let mut children = parsed.children();
-            let pointee = const_fold_type_expr(ctx, &children.next().unwrap())?;
+            let pointee = const_fold_type_expr(ctx, children.next().unwrap())?;
             Ok(TypeKind::Reference(pointee).into())
         }
         ParserNodeKind::FunctionType { is_extern } => {
@@ -750,10 +767,10 @@ fn const_fold_type_expr(ctx: &mut Context<'_>, parsed: &ParsedNode<'_>) -> Resul
 
             let mut arg_types = Vec::with_capacity(n_args);
             for arg in children.by_ref().take(n_args) {
-                arg_types.push(const_fold_type_expr(ctx, &arg)?);
+                arg_types.push(const_fold_type_expr(ctx, arg)?);
             }
 
-            let returns = const_fold_type_expr(ctx, &children.next().unwrap())?;
+            let returns = const_fold_type_expr(ctx, children.next().unwrap())?;
 
             Ok(TypeKind::Function {
                 args: arg_types,
@@ -775,8 +792,8 @@ fn const_fold_type_expr(ctx: &mut Context<'_>, parsed: &ParsedNode<'_>) -> Resul
 
 /// Creates an auto cast. The 'node' is expected to have an argument which is the node whom we cast
 /// from.
-fn auto_cast(
-    ctx: &mut Context<'_>,
+fn auto_cast<'a>(
+    ctx: &mut Context<'a>,
     loc: Location,
     from_type: Type,
     to_type: Type,

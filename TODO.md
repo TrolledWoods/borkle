@@ -5,8 +5,10 @@
 * [X] Improved naming in Program.
 * [X] Defer
 * [X] Optimize stack size for interpreter
-* [ ] Break out of blocks/loops
+* [X] Break out of blocks/loops
 
+* [ ] In emit.rs, don't pass nodes by reference but by value instead
+* [ ] Never type
 * [ ] Make locals/labels use pure register ids instead of values, since they are never going to be global anyway
 * [ ] Polymorphism
 * [ ] Anonymous constants

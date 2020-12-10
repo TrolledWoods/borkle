@@ -37,15 +37,18 @@ impl Node {
 impl bump_tree::MetaData for Node {
     fn validate(&self, num_args: usize) -> bool {
         match self.kind {
-            NodeKind::Uninit | NodeKind::Constant(_) | NodeKind::Global(_) | NodeKind::Local(_) => {
-                num_args == 0
-            }
+            NodeKind::Defer(_)
+            | NodeKind::Uninit
+            | NodeKind::Constant(_)
+            | NodeKind::Global(_)
+            | NodeKind::Local(_) => num_args == 0,
             NodeKind::FunctionCall { .. } => true,
             NodeKind::Block { .. } => num_args > 0,
             NodeKind::FunctionDeclaration { locals: _ }
             | NodeKind::BitCast
             | NodeKind::ArrayToBuffer(_)
             | NodeKind::Member(_)
+            | NodeKind::Break(_, _)
             | NodeKind::Declare(_)
             | NodeKind::Unary(_) => num_args == 1,
             NodeKind::While | NodeKind::Assign | NodeKind::Binary(_) => num_args == 2,
@@ -75,9 +78,11 @@ pub enum NodeKind {
     FunctionDeclaration {
         locals: LocalVariables,
     },
+    Break(crate::locals::LabelId, usize),
+
+    Defer(Box<super::Ast>),
     Block {
         label: Option<crate::locals::LabelId>,
-        defers: Vec<super::Ast>,
     },
 
     While,
