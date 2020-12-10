@@ -4,6 +4,7 @@
 * [X] References of temporary values
 * [X] Improved naming in Program.
 * [X] Defer
+* [ ] Optimize stack size for interpreter
 
 * [ ] Polymorphism
 * [ ] Break out of blocks/loops

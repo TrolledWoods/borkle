@@ -96,15 +96,32 @@ pub struct Registers {
     pub(crate) locals: Vec<Register>,
     // If you had a buffer with a bunch of locals inside,
     // how big would that buffer have to be to fit all of them?
-    pub(crate) buffer_size: usize,
+    max_buffer_size: usize,
+    buffer_head: usize,
 }
 
 impl Registers {
     fn new() -> Self {
         Self {
             locals: Vec::new(),
-            buffer_size: 0,
+            max_buffer_size: 0,
+            buffer_head: 0,
         }
+    }
+
+    pub fn buffer_size(&self) -> usize {
+        self.max_buffer_size.max(self.buffer_head)
+    }
+
+    fn get_head(&self) -> usize {
+        self.buffer_head
+    }
+
+    fn set_head(&mut self, head: usize) {
+        assert!(head <= self.buffer_head);
+
+        self.max_buffer_size = self.max_buffer_size.max(self.buffer_head);
+        self.buffer_head = head;
     }
 
     fn create(&mut self, type_: impl Into<Type>) -> Value {
@@ -121,13 +138,13 @@ impl Registers {
         if align < min_align {
             align = min_align;
         }
-        self.buffer_size = to_align(self.buffer_size, align);
+        self.buffer_head = to_align(self.buffer_head, align);
         let value = Value::Register(self.locals.len(), type_);
         self.locals.push(Register {
-            offset: self.buffer_size,
+            offset: self.buffer_head,
             type_,
         });
-        self.buffer_size += to_align(type_.size(), align);
+        self.buffer_head += to_align(type_.size(), align);
         value
     }
 

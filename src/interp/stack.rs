@@ -16,7 +16,7 @@ impl Stack {
     }
 
     pub fn stack_frame<'a>(&'a mut self, registers: &'a Registers) -> StackFrame<'a> {
-        if self.len < registers.buffer_size {
+        if self.len < registers.buffer_size() {
             panic!("Stack overflow! (todo; show where in the code the compile time stack overflow happened)");
         }
         StackFrame {
@@ -78,8 +78,8 @@ impl<'a> StackFrame<'a> {
     /// frames still.
     #[allow(unused)]
     pub fn split<'b>(&'b mut self, registers: &'b Registers) -> (StackFrame<'b>, StackFrame<'b>) {
-        let position = crate::types::to_align(self.registers.buffer_size, 16);
-        if self.stack.len() < position + registers.buffer_size {
+        let position = crate::types::to_align(self.registers.buffer_size(), 16);
+        if self.stack.len() < position + registers.buffer_size() {
             panic!("Stack overflow! (todo; show where in the code the compile time stack overflow happened)");
         }
         let (a, b) = self.stack.split_at_mut(position);

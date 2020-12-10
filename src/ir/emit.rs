@@ -403,13 +403,21 @@ fn emit_node(ctx: &mut Context<'_>, node: &Node<'_>) -> Value {
         NodeKind::Block { ref defers } => {
             let mut children = node.children();
             let len = children.len();
+
+            let to = ctx.registers.create(node.type_());
+            let head = ctx.registers.get_head();
+
             for child in children.by_ref().take(len - 1) {
                 emit_node(ctx, &child);
             }
             for defer in defers.iter().rev() {
                 emit_node(ctx, &defer.root().unwrap());
             }
-            emit_node(ctx, &children.next().unwrap())
+
+            let from = emit_node(ctx, &children.next().unwrap());
+            ctx.emit_move(to, from, Member::default());
+            ctx.registers.set_head(head);
+            to
         }
         NodeKind::Global(id) => ctx.program.get_constant_as_value(*id),
         NodeKind::FunctionCall { is_extern } => {
