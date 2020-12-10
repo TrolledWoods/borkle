@@ -2,8 +2,11 @@
 * [X] Struct types
 * [X] Type definitions
 * [X] References of temporary values
+* [X] Improved naming in Program.
+* [X] Defer
 
 * [ ] Polymorphism
+* [ ] Break out of blocks/loops
 * [ ] Anonymous constants
 * [ ] Figure out if there is a way to have fewer keywords.
 * [ ] BUG! There is a bug with variable shadowing
@@ -13,14 +16,11 @@
 * [ ] Struct literals
 * [ ] Structs in ffi
 * [ ] Indexing operations
-* [ ] Use hashes for deduplication like before
 * [ ] Implement the proper separation between 'thread pool' and 'program'
 * [ ] Redo ast nodes to be more readable, like right now what the heck is it even!? 
         Maybe it's fine to use unsafe, because if we do we can also include other data types in the ast buffer.
 * [ ] Allow array literals to also become buffers if the wanted type needs it.
 * [ ] For loops
-* [ ] Break out of blocks/loops
-* [ ] Defer
 * [ ] Function arguments are implicitly dereferenced/referenced(maybe we want this?)
 * [ ] 'Any' type, the same as C void\*
     (do we want it to behave this way or do we want 'Any' to use a type id, and have some other type that works like c void)

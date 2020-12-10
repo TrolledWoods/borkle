@@ -400,11 +400,14 @@ fn emit_node(ctx: &mut Context<'_>, node: &Node<'_>) -> Value {
             to
         }
         NodeKind::Local(id) => ctx.locals.get(*id).value.unwrap(),
-        NodeKind::Block => {
+        NodeKind::Block { ref defers } => {
             let mut children = node.children();
             let len = children.len();
             for child in children.by_ref().take(len - 1) {
                 emit_node(ctx, &child);
+            }
+            for defer in defers.iter().rev() {
+                emit_node(ctx, &defer.root().unwrap());
             }
             emit_node(ctx, &children.next().unwrap())
         }

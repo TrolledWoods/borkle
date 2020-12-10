@@ -439,32 +439,6 @@ fn atom_value(
                 arg_node.set(Node::new(token.loc, NodeKind::BitCast));
                 arg_node.validate();
             }
-            TokenKind::Keyword(Keyword::Let) => {
-                let token = global.tokens.expect_next(global.errors)?;
-                if let TokenKind::Identifier(name) = token.kind {
-                    let id = imperative.insert_local(Local {
-                        loc: token.loc,
-                        name,
-                        type_: None,
-                        value: None,
-                    });
-
-                    global
-                        .tokens
-                        .try_consume_operator_string("=")
-                        .ok_or_else(|| {
-                            global.error(token.loc, "Expected '=' after identifier".into());
-                        })?;
-
-                    expression(global, imperative, arg_node.arg())?;
-
-                    arg_node.set(Node::new(token.loc, NodeKind::Declare(id)));
-                    arg_node.validate();
-                } else {
-                    global.error(token.loc, "Expected identifier".to_string());
-                    return Err(());
-                }
-            }
             TokenKind::Keyword(Keyword::Extern) => {
                 let loc = token.loc;
                 let token = global.tokens.expect_next(global.errors)?;
@@ -558,6 +532,7 @@ fn atom_value(
             TokenKind::Open(Bracket::Curly) => {
                 imperative.push_scope_boundary();
 
+                let mut defers = Vec::new();
                 loop {
                     if let Some(loc) = global
                         .tokens
@@ -567,19 +542,61 @@ fn atom_value(
                         break;
                     }
 
-                    expression(global, imperative, arg_node.arg())?;
+                    let peek_token = global.tokens.expect_peek(global.errors)?;
+                    match peek_token.kind {
+                        TokenKind::Keyword(Keyword::Defer) => {
+                            global.tokens.next();
+
+                            let mut ast = Ast::new();
+                            {
+                                let mut builder = ast.builder();
+                                expression(global, imperative, builder.arg())?;
+                            }
+                            ast.set_root();
+                            defers.push(ast);
+                        }
+                        TokenKind::Keyword(Keyword::Let) => {
+                            global.tokens.next();
+                            let token = global.tokens.expect_next(global.errors)?;
+                            if let TokenKind::Identifier(name) = token.kind {
+                                let id = imperative.insert_local(Local {
+                                    loc: token.loc,
+                                    name,
+                                    type_: None,
+                                    value: None,
+                                });
+
+                                global.tokens.try_consume_operator_string("=").ok_or_else(
+                                    || {
+                                        global.error(
+                                            token.loc,
+                                            "Expected '=' after identifier".into(),
+                                        );
+                                    },
+                                )?;
+
+                                let mut arg = arg_node.arg();
+                                expression(global, imperative, arg.arg())?;
+
+                                arg.set(Node::new(token.loc, NodeKind::Declare(id)));
+                                arg.validate();
+                            } else {
+                                global.error(token.loc, "Expected identifier".to_string());
+                                return Err(());
+                            }
+                        }
+                        _ => {
+                            expression(global, imperative, arg_node.arg())?;
+
+                            if let Some(loc) = global.tokens.try_consume_operator_string("=") {
+                                expression(global, imperative, arg_node.arg())?;
+                                arg_node.collapse(Node::new(loc, NodeKind::Assign), 2);
+                            }
+                        }
+                    }
 
                     let token = global.tokens.expect_next(global.errors)?;
                     match token.kind {
-                        TokenKind::Operator(c) if c == "=" => {
-                            // Assignment!
-                            expression(global, imperative, arg_node.arg())?;
-                            arg_node.collapse(Node::new(token.loc, NodeKind::Assign), 2);
-
-                            global
-                                .tokens
-                                .expect_next_is(global.errors, &TokenKind::SemiColon)?;
-                        }
                         TokenKind::SemiColon => {}
                         TokenKind::Close(Bracket::Curly) => break,
                         _ => {
@@ -593,7 +610,7 @@ fn atom_value(
                 }
 
                 imperative.pop_scope_boundary();
-                arg_node.set(Node::new(token.loc, NodeKind::Block));
+                arg_node.set(Node::new(token.loc, NodeKind::Block { defers }));
                 arg_node.validate();
             }
 

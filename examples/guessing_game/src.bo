@@ -3,9 +3,11 @@ library "io.bo";
 
 const main = fn() -> u64 {
     put_string("Enter the number the other person should guess(don't let them see it): \n");
+
     let input = read_input();
+    defer dealloc(input);
+
     let answer = string_to_int(input);
-    dealloc(input);
 
     let i = 1000 : i64;
     while i > 0 {
@@ -17,8 +19,9 @@ const main = fn() -> u64 {
     while guess != answer {
         put_string("Take a guess!\n");
         let input = read_input();
+        defer dealloc(input);
+
         guess = string_to_int(input); 
-        dealloc(input);
 
         if guess < answer {
             put_string("Too small!\n");

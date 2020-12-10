@@ -7,7 +7,6 @@ use std::fmt;
 use std::path::PathBuf;
 use ustr::Ustr;
 
-#[derive(Clone)]
 pub struct Node {
     pub loc: Location,
     pub kind: NodeKind,
@@ -19,7 +18,7 @@ impl Node {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub enum NodeKind {
     Literal(Literal),
     ArrayLiteral(usize),
@@ -55,7 +54,9 @@ pub enum NodeKind {
     Binary(BinaryOp),
 
     FunctionCall,
-    Block,
+    Block {
+        defers: Vec<super::Ast>,
+    },
     Empty,
     Uninit,
 
@@ -104,9 +105,9 @@ impl bump_tree::MetaData for Node {
                 }
             }
             NodeKind::FunctionDeclaration { locals: _ } => num_args >= 2,
-            NodeKind::Block | NodeKind::FunctionCall | NodeKind::FunctionType { is_extern: _ } => {
-                num_args >= 1
-            }
+            NodeKind::Block { .. }
+            | NodeKind::FunctionCall
+            | NodeKind::FunctionType { is_extern: _ } => num_args >= 1,
         }
     }
 }

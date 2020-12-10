@@ -581,7 +581,7 @@ fn type_ast(
             ));
             node.validate();
         }
-        ParserNodeKind::Block => {
+        ParserNodeKind::Block { ref defers } => {
             let mut children = parsed.children();
 
             let n_children = children.len();
@@ -592,7 +592,23 @@ fn type_ast(
             }
 
             type_ = type_ast(ctx, wanted_type, &children.next().unwrap(), node.arg())?;
-            node.set(Node::new(parsed.loc, NodeKind::Block, type_));
+
+            let mut typed_defers = Vec::with_capacity(defers.len());
+            for defer in defers {
+                let mut ast = Ast::new();
+                type_ast(ctx, None, &defer.root().unwrap(), ast.builder())?;
+                ast.set_root();
+
+                typed_defers.push(ast);
+            }
+
+            node.set(Node::new(
+                parsed.loc,
+                NodeKind::Block {
+                    defers: typed_defers,
+                },
+                type_,
+            ));
             node.validate();
         }
         ParserNodeKind::Member(name) => {

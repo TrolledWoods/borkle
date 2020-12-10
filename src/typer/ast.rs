@@ -41,7 +41,7 @@ impl bump_tree::MetaData for Node {
                 num_args == 0
             }
             NodeKind::FunctionCall { .. } => true,
-            NodeKind::Block => num_args > 0,
+            NodeKind::Block { .. } => num_args > 0,
             NodeKind::FunctionDeclaration { locals: _ }
             | NodeKind::BitCast
             | NodeKind::ArrayToBuffer(_)
@@ -71,7 +71,7 @@ pub enum NodeKind {
     Member(Ustr),
     FunctionCall { is_extern: bool },
     FunctionDeclaration { locals: LocalVariables },
-    Block,
+    Block { defers: Vec<super::Ast> },
 
     While,
     If { has_else: bool },
