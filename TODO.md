@@ -4,11 +4,12 @@
 * [X] References of temporary values
 
 * [ ] Polymorphism
+* [ ] Anonymous constants
 * [ ] Figure out if there is a way to have fewer keywords.
 * [ ] BUG! There is a bug with variable shadowing
 * [ ] If the dynamic library in the target directory is already defined, and has the same "last edited" date as the source file, don't copy the file from the source.
 * [ ] Allow running the examples folder as tests
-* [ ] Make a setup file for projects!
+* [ ] Make a global setup file for the compiler!
 * [ ] Struct literals
 * [ ] Structs in ffi
 * [ ] Indexing operations
@@ -16,7 +17,7 @@
 * [ ] Implement the proper separation between 'thread pool' and 'program'
 * [ ] Redo ast nodes to be more readable, like right now what the heck is it even!? 
         Maybe it's fine to use unsafe, because if we do we can also include other data types in the ast buffer.
-* [ ] Variable arguments for functions
+* [ ] Allow array literals to also become buffers if the wanted type needs it.
 * [ ] For loops
 * [ ] Break out of blocks/loops
 * [ ] Defer

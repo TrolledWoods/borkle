@@ -40,9 +40,7 @@ pub struct Program {
     pub logger: Logger,
     // FIXME: We will have scopes eventually, but for now
     // everything is just in the same scope.
-    // FIXME: Fix up the terminology here, 'Constant' vs 'StaticData' maybe? Instaed of
-    // 'const_table', 'member'?, 'constant_data'.
-    const_table: RwLock<HashMap<MemberId, Member>>,
+    members: RwLock<HashMap<MemberId, Member>>,
     scope: RwLock<UstrMap<MemberId>>,
 
     pub constant_data: Mutex<Vec<Constant>>,
@@ -77,7 +75,7 @@ impl Program {
 
             logger,
 
-            const_table: RwLock::default(),
+            members: RwLock::default(),
             scope: RwLock::default(),
 
             extern_fn_calling_conventions: RwLock::default(),
@@ -92,8 +90,8 @@ impl Program {
     }
 
     pub fn check_for_completion(&self, errors: &mut ErrorCtx) {
-        let const_table = self.const_table.read();
-        for member in const_table.values() {
+        let members = self.members.read();
+        for member in members.values() {
             for &(loc, _) in member.type_.dependants() {
                 if member.is_defined {
                     errors.error(loc, format!("'{}' can't be evaluated", member.name));
@@ -134,9 +132,9 @@ impl Program {
     }
 
     pub fn get_entry_point(&self) -> Option<*const u8> {
-        let const_table = self.const_table.read();
+        let members = self.members.read();
         let member_id = self.get_member_id("main".into())?;
-        let member = const_table.get(&member_id).unwrap();
+        let member = members.get(&member_id).unwrap();
 
         let type_ = member.type_.to_option()?;
 
@@ -157,11 +155,11 @@ impl Program {
     }
 
     pub fn get_constant_as_value(&self, id: MemberId) -> crate::ir::Value {
-        let const_table = self.const_table.read();
-        let element = const_table.get(&id).unwrap();
+        let members = self.members.read();
+        let member = members.get(&id).unwrap();
 
-        let type_ = *element.type_.to_option().unwrap();
-        let value_ptr = *element.value.to_option().unwrap();
+        let type_ = *member.type_.to_option().unwrap();
+        let value_ptr = *member.value.to_option().unwrap();
 
         crate::ir::Value::Global(value_ptr, type_)
     }
@@ -171,18 +169,18 @@ impl Program {
     }
 
     pub fn member_name(&self, id: MemberId) -> Ustr {
-        let const_table = self.const_table.read();
-        const_table.get(&id).unwrap().name
+        let members = self.members.read();
+        members.get(&id).unwrap().name
     }
 
     pub fn get_value_of_member(&self, id: MemberId) -> ConstantRef {
-        let const_table = self.const_table.read();
-        *const_table.get(&id).unwrap().value.unwrap()
+        let members = self.members.read();
+        *members.get(&id).unwrap().value.unwrap()
     }
 
     pub fn get_type_of_member(&self, id: MemberId) -> Type {
-        let const_table = self.const_table.read();
-        *const_table.get(&id).unwrap().type_.unwrap()
+        let members = self.members.read();
+        *members.get(&id).unwrap().type_.unwrap()
     }
 
     pub fn load_extern_library(
@@ -274,13 +272,13 @@ impl Program {
     }
 
     pub fn set_value_of_member(&self, id: MemberId, data: *const u8) {
-        let mut const_table = self.const_table.write();
-        let entry = const_table.get_mut(&id).unwrap();
+        let mut members = self.members.write();
+        let member = members.get_mut(&id).unwrap();
 
-        let value = self.insert_buffer(*entry.type_.unwrap(), data);
-        let old = std::mem::replace(&mut entry.value, DependableOption::Some(value));
+        let value = self.insert_buffer(*member.type_.unwrap(), data);
+        let old = std::mem::replace(&mut member.value, DependableOption::Some(value));
 
-        drop(const_table);
+        drop(members);
 
         if let DependableOption::None(dependencies) = old {
             for (_, dependency) in dependencies {
@@ -292,10 +290,10 @@ impl Program {
     }
 
     pub fn set_type_of_member(&self, id: MemberId, type_: Type) {
-        let mut const_table = self.const_table.write();
-        let type_entry = &mut const_table.get_mut(&id).unwrap().type_;
-        let old = std::mem::replace(type_entry, DependableOption::Some(type_));
-        drop(const_table);
+        let mut members = self.members.write();
+        let member_type = &mut members.get_mut(&id).unwrap().type_;
+        let old = std::mem::replace(member_type, DependableOption::Some(type_));
+        drop(members);
 
         if let DependableOption::None(dependencies) = old {
             for (_, dependency) in dependencies {
@@ -308,8 +306,8 @@ impl Program {
 
     fn resolve_dependency(&self, id: MemberId) {
         let name = self.member_name(id);
-        let const_table = self.const_table.read();
-        let dependencies_left = const_table
+        let members = self.members.read();
+        let dependencies_left = members
             .get(&id)
             .unwrap()
             .dependencies_left
@@ -338,10 +336,10 @@ impl Program {
         // libral locking. But in the future, we can reduce the amount of locking being done and
         // therefore all of this will become relevant and important.
         if dependencies_left == 1 {
-            // FIXME: Make more granular locks, don't lock the whole const_table here.
-            drop(const_table);
-            let mut const_table = self.const_table.write();
-            if let Some(task) = const_table.get_mut(&id).unwrap().task.take() {
+            // FIXME: Make more granular locks, don't lock the whole members here.
+            drop(members);
+            let mut members = self.members.write();
+            if let Some(task) = members.get_mut(&id).unwrap().task.take() {
                 self.work.send(task);
             } else {
                 // There was no task? This shouldn't happen; if there are dependencies,
@@ -358,10 +356,10 @@ impl Program {
         name: Ustr,
     ) -> Result<MemberId, ()> {
         let mut scope = self.scope.write();
-        let mut const_table = self.const_table.write();
+        let mut members = self.members.write();
 
         if let Some(&id) = scope.get(&name) {
-            let member = const_table.get_mut(&id).unwrap();
+            let member = members.get_mut(&id).unwrap();
             if member.is_defined {
                 errors.error(loc, format!("'{}' is already defined", name));
                 return Err(());
@@ -371,9 +369,9 @@ impl Program {
             member.is_defined = true;
             Ok(id)
         } else {
-            let id = MemberId(const_table.len());
+            let id = MemberId(members.len());
             scope.insert(name, id);
-            const_table.insert(id, Member::new(name, true));
+            members.insert(id, Member::new(name, true));
             Ok(id)
         }
     }
@@ -384,7 +382,7 @@ impl Program {
         let name = self.member_name(id);
 
         let mut scope = self.scope.write();
-        let mut const_table = self.const_table.write();
+        let mut members = self.members.write();
         let mut num_deps = 0;
 
         self.logger
@@ -393,7 +391,7 @@ impl Program {
         // We want to make sure that there are no left over dependencies from the previous task
         // associated with this member.
         debug_assert_eq!(
-            const_table
+            members
                 .get(&id)
                 .unwrap()
                 .dependencies_left
@@ -403,45 +401,41 @@ impl Program {
 
         for (dep_name, loc) in deps.types {
             if let Some(&dep_id) = scope.get(&dep_name) {
-                let member = const_table.get_mut(&dep_id).unwrap();
-                if member.type_.add_dependant(loc, id) {
+                let dependency = members.get_mut(&dep_id).unwrap();
+                if dependency.type_.add_dependant(loc, id) {
                     num_deps += 1;
                 }
             } else {
                 num_deps += 1;
                 self.logger.log(format_args!("temporary: '{}'", dep_name,));
-                let mut member = Member::new(dep_name, false);
-                member.type_.add_dependant(loc, id);
+                let mut dependency = Member::new(dep_name, false);
+                dependency.type_.add_dependant(loc, id);
 
-                let id = MemberId(const_table.len());
-                scope.insert(dep_name, id);
-                const_table.insert(id, member);
+                let dep_id = MemberId(members.len());
+                scope.insert(dep_name, dep_id);
+                members.insert(dep_id, dependency);
             }
         }
 
         for (dep_name, loc) in deps.values {
             if let Some(dep_id) = scope.get(&dep_name) {
-                let member = const_table.get_mut(&dep_id).unwrap();
-                if member.value.add_dependant(loc, id) {
+                let dependency = members.get_mut(&dep_id).unwrap();
+                if dependency.value.add_dependant(loc, id) {
                     num_deps += 1;
                 }
             } else {
                 num_deps += 1;
                 self.logger.log(format_args!("temporary: '{}'", dep_name,));
-                let mut member = Member::new(dep_name, false);
-                member.value.add_dependant(loc, id);
+                let mut dependency = Member::new(dep_name, false);
+                dependency.value.add_dependant(loc, id);
 
-                let id = MemberId(const_table.len());
-                scope.insert(dep_name, id);
-                const_table.insert(id, member);
+                let dep_id = MemberId(members.len());
+                scope.insert(dep_name, dep_id);
+                members.insert(dep_id, dependency);
             }
         }
 
-        let num_dependencies = const_table
-            .get_mut(&id)
-            .unwrap()
-            .dependencies_left
-            .get_mut();
+        let num_dependencies = members.get_mut(&id).unwrap().dependencies_left.get_mut();
 
         *num_dependencies += num_deps;
 
@@ -452,7 +446,7 @@ impl Program {
         } else {
             // We are not done with our dependencies. We have to wait a bit,
             // so we have to put the task into the lock.
-            let entry = const_table.get_mut(&id).unwrap();
+            let entry = members.get_mut(&id).unwrap();
             entry.task = Some(task);
         }
     }
