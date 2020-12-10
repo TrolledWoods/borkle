@@ -96,17 +96,21 @@ Now you say, quit it with the boring stuff, give me a hello world program!
 library "io.bo";
 
 const main = fn() -> u64 {
-    print("Hello, world!\n");
+    put_string("Hello, world!\n");
 };
 ```
-Here, we import the "print" function by importing the "io.bo" file. ``library`` just imports a file relative to the ``lib_path``. This also means that you can look at the definition of "print":
+Here, we import the "put\_string" function by importing the "io.bo" file. ``library`` just imports a file relative to the ``lib_path``. This also means that you can look at the definition of "put\_string":
 
 ```rust
-const print = fn (buffer: [] u8) -> u64 {
+const put_string = fn (buffer: [] u8) -> u64 {
     (extern "target/library" "put_string" : extern fn(&u8, usize) -> u64)
         (buffer.ptr, buffer.len)
 };
 ```
-Wow that's ugly. Anyway, print calls an FFI function to do its magic.
+Wow that's ugly. Anyway, put\_string calls an FFI function to do its magic.
+
+Now you're wondering, why aren't you using ``printf`` or something!? ``print`` does indeed exist, but it does formatting,
+so calling it is a bit more complicated than ``put_string``.
 
 There is more documentation to come later, but take a look at the examples if you want to see more of how the language works.
+The examples may not be up to date, because keeping them all up to date constantly as I work on the language would be a huge pain.

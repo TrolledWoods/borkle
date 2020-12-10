@@ -1,0 +1,3 @@
+library "slice.bo";
+
+const String = type [] u8;

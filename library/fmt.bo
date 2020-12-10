@@ -1,0 +1,113 @@
+library "io.bo";
+library "slice.bo";
+
+const Format = type {
+    data: &u8,
+    print_it: fn(&u8),
+};
+
+const ARGUMENT_SPECIFIER = *"%".ptr;
+
+const print = fn(fmt_string: [] u8, fmt_args: [] Format) {
+    let prev_section = 0 : usize;
+    let i = 0 : usize;
+    let arg_i = 0 : usize;
+    while i < fmt_string.len {
+        if *(fmt_string.ptr + i) == ARGUMENT_SPECIFIER {
+            put_string(slice_u8(fmt_string, prev_section, i));
+
+            if arg_i >= fmt_args.len {
+                put_string("\n\n ---- printf formatting error! There are not enough given formatting arguments!!! ---- \n");
+            };
+
+            let format = *(fmt_args.ptr + arg_i);
+            (format.print_it)(format.data);
+
+            arg_i = arg_i + 1;
+
+            prev_section = i + 1;
+        };
+        
+        i = i + 1;
+    };
+
+    if arg_i != fmt_args.len {
+        put_string("\n\n ---- printf formatting error! There number of formatting arguments does not match the number in the string\n");
+    };
+
+    put_string(slice_u8(fmt_string, prev_section, i));
+};
+
+const fmt_str = fn(string: &[] u8) -> Format {
+    let format = uninit : Format;
+    format.data = bit_cast string;
+    format.print_it = fn(data: &u8)  put_string(*bit_cast data);
+    format
+};
+
+const dbg_str = fn(string: &[] u8) -> Format {
+    let format = uninit : Format;
+    format.data = bit_cast string;
+    format.print_it = fn(data: &u8) {
+        put_string("\"");
+        put_string(*bit_cast data);
+        put_string("\"");
+    };
+    format
+};
+
+const fmt_u64 = fn(num: &u64) -> Format {
+    let format = uninit : Format;
+    format.data = bit_cast num;
+    format.print_it = fn(arg: &u8)  print_u64(*bit_cast arg);
+    format
+};
+
+const fmt_i64 = fn(num: &i64) -> Format {
+    let format = uninit : Format;
+    format.data = bit_cast num;
+    format.print_it = fn(arg: &u8)  print_i64(*bit_cast arg);
+    format
+};
+
+const fmt_u32 = fn(num: &u32) -> Format {
+    let format = uninit : Format;
+    format.data = bit_cast num;
+    format.print_it = fn(arg: &u8)  print_u32(*bit_cast arg);
+    format
+};
+
+const fmt_i32 = fn(num: &i32) -> Format {
+    let format = uninit : Format;
+    format.data = bit_cast num;
+    format.print_it = fn(arg: &u8)  print_i32(*bit_cast arg);
+    format
+};
+
+const fmt_u16 = fn(num: &u16) -> Format {
+    let format = uninit : Format;
+    format.data = bit_cast num;
+    format.print_it = fn(arg: &u8)  print_u16(*bit_cast arg);
+    format
+};
+
+const fmt_i16 = fn(num: &i16) -> Format {
+    let format = uninit : Format;
+    format.data = bit_cast num;
+    format.print_it = fn(arg: &u8)  print_i16(*bit_cast arg);
+    format
+};
+
+const fmt_u8 = fn(num: &u8) -> Format {
+    let format = uninit : Format;
+    format.data = num;
+    format.print_it = fn(arg: &u8)  print_u8(*arg);
+    format
+};
+
+const fmt_i8 = fn(num: &i8) -> Format {
+    let format = uninit : Format;
+    format.data = bit_cast num;
+    format.print_it = fn(arg: &u8)  print_i8(*bit_cast arg);
+    format
+};

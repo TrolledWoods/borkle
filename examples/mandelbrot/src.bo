@@ -36,8 +36,8 @@ const main = fn() -> u64 {
             pixel = pixel + 1;
         };
 
-        print(buffer);
-        print("\n");
+        put_string(buffer);
+        put_string("\n");
 
         y = y + PIXEL_HEIGHT;
     };

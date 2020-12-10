@@ -2,32 +2,32 @@ library "mem.bo";
 library "io.bo";
 
 const main = fn() -> u64 {
-    print("Enter the number the other person should guess(don't let them see it): \n");
+    put_string("Enter the number the other person should guess(don't let them see it): \n");
     let input = read_input();
     let answer = string_to_int(input);
     dealloc(input);
 
     let i = 1000 : i64;
     while i > 0 {
-        print("\n");
+        put_string("\n");
         i = i - 1;
     };
 
     let guess = 0 : u64;
     while guess != answer {
-        print("Take a guess!\n");
+        put_string("Take a guess!\n");
         let input = read_input();
         guess = string_to_int(input); 
         dealloc(input);
 
         if guess < answer {
-            print("Too small!\n");
+            put_string("Too small!\n");
         } else if guess > answer  {
-            print("Too big!\n");
+            put_string("Too big!\n");
         };
     };
 
-    print("That is correct! :D\n");
+    put_string("That is correct! :D\n");
 
     0
 };

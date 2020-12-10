@@ -1,13 +1,10 @@
-const print = fn (buffer: [] u8) -> u64 {
-    (extern "target/library" "put_string" : extern fn(&u8, usize) -> u64)
-        (buffer.ptr, buffer.len)
+const put_string = fn (buffer: [] u8) {
+    (extern "target/library" "put_string" : extern fn(&u8, usize))
+        (buffer.ptr, buffer.len);
 };
 
 const print_usize = fn (num: usize)  print_u64(bit_cast num);
 const print_isize = fn (num: isize)  print_i64(bit_cast num);
-
-const print_i64 = extern "target/library" "print_i64" : extern fn (i64);
-const print_u64 = extern "target/library" "print_u64" : extern fn (u64);
 
 const read_input = fn () -> [] u8 {
     let buf = uninit : [] u8;
@@ -37,4 +34,43 @@ const string_to_int = fn(string: [] u8) -> u64 {
     };
 
     sum
+};
+
+const print_i64 = extern "target/library" "print_i64" : extern fn (i64);
+const print_u64 = extern "target/library" "print_u64" : extern fn (u64);
+
+const print_i32 = fn(num: i32) {
+    let big = if num < 0 { -1 } else { 0 } : i64;
+    *(bit_cast &big : &i32) = num;
+    print_i64(big);
+};
+
+const print_u32 = fn(num: u32) {
+    let big = 0 : u64;
+    *(bit_cast &big : &u32) = num;
+    print_u64(big);
+};
+
+const print_i16 = fn(num: i16) {
+    let big = if num < 0 { -1 } else { 0 } : i64;
+    *(bit_cast &big : &i16) = num;
+    print_i64(big);
+};
+
+const print_u16 = fn(num: u16) {
+    let big = 0 : u64;
+    *(bit_cast &big : &u16) = num;
+    print_u64(big);
+};
+
+const print_i8 = fn(num: i8) {
+    let big = if num < 0 { -1 } else { 0 } : i64;
+    *(bit_cast &big : &i8) = num;
+    print_i64(big);
+};
+
+const print_u8 = fn(num: u8) {
+    let big = 0 : u64;
+    *(bit_cast &big : &u8) = num;
+    print_u64(big);
 };
