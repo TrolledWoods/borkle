@@ -40,7 +40,7 @@ pub fn function_pointer_type(
 ) {
     write!(output, "{} (*{})(", c_format_type_or_void(returns), name).unwrap();
     let mut has_emitted = false;
-    for arg in args.iter() {
+    for arg in args {
         if arg.size() == 0 {
             continue;
         }
@@ -95,7 +95,7 @@ fn c_format_value(value: &Value) -> impl fmt::Display + '_ {
 pub fn declare_constants(output: &mut String, program: &Program) {
     let constant_data = program.constant_data.lock();
     let external_symbols = program.external_symbols.lock();
-    for (_, &(type_, name)) in external_symbols.iter() {
+    for &(type_, name) in external_symbols.values() {
         if let TypeKind::Function { args, returns, .. } = type_.kind() {
             output.push_str("extern ");
             function_declaration(output, name, args, *returns);
@@ -149,7 +149,7 @@ pub fn declare_constants(output: &mut String, program: &Program) {
 pub fn instantiate_constants(output: &mut String, program: &Program) {
     let constant_data = program.constant_data.lock();
     let external_symbols = program.external_symbols.lock();
-    for constant in constant_data.iter() {
+    for constant in &*constant_data {
         let ptr = constant.ptr.as_ptr();
         if constant.type_.pointers().is_empty() {
             write!(
@@ -242,7 +242,7 @@ pub fn routine_to_c(output: &mut String, routine: &Routine, num_args: usize) {
                     write!(output, "{}(", c_format_value(pointer),).unwrap();
                 }
                 let mut has_emitted = false;
-                for arg in args.iter() {
+                for arg in args {
                     if arg.size() == 0 {
                         continue;
                     }
@@ -321,7 +321,7 @@ pub fn routine_to_c(output: &mut String, routine: &Routine, num_args: usize) {
             Instr::Member { to, of, member } => {
                 write!(output, "{} = {}", c_format_value(to), c_format_value(of)).unwrap();
 
-                for name in member.name_list.iter() {
+                for name in &member.name_list {
                     output.push('.');
                     output.push_str(name);
                 }
@@ -340,7 +340,7 @@ pub fn routine_to_c(output: &mut String, routine: &Routine, num_args: usize) {
             Instr::Reference { to, from, offset } => {
                 write!(output, "{} = &{}", c_format_value(to), c_format_value(from)).unwrap();
 
-                for name in offset.name_list.iter() {
+                for name in &offset.name_list {
                     output.push('.');
                     output.push_str(name.as_str());
                 }
@@ -355,7 +355,7 @@ pub fn routine_to_c(output: &mut String, routine: &Routine, num_args: usize) {
             } => {
                 write!(output, "{}", c_format_value(to)).unwrap();
 
-                for name in member.name_list.iter() {
+                for name in &member.name_list {
                     output.push('.');
                     output.push_str(name);
                 }
@@ -370,7 +370,7 @@ pub fn routine_to_c(output: &mut String, routine: &Routine, num_args: usize) {
             } => {
                 write!(output, "(*{})", c_format_value(to)).unwrap();
 
-                for name in member.name_list.iter() {
+                for name in &member.name_list {
                     output.push('.');
                     output.push_str(name);
                 }
@@ -401,7 +401,7 @@ pub fn routine_to_c(output: &mut String, routine: &Routine, num_args: usize) {
 }
 
 pub fn append_c_type_headers(output: &mut String) {
-    for &type_ in TYPES.lock().iter() {
+    for &type_ in &*TYPES.lock() {
         if let TypeKind::Empty = type_.kind {
             continue;
         }
@@ -464,7 +464,7 @@ pub fn append_c_type_headers(output: &mut String) {
 
                 output.push('(');
                 let mut has_emitted = false;
-                for arg in args.iter() {
+                for arg in args {
                     if arg.size() == 0 {
                         continue;
                     }

@@ -60,22 +60,22 @@ fn interp_internal(program: &Program, stack: &mut StackFrame<'_>, routine: &Rout
             } => {
                 let mut ptr = [0_u8; 8];
                 ptr.copy_from_slice(stack.get(pointer));
-                let routine: &Routine = unsafe { std::mem::transmute(usize::from_le_bytes(ptr)) };
+                let calling: &Routine = unsafe { std::mem::transmute(usize::from_le_bytes(ptr)) };
 
-                let (mut old_stack, mut new_stack) = stack.split(&routine.registers);
+                let (mut old_stack, mut new_stack) = stack.split(&calling.registers);
 
                 // Put the arguments on top of the new stack frame
-                for (old, new) in args.iter().zip(&routine.registers.locals) {
+                for (old, new) in args.iter().zip(&calling.registers.locals) {
                     new_stack
                         .get_mut_from_reg(new)
                         .copy_from_slice(old_stack.get(*old));
                 }
 
-                interp_internal(program, &mut new_stack, routine);
+                interp_internal(program, &mut new_stack, calling);
 
                 old_stack
                     .get_mut(to)
-                    .copy_from_slice(new_stack.get(routine.result));
+                    .copy_from_slice(new_stack.get(calling.result));
             }
             Instr::Constant { to, ref from } => {
                 let to = stack.get_mut(to);

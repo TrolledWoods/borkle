@@ -72,6 +72,8 @@ fn type_ast<'a>(
         }
         ParserNodeKind::Literal(Literal::Float(num)) => match wanted_type.map(Type::kind) {
             Some(TypeKind::F32) => {
+                // FIXME: Maybe we want a compiler error for when num is truncated?
+                #[allow(clippy::cast_possible_truncation)]
                 let bytes = (num as f32).to_bits().to_le_bytes();
                 type_ = Type::new(TypeKind::F32);
 
@@ -456,9 +458,7 @@ fn type_ast<'a>(
             let left = children.next().unwrap();
             let right = children.next().unwrap();
 
-            let left_hand_side = wanted_type
-                .map(|t| op.left_hand_side_from_return(t))
-                .flatten();
+            let left_hand_side = wanted_type.and_then(|t| op.left_hand_side_from_return(t));
 
             let left_type = type_ast(ctx, left_hand_side, left, node.arg())?;
             let right_type = type_ast(

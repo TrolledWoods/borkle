@@ -17,6 +17,7 @@ impl Logger {
         Self {}
     }
 
+    #[allow(clippy::unused_self)]
     pub fn log(&self, _args: std::fmt::Arguments<'_>) {}
 }
 

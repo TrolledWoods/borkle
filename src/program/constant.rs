@@ -46,7 +46,7 @@ impl ConstantRef {
         }
     }
 
-    pub fn as_ptr(&self) -> *const u8 {
+    pub fn as_ptr(self) -> *const u8 {
         self.ptr.as_ptr()
     }
 }

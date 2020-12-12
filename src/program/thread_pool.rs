@@ -144,7 +144,7 @@ fn worker(program: &Arc<Program>, work: &Arc<WorkPile>) -> (ThreadContext, Error
             match task {
                 Task::Parse(path) => match std::fs::read_to_string(&path) {
                     Ok(string) => {
-                        let _ = crate::parser::process_string(&mut errors, program, path, &string);
+                        let _ = crate::parser::process_string(&mut errors, program, &path, &string);
                     }
                     Err(_) => {
                         errors.global_error(format!("File {:?} cannot be loaded", path));

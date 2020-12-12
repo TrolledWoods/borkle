@@ -18,7 +18,7 @@ impl TokenStream {
     }
 
     pub fn loc(&self) -> Location {
-        self.peek().map(|token| token.loc).unwrap_or(self.last)
+        self.peek().map_or(self.last, |token| token.loc)
     }
 
     pub fn peek_mut(&mut self) -> Option<&'_ mut Token> {

@@ -6,6 +6,8 @@
 * [X] Defer
 * [X] Optimize stack size for interpreter
 * [X] Break out of blocks/loops
+* [ ] Redo ast nodes to be more readable, like right now what the heck is it even!? 
+        Maybe it's fine to use unsafe, because if we do we can also include other data types in the ast buffer.
 * [ ] Constant folding of operations
 
 * [ ] Figure out why ifs with loose expressions after them never seem to work.
@@ -24,8 +26,6 @@
 * [ ] Structs in ffi
 * [ ] Indexing operations
 * [ ] Implement the proper separation between 'thread pool' and 'program'
-* [ ] Redo ast nodes to be more readable, like right now what the heck is it even!? 
-        Maybe it's fine to use unsafe, because if we do we can also include other data types in the ast buffer.
 * [ ] Allow array literals to also become buffers if the wanted type needs it.
 * [ ] For loops
 * [ ] Function arguments are implicitly dereferenced/referenced(maybe we want this?)

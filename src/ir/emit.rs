@@ -114,9 +114,10 @@ fn emit_node<'a>(ctx: &mut Context<'a>, node: Node<'a>) -> Value {
 
             let from = emit_node(ctx, node.children().next().unwrap());
 
-            let label = ctx.locals.get_label(*label_id);
-            for defer_index in
-                (label.defer_depth + *num_deduplicated_defers_at_target..ctx.defers.len()).rev()
+            for defer_index in (ctx.locals.get_label(*label_id).defer_depth
+                + *num_deduplicated_defers_at_target
+                ..ctx.defers.len())
+                .rev()
             {
                 emit_node(ctx, ctx.defers[defer_index]);
             }
@@ -442,7 +443,7 @@ fn emit_node<'a>(ctx: &mut Context<'a>, node: Node<'a>) -> Value {
             let to = ctx.registers.create(node.type_());
 
             if let Some(label) = *label {
-                let ir_labels = (0..ctx.locals.get_label(label).num_defers + 1)
+                let ir_labels = (0..=ctx.locals.get_label(label).num_defers)
                     .map(|_| ctx.create_label())
                     .collect();
                 let label_ref = ctx.locals.get_label_mut(label);

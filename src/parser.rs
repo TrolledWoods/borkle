@@ -16,7 +16,7 @@ use bump_tree::Tree;
 use context::{DataContext, ImperativeContext};
 use lexer::{Bracket, Keyword, Token, TokenKind};
 use std::convert::TryFrom;
-use std::path::PathBuf;
+use std::path::Path;
 use ustr::Ustr;
 
 pub type Ast = Tree<Node>;
@@ -25,7 +25,7 @@ type NodeBuilder<'a> = bump_tree::NodeBuilder<'a, Node>;
 pub fn process_string(
     errors: &mut ErrorCtx,
     program: &Program,
-    file: PathBuf,
+    file: &Path,
     string: &str,
 ) -> Result<(), ()> {
     let file_name_str = file.to_str().expect("File path is not a valid string, this should not happen since all paths are constructed from strings originally").into();
