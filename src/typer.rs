@@ -7,6 +7,7 @@ use crate::operators::UnaryOp;
 use crate::parser::ast::Node as ParsedNode;
 use crate::parser::{ast::NodeKind as ParsedNodeKind, Ast as ParsedAst};
 use crate::program::constant::ConstantRef;
+use crate::program::thread_pool::ThreadContext;
 use crate::program::Program;
 use crate::self_buffer::{SelfBuffer, SelfTree};
 use crate::types::{IntTypeKind, Type, TypeData, TypeKind};
@@ -17,6 +18,7 @@ pub type Ast = SelfTree<Node>;
 pub mod ast;
 
 struct Context<'a> {
+    thread_context: &'a mut ThreadContext,
     errors: &'a mut ErrorCtx,
     program: &'a Program,
     locals: LocalVariables,
@@ -25,12 +27,14 @@ struct Context<'a> {
 
 pub fn process_ast(
     errors: &mut ErrorCtx,
+    thread_context: &mut ThreadContext,
     program: &Program,
     locals: LocalVariables,
     parsed: &ParsedAst,
 ) -> Result<(DependencyList, LocalVariables, Ast), ()> {
     let mut deps = DependencyList::new();
     let mut ctx = Context {
+        thread_context,
         errors,
         program,
         locals,
@@ -237,14 +241,15 @@ fn type_ast<'a>(
 
             let mut arg_types = Vec::with_capacity(args.len());
             for (local, node) in locals.iter_mut().zip(args) {
-                let arg_type = const_fold_type_expr(ctx, node)?;
+                let arg_type = const_fold_type_expr(ctx, node, buffer)?;
                 local.type_ = Some(arg_type);
                 arg_types.push(arg_type);
             }
 
-            let return_type = const_fold_type_expr(ctx, returns)?;
+            let return_type = const_fold_type_expr(ctx, returns, buffer)?;
 
             let mut sub_ctx = Context {
+                thread_context: ctx.thread_context,
                 errors: ctx.errors,
                 program: ctx.program,
                 // FIXME: Remove the clone here; This should be doable by recursing over an owned
@@ -429,7 +434,7 @@ fn type_ast<'a>(
                 );
             }
 
-            let bound = const_fold_type_expr(ctx, bound)?;
+            let bound = const_fold_type_expr(ctx, bound, buffer)?;
             type_ast(ctx, Some(bound), value, buffer)?
         }
         ParsedNodeKind::Binary {
@@ -693,7 +698,7 @@ fn type_ast<'a>(
             )
         }
         ParsedNodeKind::TypeAsValue(ref inner) => {
-            let inner_type = const_fold_type_expr(ctx, inner)?;
+            let inner_type = const_fold_type_expr(ctx, inner, buffer)?;
             Node::new(
                 parsed.loc,
                 NodeKind::Constant(ctx.program.insert_buffer(
@@ -704,7 +709,7 @@ fn type_ast<'a>(
             )
         }
         ParsedNodeKind::LiteralType(_)
-        | ParsedNodeKind::ArrayType(_, _)
+        | ParsedNodeKind::ArrayType { .. }
         | ParsedNodeKind::StructType { .. }
         | ParsedNodeKind::FunctionType { .. }
         | ParsedNodeKind::BufferType(_)
@@ -730,7 +735,11 @@ fn type_ast<'a>(
     Ok(node)
 }
 
-fn const_fold_type_expr<'a>(ctx: &mut Context<'a>, parsed: &'a ParsedNode) -> Result<Type, ()> {
+fn const_fold_type_expr<'a>(
+    ctx: &mut Context<'a>,
+    parsed: &'a ParsedNode,
+    buffer: &mut SelfBuffer,
+) -> Result<Type, ()> {
     match parsed.kind {
         ParsedNodeKind::GlobalForTyping(name) => {
             let id = ctx.program.get_member_id(name).unwrap();
@@ -743,21 +752,37 @@ fn const_fold_type_expr<'a>(ctx: &mut Context<'a>, parsed: &'a ParsedNode) -> Re
         } => {
             let mut fields = Vec::with_capacity(parsed_fields.len());
             for &(name, ref parsed_field_type) in parsed_fields {
-                let field_type = const_fold_type_expr(ctx, parsed_field_type)?;
+                let field_type = const_fold_type_expr(ctx, parsed_field_type, buffer)?;
                 fields.push((name, field_type));
             }
             Ok(Type::new(TypeKind::Struct(fields)))
         }
         ParsedNodeKind::BufferType(ref internal) => {
-            let pointee = const_fold_type_expr(ctx, internal)?;
+            let pointee = const_fold_type_expr(ctx, internal, buffer)?;
             Ok(TypeKind::Buffer(pointee).into())
         }
-        ParsedNodeKind::ArrayType(length, ref internal) => {
-            let member = const_fold_type_expr(ctx, internal)?;
+        ParsedNodeKind::ArrayType {
+            len: (ref locals, ref len),
+            ref members,
+        } => {
+            let mut locals = std::mem::replace(&mut ctx.locals, locals.clone());
+            let len = type_ast(
+                ctx,
+                Some(Type::new(TypeKind::Int(IntTypeKind::Usize))),
+                len,
+                buffer,
+            )?;
+            locals = std::mem::replace(&mut ctx.locals, locals);
+
+            let constant =
+                crate::interp::emit_and_run(ctx.thread_context, ctx.program, locals, &len);
+            let length = unsafe { *constant.as_ptr().cast::<usize>() };
+
+            let member = const_fold_type_expr(ctx, members, buffer)?;
             Ok(TypeKind::Array(member, length).into())
         }
         ParsedNodeKind::ReferenceType(ref internal) => {
-            let pointee = const_fold_type_expr(ctx, internal)?;
+            let pointee = const_fold_type_expr(ctx, internal, buffer)?;
             Ok(TypeKind::Reference(pointee).into())
         }
         ParsedNodeKind::FunctionType {
@@ -767,10 +792,10 @@ fn const_fold_type_expr<'a>(ctx: &mut Context<'a>, parsed: &'a ParsedNode) -> Re
         } => {
             let mut arg_types = Vec::with_capacity(args.len());
             for arg in args {
-                arg_types.push(const_fold_type_expr(ctx, arg)?);
+                arg_types.push(const_fold_type_expr(ctx, arg, buffer)?);
             }
 
-            let returns = const_fold_type_expr(ctx, returns)?;
+            let returns = const_fold_type_expr(ctx, returns, buffer)?;
 
             Ok(TypeKind::Function {
                 args: arg_types,

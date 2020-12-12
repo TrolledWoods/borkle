@@ -58,7 +58,10 @@ pub enum NodeKind {
         fields: Vec<(Ustr, SelfBox<Node>)>,
     },
     BufferType(SelfBox<Node>),
-    ArrayType(usize, SelfBox<Node>),
+    ArrayType {
+        len: (LocalVariables, SelfBox<Node>),
+        members: SelfBox<Node>,
+    },
     FunctionType {
         is_extern: bool,
         args: Vec<SelfBox<Node>>,

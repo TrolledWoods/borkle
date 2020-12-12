@@ -15,7 +15,6 @@ use crate::types::TypeKind;
 pub use ast::{Node, NodeKind};
 use context::{DataContext, ImperativeContext};
 use lexer::{Bracket, Keyword, Token, TokenKind};
-use std::convert::TryFrom;
 use std::path::Path;
 use ustr::Ustr;
 
@@ -298,36 +297,29 @@ fn type_(
         }
         TokenKind::Open(Bracket::Square) => {
             global.tokens.next();
-            let token = global.tokens.expect_next(global.errors)?;
-            match token.kind {
+            match global.tokens.expect_peek(global.errors)?.kind {
                 TokenKind::Close(Bracket::Square) => {
+                    global.tokens.next();
                     let inner = type_(global, dependencies, buffer)?;
                     Ok(Node::new(loc, NodeKind::BufferType(buffer.insert(inner))))
                 }
-                TokenKind::Literal(Literal::Int(num)) => {
+                _ => {
+                    let mut imperative = ImperativeContext::new(dependencies, true);
+                    let len = expression(global, &mut imperative, buffer)?;
                     global
                         .tokens
                         .expect_next_is(global.errors, &TokenKind::Close(Bracket::Square))?;
-                    let inner = type_(global, dependencies, buffer)?;
+                    let locals = imperative.locals;
 
-                    let length = if let Ok(length) = usize::try_from(num) {
-                        length
-                    } else {
-                        global.error(
-                            loc,
-                            "This number is too big to be the size of an array".to_string(),
-                        );
-                        return Err(());
-                    };
+                    let inner = type_(global, dependencies, buffer)?;
 
                     Ok(Node::new(
                         loc,
-                        NodeKind::ArrayType(length, buffer.insert(inner)),
+                        NodeKind::ArrayType {
+                            len: (locals, buffer.insert(len)),
+                            members: buffer.insert(inner),
+                        },
                     ))
-                }
-                _ => {
-                    global.error(loc, "Expected integer or ']'".to_string());
-                    Err(())
                 }
             }
         }

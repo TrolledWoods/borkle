@@ -1,11 +1,23 @@
 use crate::ir::{Instr, Routine};
 use crate::operators::UnaryOp;
+use crate::program::constant::ConstantRef;
 use crate::program::Program;
 
 mod stack;
 
 pub use stack::Stack;
 use stack::StackFrame;
+
+pub fn emit_and_run(
+    thread_context: &mut crate::program::thread_pool::ThreadContext,
+    program: &Program,
+    locals: crate::locals::LocalVariables,
+    expr: &crate::typer::Node,
+) -> ConstantRef {
+    let mut stack = Stack::new(2048);
+    let routine = crate::ir::emit::emit(thread_context, program, locals, expr);
+    program.insert_buffer(expr.type_(), interp(program, &mut stack, &routine))
+}
 
 pub fn interp(program: &Program, stack: &mut Stack, routine: &Routine) -> *const u8 {
     let mut stack_frame = stack.stack_frame(&routine.registers);

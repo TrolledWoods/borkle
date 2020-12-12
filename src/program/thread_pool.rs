@@ -151,7 +151,13 @@ fn worker(program: &Arc<Program>, work: &Arc<WorkPile>) -> (ThreadContext, Error
                     }
                 },
                 Task::Type(member_id, locals, ast) => {
-                    match crate::typer::process_ast(&mut errors, program, locals, &ast) {
+                    match crate::typer::process_ast(
+                        &mut errors,
+                        &mut thread_context,
+                        program,
+                        locals,
+                        &ast,
+                    ) {
                         Ok((dependencies, locals, ast)) => {
                             let type_ = ast.type_();
 
