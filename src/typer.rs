@@ -3,7 +3,7 @@ use crate::errors::ErrorCtx;
 use crate::literal::Literal;
 use crate::locals::LocalVariables;
 use crate::location::Location;
-use crate::operators::{BinaryOp, UnaryOp};
+use crate::operators::UnaryOp;
 use crate::parser::{self, ast::NodeKind as ParserNodeKind};
 use crate::program::constant::ConstantRef;
 use crate::program::Program;
@@ -456,65 +456,31 @@ fn type_ast<'a>(
             let left = children.next().unwrap();
             let right = children.next().unwrap();
 
-            match op {
-                BinaryOp::And | BinaryOp::Or => {
-                    type_ = Type::new(TypeKind::Bool);
-                    type_ast(ctx, Some(type_), left, node.arg())?;
-                    type_ast(ctx, Some(type_), right, node.arg())?;
-                }
-                BinaryOp::Equals
-                | BinaryOp::NotEquals
-                | BinaryOp::LargerThanEquals
-                | BinaryOp::LargerThan
-                | BinaryOp::LessThanEquals
-                | BinaryOp::LessThan => {
-                    type_ = Type::new(TypeKind::Bool);
-                    let left_type = type_ast(ctx, None, left, node.arg())?;
-                    type_ast(ctx, Some(left_type), right, node.arg())?;
-                }
-                BinaryOp::Add | BinaryOp::Sub => {
-                    let left_type = type_ast(ctx, wanted_type, left, node.arg())?;
+            let left_hand_side = wanted_type
+                .map(|t| op.left_hand_side_from_return(t))
+                .flatten();
 
-                    match left_type.kind() {
-                        TypeKind::Int(_) | TypeKind::F32 | TypeKind::F64 => {
-                            type_ast(ctx, Some(left_type), right, node.arg())?;
-                            type_ = left_type;
-                        }
-                        TypeKind::Reference(_) => {
-                            type_ast(
-                                ctx,
-                                Some(Type::new(TypeKind::Int(IntTypeKind::Usize))),
-                                right,
-                                node.arg(),
-                            )?;
+            let left_type = type_ast(ctx, left_hand_side, left, node.arg())?;
+            let right_type = type_ast(
+                ctx,
+                op.right_hand_side_from_left(left_type),
+                right,
+                node.arg(),
+            )?;
 
-                            type_ = left_type;
-                        }
-                        _ => {
-                            ctx.errors.error(
-                                parsed.loc,
-                                format!(
-                                    "No overload takes type '{}' as left hand operand",
-                                    left_type
-                                ),
-                            );
-                            return Err(());
-                        }
-                    }
+            type_ = match op.return_from_args(left_type, right_type) {
+                Some(type_) => type_,
+                None => {
+                    ctx.errors.error(
+                        parsed.loc,
+                        format!(
+                            "{:?} doesn't support argument types '{}' and '{}'",
+                            op, left_type, right_type
+                        ),
+                    );
+                    return Err(());
                 }
-                BinaryOp::Mult | BinaryOp::Div | BinaryOp::BitAnd | BinaryOp::BitOr => {
-                    let left_type = type_ast(ctx, wanted_type, left, node.arg())?;
-                    let right_type = type_ast(ctx, Some(left_type), right, node.arg())?;
-
-                    if left_type != right_type {
-                        ctx.errors
-                            .error(parsed.loc, "Operands do not have the same type".to_string());
-                        return Err(());
-                    }
-
-                    type_ = left_type;
-                }
-            }
+            };
 
             node.set(Node::new(parsed.loc, NodeKind::Binary(op), type_));
             node.validate();

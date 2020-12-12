@@ -4,13 +4,14 @@ library "time.bo"; // start_timer, log_timer
 import "complex.bo";
 
 const PIXEL_HEIGHT = 0.10 : f64;
-const PIXEL_WIDTH = 0.05 : f64;
+const PIXEL_WIDTH = PIXEL_HEIGHT * 0.5;
 
 const main = fn() -> u64 {
     let timer = start_timer();
     let y = -2.0 : f64;
 
     let buffer = alloc(div_to_int(4.0, PIXEL_WIDTH) - 1);
+    defer dealloc(buffer);
 
     while y < 2.0 {
         let x = 0.0 - 2.0 : f64;

@@ -272,7 +272,8 @@ pub fn routine_to_c(output: &mut String, routine: &Routine, num_args: usize) {
                 to,
                 a,
                 b,
-                type_: _,
+                left_type: _,
+                right_type: _,
             } => {
                 let op_name = match op {
                     BinaryOp::And => "&&",

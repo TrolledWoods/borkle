@@ -1,10 +1,7 @@
 use crate::ir::{Instr, Routine};
-use crate::operators::{BinaryOp, UnaryOp};
+use crate::operators::UnaryOp;
 use crate::program::Program;
-use crate::types::TypeKind;
 
-#[macro_use]
-mod macros;
 mod stack;
 
 pub use stack::Stack;
@@ -91,78 +88,16 @@ fn interp_internal(program: &Program, stack: &mut StackFrame<'_>, routine: &Rout
                 to,
                 a,
                 b,
-                type_,
-            } => match op {
-                BinaryOp::And => {
-                    let is_true = stack.get(a)[0] > 0 && stack.get(b)[0] > 0;
-                    stack.get_mut(to)[0] = is_true as u8;
-                }
-                BinaryOp::Or => {
-                    let is_true = stack.get(a)[0] + stack.get(b)[0] > 0;
-                    stack.get_mut(to)[0] = is_true as u8;
-                }
-                BinaryOp::Equals => {
-                    let is_true = stack.get(a) == stack.get(b);
-                    stack.get_mut(to)[0] = is_true as u8;
-                }
-                BinaryOp::NotEquals => {
-                    let is_true = stack.get(a) != stack.get(b);
-                    stack.get_mut(to)[0] = is_true as u8;
-                }
-                BinaryOp::LargerThan => {
-                    all_num_types!(*a.type_().kind(), stack.get_mut(to), (stack.get(a), stack.get(b)), >);
-                }
-                BinaryOp::LargerThanEquals => {
-                    all_num_types!(*a.type_().kind(), stack.get_mut(to), (stack.get(a), stack.get(b)), >=);
-                }
-                BinaryOp::LessThan => {
-                    all_num_types!(*a.type_().kind(), stack.get_mut(to), (stack.get(a), stack.get(b)), <);
-                }
-                BinaryOp::LessThanEquals => {
-                    all_num_types!(*a.type_().kind(), stack.get_mut(to), (stack.get(a), stack.get(b)), <=);
-                }
-                BinaryOp::Add => match *type_.kind() {
-                    TypeKind::Reference(internal) => unsafe {
-                        let ptr: *const u8 = *stack.get(a).as_ptr().cast();
-                        let offset: usize = *stack.get(b).as_ptr().cast();
-                        *stack.get_mut(to).as_mut_ptr().cast::<*const u8>() =
-                            ptr.add(offset * internal.size());
-                    },
-                    ref other => {
-                        all_num_types!(other, stack.get_mut(to), (stack.get(a), stack.get(b)), +)
-                    }
-                },
-                BinaryOp::Sub => match *type_.kind() {
-                    TypeKind::Reference(internal) => unsafe {
-                        let ptr: *const u8 = *stack.get(a).as_ptr().cast();
-                        let offset: usize = *stack.get(b).as_ptr().cast();
-                        *stack.get_mut(to).as_mut_ptr().cast::<*const u8>() =
-                            ptr.sub(offset * internal.size());
-                    },
-                    ref other => {
-                        all_num_types!(other, stack.get_mut(to), (stack.get(a), stack.get(b)), -)
-                    }
-                },
-                BinaryOp::Mult => {
-                    all_num_types!(*type_.kind(), stack.get_mut(to), (stack.get(a), stack.get(b)), *);
-                }
-                BinaryOp::Div => {
-                    all_num_types!(*type_.kind(), stack.get_mut(to), (stack.get(a), stack.get(b)), /);
-                }
-                BinaryOp::BitAnd => {
-                    if let TypeKind::Int(int) = *type_.kind() {
-                        all_int_types!(int, stack.get_mut(to), (stack.get(a), stack.get(b)), &);
-                    } else {
-                        todo!();
-                    }
-                }
-                BinaryOp::BitOr => {
-                    if let TypeKind::Int(int) = *type_.kind() {
-                        all_int_types!(int, stack.get_mut(to), (stack.get(a), stack.get(b)), |);
-                    } else {
-                        todo!();
-                    }
-                }
+                left_type,
+                right_type,
+            } => unsafe {
+                op.run(
+                    left_type,
+                    right_type,
+                    stack.get_ptr(a),
+                    stack.get_ptr(b),
+                    stack.get_mut_ptr(to),
+                );
             },
             Instr::Unary { op, to, from } => match op {
                 UnaryOp::Negate => {

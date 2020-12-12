@@ -6,12 +6,15 @@
 * [X] Defer
 * [X] Optimize stack size for interpreter
 * [X] Break out of blocks/loops
+* [ ] Constant folding of operations
 
+* [ ] Figure out why ifs with loose expressions after them never seem to work.
+* [ ] If break \<label\> is followed by a ';', then just break with the Empty type.
 * [ ] In emit.rs, don't pass nodes by reference but by value instead
 * [ ] Never type
 * [ ] Make locals/labels use pure register ids instead of values, since they are never going to be global anyway
 * [ ] Polymorphism
-* [ ] Anonymous constants
+* [ ] Anonymous constants. Should these use 'const' keyword or something else, like jai's #run directive for example.
 * [ ] Figure out if there is a way to have fewer keywords.
 * [ ] BUG! There is a bug with variable shadowing
 * [ ] If the dynamic library in the target directory is already defined, and has the same "last edited" date as the source file, don't copy the file from the source.

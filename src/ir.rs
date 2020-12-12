@@ -30,7 +30,8 @@ pub enum Instr {
         to: Value,
         a: Value,
         b: Value,
-        type_: Type,
+        left_type: Type,
+        right_type: Type,
     },
     Unary {
         op: UnaryOp,

@@ -41,6 +41,28 @@ pub struct StackFrame<'a> {
 }
 
 impl<'a> StackFrame<'a> {
+    pub fn get_ptr(&self, value: Value) -> *const u8 {
+        match value {
+            Value::Register(reg, _) => {
+                let reg = self.registers.get(reg);
+                let offset = reg.offset();
+                &self.stack[offset]
+            }
+            Value::Global(ptr, _) => ptr.as_ptr(),
+        }
+    }
+
+    pub fn get_mut_ptr(&mut self, value: Value) -> *mut u8 {
+        match value {
+            Value::Register(reg, _) => {
+                let reg = self.registers.get(reg);
+                let offset = reg.offset();
+                &mut self.stack[offset]
+            }
+            Value::Global(ptr, _) => ptr.as_ptr() as *mut _,
+        }
+    }
+
     pub fn get(&self, value: Value) -> &[u8] {
         match value {
             Value::Register(reg, type_) => {

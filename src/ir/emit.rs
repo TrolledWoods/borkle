@@ -318,16 +318,23 @@ fn emit_node<'a>(ctx: &mut Context<'a>, node: Node<'a>) -> Value {
         }
         NodeKind::Binary(op) => {
             let to = ctx.registers.create(node.type_());
+
             let mut children = node.children();
-            let a = emit_node(ctx, children.next().unwrap());
-            let b = emit_node(ctx, children.next().unwrap());
+            let left_node = children.next().unwrap();
+            let right_node = children.next().unwrap();
+
+            let a = emit_node(ctx, left_node);
+            let b = emit_node(ctx, right_node);
+
             ctx.instr.push(Instr::Binary {
                 op: *op,
                 to,
                 a,
                 b,
-                type_: node.type_(),
+                left_type: left_node.type_(),
+                right_type: right_node.type_(),
             });
+
             to
         }
         NodeKind::ArrayLiteral(_) => {
@@ -356,7 +363,8 @@ fn emit_node<'a>(ctx: &mut Context<'a>, node: Node<'a>) -> Value {
                         to: reference,
                         a: reference,
                         b: one,
-                        type_: ref_type,
+                        left_type: ref_type,
+                        right_type: Type::new(TypeKind::Int(IntTypeKind::Usize)),
                     });
                 }
                 let from = emit_node(ctx, child);

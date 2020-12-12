@@ -1,5 +1,21 @@
 #![deny(rust_2018_idioms, clippy::all)]
 #![deny(mutable_borrow_reservation_conflict)]
+#![warn(clippy::pedantic)]
+#![allow(
+    clippy::if_not_else,
+    clippy::module_name_repetitions,
+    clippy::single_match_else,
+    clippy::match_same_arms,
+    clippy::too_many_lines,
+    // Closures are not supposed to have side effects!!!! Yet clippy still recommends this for
+    // imperative style code with side effects. Garbage!
+    clippy::option_if_let_else,
+    clippy::map_err_ignore,
+    // TODO: We should remove this eventually, because it is in fact kinda ugly to cast from *const
+    // u8 to other types all over the place, but for now this is necessary because *const u8 is
+    // used to represent arbitrary pointers.
+    clippy::cast_ptr_alignment,
+)]
 
 mod c_backend;
 mod command_line_arguments;
