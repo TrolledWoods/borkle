@@ -21,8 +21,8 @@ impl SelfBuffer {
     }
 
     /// # Safety
-    /// This is only safe if all the SelfBoxes inside of T are also references
-    /// into this buffer. You also are not allowed to use SelfBox
+    /// This is only safe if all the `SelfBoxes` inside of T are also references
+    /// into this buffer. You also are not allowed to use `SelfBox`
     pub fn insert<T>(&mut self, data: T) -> SelfBox<T> {
         let data = self.buffer.alloc(data);
 
@@ -30,8 +30,8 @@ impl SelfBuffer {
     }
 
     /// # Safety
-    /// This is only safe if all the SelfBoxes inside of T are also references
-    /// into this buffer. You also are not allowed to use SelfBox
+    /// This is only safe if all the `SelfBoxes` inside of T are also references
+    /// into this buffer. You also are not allowed to use `SelfBox`
     pub fn insert_root<T>(mut self, data: T) -> SelfTree<T> {
         let root = self.insert(data);
 
@@ -45,6 +45,15 @@ impl SelfBuffer {
 pub struct SelfTree<T> {
     buffer: ManuallyDrop<SelfBuffer>,
     root: ManuallyDrop<SelfBox<T>>,
+}
+
+impl<T> Drop for SelfTree<T> {
+    fn drop(&mut self) {
+        unsafe {
+            ManuallyDrop::drop(&mut self.buffer);
+            ManuallyDrop::drop(&mut self.root);
+        }
+    }
 }
 
 impl<T> Deref for SelfTree<T> {
@@ -63,6 +72,14 @@ impl<T> DerefMut for SelfTree<T> {
 
 pub struct SelfBox<T> {
     data: *mut T,
+}
+
+impl<T> Drop for SelfBox<T> {
+    fn drop(&mut self) {
+        unsafe {
+            self.data.drop_in_place();
+        }
+    }
 }
 
 impl<T> fmt::Debug for SelfBox<T>

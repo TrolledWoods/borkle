@@ -5,7 +5,7 @@ use crate::locals::LocalVariables;
 use crate::location::Location;
 use crate::operators::UnaryOp;
 use crate::parser::ast::Node as ParsedNode;
-use crate::parser::{self, ast::NodeKind as ParsedNodeKind, Ast as ParsedAst};
+use crate::parser::{ast::NodeKind as ParsedNodeKind, Ast as ParsedAst};
 use crate::program::constant::ConstantRef;
 use crate::program::Program;
 use crate::types::{IntTypeKind, Type, TypeData, TypeKind};

@@ -170,8 +170,8 @@ fn expression(
             loc,
             NodeKind::Binary {
                 op,
-                left: unsafe { buffer.insert(expr) },
-                right: unsafe { buffer.insert(right) },
+                left: buffer.insert(expr),
+                right: buffer.insert(right),
             },
         );
         old_op = Some(op);
@@ -182,8 +182,8 @@ fn expression(
         Ok(Node::new(
             loc,
             NodeKind::TypeBound {
-                value: unsafe { buffer.insert(expr) },
-                bound: unsafe { buffer.insert(type_bound) },
+                value: buffer.insert(expr),
+                bound: buffer.insert(type_bound),
             },
         ))
     } else {
