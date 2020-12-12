@@ -19,7 +19,6 @@ checksum = "cf1de2fe8c75bc145a2f577add951f8134889b4795d47466a54a5c846d691693"
 name = "borkle"
 version = "0.1.0"
 dependencies = [
- "bump_tree",
  "bumpalo",
  "impl_twice",
  "lazy_static",
@@ -27,14 +26,6 @@ dependencies = [
  "libloading",
  "parking_lot",
  "ustr",
-]
-
-[[package]]
-name = "bump_tree"
-version = "0.1.0"
-dependencies = [
- "bumpalo",
- "impl_twice",
 ]
 
 [[package]]

@@ -17,7 +17,6 @@ debug = true
 ustr = "0.7.*"
 bumpalo = "3.4.0"
 impl_twice = "0.0.3"
-bump_tree = { path = "bump_tree" }
 parking_lot = "0.10.2"
 lazy_static = "1.4.0"
 libloading = "0.6.5"
