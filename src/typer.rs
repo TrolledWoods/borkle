@@ -533,24 +533,37 @@ fn type_ast<'a>(
                     }
                 }
                 UnaryOp::Reference => {
-                    let wanted_inner =
-                        if let Some(&TypeKind::Reference(inner)) = wanted_type.map(Type::kind) {
-                            Some(inner)
-                        } else {
-                            None
-                        };
+                    let wanted_inner = match wanted_type.map(Type::kind) {
+                        Some(&TypeKind::Reference(inner)) => Some(inner),
+                        Some(_) => {
+                            ctx.errors.error(
+                                parsed.loc,
+                                format!("Expected '{}', not a reference", wanted_type.unwrap()),
+                            );
+                            return Err(());
+                        }
+                        None => None,
+                    };
 
                     let operand = type_ast(ctx, wanted_inner, operand, buffer)?;
                     let type_ = Type::new(TypeKind::Reference(operand.type_()));
 
-                    Node::new(
-                        parsed.loc,
-                        NodeKind::Unary {
-                            op,
-                            operand: buffer.insert(operand),
-                        },
-                        type_,
-                    )
+                    if let NodeKind::Constant(constant) = operand.kind() {
+                        let constant = ctx.program.insert_buffer(
+                            type_,
+                            &(constant.as_ptr() as usize).to_le_bytes() as *const _ as *const _,
+                        );
+                        Node::new(parsed.loc, NodeKind::Constant(constant), type_)
+                    } else {
+                        Node::new(
+                            parsed.loc,
+                            NodeKind::Unary {
+                                op,
+                                operand: buffer.insert(operand),
+                            },
+                            type_,
+                        )
+                    }
                 }
                 UnaryOp::Dereference => {
                     let wanted_inner = wanted_type.map(|v| Type::new(TypeKind::Reference(v)));
@@ -569,14 +582,21 @@ fn type_ast<'a>(
                         return Err(());
                     };
 
-                    Node::new(
-                        parsed.loc,
-                        NodeKind::Unary {
-                            op,
-                            operand: buffer.insert(operand),
-                        },
-                        type_,
-                    )
+                    if let NodeKind::Constant(constant) = operand.kind() {
+                        let constant = ctx.program.insert_buffer(type_, unsafe {
+                            *constant.as_ptr().cast::<*const u8>()
+                        });
+                        Node::new(parsed.loc, NodeKind::Constant(constant), type_)
+                    } else {
+                        Node::new(
+                            parsed.loc,
+                            NodeKind::Unary {
+                                op,
+                                operand: buffer.insert(operand),
+                            },
+                            type_,
+                        )
+                    }
                 }
                 _ => {
                     let operand = type_ast(ctx, wanted_type, operand, buffer)?;
