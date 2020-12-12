@@ -57,6 +57,34 @@ fn type_ast<'a>(
     buffer: &mut SelfBuffer,
 ) -> Result<Node, ()> {
     let node = match parsed.kind {
+        ParsedNodeKind::ConstAtEvaluation {
+            ref locals,
+            ref inner,
+        } => {
+            let mut locals = std::mem::replace(&mut ctx.locals, locals.clone());
+            let inner = type_ast(ctx, wanted_type, inner, buffer)?;
+            locals = std::mem::replace(&mut ctx.locals, locals);
+
+            if let NodeKind::Constant(_)
+            | NodeKind::Global(_)
+            | NodeKind::ConstAtEvaluation { .. } = inner.kind()
+            {
+                ctx.errors.warning(
+                    parsed.loc,
+                    "Unnecessary 'const', the expression is already constant".to_string(),
+                );
+            }
+
+            let type_ = inner.type_();
+            Node::new(
+                parsed.loc,
+                NodeKind::ConstAtEvaluation {
+                    locals,
+                    inner: buffer.insert(inner),
+                },
+                type_,
+            )
+        }
         ParsedNodeKind::ConstAtTyping {
             ref locals,
             ref inner,
@@ -79,6 +107,10 @@ fn type_ast<'a>(
         }
         ParsedNodeKind::Defer { ref deferring } => {
             let typed = type_ast(ctx, None, deferring, buffer)?;
+
+            if let NodeKind::Constant(_) | NodeKind::ConstAtEvaluation { .. } = typed.kind() {
+                ctx.errors.warning(parsed.loc, "Useless defer".to_string());
+            }
 
             Node::new(
                 parsed.loc,
@@ -651,6 +683,14 @@ fn type_ast<'a>(
             let mut contents = Vec::with_capacity(parsed_contents.len());
             for parsed_content in parsed_contents.iter().take(parsed_contents.len() - 1) {
                 let content = type_ast(ctx, None, parsed_content, buffer)?;
+
+                if let NodeKind::Constant(_) | NodeKind::ConstAtEvaluation { .. } = content.kind() {
+                    ctx.errors.warning(
+                        parsed_content.loc,
+                        "Useless expression, this is a constant!".to_string(),
+                    );
+                }
+
                 contents.push(buffer.insert(content));
             }
 

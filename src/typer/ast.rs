@@ -37,6 +37,10 @@ impl Node {
 
 #[derive(Debug)]
 pub enum NodeKind {
+    ConstAtEvaluation {
+        locals: LocalVariables,
+        inner: SelfBox<Node>,
+    },
     Constant(ConstantRef),
     // FIXME: `MemberId` might be a bad name here, because we also have the `Member`
     // node, and they have nothing to do with each other despite having similar names.

@@ -28,6 +28,10 @@ pub enum NodeKind {
         locals: LocalVariables,
         inner: SelfBox<Node>,
     },
+    ConstAtEvaluation {
+        locals: LocalVariables,
+        inner: SelfBox<Node>,
+    },
 
     Global(Ustr),
     GlobalForTyping(Ustr),

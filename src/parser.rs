@@ -410,7 +410,13 @@ fn atom_value(
                         },
                     )
                 } else {
-                    todo!("'const' expressions evaluated at bytecode generation");
+                    Node::new(
+                        token.loc,
+                        NodeKind::ConstAtEvaluation {
+                            locals: sub_ctx.locals,
+                            inner: buffer.insert(inner),
+                        },
+                    )
                 }
             }
             TokenKind::Keyword(Keyword::Type) => {

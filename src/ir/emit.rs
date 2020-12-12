@@ -432,6 +432,12 @@ fn emit_node<'a>(ctx: &mut Context<'a>, node: &'a Node) -> Value {
             to
         }
         NodeKind::Local(id) => ctx.locals.get(*id).value.unwrap(),
+        NodeKind::ConstAtEvaluation { locals, inner } => {
+            let type_ = inner.type_();
+            let constant =
+                crate::interp::emit_and_run(ctx.thread_context, ctx.program, locals.clone(), inner);
+            Value::Global(constant, type_)
+        }
         NodeKind::Defer { deferred } => {
             ctx.defers.push(deferred);
             ctx.registers.zst()
