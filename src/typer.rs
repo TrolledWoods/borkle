@@ -10,7 +10,7 @@ use crate::program::constant::ConstantRef;
 use crate::program::Program;
 use crate::self_buffer::{SelfBuffer, SelfTree};
 use crate::types::{IntTypeKind, Type, TypeData, TypeKind};
-use ast::{Node, NodeKind};
+pub use ast::{Node, NodeKind};
 
 pub type Ast = SelfTree<Node>;
 
@@ -499,13 +499,14 @@ fn type_ast<'a>(
                         };
 
                     let operand = type_ast(ctx, wanted_inner, operand, buffer)?;
+                    let type_ = Type::new(TypeKind::Reference(operand.type_()));
                     Node::new(
                         parsed.loc,
                         NodeKind::Unary {
                             op,
                             operand: buffer.insert(operand),
                         },
-                        Type::new(TypeKind::Reference(operand.type_())),
+                        type_,
                     )
                 }
                 UnaryOp::Dereference => {
@@ -536,6 +537,7 @@ fn type_ast<'a>(
                 }
                 _ => {
                     let operand = type_ast(ctx, wanted_type, operand, buffer)?;
+                    let type_ = operand.type_();
 
                     Node::new(
                         parsed.loc,
@@ -543,7 +545,7 @@ fn type_ast<'a>(
                             op,
                             operand: buffer.insert(operand),
                         },
-                        operand.type_(),
+                        type_,
                     )
                 }
             }

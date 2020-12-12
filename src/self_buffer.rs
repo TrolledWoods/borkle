@@ -50,8 +50,8 @@ pub struct SelfTree<T> {
 impl<T> Drop for SelfTree<T> {
     fn drop(&mut self) {
         unsafe {
-            ManuallyDrop::drop(&mut self.buffer);
             ManuallyDrop::drop(&mut self.root);
+            ManuallyDrop::drop(&mut self.buffer);
         }
     }
 }

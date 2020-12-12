@@ -5,10 +5,8 @@ use crate::program::constant::ConstantRef;
 use crate::program::thread_pool::ThreadContext;
 use crate::program::Program;
 use crate::typer::ast::NodeKind;
-use crate::typer::Ast;
+use crate::typer::Node;
 use crate::types::{IntTypeKind, Type, TypeKind};
-
-type Node<'a> = bump_tree::Node<'a, crate::typer::ast::Node>;
 
 struct Context<'a> {
     thread_context: &'a mut ThreadContext,
@@ -18,7 +16,7 @@ struct Context<'a> {
     program: &'a Program,
     label_locations: Vec<usize>,
 
-    defers: Vec<Node<'a>>,
+    defers: Vec<&'a Node>,
 }
 
 impl Context<'_> {
@@ -76,7 +74,7 @@ pub fn emit(
     thread_context: &mut ThreadContext,
     program: &Program,
     locals: LocalVariables,
-    ast: &Ast,
+    ast: &Node,
 ) -> Routine {
     let mut ctx = Context {
         thread_context,
@@ -95,7 +93,7 @@ pub fn emit(
         local.value = Some(value);
     }
 
-    let result = emit_node(&mut ctx, ast.root().unwrap());
+    let result = emit_node(&mut ctx, ast);
 
     Routine {
         instr: ctx.instr,
@@ -105,43 +103,44 @@ pub fn emit(
     }
 }
 
-fn emit_node<'a>(ctx: &mut Context<'a>, node: Node<'a>) -> Value {
-    match node.to_ref().kind() {
-        NodeKind::Break(label_id, num_deduplicated_defers_at_target) => {
+fn emit_node<'a>(ctx: &mut Context<'a>, node: &'a Node) -> Value {
+    match node.kind() {
+        NodeKind::Break {
+            label: label_id,
+            num_defer_deduplications,
+            value,
+        } => {
             let label = ctx.locals.get_label(*label_id);
-            let ir_label = label.ir_labels.as_ref().unwrap()[*num_deduplicated_defers_at_target];
-            let value = label.value.unwrap();
+            let ir_label = label.ir_labels.as_ref().unwrap()[*num_defer_deduplications];
+            let label_value = label.value.unwrap();
 
-            let from = emit_node(ctx, node.children().next().unwrap());
+            let from = emit_node(ctx, value);
 
             for defer_index in (ctx.locals.get_label(*label_id).defer_depth
-                + *num_deduplicated_defers_at_target
-                ..ctx.defers.len())
+                + *num_defer_deduplications..ctx.defers.len())
                 .rev()
             {
                 emit_node(ctx, ctx.defers[defer_index]);
             }
 
-            ctx.emit_move(value, from, Member::default());
+            ctx.emit_move(label_value, from, Member::default());
             ctx.instr.push(Instr::Jump { to: ir_label });
 
             ctx.registers.zst()
         }
-        NodeKind::While => {
-            let mut children = node.children();
-
+        NodeKind::While { condition, body } => {
             let end_label = ctx.create_label();
 
             let condition_label = ctx.create_label();
             ctx.define_label(condition_label);
-            let condition = emit_node(ctx, children.next().unwrap());
+            let condition = emit_node(ctx, condition);
 
             ctx.instr.push(Instr::JumpIfZero {
                 condition,
                 to: end_label,
             });
 
-            emit_node(ctx, children.next().unwrap());
+            emit_node(ctx, body);
 
             ctx.instr.push(Instr::Jump {
                 to: condition_label,
@@ -151,9 +150,12 @@ fn emit_node<'a>(ctx: &mut Context<'a>, node: Node<'a>) -> Value {
 
             ctx.registers.zst()
         }
-        NodeKind::If { has_else: false } => {
-            let mut children = node.children();
-            let condition = emit_node(ctx, children.next().unwrap());
+        NodeKind::If {
+            condition,
+            true_body,
+            false_body: None,
+        } => {
+            let condition = emit_node(ctx, condition);
 
             let end_of_body = ctx.create_label();
             ctx.instr.push(Instr::JumpIfZero {
@@ -161,16 +163,18 @@ fn emit_node<'a>(ctx: &mut Context<'a>, node: Node<'a>) -> Value {
                 to: end_of_body,
             });
 
-            // Emit the body
-            emit_node(ctx, children.next().unwrap());
+            emit_node(ctx, true_body);
 
             ctx.define_label(end_of_body);
 
             ctx.registers.zst()
         }
-        NodeKind::If { has_else: true } => {
-            let mut children = node.children();
-            let condition = emit_node(ctx, children.next().unwrap());
+        NodeKind::If {
+            condition,
+            true_body,
+            false_body: Some(false_body),
+        } => {
+            let condition = emit_node(ctx, condition);
 
             let start_of_false_body = ctx.create_label();
             let end_of_false_body = ctx.create_label();
@@ -183,7 +187,7 @@ fn emit_node<'a>(ctx: &mut Context<'a>, node: Node<'a>) -> Value {
             let to = ctx.registers.create(node.type_());
 
             // True body
-            let true_body = emit_node(ctx, children.next().unwrap());
+            let true_body = emit_node(ctx, true_body);
             ctx.emit_move(to, true_body, Member::default());
             ctx.instr.push(Instr::Jump {
                 to: end_of_false_body,
@@ -191,7 +195,7 @@ fn emit_node<'a>(ctx: &mut Context<'a>, node: Node<'a>) -> Value {
 
             // False body
             ctx.define_label(start_of_false_body);
-            let false_body = emit_node(ctx, children.next().unwrap());
+            let false_body = emit_node(ctx, false_body);
             ctx.emit_move(to, false_body, Member::default());
 
             ctx.define_label(end_of_false_body);
@@ -202,7 +206,7 @@ fn emit_node<'a>(ctx: &mut Context<'a>, node: Node<'a>) -> Value {
             // We don't need an instruction to initialize the memory, because it's uninit!
             ctx.registers.create(node.type_())
         }
-        NodeKind::FunctionDeclaration { locals } => {
+        NodeKind::FunctionDeclaration { locals, body } => {
             let mut sub_ctx = Context {
                 thread_context: ctx.thread_context,
                 instr: Vec::new(),
@@ -219,7 +223,7 @@ fn emit_node<'a>(ctx: &mut Context<'a>, node: Node<'a>) -> Value {
                 local.value = Some(value);
             }
 
-            let result = emit_node(&mut sub_ctx, node.children().next().unwrap());
+            let result = emit_node(&mut sub_ctx, body);
             let routine = Routine {
                 label_locations: sub_ctx.label_locations,
                 instr: sub_ctx.instr,
@@ -265,20 +269,20 @@ fn emit_node<'a>(ctx: &mut Context<'a>, node: Node<'a>) -> Value {
             ctx.emit_constant_from_buffer(to, &id.to_le_bytes());
             to
         }
-        NodeKind::BitCast => {
-            let from = emit_node(ctx, node.children().next().unwrap());
+        NodeKind::BitCast { value } => {
+            let from = emit_node(ctx, value);
             let to = ctx.registers.create(node.type_());
             ctx.emit_move(to, from, Member::default());
             to
         }
-        NodeKind::ArrayToBuffer(len) => {
-            let from = emit_node(ctx, node.children().next().unwrap());
+        NodeKind::ArrayToBuffer { length, array } => {
+            let from = emit_node(ctx, array);
             let to = ctx.registers.create(node.type_());
 
             let len_reg = ctx
                 .registers
                 .create(Type::new(TypeKind::Int(IntTypeKind::Usize)));
-            ctx.emit_constant_from_buffer(len_reg, &len.to_le_bytes());
+            ctx.emit_constant_from_buffer(len_reg, &length.to_le_bytes());
 
             ctx.emit_move(
                 to,
@@ -303,42 +307,37 @@ fn emit_node<'a>(ctx: &mut Context<'a>, node: Node<'a>) -> Value {
             ctx.emit_constant_from_constant_buffer(to, *bytes);
             to
         }
-        NodeKind::Member(name) => {
+        NodeKind::Member { name, of } => {
             let to = ctx.registers.create(node.type_());
-            let of_node = node.children().next().unwrap();
-            let of = emit_node(ctx, of_node);
+            let of = emit_node(ctx, of);
             ctx.instr.push(Instr::Member {
                 to,
                 of,
                 member: Member {
-                    offset: of_node.type_().member(*name).unwrap().byte_offset,
+                    offset: of.type_().member(*name).unwrap().byte_offset,
                     name_list: vec![*name],
                 },
             });
             to
         }
-        NodeKind::Binary(op) => {
+        NodeKind::Binary { op, left, right } => {
             let to = ctx.registers.create(node.type_());
 
-            let mut children = node.children();
-            let left_node = children.next().unwrap();
-            let right_node = children.next().unwrap();
-
-            let a = emit_node(ctx, left_node);
-            let b = emit_node(ctx, right_node);
+            let a = emit_node(ctx, left);
+            let b = emit_node(ctx, right);
 
             ctx.instr.push(Instr::Binary {
                 op: *op,
                 to,
                 a,
                 b,
-                left_type: left_node.type_(),
-                right_type: right_node.type_(),
+                left_type: left.type_(),
+                right_type: right.type_(),
             });
 
             to
         }
-        NodeKind::ArrayLiteral(_) => {
+        NodeKind::ArrayLiteral { elements } => {
             let internal_type = if let TypeKind::Array(internal, _) = node.type_().kind() {
                 *internal
             } else {
@@ -357,7 +356,7 @@ fn emit_node<'a>(ctx: &mut Context<'a>, node: Node<'a>) -> Value {
                 .registers
                 .create(Type::new(TypeKind::Int(IntTypeKind::Usize)));
             ctx.emit_constant_from_buffer(one, &1_usize.to_le_bytes());
-            for (i, child) in node.children().enumerate() {
+            for (i, element) in elements.iter().enumerate() {
                 if i > 0 {
                     ctx.instr.push(Instr::Binary {
                         op: BinaryOp::Add,
@@ -368,14 +367,17 @@ fn emit_node<'a>(ctx: &mut Context<'a>, node: Node<'a>) -> Value {
                         right_type: Type::new(TypeKind::Int(IntTypeKind::Usize)),
                     });
                 }
-                let from = emit_node(ctx, child);
+                let from = emit_node(ctx, element);
                 ctx.emit_move_indirect(reference, from, Member::default());
             }
             to
         }
-        NodeKind::Unary(UnaryOp::Reference) => {
+        NodeKind::Unary {
+            op: UnaryOp::Reference,
+            operand,
+        } => {
             let to = ctx.registers.create(node.type_());
-            let from = emit_lvalue(ctx, true, node.children().next().unwrap());
+            let from = emit_lvalue(ctx, true, operand);
             match from {
                 LValue::Reference(from, member) => {
                     ctx.instr.push(Instr::Member {
@@ -390,25 +392,24 @@ fn emit_node<'a>(ctx: &mut Context<'a>, node: Node<'a>) -> Value {
             }
             to
         }
-        NodeKind::Unary(UnaryOp::Dereference) => {
+        NodeKind::Unary {
+            op: UnaryOp::Dereference,
+            operand,
+        } => {
             let to = ctx.registers.create(node.type_());
-            let from = emit_node(ctx, node.children().next().unwrap());
+            let from = emit_node(ctx, operand);
             ctx.instr.push(Instr::Dereference { to, from });
             to
         }
-        NodeKind::Unary(op) => {
+        NodeKind::Unary { op, operand } => {
             let to = ctx.registers.create(node.type_());
-            let from = emit_node(ctx, node.children().next().unwrap());
+            let from = emit_node(ctx, operand);
             ctx.instr.push(Instr::Unary { op: *op, to, from });
             to
         }
-        NodeKind::Assign => {
-            let mut children = node.children();
-
-            let to = emit_lvalue(ctx, false, children.next().unwrap());
-
-            let from_node = children.next().unwrap();
-            let from = emit_node(ctx, from_node);
+        NodeKind::Assign { lvalue, rvalue } => {
+            let to = emit_lvalue(ctx, false, lvalue);
+            let from = emit_node(ctx, rvalue);
 
             let empty_result = ctx.registers.zst();
 
@@ -423,21 +424,19 @@ fn emit_node<'a>(ctx: &mut Context<'a>, node: Node<'a>) -> Value {
                 }
             }
         }
-        NodeKind::Declare(id) => {
-            let mut children = node.children();
-            let child = children.next().unwrap();
-            let from = emit_node(ctx, child);
-            let to = ctx.registers.create(child.type_());
+        NodeKind::Declare { local: id, value } => {
+            let from = emit_node(ctx, value);
+            let to = ctx.registers.create(value.type_());
             ctx.locals.get_mut(*id).value = Some(to);
             ctx.emit_move(to, from, Member::default());
             to
         }
         NodeKind::Local(id) => ctx.locals.get(*id).value.unwrap(),
-        NodeKind::Defer(ref ast) => {
-            ctx.defers.push(ast.root().unwrap());
+        NodeKind::Defer { deferred } => {
+            ctx.defers.push(deferred);
             ctx.registers.zst()
         }
-        NodeKind::Block { label } => {
+        NodeKind::Block { label, contents } => {
             let num_defers_at_start = ctx.defers.len();
 
             let to = ctx.registers.create(node.type_());
@@ -451,15 +450,13 @@ fn emit_node<'a>(ctx: &mut Context<'a>, node: Node<'a>) -> Value {
                 label_ref.value = Some(to);
             }
 
-            let mut children = node.children();
-            let len = children.len();
             let head = ctx.registers.get_head();
 
-            for child in children.by_ref().take(len - 1) {
-                emit_node(ctx, child);
+            for content in contents.iter().take(contents.len() - 1) {
+                emit_node(ctx, content);
             }
 
-            let from = emit_node(ctx, children.next().unwrap());
+            let from = emit_node(ctx, contents.last().unwrap());
             ctx.emit_move(to, from, Member::default());
 
             for (i, defer_index) in (num_defers_at_start..ctx.defers.len()).enumerate().rev() {
@@ -483,26 +480,32 @@ fn emit_node<'a>(ctx: &mut Context<'a>, node: Node<'a>) -> Value {
             to
         }
         NodeKind::Global(id) => ctx.program.get_constant_as_value(*id),
-        NodeKind::FunctionCall { is_extern } => {
+        NodeKind::FunctionCall {
+            is_extern,
+            calling: typed_calling,
+            args: typed_args,
+        } => {
             let to = ctx.registers.create_min_align(node.type_(), 8);
-            let mut children = node.children();
-            let pointer_node = children.next().unwrap();
-            let pointer = emit_node(ctx, pointer_node);
+            let calling = emit_node(ctx, typed_calling);
 
-            let mut args = Vec::with_capacity(children.len());
-            for child in children {
-                args.push(emit_node(ctx, child));
+            let mut args = Vec::with_capacity(typed_args.len());
+            for arg in typed_args {
+                args.push(emit_node(ctx, arg));
             }
 
             if *is_extern {
                 ctx.instr.push(Instr::CallExtern {
                     to,
-                    pointer,
+                    pointer: calling,
                     args,
-                    convention: ctx.program.ffi_calling_convention(pointer_node.type_()),
+                    convention: ctx.program.ffi_calling_convention(typed_calling.type_()),
                 });
             } else {
-                ctx.instr.push(Instr::Call { to, pointer, args });
+                ctx.instr.push(Instr::Call {
+                    to,
+                    pointer: calling,
+                    args,
+                });
             }
             to
         }
@@ -512,15 +515,13 @@ fn emit_node<'a>(ctx: &mut Context<'a>, node: Node<'a>) -> Value {
 fn emit_lvalue<'a>(
     ctx: &mut Context<'a>,
     can_reference_temporaries: bool,
-    node: Node<'a>,
+    node: &'a Node,
 ) -> LValue {
     match node.kind() {
-        NodeKind::Member(name) => {
-            let mut children = node.children();
-            let parent_node = children.next().unwrap();
-            let parent_value = emit_lvalue(ctx, can_reference_temporaries, parent_node);
+        NodeKind::Member { name, of } => {
+            let parent_value = emit_lvalue(ctx, can_reference_temporaries, of);
 
-            let member = parent_node
+            let member = of
                 .type_()
                 .member(*name)
                 .expect("This should have already been made sure to exist in the typer");
@@ -538,17 +539,16 @@ fn emit_lvalue<'a>(
                 }
             }
         }
-        NodeKind::Unary(UnaryOp::Dereference) => {
-            let mut children = node.children();
-            let pointee = children.next().unwrap();
-            LValue::Reference(
-                emit_node(ctx, pointee),
-                Member {
-                    offset: 0,
-                    name_list: Vec::new(),
-                },
-            )
-        }
+        NodeKind::Unary {
+            op: UnaryOp::Dereference,
+            operand,
+        } => LValue::Reference(
+            emit_node(ctx, operand),
+            Member {
+                offset: 0,
+                name_list: Vec::new(),
+            },
+        ),
         NodeKind::Local(id) => LValue::Value(
             ctx.locals.get(*id).value.unwrap(),
             Member {
