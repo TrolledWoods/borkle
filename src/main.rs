@@ -30,6 +30,7 @@ mod logging;
 mod operators;
 mod parser;
 mod program;
+mod self_buffer;
 mod typer;
 mod types;
 

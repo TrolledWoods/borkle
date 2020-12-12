@@ -2,6 +2,7 @@ use crate::literal::Literal;
 use crate::locals::{LabelId, LocalId, LocalVariables};
 use crate::location::Location;
 use crate::operators::{BinaryOp, UnaryOp};
+use crate::self_buffer::SelfBox;
 use crate::types::Type;
 use std::fmt;
 use std::path::PathBuf;
@@ -21,7 +22,7 @@ impl Node {
 #[derive(Debug)]
 pub enum NodeKind {
     Literal(Literal),
-    ArrayLiteral(usize),
+    ArrayLiteral(Vec<SelfBox<Node>>),
 
     Global(Ustr),
     Extern {
@@ -29,91 +30,94 @@ pub enum NodeKind {
         symbol_name: String,
     },
 
-    While,
+    While {
+        condition: SelfBox<Node>,
+        body: SelfBox<Node>,
+    },
     If {
-        has_else: bool,
+        condition: SelfBox<Node>,
+        true_body: SelfBox<Node>,
+        false_body: Option<SelfBox<Node>>,
     },
 
-    Member(Ustr),
+    Member {
+        of: SelfBox<Node>,
+        name: Ustr,
+    },
 
     FunctionDeclaration {
         locals: LocalVariables,
+        args: Vec<SelfBox<Node>>,
+        returns: SelfBox<Node>,
+        body: SelfBox<Node>,
     },
 
-    TypeAsValue,
-    StructType(Vec<Ustr>),
-    BufferType,
-    ArrayType(usize),
+    TypeAsValue(SelfBox<Node>),
+    StructType {
+        fields: Vec<(Ustr, SelfBox<Node>)>,
+    },
+    BufferType(SelfBox<Node>),
+    ArrayType(usize, SelfBox<Node>),
     FunctionType {
         is_extern: bool,
+        args: Vec<SelfBox<Node>>,
+        returns: SelfBox<Node>,
     },
-    ReferenceType,
+    ReferenceType(SelfBox<Node>),
     LiteralType(Type),
 
-    Unary(UnaryOp),
-    Binary(BinaryOp),
+    Unary {
+        op: UnaryOp,
+        operand: SelfBox<Node>,
+    },
+    Binary {
+        op: BinaryOp,
+        left: SelfBox<Node>,
+        right: SelfBox<Node>,
+    },
 
-    Break(LabelId, usize),
+    Break {
+        label: LabelId,
+        num_defer_deduplications: usize,
+        value: SelfBox<Node>,
+    },
 
-    Defer(Box<super::Ast>),
+    Defer {
+        deferring: SelfBox<Node>,
+    },
 
-    FunctionCall,
+    FunctionCall {
+        calling: SelfBox<Node>,
+        args: Vec<SelfBox<Node>>,
+    },
     Block {
+        contents: Vec<SelfBox<Node>>,
         label: Option<LabelId>,
     },
     Empty,
     Uninit,
 
-    TypeBound,
-    BitCast,
+    TypeBound {
+        value: SelfBox<Node>,
+        bound: SelfBox<Node>,
+    },
+    BitCast {
+        value: SelfBox<Node>,
+    },
 
-    Declare(LocalId),
-    Assign,
+    Declare {
+        local: LocalId,
+        value: SelfBox<Node>,
+    },
+    Assign {
+        lvalue: SelfBox<Node>,
+        rvalue: SelfBox<Node>,
+    },
     Local(LocalId),
 }
 
 impl fmt::Debug for Node {
     fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.kind.fmt(fmt)
-    }
-}
-
-impl bump_tree::MetaData for Node {
-    fn validate(&self, num_args: usize) -> bool {
-        match self.kind {
-            NodeKind::Local(_)
-            | NodeKind::Empty
-            | NodeKind::Literal(_)
-            | NodeKind::Global(_)
-            | NodeKind::Extern { .. }
-            | NodeKind::Defer(_)
-            | NodeKind::Uninit
-            | NodeKind::LiteralType(_) => num_args == 0,
-            NodeKind::Declare(_)
-            | NodeKind::BitCast
-            | NodeKind::Break(_, _)
-            | NodeKind::Member(_)
-            | NodeKind::BufferType
-            | NodeKind::ReferenceType
-            | NodeKind::ArrayType(_)
-            | NodeKind::TypeAsValue
-            | NodeKind::Unary(_) => num_args == 1,
-            NodeKind::While | NodeKind::Assign | NodeKind::Binary(_) | NodeKind::TypeBound => {
-                num_args == 2
-            }
-            NodeKind::StructType(ref field_names) => num_args == field_names.len(),
-            NodeKind::ArrayLiteral(len) => num_args == len,
-            NodeKind::If { has_else } => {
-                if has_else {
-                    num_args == 3
-                } else {
-                    num_args == 2
-                }
-            }
-            NodeKind::FunctionDeclaration { locals: _ } => num_args >= 2,
-            NodeKind::Block { .. }
-            | NodeKind::FunctionCall
-            | NodeKind::FunctionType { is_extern: _ } => num_args >= 1,
-        }
     }
 }

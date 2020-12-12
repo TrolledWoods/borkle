@@ -10,6 +10,7 @@
         Maybe it's fine to use unsafe, because if we do we can also include other data types in the ast buffer.
 * [ ] Constant folding of operations
 
+* [ ] Make a separate ast node kind for type expressions?
 * [ ] Figure out why ifs with loose expressions after them never seem to work.
 * [ ] If break \<label\> is followed by a ';', then just break with the Empty type.
 * [ ] In emit.rs, don't pass nodes by reference but by value instead
