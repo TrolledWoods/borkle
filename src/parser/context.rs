@@ -45,6 +45,7 @@ pub struct ImperativeContext<'a> {
     pub dependencies: &'a mut DependencyList,
     pub defer_depth: usize,
     pub evaluate_at_typing: bool,
+    pub in_const_expression: bool,
 
     scope_boundaries: Vec<ScopeBoundary>,
     local_map: Vec<(Ustr, LocalId)>,
@@ -58,6 +59,7 @@ impl<'a> ImperativeContext<'a> {
             dependencies,
             defer_depth: 0,
             evaluate_at_typing,
+            in_const_expression: false,
 
             scope_boundaries: Vec::new(),
             local_map: Vec::new(),

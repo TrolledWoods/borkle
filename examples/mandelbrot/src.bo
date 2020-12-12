@@ -6,13 +6,8 @@ import "complex.bo";
 const PIXEL_HEIGHT = 0.10 : f64;
 const PIXEL_WIDTH = PIXEL_HEIGHT * 0.5;
 
-const ARRAY_LENGTH = 42 : usize;
-const ARRAY_TYPE = type [{ 'block
-    defer put_string("Bro\n");
-    let len = ARRAY_LENGTH;
-    break block len;
-    len * 3
-}] u64;
+const ArrayLength = 42 : usize;
+const ArrayType = type [const (ArrayLength * 2) + 50] u64;
 
 const main = fn() -> u64 {
     let timer = start_timer();

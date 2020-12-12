@@ -142,12 +142,27 @@ fn worker(program: &Arc<Program>, work: &Arc<WorkPile>) -> (ThreadContext, Error
             drop(queue_lock);
 
             match task {
-                Task::Parse(path) => match std::fs::read_to_string(&path) {
+                Task::Parse(file) => match std::fs::read_to_string(&file) {
                     Ok(string) => {
-                        let _ = crate::parser::process_string(&mut errors, program, &path, &string);
+                        let file_name_str = file.to_str().expect("File path is not a valid string, this should not happen since all paths are constructed from strings originally").into();
+
+                        // If the file has already been parsed, do not parse it again!
+                        if !program.loaded_files.lock().insert(file_name_str) {
+                            program.logger.log(format_args!(
+                                "File {} was already loaded, so didn't parse it again",
+                                file_name_str
+                            ));
+                        } else {
+                            let _ = crate::parser::process_string(
+                                &mut errors,
+                                program,
+                                file_name_str,
+                                &string,
+                            );
+                        }
                     }
                     Err(_) => {
-                        errors.global_error(format!("File {:?} cannot be loaded", path));
+                        errors.global_error(format!("File {:?} cannot be loaded", file));
                     }
                 },
                 Task::Type(member_id, locals, ast) => {

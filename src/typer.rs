@@ -57,6 +57,26 @@ fn type_ast<'a>(
     buffer: &mut SelfBuffer,
 ) -> Result<Node, ()> {
     let node = match parsed.kind {
+        ParsedNodeKind::ConstAtTyping {
+            ref locals,
+            ref inner,
+        } => {
+            let mut locals = std::mem::replace(&mut ctx.locals, locals.clone());
+            let inner = type_ast(ctx, wanted_type, inner, buffer)?;
+            locals = std::mem::replace(&mut ctx.locals, locals);
+
+            if let NodeKind::Constant(_) = inner.kind() {
+                ctx.errors.warning(
+                    parsed.loc,
+                    "Unnecessary 'const', the expression is already constant".to_string(),
+                );
+            }
+
+            let constant =
+                crate::interp::emit_and_run(ctx.thread_context, ctx.program, locals, &inner);
+
+            Node::new(parsed.loc, NodeKind::Constant(constant), inner.type_())
+        }
         ParsedNodeKind::Defer { ref deferring } => {
             let typed = type_ast(ctx, None, deferring, buffer)?;
 
@@ -522,6 +542,7 @@ fn type_ast<'a>(
 
                     let operand = type_ast(ctx, wanted_inner, operand, buffer)?;
                     let type_ = Type::new(TypeKind::Reference(operand.type_()));
+
                     Node::new(
                         parsed.loc,
                         NodeKind::Unary {
@@ -762,24 +783,26 @@ fn const_fold_type_expr<'a>(
             Ok(TypeKind::Buffer(pointee).into())
         }
         ParsedNodeKind::ArrayType {
-            len: (ref locals, ref len),
+            ref len,
             ref members,
         } => {
-            let mut locals = std::mem::replace(&mut ctx.locals, locals.clone());
             let len = type_ast(
                 ctx,
                 Some(Type::new(TypeKind::Int(IntTypeKind::Usize))),
                 len,
                 buffer,
             )?;
-            locals = std::mem::replace(&mut ctx.locals, locals);
 
-            let constant =
-                crate::interp::emit_and_run(ctx.thread_context, ctx.program, locals, &len);
-            let length = unsafe { *constant.as_ptr().cast::<usize>() };
+            if let NodeKind::Constant(len) = len.kind() {
+                let length = unsafe { *len.as_ptr().cast::<usize>() };
 
-            let member = const_fold_type_expr(ctx, members, buffer)?;
-            Ok(TypeKind::Array(member, length).into())
+                let member = const_fold_type_expr(ctx, members, buffer)?;
+                Ok(TypeKind::Array(member, length).into())
+            } else {
+                ctx.errors
+                    .error(len.loc, "Expected constant expression".to_string());
+                Err(())
+            }
         }
         ParsedNodeKind::ReferenceType(ref internal) => {
             let pointee = const_fold_type_expr(ctx, internal, buffer)?;

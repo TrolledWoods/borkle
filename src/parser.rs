@@ -23,23 +23,12 @@ pub type Ast = SelfTree<Node>;
 pub fn process_string(
     errors: &mut ErrorCtx,
     program: &Program,
-    file: &Path,
+    file: Ustr,
     string: &str,
 ) -> Result<(), ()> {
-    let file_name_str = file.to_str().expect("File path is not a valid string, this should not happen since all paths are constructed from strings originally").into();
+    let mut tokens = lexer::process_string(errors, file, string)?;
 
-    // If the file has already been parsed, do not parse it again!
-    if !program.loaded_files.lock().insert(file_name_str) {
-        program.logger.log(format_args!(
-            "File {} was already loaded, so didn't parse it again",
-            file_name_str
-        ));
-        return Ok(());
-    }
-
-    let mut tokens = lexer::process_string(errors, file_name_str, string)?;
-
-    let mut context = DataContext::new(errors, program, &mut tokens, &file);
+    let mut context = DataContext::new(errors, program, &mut tokens, Path::new(&*file));
 
     while let Some(token) = context.tokens.next() {
         match token.kind {
@@ -177,7 +166,7 @@ fn expression(
     }
 
     if let Some(loc) = global.tokens.try_consume_operator_string(":") {
-        let type_bound = type_(global, &mut imperative.dependencies, buffer)?;
+        let type_bound = type_(global, imperative, buffer)?;
         Ok(Node::new(
             loc,
             NodeKind::TypeBound {
@@ -244,7 +233,7 @@ fn member_value(
 
 fn type_(
     global: &mut DataContext<'_>,
-    dependencies: &mut DependencyList,
+    imperative: &mut ImperativeContext<'_>,
     buffer: &mut SelfBuffer,
 ) -> Result<Node, ()> {
     let token = global.tokens.expect_peek(global.errors)?;
@@ -252,7 +241,9 @@ fn type_(
     match token.kind {
         TokenKind::Identifier(name) => {
             global.tokens.next();
-            dependencies.add(loc, name, DependencyKind::Value);
+            imperative
+                .dependencies
+                .add(loc, name, DependencyKind::Value);
             Ok(Node::new(loc, NodeKind::GlobalForTyping(name)))
         }
         TokenKind::Open(Bracket::Curly) => {
@@ -279,7 +270,7 @@ fn type_(
                     return Err(());
                 }
 
-                let field_type = type_(global, dependencies, buffer)?;
+                let field_type = type_(global, imperative, buffer)?;
                 fields.push((name, buffer.insert(field_type)));
 
                 let token = global.tokens.expect_next(global.errors)?;
@@ -300,23 +291,23 @@ fn type_(
             match global.tokens.expect_peek(global.errors)?.kind {
                 TokenKind::Close(Bracket::Square) => {
                     global.tokens.next();
-                    let inner = type_(global, dependencies, buffer)?;
+                    let inner = type_(global, imperative, buffer)?;
                     Ok(Node::new(loc, NodeKind::BufferType(buffer.insert(inner))))
                 }
                 _ => {
-                    let mut imperative = ImperativeContext::new(dependencies, true);
-                    let len = expression(global, &mut imperative, buffer)?;
+                    let old_evaluate_at_typing = imperative.evaluate_at_typing;
+                    imperative.evaluate_at_typing = true;
+                    let len = expression(global, imperative, buffer)?;
                     global
                         .tokens
                         .expect_next_is(global.errors, &TokenKind::Close(Bracket::Square))?;
-                    let locals = imperative.locals;
-
-                    let inner = type_(global, dependencies, buffer)?;
+                    imperative.evaluate_at_typing = old_evaluate_at_typing;
+                    let inner = type_(global, imperative, buffer)?;
 
                     Ok(Node::new(
                         loc,
                         NodeKind::ArrayType {
-                            len: (locals, buffer.insert(len)),
+                            len: buffer.insert(len),
                             members: buffer.insert(inner),
                         },
                     ))
@@ -331,7 +322,7 @@ fn type_(
                     NodeKind::LiteralType(TypeKind::Empty.into()),
                 ))
             } else {
-                let inner = type_(global, dependencies, buffer)?;
+                let inner = type_(global, imperative, buffer)?;
                 global
                     .tokens
                     .expect_next_is(global.errors, &TokenKind::Close(Bracket::Round))?;
@@ -343,11 +334,11 @@ fn type_(
             global
                 .tokens
                 .expect_next_is(global.errors, &TokenKind::Keyword(Keyword::Function))?;
-            function_type(global, dependencies, loc, buffer, true)
+            function_type(global, imperative, loc, buffer, true)
         }
         TokenKind::Keyword(Keyword::Function) => {
             global.tokens.next();
-            function_type(global, dependencies, loc, buffer, false)
+            function_type(global, imperative, loc, buffer, false)
         }
         TokenKind::Keyword(Keyword::Bool) => {
             global.tokens.next();
@@ -363,7 +354,7 @@ fn type_(
         }
         _ => {
             if global.tokens.try_consume_operator_string("&").is_some() {
-                let inner = type_(global, dependencies, buffer)?;
+                let inner = type_(global, imperative, buffer)?;
                 Ok(Node::new(
                     loc,
                     NodeKind::ReferenceType(buffer.insert(inner)),
@@ -404,8 +395,26 @@ fn atom_value(
                 }
             }
             TokenKind::Literal(literal) => Node::new(token.loc, NodeKind::Literal(literal)),
+            TokenKind::Keyword(Keyword::Const) => {
+                let mut sub_ctx =
+                    ImperativeContext::new(imperative.dependencies, imperative.evaluate_at_typing);
+                sub_ctx.in_const_expression = true;
+                let inner = expression(global, &mut sub_ctx, buffer)?;
+
+                if imperative.evaluate_at_typing {
+                    Node::new(
+                        token.loc,
+                        NodeKind::ConstAtTyping {
+                            locals: sub_ctx.locals,
+                            inner: buffer.insert(inner),
+                        },
+                    )
+                } else {
+                    todo!("'const' expressions evaluated at bytecode generation");
+                }
+            }
             TokenKind::Keyword(Keyword::Type) => {
-                let t = type_(global, &mut imperative.dependencies, buffer)?;
+                let t = type_(global, imperative, buffer)?;
                 Node::new(token.loc, NodeKind::TypeAsValue(buffer.insert(t)))
             }
             TokenKind::Keyword(Keyword::Break) => {
@@ -712,7 +721,7 @@ fn atom_value(
 
 fn function_type(
     global: &mut DataContext<'_>,
-    dependencies: &mut DependencyList,
+    imperative: &mut ImperativeContext<'_>,
     loc: Location,
     buffer: &mut SelfBuffer,
     is_extern: bool,
@@ -728,7 +737,7 @@ fn function_type(
             break;
         }
 
-        let arg_type = type_(global, dependencies, buffer)?;
+        let arg_type = type_(global, imperative, buffer)?;
         args.push(buffer.insert(arg_type));
 
         let token = global.tokens.expect_next(global.errors)?;
@@ -743,7 +752,7 @@ fn function_type(
     }
 
     let returns = if global.tokens.try_consume_operator_string("->").is_some() {
-        type_(global, dependencies, buffer)?
+        type_(global, imperative, buffer)?
     } else {
         Node::new(loc, NodeKind::LiteralType(TypeKind::Empty.into()))
     };
@@ -798,7 +807,7 @@ fn function_declaration(
                 return Err(());
             }
 
-            let arg_type = type_(global, imperative.dependencies, buffer)?;
+            let arg_type = type_(global, &mut imperative, buffer)?;
             args.push(buffer.insert(arg_type));
         } else {
             global.error(
@@ -820,7 +829,7 @@ fn function_declaration(
     }
 
     let returns = if global.tokens.try_consume_operator_string("->").is_some() {
-        type_(global, imperative.dependencies, buffer)?
+        type_(global, &mut imperative, buffer)?
     } else {
         Node::new(
             global.tokens.loc(),

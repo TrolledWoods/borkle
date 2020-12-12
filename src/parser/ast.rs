@@ -24,6 +24,11 @@ pub enum NodeKind {
     Literal(Literal),
     ArrayLiteral(Vec<SelfBox<Node>>),
 
+    ConstAtTyping {
+        locals: LocalVariables,
+        inner: SelfBox<Node>,
+    },
+
     Global(Ustr),
     GlobalForTyping(Ustr),
     Extern {
@@ -59,7 +64,7 @@ pub enum NodeKind {
     },
     BufferType(SelfBox<Node>),
     ArrayType {
-        len: (LocalVariables, SelfBox<Node>),
+        len: SelfBox<Node>,
         members: SelfBox<Node>,
     },
     FunctionType {
