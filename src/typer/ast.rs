@@ -3,6 +3,7 @@ use crate::location::Location;
 use crate::operators::{BinaryOp, UnaryOp};
 use crate::program::constant::ConstantRef;
 use crate::program::MemberId;
+use crate::self_buffer::SelfBox;
 use crate::types::Type;
 use std::fmt::{self, Debug};
 use ustr::Ustr;
@@ -34,36 +35,6 @@ impl Node {
     }
 }
 
-impl bump_tree::MetaData for Node {
-    fn validate(&self, num_args: usize) -> bool {
-        match self.kind {
-            NodeKind::Defer(_)
-            | NodeKind::Uninit
-            | NodeKind::Constant(_)
-            | NodeKind::Global(_)
-            | NodeKind::Local(_) => num_args == 0,
-            NodeKind::FunctionCall { .. } => true,
-            NodeKind::Block { .. } => num_args > 0,
-            NodeKind::FunctionDeclaration { locals: _ }
-            | NodeKind::BitCast
-            | NodeKind::ArrayToBuffer(_)
-            | NodeKind::Member(_)
-            | NodeKind::Break(_, _)
-            | NodeKind::Declare(_)
-            | NodeKind::Unary(_) => num_args == 1,
-            NodeKind::While | NodeKind::Assign | NodeKind::Binary(_) => num_args == 2,
-            NodeKind::If { has_else } => {
-                if has_else {
-                    num_args == 3
-                } else {
-                    num_args == 2
-                }
-            }
-            NodeKind::ArrayLiteral(len) => num_args == len,
-        }
-    }
-}
-
 #[derive(Debug)]
 pub enum NodeKind {
     Constant(ConstantRef),
@@ -71,37 +42,75 @@ pub enum NodeKind {
     // node, and they have nothing to do with each other despite having similar names.
     Global(MemberId),
     // FIXME: This should be the 'Member' struct from the types, not a string.
-    Member(Ustr),
+    Member {
+        name: Ustr,
+        of: SelfBox<Node>,
+    },
     FunctionCall {
         is_extern: bool,
+        calling: SelfBox<Node>,
+        args: Vec<SelfBox<Node>>,
     },
     FunctionDeclaration {
         locals: LocalVariables,
+        body: SelfBox<Node>,
     },
-    Break(crate::locals::LabelId, usize),
+    Break {
+        label: crate::locals::LabelId,
+        num_defer_deduplications: usize,
+        value: SelfBox<Node>,
+    },
 
-    Defer(Box<super::Ast>),
+    Defer {
+        deferred: SelfBox<Node>,
+    },
     Block {
         label: Option<crate::locals::LabelId>,
+        contents: Vec<SelfBox<Node>>,
     },
 
-    While,
+    While {
+        condition: SelfBox<Node>,
+        body: SelfBox<Node>,
+    },
     If {
-        has_else: bool,
+        condition: SelfBox<Node>,
+        true_body: SelfBox<Node>,
+        false_body: Option<SelfBox<Node>>,
     },
 
     Uninit,
-    Assign,
+    Assign {
+        lvalue: SelfBox<Node>,
+        rvalue: SelfBox<Node>,
+    },
     Local(LocalId),
-    Declare(LocalId),
+    Declare {
+        local: LocalId,
+        value: SelfBox<Node>,
+    },
 
-    ArrayLiteral(usize),
+    ArrayLiteral {
+        elements: Vec<SelfBox<Node>>,
+    },
 
-    Binary(BinaryOp),
-    Unary(UnaryOp),
+    Binary {
+        op: BinaryOp,
+        left: SelfBox<Node>,
+        right: SelfBox<Node>,
+    },
+    Unary {
+        op: UnaryOp,
+        operand: SelfBox<Node>,
+    },
 
-    BitCast,
-    ArrayToBuffer(usize),
+    BitCast {
+        value: SelfBox<Node>,
+    },
+    ArrayToBuffer {
+        length: usize,
+        array: SelfBox<Node>,
+    },
 }
 
 unsafe impl Send for NodeKind {}

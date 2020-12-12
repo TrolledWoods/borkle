@@ -2,6 +2,7 @@
 #![deny(mutable_borrow_reservation_conflict)]
 #![warn(clippy::pedantic)]
 #![allow(
+    clippy::similar_names,
     clippy::if_not_else,
     clippy::module_name_repetitions,
     clippy::single_match_else,

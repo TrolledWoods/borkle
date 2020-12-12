@@ -8,11 +8,11 @@ use crate::parser::ast::Node as ParsedNode;
 use crate::parser::{ast::NodeKind as ParsedNodeKind, Ast as ParsedAst};
 use crate::program::constant::ConstantRef;
 use crate::program::Program;
+use crate::self_buffer::{SelfBuffer, SelfTree};
 use crate::types::{IntTypeKind, Type, TypeData, TypeKind};
 use ast::{Node, NodeKind};
 
-pub type Ast = bump_tree::Tree<Node>;
-type NodeBuilder<'a> = bump_tree::NodeBuilder<'a, Node>;
+pub type Ast = SelfTree<Node>;
 
 pub mod ast;
 
@@ -29,7 +29,6 @@ pub fn process_ast(
     locals: LocalVariables,
     parsed: &ParsedAst,
 ) -> Result<(DependencyList, LocalVariables, Ast), ()> {
-    let mut ast = Ast::new();
     let mut deps = DependencyList::new();
     let mut ctx = Context {
         errors,
@@ -37,10 +36,11 @@ pub fn process_ast(
         locals,
         deps: &mut deps,
     };
-    type_ast(&mut ctx, None, parsed, ast.builder())?;
-    ast.set_root();
+    let mut buffer = SelfBuffer::new();
+    let root = type_ast(&mut ctx, None, parsed, &mut buffer)?;
+    let tree = buffer.insert_root(root);
     let locals = ctx.locals;
-    Ok((deps, locals, ast))
+    Ok((deps, locals, tree))
 }
 
 /// If the `wanted_type` is Some(type_), this function itself will generate an error if the types
@@ -50,47 +50,42 @@ fn type_ast<'a>(
     ctx: &mut Context<'a>,
     wanted_type: Option<Type>,
     parsed: &'a ParsedNode,
-    mut node: NodeBuilder<'_>,
-) -> Result<Type, ()> {
-    let type_: Type;
-    match parsed.kind {
+    buffer: &mut SelfBuffer,
+) -> Result<Node, ()> {
+    let node = match parsed.kind {
         ParsedNodeKind::Defer { ref deferring } => {
-            let mut typed_ast = Ast::new();
-            type_ast(ctx, None, deferring, typed_ast.builder())?;
-            typed_ast.set_root();
-            type_ = Type::new(TypeKind::Empty);
+            let typed = type_ast(ctx, None, deferring, buffer)?;
 
-            node.set(Node::new(
+            Node::new(
                 parsed.loc,
-                NodeKind::Defer(Box::new(typed_ast)),
-                type_,
-            ));
-            node.validate();
+                NodeKind::Defer {
+                    deferred: buffer.insert(typed),
+                },
+                Type::new(TypeKind::Empty),
+            )
         }
         ParsedNodeKind::Literal(Literal::Float(num)) => match wanted_type.map(Type::kind) {
             Some(TypeKind::F32) => {
                 // FIXME: Maybe we want a compiler error for when num is truncated?
                 #[allow(clippy::cast_possible_truncation)]
                 let bytes = (num as f32).to_bits().to_le_bytes();
-                type_ = Type::new(TypeKind::F32);
+                let type_ = Type::new(TypeKind::F32);
 
-                node.set(Node::new(
+                Node::new(
                     parsed.loc,
                     NodeKind::Constant(ctx.program.insert_buffer(type_, bytes.as_ptr())),
                     type_,
-                ));
-                node.validate();
+                )
             }
             Some(TypeKind::F64) => {
                 let bytes = num.to_bits().to_le_bytes();
-                type_ = Type::new(TypeKind::F64);
+                let type_ = Type::new(TypeKind::F64);
 
-                node.set(Node::new(
+                Node::new(
                     parsed.loc,
                     NodeKind::Constant(ctx.program.insert_buffer(type_, bytes.as_ptr())),
                     type_,
-                ));
-                node.validate();
+                )
             }
             Some(wanted_type) => {
                 ctx.errors.error(
@@ -109,7 +104,7 @@ fn type_ast<'a>(
         },
         ParsedNodeKind::Literal(Literal::String(ref data)) => {
             let u8_type = Type::new(TypeKind::Int(IntTypeKind::U8));
-            type_ = Type::new(TypeKind::Buffer(u8_type));
+            let type_ = Type::new(TypeKind::Buffer(u8_type));
             let ptr = ctx.program.insert_buffer(
                 type_,
                 &crate::types::BufferRepr {
@@ -117,108 +112,113 @@ fn type_ast<'a>(
                     length: data.len(),
                 } as *const _ as *const _,
             );
-            node.set(Node::new(parsed.loc, NodeKind::Constant(ptr), type_));
-            node.validate();
+            Node::new(parsed.loc, NodeKind::Constant(ptr), type_)
         }
-        ParsedNodeKind::ArrayLiteral(ref elements) => {
+        ParsedNodeKind::ArrayLiteral(ref parsed_elements) => {
             let mut element_type = None;
-            for element in elements {
-                element_type = Some(type_ast(ctx, element_type, element, node.arg())?);
+            let mut elements = Vec::with_capacity(parsed_elements.len());
+            for parsed_element in parsed_elements {
+                let element = type_ast(ctx, element_type, parsed_element, buffer)?;
+                element_type = Some(element.type_());
+                elements.push(buffer.insert(element));
             }
 
-            match element_type {
-                Some(element_type) => {
-                    type_ = Type::new(TypeKind::Array(element_type, elements.len()))
-                }
+            let type_ = match element_type {
+                Some(element_type) => Type::new(TypeKind::Array(element_type, elements.len())),
                 None => match wanted_type {
-                    Some(wanted_type) => type_ = wanted_type,
+                    Some(wanted_type) => wanted_type,
                     None => {
                         ctx.errors.error(parsed.loc, "Because this is an empty array, the types of the elements cannot be inferred; you have to specify a type bound".to_string());
                         return Err(());
                     }
                 },
-            }
+            };
 
-            node.set(Node::new(
-                parsed.loc,
-                NodeKind::ArrayLiteral(elements.len()),
-                type_,
-            ));
-            node.validate();
+            Node::new(parsed.loc, NodeKind::ArrayLiteral { elements }, type_)
         }
         ParsedNodeKind::While {
             ref condition,
             ref body,
         } => {
-            type_ = Type::new(TypeKind::Empty);
+            let condition = type_ast(ctx, Some(Type::new(TypeKind::Bool)), condition, buffer)?;
+            let body = type_ast(ctx, None, body, buffer)?;
 
-            type_ast(ctx, Some(Type::new(TypeKind::Bool)), condition, node.arg())?;
-            type_ast(ctx, None, body, node.arg())?;
-
-            node.set(Node::new(parsed.loc, NodeKind::While, type_));
-            node.validate();
+            Node::new(
+                parsed.loc,
+                NodeKind::While {
+                    condition: buffer.insert(condition),
+                    body: buffer.insert(body),
+                },
+                Type::new(TypeKind::Empty),
+            )
         }
         ParsedNodeKind::If {
             ref condition,
             ref true_body,
             false_body: None,
         } => {
-            type_ = Type::new(TypeKind::Empty);
+            let condition = type_ast(ctx, Some(Type::new(TypeKind::Bool)), condition, buffer)?;
+            let true_body = type_ast(ctx, None, true_body, buffer)?;
 
-            type_ast(ctx, Some(Type::new(TypeKind::Bool)), condition, node.arg())?;
-            type_ast(ctx, Some(type_), true_body, node.arg())?;
-
-            node.set(Node::new(
+            Node::new(
                 parsed.loc,
-                NodeKind::If { has_else: false },
-                type_,
-            ));
-            node.validate();
+                NodeKind::If {
+                    condition: buffer.insert(condition),
+                    true_body: buffer.insert(true_body),
+                    false_body: None,
+                },
+                Type::new(TypeKind::Empty),
+            )
         }
         ParsedNodeKind::If {
             ref condition,
             ref true_body,
             false_body: Some(ref false_body),
         } => {
-            type_ast(ctx, Some(Type::new(TypeKind::Bool)), condition, node.arg())?;
+            let condition = type_ast(ctx, Some(Type::new(TypeKind::Bool)), condition, buffer)?;
 
-            let true_body_type = type_ast(ctx, wanted_type, true_body, node.arg())?;
-            let false_body_type = type_ast(ctx, Some(true_body_type), false_body, node.arg())?;
+            let true_body = type_ast(ctx, wanted_type, true_body, buffer)?;
+            let false_body = type_ast(ctx, Some(true_body.type_()), false_body, buffer)?;
 
-            if true_body_type != false_body_type {
+            if false_body.type_() != true_body.type_() {
                 ctx.errors.error(
                     parsed.loc,
-                    format!("Both the if and the else body have to return the same type. The if body has type '{}' while the else body has type '{}'", true_body_type, false_body_type),
+                    format!("Both the if and the else body have to return the same type. The if body has type '{}' while the else body has type '{}'", true_body.type_(), false_body.type_()),
                 );
                 return Err(());
             }
 
-            type_ = true_body_type;
+            let type_ = true_body.type_();
 
-            node.set(Node::new(
+            Node::new(
                 parsed.loc,
-                NodeKind::If { has_else: true },
+                NodeKind::If {
+                    condition: buffer.insert(condition),
+                    true_body: buffer.insert(true_body),
+                    false_body: Some(buffer.insert(false_body)),
+                },
                 type_,
-            ));
-            node.validate();
+            )
         }
         ParsedNodeKind::Assign {
             ref lvalue,
             ref rvalue,
         } => {
-            type_ = Type::new(TypeKind::Empty);
+            let lvalue = type_ast(ctx, None, lvalue, buffer)?;
+            let rvalue = type_ast(ctx, Some(lvalue.type_()), rvalue, buffer)?;
 
-            let to_type = type_ast(ctx, None, lvalue, node.arg())?;
-            type_ast(ctx, Some(to_type), rvalue, node.arg())?;
-
-            node.set(Node::new(parsed.loc, NodeKind::Assign, type_));
-            node.validate();
+            Node::new(
+                parsed.loc,
+                NodeKind::Assign {
+                    lvalue: buffer.insert(lvalue),
+                    rvalue: buffer.insert(rvalue),
+                },
+                Type::new(TypeKind::Empty),
+            )
         }
         ParsedNodeKind::Uninit => {
             if let Some(wanted_type) = wanted_type {
-                type_ = wanted_type;
-                node.set(Node::new(parsed.loc, NodeKind::Uninit, wanted_type));
-                node.validate();
+                Node::new(parsed.loc, NodeKind::Uninit, wanted_type)
             } else {
                 ctx.errors.error(
                     parsed.loc,
@@ -235,7 +235,7 @@ fn type_ast<'a>(
         } => {
             let mut locals = locals.clone();
 
-            let mut arg_types = Vec::new();
+            let mut arg_types = Vec::with_capacity(args.len());
             for (local, node) in locals.iter_mut().zip(args) {
                 let arg_type = const_fold_type_expr(ctx, node)?;
                 local.type_ = Some(arg_type);
@@ -243,12 +243,6 @@ fn type_ast<'a>(
             }
 
             let return_type = const_fold_type_expr(ctx, returns)?;
-
-            type_ = Type::new(TypeKind::Function {
-                args: arg_types,
-                returns: return_type,
-                is_extern: false,
-            });
 
             let mut sub_ctx = Context {
                 errors: ctx.errors,
@@ -259,37 +253,44 @@ fn type_ast<'a>(
                 deps: ctx.deps,
             };
 
-            type_ast(&mut sub_ctx, Some(return_type), body, node.arg())?;
+            let body = type_ast(&mut sub_ctx, Some(return_type), body, buffer)?;
 
-            node.set(Node::new(
+            Node::new(
                 parsed.loc,
                 NodeKind::FunctionDeclaration {
                     locals: sub_ctx.locals,
+                    body: buffer.insert(body),
                 },
-                type_,
-            ));
-            node.validate();
+                Type::new(TypeKind::Function {
+                    args: arg_types,
+                    returns: return_type,
+                    is_extern: false,
+                }),
+            )
         }
         ParsedNodeKind::BitCast { ref value } => {
             if let Some(casting_to) = wanted_type {
-                let casting_from = type_ast(ctx, None, value, node.arg())?;
+                let casting_from = type_ast(ctx, None, value, buffer)?;
 
-                if casting_from.size() != casting_to.size() {
-                    ctx.errors.error(parsed.loc, format!("Cannot bit_cast from '{}' to '{}', the sizes of the types have to be the same.", casting_from, casting_to));
+                if casting_from.type_().size() != casting_to.size() {
+                    ctx.errors.error(parsed.loc, format!("Cannot bit_cast from '{}' to '{}', the sizes of the types have to be the same.", casting_from.type_(), casting_to));
                     return Err(());
                 }
 
-                if casting_from == casting_to {
+                if casting_from.type_() == casting_to {
                     ctx.errors.warning(
                         parsed.loc,
                         "Unnecessary bit_cast, the types are the same".to_string(),
                     );
                 }
 
-                type_ = casting_to;
-
-                node.set(Node::new(parsed.loc, NodeKind::BitCast, type_));
-                node.validate();
+                Node::new(
+                    parsed.loc,
+                    NodeKind::BitCast {
+                        value: buffer.insert(casting_from),
+                    },
+                    casting_to,
+                )
             } else {
                 ctx.errors.error(parsed.loc, "Can only cast if the type we cast to is known; add a type bound after the cast to tell it what to cast to".to_string());
                 return Err(());
@@ -299,37 +300,39 @@ fn type_ast<'a>(
             ref calling,
             args: ref parsed_args,
         } => {
-            let ptr = type_ast(ctx, None, calling, node.arg())?;
+            let calling = type_ast(ctx, None, calling, buffer)?;
             if let TypeKind::Function {
-                args,
+                args: arg_types,
                 returns,
                 is_extern,
-            } = ptr.kind()
+            } = calling.type_().kind()
             {
-                if args.len() != parsed_args.len() {
-                    ctx.errors.error(calling.loc, format!("Function is of type '{}', which has {} arguments, but {} arguments were given in the call", ptr, args.len(), parsed_args.len()));
+                if arg_types.len() != parsed_args.len() {
+                    ctx.errors.error(calling.loc, format!("Function is of type '{}', which has {} arguments, but {} arguments were given in the call", calling.type_(), arg_types.len(), parsed_args.len()));
                     return Err(());
                 }
 
-                for (&wanted, got) in args.iter().zip(parsed_args) {
-                    type_ast(ctx, Some(wanted), got, node.arg())?;
+                let mut args = Vec::with_capacity(parsed_args.len());
+                for (&wanted, got) in arg_types.iter().zip(parsed_args) {
+                    let arg = type_ast(ctx, Some(wanted), got, buffer)?;
+                    args.push(buffer.insert(arg));
                 }
 
-                type_ = *returns;
-                node.set(Node::new(
+                Node::new(
                     calling.loc,
                     NodeKind::FunctionCall {
                         is_extern: *is_extern,
+                        calling: buffer.insert(calling),
+                        args,
                     },
-                    type_,
-                ));
-                node.validate();
+                    *returns,
+                )
             } else {
                 ctx.errors.error(
                     calling.loc,
                     format!(
                         "Can only call function on function pointer, found type '{}'",
-                        ptr
+                        calling.type_(),
                     ),
                 );
                 return Err(());
@@ -351,18 +354,14 @@ fn type_ast<'a>(
                         symbol_name.as_str().into(),
                         wanted_type,
                     ) {
-                        Ok(func) => {
-                            type_ = wanted_type;
-                            node.set(Node::new(
-                                parsed.loc,
-                                NodeKind::Constant(ctx.program.insert_buffer(
-                                    wanted_type,
-                                    &(func as usize) as *const usize as *const _,
-                                )),
+                        Ok(func) => Node::new(
+                            parsed.loc,
+                            NodeKind::Constant(ctx.program.insert_buffer(
                                 wanted_type,
-                            ));
-                            node.validate();
-                        }
+                                &(func as usize) as *const usize as *const _,
+                            )),
+                            wanted_type,
+                        ),
                         Err(err) => {
                             ctx.errors.error(
                                 parsed.loc,
@@ -397,13 +396,12 @@ fn type_ast<'a>(
                     return Err(());
                 }
 
-                type_ = (*int).into();
-                node.set(Node::new(
+                let type_ = (*int).into();
+                Node::new(
                     parsed.loc,
                     NodeKind::Constant(ctx.program.insert_buffer(type_, bytes.as_ptr())),
                     type_,
-                ));
-                node.validate();
+                )
             }
             Some(wanted_type) => {
                 ctx.errors.error(
@@ -431,8 +429,8 @@ fn type_ast<'a>(
                 );
             }
 
-            type_ = const_fold_type_expr(ctx, bound)?;
-            type_ast(ctx, Some(type_), value, node)?;
+            let bound = const_fold_type_expr(ctx, bound)?;
+            type_ast(ctx, Some(bound), value, buffer)?
         }
         ParsedNodeKind::Binary {
             op,
@@ -441,30 +439,39 @@ fn type_ast<'a>(
         } => {
             let left_hand_side = wanted_type.and_then(|t| op.left_hand_side_from_return(t));
 
-            let left_type = type_ast(ctx, left_hand_side, left, node.arg())?;
-            let right_type = type_ast(
+            let left = type_ast(ctx, left_hand_side, left, buffer)?;
+            let right = type_ast(
                 ctx,
-                op.right_hand_side_from_left(left_type),
+                op.right_hand_side_from_left(left.type_()),
                 right,
-                node.arg(),
+                buffer,
             )?;
 
-            type_ = match op.return_from_args(left_type, right_type) {
+            let type_ = match op.return_from_args(left.type_(), right.type_()) {
                 Some(type_) => type_,
                 None => {
                     ctx.errors.error(
                         parsed.loc,
                         format!(
                             "{:?} doesn't support argument types '{}' and '{}'",
-                            op, left_type, right_type
+                            op,
+                            left.type_(),
+                            right.type_()
                         ),
                     );
                     return Err(());
                 }
             };
 
-            node.set(Node::new(parsed.loc, NodeKind::Binary(op), type_));
-            node.validate();
+            Node::new(
+                parsed.loc,
+                NodeKind::Binary {
+                    op,
+                    left: buffer.insert(left),
+                    right: buffer.insert(right),
+                },
+                type_,
+            )
         }
         ParsedNodeKind::Unary { op, ref operand } => {
             // FIXME: We want to specify the wanted type more precisely, but it may
@@ -476,10 +483,8 @@ fn type_ast<'a>(
             match op {
                 UnaryOp::AutoCast => {
                     if let Some(wanted_type) = wanted_type {
-                        let internal_type = type_ast(ctx, None, operand, node.arg())?;
-
-                        auto_cast(ctx, parsed.loc, internal_type, wanted_type, node)?;
-                        type_ = wanted_type;
+                        let internal = type_ast(ctx, None, operand, buffer)?;
+                        auto_cast(ctx, parsed.loc, internal, wanted_type, buffer)?
                     } else {
                         ctx.errors.error(parsed.loc, "Casting can only be done if the type is known; are you sure you want to cast here?".to_string());
                         return Err(());
@@ -493,83 +498,100 @@ fn type_ast<'a>(
                             None
                         };
 
-                    let operand = type_ast(ctx, wanted_inner, operand, node.arg())?;
-                    type_ = Type::new(TypeKind::Reference(operand));
-
-                    node.set(Node::new(parsed.loc, NodeKind::Unary(op), type_));
-                    node.validate();
+                    let operand = type_ast(ctx, wanted_inner, operand, buffer)?;
+                    Node::new(
+                        parsed.loc,
+                        NodeKind::Unary {
+                            op,
+                            operand: buffer.insert(operand),
+                        },
+                        Type::new(TypeKind::Reference(operand.type_())),
+                    )
                 }
                 UnaryOp::Dereference => {
                     let wanted_inner = wanted_type.map(|v| Type::new(TypeKind::Reference(v)));
 
-                    let operand = type_ast(ctx, wanted_inner, operand, node.arg())?;
-                    if let TypeKind::Reference(inner) = *operand.kind() {
-                        type_ = inner;
+                    let operand = type_ast(ctx, wanted_inner, operand, buffer)?;
+                    let type_ = if let TypeKind::Reference(inner) = *operand.type_().kind() {
+                        inner
                     } else {
                         ctx.errors.error(
                             parsed.loc,
                             format!(
                                 "Cannot dereference '{}', because it's not a refernece",
-                                operand
+                                operand.type_()
                             ),
                         );
                         return Err(());
-                    }
+                    };
 
-                    node.set(Node::new(parsed.loc, NodeKind::Unary(op), type_));
-                    node.validate();
+                    Node::new(
+                        parsed.loc,
+                        NodeKind::Unary {
+                            op,
+                            operand: buffer.insert(operand),
+                        },
+                        type_,
+                    )
                 }
                 _ => {
-                    type_ = type_ast(ctx, wanted_type, operand, node.arg())?;
+                    let operand = type_ast(ctx, wanted_type, operand, buffer)?;
 
-                    node.set(Node::new(parsed.loc, NodeKind::Unary(op), type_));
-                    node.validate();
+                    Node::new(
+                        parsed.loc,
+                        NodeKind::Unary {
+                            op,
+                            operand: buffer.insert(operand),
+                        },
+                        operand.type_(),
+                    )
                 }
             }
         }
-        ParsedNodeKind::Empty => {
-            type_ = TypeKind::Empty.into();
-            node.set(Node::new(
-                parsed.loc,
-                NodeKind::Constant(ConstantRef::dangling()),
-                type_,
-            ));
-            node.validate();
-        }
+        ParsedNodeKind::Empty => Node::new(
+            parsed.loc,
+            NodeKind::Constant(ConstantRef::dangling()),
+            Type::new(TypeKind::Empty),
+        ),
         ParsedNodeKind::Break {
             label,
             num_defer_deduplications,
             ref value,
         } => {
             let label_type = ctx.locals.get_label_mut(label).type_;
-            let inner_type = type_ast(ctx, label_type, value, node.arg())?;
+            let value = type_ast(ctx, label_type, value, buffer)?;
 
-            ctx.locals.get_label_mut(label).type_ = Some(inner_type);
+            ctx.locals.get_label_mut(label).type_ = Some(value.type_());
 
-            // FIXME: This should eventually be the never type since the code never reaches here.
-            type_ = Type::new(TypeKind::Empty);
-
-            node.set(Node::new(
+            Node::new(
                 parsed.loc,
-                NodeKind::Break(label, num_defer_deduplications),
-                type_,
-            ));
-            node.validate();
+                NodeKind::Break {
+                    label,
+                    num_defer_deduplications,
+                    value: buffer.insert(value),
+                },
+                // FIXME: This should eventually be the never type since the code never reaches here.
+                Type::new(TypeKind::Empty),
+            )
         }
         ParsedNodeKind::Block {
             label,
-            ref contents,
+            contents: ref parsed_contents,
         } => {
             if let Some(label) = label {
                 let label = ctx.locals.get_label_mut(label);
                 label.type_ = wanted_type;
             }
 
-            for content in contents.iter().take(contents.len() - 1) {
-                type_ast(ctx, None, content, node.arg())?;
+            let mut contents = Vec::with_capacity(parsed_contents.len());
+            for parsed_content in parsed_contents.iter().take(parsed_contents.len() - 1) {
+                let content = type_ast(ctx, None, parsed_content, buffer)?;
+                contents.push(buffer.insert(content));
             }
 
-            type_ = type_ast(ctx, wanted_type, contents.last().unwrap(), node.arg())?;
+            let last = type_ast(ctx, wanted_type, parsed_contents.last().unwrap(), buffer)?;
+            let type_ = last.type_();
+            contents.push(buffer.insert(last));
 
             if let Some(label) = label {
                 let label = ctx.locals.get_label_mut(label);
@@ -583,60 +605,76 @@ fn type_ast<'a>(
                 }
             }
 
-            node.set(Node::new(parsed.loc, NodeKind::Block { label }, type_));
-            node.validate();
+            Node::new(parsed.loc, NodeKind::Block { label, contents }, type_)
         }
         ParsedNodeKind::Member { ref of, name } => {
-            let member_of = type_ast(ctx, None, of, node.arg())?;
+            let member_of = type_ast(ctx, None, of, buffer)?;
 
-            if let Some(member) = member_of.member(name) {
-                type_ = member.type_;
-
-                node.set(Node::new(parsed.loc, NodeKind::Member(name), type_));
-                node.validate();
+            if let Some(member) = member_of.type_().member(name) {
+                Node::new(
+                    parsed.loc,
+                    NodeKind::Member {
+                        name,
+                        of: buffer.insert(member_of),
+                    },
+                    member.type_,
+                )
             } else {
                 ctx.errors.error(
                     parsed.loc,
-                    format!("The type '{}' does not have member '{}'", member_of, name),
+                    format!(
+                        "The type '{}' does not have member '{}'",
+                        member_of.type_(),
+                        name
+                    ),
                 );
                 return Err(());
             }
         }
         ParsedNodeKind::Global(name) => {
             let id = ctx.program.get_member_id(name).unwrap();
-            type_ = ctx.program.get_type_of_member(id);
-            node.set(Node::new(parsed.loc, NodeKind::Global(id), type_));
-            node.validate();
             ctx.deps.add(
                 parsed.loc,
                 ctx.program.member_name(id),
                 DependencyKind::Value,
             );
+            Node::new(
+                parsed.loc,
+                NodeKind::Global(id),
+                ctx.program.get_type_of_member(id),
+            )
         }
-        ParsedNodeKind::Local(local) => {
-            type_ = ctx.locals.get(local).type_.unwrap();
-            node.set(Node::new(parsed.loc, NodeKind::Local(local), type_));
-        }
-        ParsedNodeKind::Declare { local, ref value } => {
-            let local_type = type_ast(ctx, None, value, node.arg())?;
+        ParsedNodeKind::Local(local) => Node::new(
+            parsed.loc,
+            NodeKind::Local(local),
+            ctx.locals.get(local).type_.unwrap(),
+        ),
+        ParsedNodeKind::Declare {
+            local,
+            value: ref parsed_value,
+        } => {
+            let value = type_ast(ctx, None, parsed_value, buffer)?;
 
-            ctx.locals.get_mut(local).type_ = Some(local_type);
-            type_ = Type::new(TypeKind::Empty);
-            node.set(Node::new(parsed.loc, NodeKind::Declare(local), type_));
-            node.validate();
+            ctx.locals.get_mut(local).type_ = Some(value.type_());
+            Node::new(
+                parsed.loc,
+                NodeKind::Declare {
+                    local,
+                    value: buffer.insert(value),
+                },
+                Type::new(TypeKind::Empty),
+            )
         }
         ParsedNodeKind::TypeAsValue(ref inner) => {
             let inner_type = const_fold_type_expr(ctx, inner)?;
-            type_ = Type::new(TypeKind::Type);
-            node.set(Node::new(
+            Node::new(
                 parsed.loc,
                 NodeKind::Constant(ctx.program.insert_buffer(
-                    type_,
+                    Type::new(TypeKind::Type),
                     &(inner_type.as_ptr() as usize).to_le_bytes() as *const _,
                 )),
-                type_,
-            ));
-            node.validate();
+                Type::new(TypeKind::Type),
+            )
         }
         ParsedNodeKind::LiteralType(_)
         | ParsedNodeKind::ArrayType(_, _)
@@ -650,19 +688,19 @@ fn type_ast<'a>(
             );
             return Err(());
         }
-    }
+    };
 
     if let Some(wanted_type) = wanted_type {
-        if wanted_type != type_ {
+        if wanted_type != node.type_() {
             ctx.errors.error(
                 parsed.loc,
-                format!("Expected '{}', found '{}'", wanted_type, type_),
+                format!("Expected '{}', found '{}'", wanted_type, node.type_()),
             );
             return Err(());
         }
     }
 
-    Ok(type_)
+    Ok(node)
 }
 
 fn const_fold_type_expr<'a>(ctx: &mut Context<'a>, parsed: &'a ParsedNode) -> Result<Type, ()> {
@@ -730,54 +768,61 @@ fn const_fold_type_expr<'a>(ctx: &mut Context<'a>, parsed: &'a ParsedNode) -> Re
 fn auto_cast<'a>(
     ctx: &mut Context<'a>,
     loc: Location,
-    from_type: Type,
+    from: Node,
     to_type: Type,
-    mut node: NodeBuilder<'_>,
-) -> Result<(), ()> {
-    if from_type == to_type {
-        node.into_arg();
+    buffer: &mut SelfBuffer,
+) -> Result<Node, ()> {
+    if from.type_() == to_type {
         ctx.errors.warning(
             loc,
             format!(
                 "You don't need a cast here, because '{}' and '{}' are the same types",
-                from_type, to_type
+                from.type_(),
+                to_type
             ),
         );
-        return Ok(());
+        return Ok(from);
     }
 
-    match (from_type.kind(), to_type.kind()) {
+    match (from.type_().kind(), to_type.kind()) {
         (
             TypeKind::Reference(Type(TypeData {
                 kind: TypeKind::Array(from_inner, len),
                 ..
             })),
             TypeKind::Buffer(to_inner),
-        ) if from_inner == to_inner => {
-            node.set(Node::new(loc, NodeKind::ArrayToBuffer(*len), to_type));
-            node.validate();
-            Ok(())
-        }
-        (TypeKind::Reference(_), TypeKind::Int(IntTypeKind::Usize)) => {
-            node.set(Node::new(loc, NodeKind::BitCast, to_type));
-            node.validate();
-            Ok(())
-        }
+        ) if from_inner == to_inner => Ok(Node::new(
+            loc,
+            NodeKind::ArrayToBuffer {
+                length: *len,
+                array: buffer.insert(from),
+            },
+            to_type,
+        )),
+        (TypeKind::Reference(_), TypeKind::Int(IntTypeKind::Usize)) => Ok(Node::new(
+            loc,
+            NodeKind::BitCast {
+                value: buffer.insert(from),
+            },
+            to_type,
+        )),
         (
             TypeKind::Reference(Type(TypeData {
                 kind: TypeKind::Array(from_inner, _),
                 ..
             })),
             TypeKind::Reference(to_inner),
-        ) if from_inner == to_inner => {
-            node.set(Node::new(loc, NodeKind::BitCast, to_type));
-            node.validate();
-            Ok(())
-        }
+        ) if from_inner == to_inner => Ok(Node::new(
+            loc,
+            NodeKind::BitCast {
+                value: buffer.insert(from),
+            },
+            to_type,
+        )),
         (_, _) => {
             ctx.errors.error(
                 loc,
-                format!("No cast available for '{}' to '{}'", from_type, to_type),
+                format!("No cast available for '{}' to '{}'", from.type_(), to_type),
             );
             Err(())
         }

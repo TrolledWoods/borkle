@@ -10,6 +10,7 @@
         Maybe it's fine to use unsafe, because if we do we can also include other data types in the ast buffer.
 * [ ] Constant folding of operations
 
+* [ ] BUG! Seems like empty array literals can be of any type, even though they should only be arrays.
 * [ ] Make a separate ast node kind for type expressions?
 * [ ] Figure out why ifs with loose expressions after them never seem to work.
 * [ ] If break \<label\> is followed by a ';', then just break with the Empty type.
