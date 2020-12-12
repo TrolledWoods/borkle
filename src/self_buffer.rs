@@ -32,7 +32,7 @@ impl SelfBuffer {
     /// # Safety
     /// This is only safe if all the SelfBoxes inside of T are also references
     /// into this buffer. You also are not allowed to use SelfBox
-    pub fn insert_root<T>(self, data: T) -> SelfTree<T> {
+    pub fn insert_root<T>(mut self, data: T) -> SelfTree<T> {
         let root = self.insert(data);
 
         SelfTree {
@@ -70,7 +70,7 @@ where
     T: fmt::Debug,
 {
     fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
-        (&*self).fmt(fmt)
+        (&**self).fmt(fmt)
     }
 }
 
@@ -81,12 +81,12 @@ impl<T> Deref for SelfBox<T> {
     type Target = T;
 
     fn deref(&self) -> &T {
-        &*self.data
+        unsafe { &*self.data }
     }
 }
 
 impl<T> DerefMut for SelfBox<T> {
     fn deref_mut(&mut self) -> &mut T {
-        &mut *self.data
+        unsafe { &mut *self.data }
     }
 }

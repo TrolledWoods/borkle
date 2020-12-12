@@ -327,7 +327,7 @@ fn type_(
                 }
                 _ => {
                     global.error(loc, "Expected integer or ']'".to_string());
-                    return Err(());
+                    Err(())
                 }
             }
         }
@@ -520,7 +520,8 @@ fn atom_value(
                         break;
                     }
 
-                    args.push(buffer.insert(expression(global, imperative, buffer)?));
+                    let expr = expression(global, imperative, buffer)?;
+                    args.push(buffer.insert(expr));
 
                     let token = global.tokens.expect_next(global.errors)?;
                     match token.kind {
@@ -622,13 +623,14 @@ fn atom_value(
 
                             if let Some(loc) = global.tokens.try_consume_operator_string("=") {
                                 let rvalue = expression(global, imperative, buffer)?;
-                                contents.push(buffer.insert(Node::new(
+                                let assignment = Node::new(
                                     loc,
                                     NodeKind::Assign {
                                         lvalue: buffer.insert(inner),
                                         rvalue: buffer.insert(rvalue),
                                     },
-                                )));
+                                );
+                                contents.push(buffer.insert(assignment));
                             } else {
                                 contents.push(buffer.insert(inner));
                             }
