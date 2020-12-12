@@ -6,10 +6,10 @@
 * [X] Defer
 * [X] Optimize stack size for interpreter
 * [X] Break out of blocks/loops
-* [ ] Redo ast nodes to be more readable, like right now what the heck is it even!? 
-        Maybe it's fine to use unsafe, because if we do we can also include other data types in the ast buffer.
+* [X] Redo ast nodes to be more readable
 * [ ] Constant folding of operations
 
+* [ ] Allow array types to contain arbitrary length expressions
 * [ ] BUG! Seems like empty array literals can be of any type, even though they should only be arrays.
 * [ ] Make a separate ast node kind for type expressions?
 * [ ] Figure out why ifs with loose expressions after them never seem to work.

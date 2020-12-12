@@ -105,7 +105,7 @@ fn constant(global: &mut DataContext<'_>) -> Result<(), ()> {
         let mut buffer = SelfBuffer::new();
 
         let mut dependencies = DependencyList::new();
-        let mut imperative = ImperativeContext::new(&mut dependencies);
+        let mut imperative = ImperativeContext::new(&mut dependencies, false);
         let expr = expression(global, &mut imperative, &mut buffer)?;
         let tree = buffer.insert_root(expr);
 
@@ -254,7 +254,7 @@ fn type_(
         TokenKind::Identifier(name) => {
             global.tokens.next();
             dependencies.add(loc, name, DependencyKind::Value);
-            Ok(Node::new(loc, NodeKind::Global(name)))
+            Ok(Node::new(loc, NodeKind::GlobalForTyping(name)))
         }
         TokenKind::Open(Bracket::Curly) => {
             global.tokens.next();
@@ -399,6 +399,11 @@ fn atom_value(
             TokenKind::Identifier(name) => {
                 if let Some(local_id) = imperative.get_local(name) {
                     Node::new(token.loc, NodeKind::Local(local_id))
+                } else if imperative.evaluate_at_typing {
+                    imperative
+                        .dependencies
+                        .add(token.loc, name, DependencyKind::Value);
+                    Node::new(token.loc, NodeKind::GlobalForTyping(name))
                 } else {
                     imperative
                         .dependencies
@@ -773,7 +778,7 @@ fn function_declaration(
         .tokens
         .expect_next_is(global.errors, &TokenKind::Open(Bracket::Round))?;
 
-    let mut imperative = ImperativeContext::new(dependencies);
+    let mut imperative = ImperativeContext::new(dependencies, false);
     let mut args = Vec::new();
     loop {
         if global.tokens.try_consume(&TokenKind::Close(Bracket::Round)) {

@@ -44,6 +44,7 @@ pub struct ImperativeContext<'a> {
     pub locals: LocalVariables,
     pub dependencies: &'a mut DependencyList,
     pub defer_depth: usize,
+    pub evaluate_at_typing: bool,
 
     scope_boundaries: Vec<ScopeBoundary>,
     local_map: Vec<(Ustr, LocalId)>,
@@ -51,11 +52,12 @@ pub struct ImperativeContext<'a> {
 }
 
 impl<'a> ImperativeContext<'a> {
-    pub fn new(dependencies: &'a mut DependencyList) -> Self {
+    pub fn new(dependencies: &'a mut DependencyList, evaluate_at_typing: bool) -> Self {
         Self {
             locals: LocalVariables::new(),
             dependencies,
             defer_depth: 0,
+            evaluate_at_typing,
 
             scope_boundaries: Vec::new(),
             local_map: Vec::new(),

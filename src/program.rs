@@ -225,6 +225,45 @@ impl Program {
         self.work.send(Task::Parse(path));
     }
 
+    pub fn insert_buffer_from_operation(
+        &self,
+        type_: Type,
+        get_data: impl FnOnce(*mut u8),
+    ) -> ConstantRef {
+        if type_.size() == 0 {
+            return ConstantRef::dangling();
+        }
+
+        let layout = alloc::Layout::from_size_align(type_.size(), type_.align()).unwrap();
+
+        let owned_data = unsafe { alloc::alloc(layout) };
+        get_data(owned_data);
+
+        let mut constant_data = self.constant_data.lock();
+        let slice_version = unsafe { std::slice::from_raw_parts(owned_data, type_.size()) };
+        for pre_computed_constant in constant_data.iter() {
+            if pre_computed_constant.type_ == type_
+                && pre_computed_constant.as_slice() == slice_version
+            {
+                unsafe {
+                    alloc::dealloc(owned_data, layout);
+                }
+                return pre_computed_constant.as_ref();
+            }
+        }
+
+        let constant = Constant {
+            ptr: NonNull::new(owned_data).unwrap(),
+            size: type_.size(),
+            type_,
+        };
+
+        let const_ref = constant.as_ref();
+        constant_data.push(constant);
+
+        const_ref
+    }
+
     pub fn insert_buffer(&self, type_: Type, data: *const u8) -> ConstantRef {
         if type_.size() == 0 {
             return ConstantRef::dangling();

@@ -463,15 +463,32 @@ fn type_ast<'a>(
                 }
             };
 
-            Node::new(
-                parsed.loc,
-                NodeKind::Binary {
-                    op,
-                    left: buffer.insert(left),
-                    right: buffer.insert(right),
-                },
-                type_,
-            )
+            if let (NodeKind::Constant(left_val), NodeKind::Constant(right_val)) =
+                (left.kind(), right.kind())
+            {
+                let constant_ref = ctx
+                    .program
+                    .insert_buffer_from_operation(type_, |out| unsafe {
+                        op.run(
+                            left.type_(),
+                            right.type_(),
+                            left_val.as_ptr(),
+                            right_val.as_ptr(),
+                            out,
+                        )
+                    });
+                Node::new(parsed.loc, NodeKind::Constant(constant_ref), type_)
+            } else {
+                Node::new(
+                    parsed.loc,
+                    NodeKind::Binary {
+                        op,
+                        left: buffer.insert(left),
+                        right: buffer.insert(right),
+                    },
+                    type_,
+                )
+            }
         }
         ParsedNodeKind::Unary { op, ref operand } => {
             // FIXME: We want to specify the wanted type more precisely, but it may
@@ -633,6 +650,14 @@ fn type_ast<'a>(
                 return Err(());
             }
         }
+        ParsedNodeKind::GlobalForTyping(name) => {
+            let id = ctx.program.get_member_id(name).unwrap();
+            Node::new(
+                parsed.loc,
+                NodeKind::Constant(ctx.program.get_value_of_member(id)),
+                ctx.program.get_type_of_member(id),
+            )
+        }
         ParsedNodeKind::Global(name) => {
             let id = ctx.program.get_member_id(name).unwrap();
             ctx.deps.add(
@@ -707,7 +732,7 @@ fn type_ast<'a>(
 
 fn const_fold_type_expr<'a>(ctx: &mut Context<'a>, parsed: &'a ParsedNode) -> Result<Type, ()> {
     match parsed.kind {
-        ParsedNodeKind::Global(name) => {
+        ParsedNodeKind::GlobalForTyping(name) => {
             let id = ctx.program.get_member_id(name).unwrap();
             let ptr = ctx.program.get_value_of_member(id).as_ptr();
             Ok(unsafe { *ptr.cast::<Type>() })

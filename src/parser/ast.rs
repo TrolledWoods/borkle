@@ -25,6 +25,7 @@ pub enum NodeKind {
     ArrayLiteral(Vec<SelfBox<Node>>),
 
     Global(Ustr),
+    GlobalForTyping(Ustr),
     Extern {
         library_name: PathBuf,
         symbol_name: String,

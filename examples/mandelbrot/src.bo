@@ -1,6 +1,6 @@
 library "mem.bo";
 library "io.bo";
-library "time.bo"; // start_timer, log_timer
+library "time.bo";
 import "complex.bo";
 
 const PIXEL_HEIGHT = 0.10 : f64;
