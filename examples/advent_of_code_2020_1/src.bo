@@ -51,7 +51,7 @@ const main = fn() -> u64 {
     };
 
     print("Found the two numbers % and %. The product of those is %.\n", << &[
-        fmt_u64(&result_a), fmt_u64(&result_b), fmt_u64(&(result_a * result_b))
+        fmt_u64(result_a), fmt_u64(result_b), fmt_u64(result_a * result_b)
     ]);
 
     let i = 0 : usize;
@@ -79,7 +79,7 @@ const main = fn() -> u64 {
     };
 
     print("Found the three numbers %, % and %. The product of those is %.\n", << &[
-        fmt_u64(&result_a2), fmt_u64(&result_b2), fmt_u64(&result_c2), fmt_u64(&(result_a2 * result_b2 * result_c2))
+        fmt_u64(result_a2), fmt_u64(result_b2), fmt_u64(result_c2), fmt_u64(result_a2 * result_b2 * result_c2)
     ]);
 
     dealloc(num_buffer);

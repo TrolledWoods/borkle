@@ -160,18 +160,39 @@ fn type_ast<'a>(
         },
         ParsedNodeKind::Literal(Literal::String(ref data)) => {
             let u8_type = Type::new(TypeKind::Int(IntTypeKind::U8));
-            let type_ = Type::new(TypeKind::Buffer(u8_type));
-            let ptr = ctx.program.insert_buffer(
-                type_,
-                &crate::types::BufferRepr {
-                    ptr: data.as_ptr() as *mut _,
-                    length: data.len(),
-                } as *const _ as *const _,
-            );
-            Node::new(parsed.loc, NodeKind::Constant(ptr), type_)
+
+            if let Some(TypeKind::Int(IntTypeKind::U8)) = wanted_type.map(Type::kind) {
+                let bytes = data.as_bytes();
+
+                if bytes.len() != 1 {
+                    ctx.errors.error(
+                        parsed.loc,
+                        "String literal is supposed to be a 'u8', but it's length is not 1"
+                            .to_string(),
+                    );
+                    return Err(());
+                }
+
+                let ptr = ctx.program.insert_buffer(u8_type, bytes.as_ptr());
+                Node::new(parsed.loc, NodeKind::Constant(ptr), u8_type)
+            } else {
+                let type_ = Type::new(TypeKind::Buffer(u8_type));
+                let ptr = ctx.program.insert_buffer(
+                    type_,
+                    &crate::types::BufferRepr {
+                        ptr: data.as_ptr() as *mut _,
+                        length: data.len(),
+                    } as *const _ as *const _,
+                );
+                Node::new(parsed.loc, NodeKind::Constant(ptr), type_)
+            }
         }
         ParsedNodeKind::ArrayLiteral(ref parsed_elements) => {
-            let mut element_type = None;
+            let mut element_type = match wanted_type.map(Type::kind) {
+                Some(TypeKind::Array(element, _)) => Some(*element),
+                _ => None,
+            };
+
             let mut elements = Vec::with_capacity(parsed_elements.len());
             for parsed_element in parsed_elements {
                 let element = type_ast(ctx, element_type, parsed_element, buffer)?;
@@ -181,13 +202,10 @@ fn type_ast<'a>(
 
             let type_ = match element_type {
                 Some(element_type) => Type::new(TypeKind::Array(element_type, elements.len())),
-                None => match wanted_type {
-                    Some(wanted_type) => wanted_type,
-                    None => {
-                        ctx.errors.error(parsed.loc, "Because this is an empty array, the types of the elements cannot be inferred; you have to specify a type bound".to_string());
-                        return Err(());
-                    }
-                },
+                None => {
+                    ctx.errors.error(parsed.loc, "Because this is an empty array, the types of the elements cannot be inferred; you have to specify a type bound".to_string());
+                    return Err(());
+                }
             };
 
             Node::new(parsed.loc, NodeKind::ArrayLiteral { elements }, type_)
@@ -433,13 +451,14 @@ fn type_ast<'a>(
                         // Go through all the default arguments, and try to fill in the gaps left
                         // by the caller.
                         let num_non_default_args = arg_types.len() - default_values.len();
-                        for (i, default_value) in default_values.iter().enumerate() {
-                            if !args
-                                .iter()
-                                .any(|&(arg_i, _)| arg_i == i + num_non_default_args)
-                            {
+                        for (i, default_value) in default_values
+                            .iter()
+                            .enumerate()
+                            .map(|(i, val)| (i + num_non_default_args, val))
+                        {
+                            if !args.iter().any(|&(arg_i, _)| arg_i == i) {
                                 args.push((
-                                    i + num_non_default_args,
+                                    i,
                                     buffer.insert(Node::new(
                                         calling.loc,
                                         NodeKind::Constant(*default_value),
@@ -656,6 +675,7 @@ fn type_ast<'a>(
                 }
                 UnaryOp::Reference => {
                     let wanted_inner = match wanted_type.map(Type::kind) {
+                        Some(TypeKind::Buffer(_)) => None,
                         Some(&TypeKind::Reference(inner)) => Some(inner),
                         Some(_) => {
                             ctx.errors.error(
@@ -668,23 +688,45 @@ fn type_ast<'a>(
                     };
 
                     let operand = type_ast(ctx, wanted_inner, operand, buffer)?;
-                    let type_ = Type::new(TypeKind::Reference(operand.type_()));
 
-                    if let NodeKind::Constant(constant) = operand.kind() {
-                        let constant = ctx.program.insert_buffer(
-                            type_,
-                            &(constant.as_ptr() as usize).to_le_bytes() as *const _ as *const _,
-                        );
-                        Node::new(parsed.loc, NodeKind::Constant(constant), type_)
-                    } else {
-                        Node::new(
-                            parsed.loc,
-                            NodeKind::Unary {
-                                op,
-                                operand: buffer.insert(operand),
-                            },
-                            type_,
-                        )
+                    match wanted_type {
+                        Some(Type(TypeData {
+                            kind: TypeKind::Reference(_),
+                            ..
+                        }))
+                        | None => {
+                            let type_ = Type::new(TypeKind::Reference(operand.type_()));
+
+                            if let NodeKind::Constant(constant) = operand.kind() {
+                                let constant = ctx.program.insert_buffer(
+                                    type_,
+                                    &(constant.as_ptr() as usize).to_le_bytes() as *const _
+                                        as *const _,
+                                );
+                                Node::new(parsed.loc, NodeKind::Constant(constant), type_)
+                            } else {
+                                Node::new(
+                                    parsed.loc,
+                                    NodeKind::Unary {
+                                        op,
+                                        operand: buffer.insert(operand),
+                                    },
+                                    type_,
+                                )
+                            }
+                        }
+                        Some(wanted) => {
+                            let type_ = Type::new(TypeKind::Reference(operand.type_()));
+                            let from = Node::new(
+                                parsed.loc,
+                                NodeKind::Unary {
+                                    op,
+                                    operand: buffer.insert(operand),
+                                },
+                                type_,
+                            );
+                            auto_cast(ctx, parsed.loc, from, wanted, buffer)?
+                        }
                     }
                 }
                 UnaryOp::Dereference => {

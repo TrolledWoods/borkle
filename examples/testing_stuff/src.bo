@@ -1,0 +1,7 @@
+library "fmt.bo";
+
+const main = fn() -> u64 {'outer
+    print("Hello! You are not % years old, are you!?\n", &[fmt_u64(69)]);
+
+    5
+};

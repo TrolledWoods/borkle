@@ -9,8 +9,10 @@
 * [X] Redo ast nodes to be more readable
 * [X] Constant folding of operations
 * [X] Anonymous constants. Should these use 'const' keyword or something else, like jai's #run directive for example.
-* [ ] Allow constants to "extract" extra metadata from typer nodes, such as default parameters to functions for example.
+* [X] Allow constants to "extract" extra metadata from typer nodes, such as default parameters to functions for example.
         To test this, default value function parameters are also added.
+* [X] Name arguments when calling a function, and default arguments.
+* [X] Taking a reference does an autocast as well
 
 * [ ] Add overflow checks to type size calculations, and add a user level error for trying to create too large types.
 * [ ] Generalize primitive types, so that doing more complicated type analysis becomes possible.
