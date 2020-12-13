@@ -168,6 +168,8 @@ fn worker(program: &Arc<Program>, work: &Arc<WorkPile>) -> (ThreadContext, Error
                     }
                 },
                 Task::Type(member_id, locals, ast) => {
+                    use crate::typer::ast::NodeKind;
+
                     match crate::typer::process_ast(
                         &mut errors,
                         &mut thread_context,
@@ -176,6 +178,16 @@ fn worker(program: &Arc<Program>, work: &Arc<WorkPile>) -> (ThreadContext, Error
                         &ast,
                     ) {
                         Ok((dependencies, locals, ast)) => {
+                            let meta_data = match ast.kind() {
+                                NodeKind::FunctionDeclaration {
+                                    locals: _,
+                                    body: _,
+                                    arg_names,
+                                } => MemberMetaData::Function {
+                                    arg_names: arg_names.clone(),
+                                },
+                                _ => MemberMetaData::None,
+                            };
                             let type_ = ast.type_();
 
                             program.logger.log(format_args!(
@@ -184,7 +196,7 @@ fn worker(program: &Arc<Program>, work: &Arc<WorkPile>) -> (ThreadContext, Error
                                 ast.type_(),
                             ));
 
-                            program.set_type_of_member(member_id, type_);
+                            program.set_type_of_member(member_id, type_, meta_data);
                             program.queue_task(
                                 member_id,
                                 dependencies,
@@ -202,28 +214,7 @@ fn worker(program: &Arc<Program>, work: &Arc<WorkPile>) -> (ThreadContext, Error
 
                     match ast.kind() {
                         NodeKind::Constant(constant) => {
-                            program.set_value_of_member(
-                                member_id,
-                                constant.as_ptr(),
-                                MemberMetaData::None,
-                            );
-                        }
-                        NodeKind::FunctionDeclaration { locals, body } => {
-                            let result = crate::ir::emit::emit_function_declaration(
-                                &mut thread_context,
-                                program,
-                                locals.clone(),
-                                body,
-                                ast.type_(),
-                            );
-
-                            program.set_value_of_member(
-                                member_id,
-                                result.as_ptr(),
-                                MemberMetaData::Function {
-                                    default_parameters: Vec::new(),
-                                },
-                            );
+                            program.set_value_of_member(member_id, constant.as_ptr());
                         }
                         _ => {
                             let routine =
@@ -238,7 +229,7 @@ fn worker(program: &Arc<Program>, work: &Arc<WorkPile>) -> (ThreadContext, Error
                                 unsafe { *(result as *const u64) }
                             ));
 
-                            program.set_value_of_member(member_id, result, MemberMetaData::None);
+                            program.set_value_of_member(member_id, result);
                         }
                     }
                 }

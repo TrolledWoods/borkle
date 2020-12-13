@@ -2,10 +2,11 @@ use crate::locals::{LocalId, LocalVariables};
 use crate::location::Location;
 use crate::operators::{BinaryOp, UnaryOp};
 use crate::program::constant::ConstantRef;
-use crate::program::MemberId;
+use crate::program::{MemberId, MemberMetaData};
 use crate::self_buffer::SelfBox;
 use crate::types::Type;
 use std::fmt::{self, Debug};
+use std::sync::Arc;
 use ustr::Ustr;
 
 pub struct Node {
@@ -42,9 +43,7 @@ pub enum NodeKind {
         inner: SelfBox<Node>,
     },
     Constant(ConstantRef),
-    // FIXME: `MemberId` might be a bad name here, because we also have the `Member`
-    // node, and they have nothing to do with each other despite having similar names.
-    Global(MemberId),
+    Global(MemberId, Arc<MemberMetaData>),
     // FIXME: This should be the 'Member' struct from the types, not a string.
     Member {
         name: Ustr,
@@ -57,6 +56,7 @@ pub enum NodeKind {
     },
     FunctionDeclaration {
         locals: LocalVariables,
+        arg_names: Vec<Ustr>,
         body: SelfBox<Node>,
     },
     Break {

@@ -66,7 +66,7 @@ fn type_ast<'a>(
             locals = std::mem::replace(&mut ctx.locals, locals);
 
             if let NodeKind::Constant(_)
-            | NodeKind::Global(_)
+            | NodeKind::Global(_, _)
             | NodeKind::ConstAtEvaluation { .. } = inner.kind()
             {
                 ctx.errors.warning(
@@ -292,10 +292,12 @@ fn type_ast<'a>(
             let mut locals = locals.clone();
 
             let mut arg_types = Vec::with_capacity(args.len());
-            for (local, node) in locals.iter_mut().zip(args) {
+            let mut arg_names = Vec::with_capacity(args.len());
+            for (local, &(name, ref node)) in locals.iter_mut().zip(args) {
                 let arg_type = const_fold_type_expr(ctx, node, buffer)?;
                 local.type_ = Some(arg_type);
                 arg_types.push(arg_type);
+                arg_names.push(name);
             }
 
             let return_type = const_fold_type_expr(ctx, returns, buffer)?;
@@ -317,6 +319,7 @@ fn type_ast<'a>(
                 NodeKind::FunctionDeclaration {
                     locals: sub_ctx.locals,
                     body: buffer.insert(body),
+                    arg_names,
                 },
                 Type::new(TypeKind::Function {
                     args: arg_types,
@@ -738,6 +741,7 @@ fn type_ast<'a>(
         }
         ParsedNodeKind::GlobalForTyping(name) => {
             let id = ctx.program.get_member_id(name).unwrap();
+            // FIXME: We should store the metadata for this global somewhere
             Node::new(
                 parsed.loc,
                 NodeKind::Constant(ctx.program.get_value_of_member(id)),
@@ -751,11 +755,9 @@ fn type_ast<'a>(
                 ctx.program.member_name(id),
                 DependencyKind::Value,
             );
-            Node::new(
-                parsed.loc,
-                NodeKind::Global(id),
-                ctx.program.get_type_of_member(id),
-            )
+
+            let (type_, meta_data) = ctx.program.get_member_meta_data(id);
+            Node::new(parsed.loc, NodeKind::Global(id, meta_data), type_)
         }
         ParsedNodeKind::Local(local) => Node::new(
             parsed.loc,

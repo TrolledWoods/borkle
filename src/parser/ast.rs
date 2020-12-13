@@ -57,7 +57,7 @@ pub enum NodeKind {
 
     FunctionDeclaration {
         locals: LocalVariables,
-        args: Vec<SelfBox<Node>>,
+        args: Vec<(Ustr, SelfBox<Node>)>,
         returns: SelfBox<Node>,
         body: SelfBox<Node>,
     },

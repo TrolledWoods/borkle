@@ -814,7 +814,7 @@ fn function_declaration(
             }
 
             let arg_type = type_(global, &mut imperative, buffer)?;
-            args.push(buffer.insert(arg_type));
+            args.push((name, buffer.insert(arg_type)));
         } else {
             global.error(
                 global.tokens.loc(),

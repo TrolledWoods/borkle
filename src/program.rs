@@ -137,7 +137,7 @@ impl Program {
         let member_id = self.get_member_id("main".into())?;
         let member = members.get(&member_id).unwrap();
 
-        let type_ = member.type_.to_option()?;
+        let type_ = member.type_.to_option()?.0;
 
         if let TypeKind::Function {
             args,
@@ -146,7 +146,7 @@ impl Program {
         } = type_.kind()
         {
             if args.is_empty() && matches!(returns.kind(), TypeKind::Int(IntTypeKind::U64)) {
-                Some(unsafe { *member.value.to_option()?.0.as_ptr().cast::<*const u8>() })
+                Some(unsafe { *member.value.to_option()?.as_ptr().cast::<*const u8>() })
             } else {
                 None
             }
@@ -159,8 +159,8 @@ impl Program {
         let members = self.members.read();
         let member = members.get(&id).unwrap();
 
-        let type_ = *member.type_.to_option().unwrap();
-        let value_ptr = member.value.to_option().unwrap().0;
+        let type_ = member.type_.to_option().unwrap().0;
+        let value_ptr = *member.value.to_option().unwrap();
 
         crate::ir::Value::Global(value_ptr, type_)
     }
@@ -176,17 +176,17 @@ impl Program {
 
     pub fn get_value_of_member(&self, id: MemberId) -> ConstantRef {
         let members = self.members.read();
-        members.get(&id).unwrap().value.unwrap().0
+        *members.get(&id).unwrap().value.unwrap()
     }
 
-    pub fn get_meta_data_of_member(&self, id: MemberId) -> (ConstantRef, Arc<MemberMetaData>) {
+    pub fn get_member_meta_data(&self, id: MemberId) -> (Type, Arc<MemberMetaData>) {
         let members = self.members.read();
-        members.get(&id).unwrap().value.unwrap().clone()
+        members.get(&id).unwrap().type_.unwrap().clone()
     }
 
     pub fn get_type_of_member(&self, id: MemberId) -> Type {
         let members = self.members.read();
-        *members.get(&id).unwrap().type_.unwrap()
+        members.get(&id).unwrap().type_.unwrap().0
     }
 
     pub fn load_extern_library(
@@ -316,15 +316,12 @@ impl Program {
         const_ref
     }
 
-    pub fn set_value_of_member(&self, id: MemberId, data: *const u8, meta_data: MemberMetaData) {
+    pub fn set_value_of_member(&self, id: MemberId, data: *const u8) {
         let mut members = self.members.write();
         let member = members.get_mut(&id).unwrap();
 
-        let value = self.insert_buffer(*member.type_.unwrap(), data);
-        let old = std::mem::replace(
-            &mut member.value,
-            DependableOption::Some((value, Arc::new(meta_data))),
-        );
+        let value = self.insert_buffer(member.type_.unwrap().0, data);
+        let old = std::mem::replace(&mut member.value, DependableOption::Some(value));
 
         drop(members);
 
@@ -337,10 +334,13 @@ impl Program {
         }
     }
 
-    pub fn set_type_of_member(&self, id: MemberId, type_: Type) {
+    pub fn set_type_of_member(&self, id: MemberId, type_: Type, meta_data: MemberMetaData) {
         let mut members = self.members.write();
         let member_type = &mut members.get_mut(&id).unwrap().type_;
-        let old = std::mem::replace(member_type, DependableOption::Some(type_));
+        let old = std::mem::replace(
+            member_type,
+            DependableOption::Some((type_, Arc::new(meta_data))),
+        );
         drop(members);
 
         if let DependableOption::None(dependencies) = old {
@@ -502,22 +502,17 @@ impl Program {
 
 struct Member {
     name: Ustr,
-    type_: DependableOption<Type>,
-    value: DependableOption<(ConstantRef, Arc<MemberMetaData>)>,
+    type_: DependableOption<(Type, Arc<MemberMetaData>)>,
+    value: DependableOption<ConstantRef>,
     dependencies_left: AtomicI32,
     task: Option<Task>,
     is_defined: bool,
 }
 
+#[derive(Debug)]
 pub enum MemberMetaData {
     None,
-    Function {
-        /// Default parameters are "filled in" from the end, i.e
-        /// if default paramaters are [a, b, c], and function is
-        /// fn(e, r, t, y, u, i), then the default parameters will be
-        /// fn(e, r, t, y = a, u = b, i = c).
-        default_parameters: Vec<ConstantRef>,
-    },
+    Function { arg_names: Vec<Ustr> },
 }
 
 unsafe impl Send for Member {}

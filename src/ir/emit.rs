@@ -277,7 +277,11 @@ fn emit_node<'a>(ctx: &mut Context<'a>, node: &'a Node) -> Value {
             // We don't need an instruction to initialize the memory, because it's uninit!
             ctx.registers.create(node.type_())
         }
-        NodeKind::FunctionDeclaration { locals, body } => {
+        NodeKind::FunctionDeclaration {
+            locals,
+            body,
+            arg_names: _,
+        } => {
             let function = emit_function_declaration(
                 ctx.thread_context,
                 ctx.program,
@@ -506,7 +510,7 @@ fn emit_node<'a>(ctx: &mut Context<'a>, node: &'a Node) -> Value {
             ctx.registers.set_head(head);
             to
         }
-        NodeKind::Global(id) => ctx.program.get_constant_as_value(*id),
+        NodeKind::Global(id, _) => ctx.program.get_constant_as_value(*id),
         NodeKind::FunctionCall {
             is_extern,
             calling: typed_calling,
@@ -583,7 +587,7 @@ fn emit_lvalue<'a>(
                 name_list: Vec::new(),
             },
         ),
-        NodeKind::Global(id) => LValue::Value(
+        NodeKind::Global(id, _) => LValue::Value(
             ctx.program.get_constant_as_value(*id),
             Member {
                 offset: 0,
