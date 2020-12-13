@@ -8,9 +8,9 @@ mod stack;
 pub use stack::Stack;
 use stack::StackFrame;
 
-pub fn emit_and_run(
-    thread_context: &mut crate::program::thread_pool::ThreadContext,
-    program: &Program,
+pub fn emit_and_run<'a>(
+    thread_context: &mut crate::program::thread_pool::ThreadContext<'a>,
+    program: &'a Program,
     locals: crate::locals::LocalVariables,
     expr: &crate::typer::Node,
 ) -> ConstantRef {

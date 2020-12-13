@@ -53,9 +53,6 @@ pub struct Program {
     calling_conventions_alloc: Mutex<Bump>,
     extern_fn_calling_conventions: RwLock<HashMap<Type, ffi::CallingConvention>>,
 
-    // This has to live for as long as the interpreter runs, because, we have no idea
-    // how long the pointers to functions might live inside of the compile time execution things,
-    // so we have to just have them all alive for the entire duration of the program.
     work: WorkSender,
 
     pub loaded_files: Mutex<HashSet<Ustr>>,

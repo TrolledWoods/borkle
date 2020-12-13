@@ -2,11 +2,12 @@ use crate::command_line_arguments::Arguments;
 use crate::errors::ErrorCtx;
 use crate::logging::Logger;
 use crate::program::{MemberMetaData, Program, Task};
+use bumpalo::Bump;
 use parking_lot::Mutex;
 use std::collections::VecDeque;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
-use std::thread::{spawn, JoinHandle};
+use std::thread::spawn;
 
 /// A channel from where you can send work.
 ///
@@ -31,8 +32,6 @@ struct WorkPile {
 
 /// This guy is in charge of running all the Tasks that we queue up.
 pub struct ThreadPool {
-    threads: Vec<JoinHandle<(ThreadContext, ErrorCtx)>>,
-    program: Arc<Program>,
     work: Arc<WorkPile>,
 }
 
@@ -41,7 +40,7 @@ impl ThreadPool {
         options: Box<Arguments>,
         logger: Logger,
         tasks: impl IntoIterator<Item = Task>,
-    ) -> Self {
+    ) -> (Program, Self) {
         let work = Arc::new(WorkPile {
             queue: Mutex::new(tasks.into_iter().collect()),
             // Set this to one to begin with so that no thread ever stops working,
@@ -49,43 +48,46 @@ impl ThreadPool {
             // pushed onto it.
             num_currently_working: AtomicU32::new(1),
         });
-        Self {
-            threads: Vec::new(),
-            program: Arc::new(Program::new(
+        (
+            Program::new(
                 logger,
                 WorkSender {
                     work: Arc::clone(&work),
                 },
                 options,
-            )),
-            work,
-        }
-    }
-
-    pub fn spawn_thread(&mut self) {
-        let program = Arc::clone(&self.program);
-        let work = Arc::clone(&self.work);
-        self.threads.push(spawn(move || worker(&program, &work)));
-    }
-
-    pub fn program(&self) -> Arc<Program> {
-        Arc::clone(&self.program)
+            ),
+            Self { work },
+        )
     }
 
     /// Makes the main thread also do work, and finally
     /// joins them all together once the work is done.
-    pub fn join(self) -> (String, ErrorCtx) {
+    pub fn run(self, program: &Program, num_threads: usize) -> (String, ErrorCtx) {
+        let mut allocators: Vec<_> = std::iter::repeat_with(Bump::new)
+            .take(num_threads)
+            .collect();
+        let mut allocators = allocators.iter_mut();
+
+        let mut threads = Vec::new();
+        for (_, allocator) in (1..num_threads).zip(&mut allocators) {
+            let work = Arc::clone(&self.work);
+            let program = unsafe { &*(program as *const _) };
+            let allocator = unsafe { &mut *(allocator as *mut _) };
+            threads.push(spawn(move || worker(allocator, program, &work)));
+        }
+
         self.work
             .num_currently_working
             .fetch_sub(1, Ordering::SeqCst);
-        let (thread_context, mut errors) = worker(&self.program, &self.work);
+        let (thread_context, mut errors) =
+            worker(allocators.next().unwrap(), program, &Arc::clone(&self.work));
 
         let mut c_headers = String::new();
         c_headers.push_str("#include <stdint.h>\n");
         c_headers.push_str("#include <stdio.h>\n");
         c_headers.push('\n');
 
-        if self.program.arguments.release {
+        if program.arguments.release {
             crate::c_backend::append_c_type_headers(&mut c_headers);
         }
         c_headers.push_str(&thread_context.c_headers);
@@ -94,25 +96,25 @@ impl ThreadPool {
             mut c_declarations, ..
         } = thread_context;
 
-        if self.program.arguments.release {
-            for thread in self.threads {
+        if program.arguments.release {
+            for thread in threads {
                 let (ctx, other_errors) = thread.join().unwrap();
                 c_headers.push_str(&ctx.c_headers);
                 c_declarations.push_str(&ctx.c_declarations);
                 errors.join(other_errors);
             }
 
-            crate::c_backend::declare_constants(&mut c_headers, &self.program);
-            crate::c_backend::instantiate_constants(&mut c_headers, &self.program);
+            crate::c_backend::declare_constants(&mut c_headers, program);
+            crate::c_backend::instantiate_constants(&mut c_headers, program);
             c_headers.push_str(&c_declarations);
         } else {
-            for thread in self.threads {
+            for thread in threads {
                 let (_, other_errors) = thread.join().unwrap();
                 errors.join(other_errors);
             }
         }
 
-        self.program.check_for_completion(&mut errors);
+        program.check_for_completion(&mut errors);
 
         (c_headers, errors)
     }
@@ -121,19 +123,23 @@ impl ThreadPool {
 /// Data that is local to each thread. This is useful to have because
 /// it lets us reduce the amount of syncronisation necessary, and instead just
 /// combine all the collective thread data at the end of the compilation.
-pub struct ThreadContext {
-    pub defined_func_args: Vec<bool>,
+pub struct ThreadContext<'a> {
+    pub alloc: &'a mut Bump,
     pub c_headers: String,
     pub c_declarations: String,
 }
 
-fn worker(program: &Arc<Program>, work: &Arc<WorkPile>) -> (ThreadContext, ErrorCtx) {
+fn worker<'a>(
+    alloc: &'a mut Bump,
+    program: &'a Program,
+    work: &Arc<WorkPile>,
+) -> (ThreadContext<'a>, ErrorCtx) {
     let mut errors = ErrorCtx::new();
 
     let mut thread_context = ThreadContext {
+        alloc,
         c_headers: String::new(),
         c_declarations: String::new(),
-        defined_func_args: Vec::new(),
     };
 
     loop {

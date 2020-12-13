@@ -8,18 +8,18 @@ use crate::typer::ast::NodeKind;
 use crate::typer::Node;
 use crate::types::{IntTypeKind, Type, TypeKind};
 
-struct Context<'a> {
-    thread_context: &'a mut ThreadContext,
+struct Context<'a, 'b> {
+    thread_context: &'a mut ThreadContext<'b>,
     instr: Vec<Instr>,
     registers: Registers,
     locals: LocalVariables,
-    program: &'a Program,
+    program: &'b Program,
     label_locations: Vec<usize>,
 
     defers: Vec<&'a Node>,
 }
 
-impl Context<'_> {
+impl Context<'_, '_> {
     fn create_label(&mut self) -> LabelId {
         let id = LabelId(self.label_locations.len());
         self.label_locations.push(0xffff_ffff);
@@ -70,9 +70,9 @@ impl Context<'_> {
 }
 
 /// Emit instructions for an Ast.
-pub fn emit(
-    thread_context: &mut ThreadContext,
-    program: &Program,
+pub fn emit<'a>(
+    thread_context: &mut ThreadContext<'a>,
+    program: &'a Program,
     locals: LocalVariables,
     ast: &Node,
 ) -> Routine {
@@ -103,9 +103,9 @@ pub fn emit(
     }
 }
 
-pub fn emit_function_declaration(
-    thread_context: &mut ThreadContext,
-    program: &Program,
+pub fn emit_function_declaration<'a>(
+    thread_context: &mut ThreadContext<'a>,
+    program: &'a Program,
     locals: LocalVariables,
     body: &Node,
     type_: Type,
@@ -174,7 +174,7 @@ pub fn emit_function_declaration(
         .insert_buffer(type_, id.to_le_bytes().as_ptr())
 }
 
-fn emit_node<'a>(ctx: &mut Context<'a>, node: &'a Node) -> Value {
+fn emit_node<'a>(ctx: &mut Context<'a, '_>, node: &'a Node) -> Value {
     match node.kind() {
         NodeKind::Break {
             label: label_id,
@@ -545,7 +545,7 @@ fn emit_node<'a>(ctx: &mut Context<'a>, node: &'a Node) -> Value {
 }
 
 fn emit_lvalue<'a>(
-    ctx: &mut Context<'a>,
+    ctx: &mut Context<'a, '_>,
     can_reference_temporaries: bool,
     node: &'a Node,
 ) -> LValue {

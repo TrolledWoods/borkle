@@ -17,18 +17,18 @@ pub type Ast = SelfTree<Node>;
 
 pub mod ast;
 
-struct Context<'a> {
-    thread_context: &'a mut ThreadContext,
+struct Context<'a, 'b> {
+    thread_context: &'a mut ThreadContext<'b>,
     errors: &'a mut ErrorCtx,
-    program: &'a Program,
+    program: &'b Program,
     locals: LocalVariables,
     deps: &'a mut DependencyList,
 }
 
-pub fn process_ast(
+pub fn process_ast<'a>(
     errors: &mut ErrorCtx,
-    thread_context: &mut ThreadContext,
-    program: &Program,
+    thread_context: &mut ThreadContext<'a>,
+    program: &'a Program,
     locals: LocalVariables,
     parsed: &ParsedAst,
 ) -> Result<(DependencyList, LocalVariables, Ast), ()> {
@@ -51,7 +51,7 @@ pub fn process_ast(
 /// do not match, i.e., if Some(type_) is passed as the `wanted_type`, if the function returns Ok
 /// that is guaranteed to be the type_ passed in.
 fn type_ast<'a>(
-    ctx: &mut Context<'a>,
+    ctx: &mut Context<'a, '_>,
     wanted_type: Option<Type>,
     parsed: &'a ParsedNode,
     buffer: &mut SelfBuffer,
@@ -948,7 +948,7 @@ fn type_ast<'a>(
 }
 
 fn const_fold_type_expr<'a>(
-    ctx: &mut Context<'a>,
+    ctx: &mut Context<'a, '_>,
     parsed: &'a ParsedNode,
     buffer: &mut SelfBuffer,
 ) -> Result<Type, ()> {
@@ -1032,7 +1032,7 @@ fn const_fold_type_expr<'a>(
 /// Creates an auto cast. The 'node' is expected to have an argument which is the node whom we cast
 /// from.
 fn auto_cast<'a>(
-    ctx: &mut Context<'a>,
+    ctx: &mut Context<'a, '_>,
     loc: Location,
     from: Node,
     to_type: Type,

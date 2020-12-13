@@ -42,19 +42,13 @@ fn main() {
     let args: Vec<_> = std::env::args().skip(1).collect();
     let borrowed_args: Vec<&str> = args.iter().map(|v| &**v).collect();
     if let Some(options) = command_line_arguments::Arguments::from_args(&borrowed_args) {
-        let mut thread_pool = program::thread_pool::ThreadPool::new(
+        let (program, thread_pool) = program::thread_pool::ThreadPool::new(
             Box::new(options.clone()),
             logger,
             std::iter::once(program::Task::Parse(options.file)),
         );
 
-        for _ in 1..options.num_threads {
-            thread_pool.spawn_thread();
-        }
-
-        let program = thread_pool.program();
-        // FIXME: We should make a more proper system to handle c outputting
-        let (mut c_output, errors) = thread_pool.join();
+        let (mut c_output, errors) = thread_pool.run(&program, options.num_threads);
 
         errors.print();
 
