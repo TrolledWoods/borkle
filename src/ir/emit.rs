@@ -139,7 +139,7 @@ pub fn emit_function_declaration(
         if let TypeKind::Function {
             args,
             returns,
-            is_extern: _,
+            is_extern: false,
         } = type_.kind()
         {
             crate::c_backend::function_declaration(
