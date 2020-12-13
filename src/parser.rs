@@ -683,13 +683,41 @@ fn atom_value(
         .try_consume_with_data(&TokenKind::Open(Bracket::Round))
     {
         let mut args = Vec::new();
+        let mut named_args = Vec::new();
         loop {
             if global.tokens.try_consume(&TokenKind::Close(Bracket::Round)) {
                 break;
             }
 
-            let arg = expression(global, imperative, buffer)?;
-            args.push(buffer.insert(arg));
+            match (
+                global.tokens.peek().map(|t| &t.kind),
+                global.tokens.peek_nth(1).map(|t| &t.kind),
+            ) {
+                (Some(&TokenKind::Identifier(name)), Some(TokenKind::Operator(operator)))
+                    if operator.starts_with('=') =>
+                {
+                    // Named argument
+                    global.tokens.next();
+                    global.tokens.try_consume_operator_string("=").unwrap();
+
+                    let arg = expression(global, imperative, buffer)?;
+                    named_args.push((name, buffer.insert(arg)));
+                }
+                _ => {
+                    let arg = expression(global, imperative, buffer)?;
+
+                    if !named_args.is_empty() {
+                        global.error(
+                            arg.loc,
+                            "You cannot have unnamed arguments after the first named argument"
+                                .to_string(),
+                        );
+                        return Err(());
+                    }
+
+                    args.push(buffer.insert(arg));
+                }
+            }
 
             let token = global.tokens.expect_next(global.errors)?;
             match token.kind {

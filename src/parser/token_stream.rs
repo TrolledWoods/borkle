@@ -29,6 +29,10 @@ impl TokenStream {
         self.tokens.as_slice().first()
     }
 
+    pub fn peek_nth(&self, index: usize) -> Option<&'_ Token> {
+        self.tokens.as_slice().get(index)
+    }
+
     pub fn expect_identifier(&mut self, errors: &mut ErrorCtx) -> Result<(Location, Ustr), ()> {
         match self.next() {
             Some(Token {
