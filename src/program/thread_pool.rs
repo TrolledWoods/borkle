@@ -91,8 +91,7 @@ impl ThreadPool {
         c_headers.push_str(&thread_context.c_headers);
 
         let ThreadContext {
-            c_headers: _,
-            mut c_declarations,
+            mut c_declarations, ..
         } = thread_context;
 
         if self.program.arguments.release {
@@ -106,6 +105,11 @@ impl ThreadPool {
             crate::c_backend::declare_constants(&mut c_headers, &self.program);
             crate::c_backend::instantiate_constants(&mut c_headers, &self.program);
             c_headers.push_str(&c_declarations);
+        } else {
+            for thread in self.threads {
+                let (_, other_errors) = thread.join().unwrap();
+                errors.join(other_errors);
+            }
         }
 
         self.program.check_for_completion(&mut errors);
@@ -118,6 +122,7 @@ impl ThreadPool {
 /// it lets us reduce the amount of syncronisation necessary, and instead just
 /// combine all the collective thread data at the end of the compilation.
 pub struct ThreadContext {
+    pub defined_func_args: Vec<bool>,
     pub c_headers: String,
     pub c_declarations: String,
 }
@@ -128,6 +133,7 @@ fn worker(program: &Arc<Program>, work: &Arc<WorkPile>) -> (ThreadContext, Error
     let mut thread_context = ThreadContext {
         c_headers: String::new(),
         c_declarations: String::new(),
+        defined_func_args: Vec::new(),
     };
 
     loop {

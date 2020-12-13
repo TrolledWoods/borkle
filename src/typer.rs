@@ -8,7 +8,7 @@ use crate::parser::ast::Node as ParsedNode;
 use crate::parser::{ast::NodeKind as ParsedNodeKind, Ast as ParsedAst};
 use crate::program::constant::ConstantRef;
 use crate::program::thread_pool::ThreadContext;
-use crate::program::Program;
+use crate::program::{MemberMetaData, Program};
 use crate::self_buffer::{SelfBuffer, SelfTree};
 use crate::types::{IntTypeKind, Type, TypeData, TypeKind};
 pub use ast::{Node, NodeKind};
@@ -359,6 +359,7 @@ fn type_ast<'a>(
         ParsedNodeKind::FunctionCall {
             ref calling,
             args: ref parsed_args,
+            ref named_args,
         } => {
             let calling = type_ast(ctx, None, calling, buffer)?;
             if let TypeKind::Function {
@@ -367,15 +368,61 @@ fn type_ast<'a>(
                 is_extern,
             } = calling.type_().kind()
             {
-                if arg_types.len() != parsed_args.len() {
-                    ctx.errors.error(calling.loc, format!("Function is of type '{}', which has {} arguments, but {} arguments were given in the call", calling.type_(), arg_types.len(), parsed_args.len()));
+                if parsed_args.len() > arg_types.len() {
+                    ctx.errors.error(
+                        calling.loc,
+                        format!("Too many arguments passed, expected {}", arg_types.len()),
+                    );
                     return Err(());
                 }
 
-                let mut args = Vec::with_capacity(parsed_args.len());
-                for (&wanted, got) in arg_types.iter().zip(parsed_args) {
-                    let arg = type_ast(ctx, Some(wanted), got, buffer)?;
-                    args.push(buffer.insert(arg));
+                let mut args = Vec::with_capacity(arg_types.len());
+                for (i, got) in parsed_args.iter().enumerate() {
+                    let arg = type_ast(ctx, Some(arg_types[i]), got, buffer)?;
+                    args.push((i, buffer.insert(arg)));
+                }
+
+                if !named_args.is_empty() {
+                    if let NodeKind::Global(_, meta_data) = calling.kind() {
+                        if let MemberMetaData::Function { arg_names } = &**meta_data {
+                            for (name, arg) in named_args {
+                                if let Some(i) =
+                                    arg_names.iter().position(|arg_name| arg_name == name)
+                                {
+                                    if args.iter().any(|&(arg_i, _)| arg_i == i) {
+                                        ctx.errors.error(
+                                            arg.loc,
+                                            format!("Argument '{}' already defined", name),
+                                        );
+                                        return Err(());
+                                    }
+
+                                    let arg = type_ast(ctx, Some(arg_types[i]), arg, buffer)?;
+                                    args.push((i, buffer.insert(arg)));
+                                } else {
+                                    ctx.errors.error(
+                                        arg.loc,
+                                        format!("Argument '{}' does not exist, available arguments are: {:?}", name, arg_names),
+                                    );
+                                    return Err(());
+                                }
+                            }
+                        } else {
+                            ctx.errors.error(
+                                calling.loc,
+                                "This function has no named parameters".to_string(),
+                            );
+                            return Err(());
+                        }
+                    } else {
+                        ctx.errors.error(calling.loc, "Only functions declared in constants can be called with named arguments, not function pointers".to_string());
+                        return Err(());
+                    }
+                }
+
+                if arg_types.len() != args.len() {
+                    ctx.errors.error(calling.loc, format!("Function is of type '{}', which has {} arguments, but {} arguments were given in the call", calling.type_(), arg_types.len(), parsed_args.len()));
+                    return Err(());
                 }
 
                 Node::new(

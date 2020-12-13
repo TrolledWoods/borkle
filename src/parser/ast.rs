@@ -102,6 +102,7 @@ pub enum NodeKind {
     FunctionCall {
         calling: SelfBox<Node>,
         args: Vec<SelfBox<Node>>,
+        named_args: Vec<(Ustr, SelfBox<Node>)>,
     },
     Block {
         contents: Vec<SelfBox<Node>>,

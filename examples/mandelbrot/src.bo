@@ -6,7 +6,14 @@ import "complex.bo";
 const PIXEL_HEIGHT = 0.10 : f64;
 const PIXEL_WIDTH = PIXEL_HEIGHT * 0.5;
 
+const add = fn(a: u64, b: u64) -> u64 {
+    a + (b * 2)
+};
+
 const main = fn() -> u64 {
+    print_u64(add(a = 2, b = 3));
+    put_string("\n");
+
     let timer = start_timer();
     let y = -2.0 : f64;
 

@@ -35,8 +35,6 @@ mod self_buffer;
 mod typer;
 mod types;
 
-pub const MAX_FUNCTION_ARGUMENTS: usize = 32;
-
 fn main() {
     let time = std::time::Instant::now();
     let logger = logging::Logger::new();

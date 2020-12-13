@@ -54,9 +54,9 @@ fn interp_internal(program: &Program, stack: &mut StackFrame<'_>, routine: &Rout
                 ptr.copy_from_slice(stack.get(pointer));
                 let function_ptr = unsafe { std::mem::transmute(usize::from_le_bytes(ptr)) };
 
-                let mut arg_pointers = [std::ptr::null_mut(); crate::MAX_FUNCTION_ARGUMENTS];
-                for (arg_ptr, &arg) in arg_pointers.iter_mut().zip(args) {
-                    *arg_ptr = stack.get_mut(arg).as_mut_ptr().cast();
+                let mut arg_pointers = Vec::new();
+                for &arg in args {
+                    arg_pointers.push(stack.get_mut(arg).as_mut_ptr().cast());
                 }
 
                 let to_ptr: *mut _ = stack.get_mut(to).as_mut_ptr().cast();

@@ -701,6 +701,7 @@ fn atom_value(
                     global.tokens.try_consume_operator_string("=").unwrap();
 
                     let arg = expression(global, imperative, buffer)?;
+
                     named_args.push((name, buffer.insert(arg)));
                 }
                 _ => {
@@ -709,8 +710,7 @@ fn atom_value(
                     if !named_args.is_empty() {
                         global.error(
                             arg.loc,
-                            "You cannot have unnamed arguments after the first named argument"
-                                .to_string(),
+                            "You cannot have unnamed arguments after named arguments".to_string(),
                         );
                         return Err(());
                     }
@@ -730,22 +730,12 @@ fn atom_value(
             }
         }
 
-        if args.len() >= crate::MAX_FUNCTION_ARGUMENTS {
-            global.error(
-                loc,
-                format!(
-                    "There can at most be {} arguments in a function",
-                    crate::MAX_FUNCTION_ARGUMENTS
-                ),
-            );
-            return Err(());
-        }
-
         value = Node::new(
             loc,
             NodeKind::FunctionCall {
                 calling: buffer.insert(value),
                 args,
+                named_args,
             },
         );
     }

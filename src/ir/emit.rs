@@ -519,9 +519,9 @@ fn emit_node<'a>(ctx: &mut Context<'a>, node: &'a Node) -> Value {
             let to = ctx.registers.create_min_align(node.type_(), 8);
             let calling = emit_node(ctx, typed_calling);
 
-            let mut args = Vec::with_capacity(typed_args.len());
-            for arg in typed_args {
-                args.push(emit_node(ctx, arg));
+            let mut args = vec![ctx.registers.zst(); typed_args.len()];
+            for (i, arg) in typed_args {
+                args[*i] = emit_node(ctx, arg);
             }
 
             if *is_extern {
