@@ -15,7 +15,6 @@ use std::path::{Path, PathBuf};
 use std::ptr::NonNull;
 use std::sync::atomic::{AtomicI32, Ordering};
 use std::sync::Arc;
-use thread_pool::WorkSender;
 use ustr::{Ustr, UstrMap};
 
 pub mod constant;
@@ -36,7 +35,7 @@ impl fmt::Debug for MemberId {
 /// We deal with constants(and possibly in the future globals too),
 /// e.g. data scopes, and the dependency system.
 pub struct Program {
-    pub arguments: Box<Arguments>,
+    pub arguments: Arguments,
 
     pub logger: Logger,
     // FIXME: We will have scopes eventually, but for now
@@ -53,7 +52,7 @@ pub struct Program {
     calling_conventions_alloc: Mutex<Bump>,
     extern_fn_calling_conventions: RwLock<HashMap<Type, ffi::CallingConvention>>,
 
-    work: WorkSender,
+    work: thread_pool::WorkPile,
 
     pub loaded_files: Mutex<HashSet<Ustr>>,
 }
@@ -65,9 +64,9 @@ unsafe impl Send for Program {}
 unsafe impl Sync for Program {}
 
 impl Program {
-    pub fn new(logger: Logger, work: WorkSender, options: Box<Arguments>) -> Self {
+    pub fn new(logger: Logger, arguments: Arguments) -> Self {
         Self {
-            arguments: options,
+            arguments,
 
             external_symbols: Mutex::default(),
 
@@ -81,7 +80,7 @@ impl Program {
             functions: Mutex::default(),
             libraries: Mutex::new(ffi::Libraries::new()),
             constant_data: Mutex::default(),
-            work,
+            work: thread_pool::WorkPile::new(),
 
             loaded_files: Mutex::default(),
         }
@@ -224,8 +223,11 @@ impl Program {
         }
     }
 
-    pub fn add_file(&self, path: PathBuf) {
-        self.work.send(Task::Parse(path));
+    pub fn add_file(&self, path: impl AsRef<Path>) {
+        self.work
+            .queue
+            .lock()
+            .push_front(Task::Parse(path.as_ref().to_path_buf()));
     }
 
     pub fn insert_buffer_from_operation(
@@ -385,7 +387,7 @@ impl Program {
             drop(members);
             let mut members = self.members.write();
             if let Some(task) = members.get_mut(&id).unwrap().task.take() {
-                self.work.send(task);
+                self.work.queue.lock().push_back(task);
             } else {
                 // There was no task? This shouldn't happen; if there are dependencies,
                 // there should be a task.
@@ -421,8 +423,6 @@ impl Program {
         }
     }
 
-    /// FIXME: Once we separate program and tasks, we probably want to move this into the task
-    /// system, and not have it here. But that might not be desirable.
     pub fn queue_task(&self, id: MemberId, deps: DependencyList, task: Task) {
         let name = self.member_name(id);
 
@@ -487,7 +487,7 @@ impl Program {
         if *num_dependencies == 0 {
             // We are already done! We can emit the task without
             // doing dependency stuff
-            self.work.send(task);
+            self.work.queue.lock().push_back(task);
         } else {
             // We are not done with our dependencies. We have to wait a bit,
             // so we have to put the task into the lock.

@@ -42,13 +42,10 @@ fn main() {
     let args: Vec<_> = std::env::args().skip(1).collect();
     let borrowed_args: Vec<&str> = args.iter().map(|v| &**v).collect();
     if let Some(options) = command_line_arguments::Arguments::from_args(&borrowed_args) {
-        let (program, thread_pool) = program::thread_pool::ThreadPool::new(
-            Box::new(options.clone()),
-            logger,
-            std::iter::once(program::Task::Parse(options.file)),
-        );
+        let program = program::Program::new(logger, options.clone());
+        program.add_file(options.file);
 
-        let (mut c_output, errors) = thread_pool.run(&program, options.num_threads);
+        let (mut c_output, errors) = program::thread_pool::run(&program, options.num_threads);
 
         errors.print();
 
