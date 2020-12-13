@@ -9,6 +9,7 @@ edition = "2018"
 [features]
 # Enables logging
 log = []
+log_print = []
 
 [profile.release]
 debug = true

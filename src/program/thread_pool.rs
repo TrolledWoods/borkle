@@ -95,16 +95,18 @@ impl ThreadPool {
             mut c_declarations,
         } = thread_context;
 
-        for thread in self.threads {
-            let (ctx, other_errors) = thread.join().unwrap();
-            c_headers.push_str(&ctx.c_headers);
-            c_declarations.push_str(&ctx.c_declarations);
-            errors.join(other_errors);
-        }
+        if self.program.arguments.release {
+            for thread in self.threads {
+                let (ctx, other_errors) = thread.join().unwrap();
+                c_headers.push_str(&ctx.c_headers);
+                c_declarations.push_str(&ctx.c_declarations);
+                errors.join(other_errors);
+            }
 
-        crate::c_backend::declare_constants(&mut c_headers, &self.program);
-        crate::c_backend::instantiate_constants(&mut c_headers, &self.program);
-        c_headers.push_str(&c_declarations);
+            crate::c_backend::declare_constants(&mut c_headers, &self.program);
+            crate::c_backend::instantiate_constants(&mut c_headers, &self.program);
+            c_headers.push_str(&c_declarations);
+        }
 
         self.program.check_for_completion(&mut errors);
 
@@ -200,7 +202,15 @@ fn worker(program: &Arc<Program>, work: &Arc<WorkPile>) -> (ThreadContext, Error
 
                     let (result, meta_data) = match ast.kind() {
                         NodeKind::FunctionDeclaration { locals, body } => {
-                            todo!();
+                            let result = crate::ir::emit::emit_function_declaration(
+                                &mut thread_context,
+                                program,
+                                locals.clone(),
+                                body,
+                                ast.type_(),
+                            );
+
+                            (result.as_ptr(), MemberMetaData::None)
                         }
                         _ => {
                             let routine =
