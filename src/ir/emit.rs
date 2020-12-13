@@ -171,7 +171,7 @@ pub fn emit_function_declaration(
 
     sub_ctx
         .program
-        .insert_buffer(type_, unsafe { *id.to_le_bytes().as_ptr().cast() })
+        .insert_buffer(type_, id.to_le_bytes().as_ptr())
 }
 
 fn emit_node<'a>(ctx: &mut Context<'a>, node: &'a Node) -> Value {

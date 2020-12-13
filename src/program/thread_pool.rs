@@ -200,7 +200,7 @@ fn worker(program: &Arc<Program>, work: &Arc<WorkPile>) -> (ThreadContext, Error
                 Task::Value(member_id, locals, ast) => {
                     use crate::typer::NodeKind;
 
-                    let (result, meta_data) = match ast.kind() {
+                    match ast.kind() {
                         NodeKind::FunctionDeclaration { locals, body } if false => {
                             let result = crate::ir::emit::emit_function_declaration(
                                 &mut thread_context,
@@ -210,7 +210,13 @@ fn worker(program: &Arc<Program>, work: &Arc<WorkPile>) -> (ThreadContext, Error
                                 ast.type_(),
                             );
 
-                            (result.as_ptr(), MemberMetaData::None)
+                            program.set_value_of_member(
+                                member_id,
+                                result.as_ptr(),
+                                MemberMetaData::Function {
+                                    default_parameters: Vec::new(),
+                                },
+                            );
                         }
                         _ => {
                             let routine =
@@ -218,17 +224,16 @@ fn worker(program: &Arc<Program>, work: &Arc<WorkPile>) -> (ThreadContext, Error
                             let mut stack = crate::interp::Stack::new(2048);
 
                             let result = crate::interp::interp(program, &mut stack, &routine);
-                            (result, MemberMetaData::None)
+
+                            program.logger.log(format_args!(
+                                "value '{}' {}",
+                                program.member_name(member_id),
+                                unsafe { *(result as *const u64) }
+                            ));
+
+                            program.set_value_of_member(member_id, result, MemberMetaData::None);
                         }
-                    };
-
-                    program.logger.log(format_args!(
-                        "value '{}' {}",
-                        program.member_name(member_id),
-                        unsafe { *(result as *const u64) }
-                    ));
-
-                    program.set_value_of_member(member_id, result, meta_data);
+                    }
                 }
             }
 
