@@ -103,6 +103,8 @@ pub fn emit(
     }
 }
 
+// pub fn emit_function_declaration(thread_context: &mut ThreadContext, program: &Program, locals: LocalVariables,
+
 fn emit_node<'a>(ctx: &mut Context<'a>, node: &'a Node) -> Value {
     match node.kind() {
         NodeKind::Break {

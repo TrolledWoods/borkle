@@ -1,7 +1,7 @@
 use crate::command_line_arguments::Arguments;
 use crate::errors::ErrorCtx;
 use crate::logging::Logger;
-use crate::program::{Program, Task};
+use crate::program::{MemberMetaData, Program, Task};
 use parking_lot::Mutex;
 use std::collections::VecDeque;
 use std::sync::atomic::{AtomicU32, Ordering};
@@ -196,11 +196,21 @@ fn worker(program: &Arc<Program>, work: &Arc<WorkPile>) -> (ThreadContext, Error
                     }
                 }
                 Task::Value(member_id, locals, ast) => {
-                    let routine = crate::ir::emit::emit(&mut thread_context, program, locals, &ast);
+                    use crate::typer::NodeKind;
 
-                    let mut stack = crate::interp::Stack::new(2048);
+                    let (result, meta_data) = match ast.kind() {
+                        NodeKind::FunctionDeclaration { locals, body } => {
+                            todo!();
+                        }
+                        _ => {
+                            let routine =
+                                crate::ir::emit::emit(&mut thread_context, program, locals, &ast);
+                            let mut stack = crate::interp::Stack::new(2048);
 
-                    let result = crate::interp::interp(program, &mut stack, &routine);
+                            let result = crate::interp::interp(program, &mut stack, &routine);
+                            (result, MemberMetaData::None)
+                        }
+                    };
 
                     program.logger.log(format_args!(
                         "value '{}' {}",
@@ -208,7 +218,7 @@ fn worker(program: &Arc<Program>, work: &Arc<WorkPile>) -> (ThreadContext, Error
                         unsafe { *(result as *const u64) }
                     ));
 
-                    program.set_value_of_member(member_id, result);
+                    program.set_value_of_member(member_id, result, meta_data);
                 }
             }
 

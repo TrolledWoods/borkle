@@ -14,6 +14,7 @@ use std::fmt;
 use std::path::{Path, PathBuf};
 use std::ptr::NonNull;
 use std::sync::atomic::{AtomicI32, Ordering};
+use std::sync::Arc;
 use thread_pool::WorkSender;
 use ustr::{Ustr, UstrMap};
 
@@ -145,7 +146,7 @@ impl Program {
         } = type_.kind()
         {
             if args.is_empty() && matches!(returns.kind(), TypeKind::Int(IntTypeKind::U64)) {
-                Some(unsafe { *member.value.to_option()?.as_ptr().cast::<*const u8>() })
+                Some(unsafe { *member.value.to_option()?.0.as_ptr().cast::<*const u8>() })
             } else {
                 None
             }
@@ -159,7 +160,7 @@ impl Program {
         let member = members.get(&id).unwrap();
 
         let type_ = *member.type_.to_option().unwrap();
-        let value_ptr = *member.value.to_option().unwrap();
+        let value_ptr = member.value.to_option().unwrap().0;
 
         crate::ir::Value::Global(value_ptr, type_)
     }
@@ -175,7 +176,12 @@ impl Program {
 
     pub fn get_value_of_member(&self, id: MemberId) -> ConstantRef {
         let members = self.members.read();
-        *members.get(&id).unwrap().value.unwrap()
+        members.get(&id).unwrap().value.unwrap().0
+    }
+
+    pub fn get_meta_data_of_member(&self, id: MemberId) -> (ConstantRef, Arc<MemberMetaData>) {
+        let members = self.members.read();
+        members.get(&id).unwrap().value.unwrap().clone()
     }
 
     pub fn get_type_of_member(&self, id: MemberId) -> Type {
@@ -310,12 +316,15 @@ impl Program {
         const_ref
     }
 
-    pub fn set_value_of_member(&self, id: MemberId, data: *const u8) {
+    pub fn set_value_of_member(&self, id: MemberId, data: *const u8, meta_data: MemberMetaData) {
         let mut members = self.members.write();
         let member = members.get_mut(&id).unwrap();
 
         let value = self.insert_buffer(*member.type_.unwrap(), data);
-        let old = std::mem::replace(&mut member.value, DependableOption::Some(value));
+        let old = std::mem::replace(
+            &mut member.value,
+            DependableOption::Some((value, Arc::new(meta_data))),
+        );
 
         drop(members);
 
@@ -494,10 +503,21 @@ impl Program {
 struct Member {
     name: Ustr,
     type_: DependableOption<Type>,
-    value: DependableOption<ConstantRef>,
+    value: DependableOption<(ConstantRef, Arc<MemberMetaData>)>,
     dependencies_left: AtomicI32,
     task: Option<Task>,
     is_defined: bool,
+}
+
+pub enum MemberMetaData {
+    None,
+    Function {
+        /// Default parameters are "filled in" from the end, i.e
+        /// if default paramaters are [a, b, c], and function is
+        /// fn(e, r, t, y, u, i), then the default parameters will be
+        /// fn(e, r, t, y = a, u = b, i = c).
+        default_parameters: Vec<ConstantRef>,
+    },
 }
 
 unsafe impl Send for Member {}

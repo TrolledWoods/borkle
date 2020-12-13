@@ -7,8 +7,13 @@
 * [X] Optimize stack size for interpreter
 * [X] Break out of blocks/loops
 * [X] Redo ast nodes to be more readable
-* [ ] Constant folding of operations
+* [X] Constant folding of operations
+* [X] Anonymous constants. Should these use 'const' keyword or something else, like jai's #run directive for example.
+* [ ] Allow constants to "extract" extra metadata from typer nodes, such as default parameters to functions for example.
+        To test this, default value function parameters are also added.
 
+* [ ] Add overflow checks to type size calculations, and add a user level error for trying to create too large types.
+* [ ] Generalize primitive types, so that doing more complicated type analysis becomes possible.
 * [ ] Allow array types to contain arbitrary length expressions
 * [ ] BUG! Seems like empty array literals can be of any type, even though they should only be arrays.
 * [ ] Make a separate ast node kind for type expressions?
@@ -18,7 +23,6 @@
 * [ ] Never type
 * [ ] Make locals/labels use pure register ids instead of values, since they are never going to be global anyway
 * [ ] Polymorphism
-* [ ] Anonymous constants. Should these use 'const' keyword or something else, like jai's #run directive for example.
 * [ ] Figure out if there is a way to have fewer keywords.
 * [ ] BUG! There is a bug with variable shadowing
 * [ ] If the dynamic library in the target directory is already defined, and has the same "last edited" date as the source file, don't copy the file from the source.
