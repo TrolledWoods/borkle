@@ -11,7 +11,7 @@ pub struct Logger {
     file: Arc<Mutex<File>>,
 }
 
-#[cfg(not(feature = "log"))]
+#[cfg(not(any(feature = "log", feature = "log_print")))]
 impl Logger {
     pub fn new() -> Self {
         Self {}
@@ -34,5 +34,16 @@ impl Logger {
 
         let mut logs = self.file.lock();
         writeln!(logs, "{}", args).unwrap();
+    }
+}
+
+#[cfg(feature = "log_print")]
+impl Logger {
+    pub fn new() -> Self {
+        Self {}
+    }
+
+    pub fn log(&self, args: std::fmt::Arguments<'_>) {
+        println!("[LOG]: {}", args);
     }
 }

@@ -103,7 +103,76 @@ pub fn emit(
     }
 }
 
-// pub fn emit_function_declaration(thread_context: &mut ThreadContext, program: &Program, locals: LocalVariables,
+pub fn emit_function_declaration(
+    thread_context: &mut ThreadContext,
+    program: &Program,
+    locals: LocalVariables,
+    body: &Node,
+    type_: Type,
+) -> ConstantRef {
+    let mut sub_ctx = Context {
+        thread_context,
+        instr: Vec::new(),
+        registers: Registers::new(),
+        locals,
+        program,
+        label_locations: Vec::new(),
+        defers: Vec::new(),
+    };
+
+    // Allocate registers for all the locals
+    for local in sub_ctx.locals.iter_mut() {
+        let value = sub_ctx.registers.create(local.type_.unwrap());
+        local.value = Some(value);
+    }
+
+    let result = emit_node(&mut sub_ctx, body);
+    let routine = Routine {
+        label_locations: sub_ctx.label_locations,
+        instr: sub_ctx.instr,
+        registers: sub_ctx.registers,
+        result,
+    };
+
+    let id = sub_ctx.program.insert_function(routine);
+    if sub_ctx.program.arguments.release {
+        if let TypeKind::Function {
+            args,
+            returns,
+            is_extern: _,
+        } = type_.kind()
+        {
+            crate::c_backend::function_declaration(
+                &mut sub_ctx.thread_context.c_headers,
+                crate::c_backend::c_format_global(id),
+                args,
+                *returns,
+            );
+            crate::c_backend::function_declaration(
+                &mut sub_ctx.thread_context.c_declarations,
+                crate::c_backend::c_format_global(id),
+                args,
+                *returns,
+            );
+
+            sub_ctx.thread_context.c_headers.push_str(";\n");
+
+            sub_ctx.thread_context.c_declarations.push_str(" {\n");
+            crate::c_backend::routine_to_c(
+                &mut sub_ctx.thread_context.c_declarations,
+                unsafe { &*(id as *const Routine) },
+                args.len(),
+            );
+            sub_ctx.thread_context.c_declarations.push_str("}\n");
+        } else {
+            unreachable!("A function type node has to have a function type kind!!!!!!");
+        }
+    }
+
+    sub_ctx
+        .program
+        .insert_buffer(type_, unsafe { *id.to_le_bytes().as_ptr().cast() })
+}
 
 fn emit_node<'a>(ctx: &mut Context<'a>, node: &'a Node) -> Value {
     match node.kind() {
@@ -209,66 +278,16 @@ fn emit_node<'a>(ctx: &mut Context<'a>, node: &'a Node) -> Value {
             ctx.registers.create(node.type_())
         }
         NodeKind::FunctionDeclaration { locals, body } => {
-            let mut sub_ctx = Context {
-                thread_context: ctx.thread_context,
-                instr: Vec::new(),
-                registers: Registers::new(),
-                locals: locals.clone(),
-                program: ctx.program,
-                label_locations: Vec::new(),
-                defers: Vec::new(),
-            };
-
-            // Allocate registers for all the locals
-            for local in sub_ctx.locals.iter_mut() {
-                let value = sub_ctx.registers.create(local.type_.unwrap());
-                local.value = Some(value);
-            }
-
-            let result = emit_node(&mut sub_ctx, body);
-            let routine = Routine {
-                label_locations: sub_ctx.label_locations,
-                instr: sub_ctx.instr,
-                registers: sub_ctx.registers,
-                result,
-            };
-            let id = sub_ctx.program.insert_function(routine);
-            if sub_ctx.program.arguments.release {
-                if let TypeKind::Function {
-                    args,
-                    returns,
-                    is_extern: _,
-                } = node.type_().kind()
-                {
-                    crate::c_backend::function_declaration(
-                        &mut sub_ctx.thread_context.c_headers,
-                        crate::c_backend::c_format_global(id),
-                        args,
-                        *returns,
-                    );
-                    crate::c_backend::function_declaration(
-                        &mut sub_ctx.thread_context.c_declarations,
-                        crate::c_backend::c_format_global(id),
-                        args,
-                        *returns,
-                    );
-
-                    sub_ctx.thread_context.c_headers.push_str(";\n");
-
-                    sub_ctx.thread_context.c_declarations.push_str(" {\n");
-                    crate::c_backend::routine_to_c(
-                        &mut sub_ctx.thread_context.c_declarations,
-                        unsafe { &*(id as *const Routine) },
-                        args.len(),
-                    );
-                    sub_ctx.thread_context.c_declarations.push_str("}\n");
-                } else {
-                    unreachable!("A function type node has to have a function type kind!!!!!!");
-                }
-            }
+            let function = emit_function_declaration(
+                ctx.thread_context,
+                ctx.program,
+                locals.clone(),
+                body,
+                node.type_(),
+            );
 
             let to = ctx.registers.create(node.type_());
-            ctx.emit_constant_from_buffer(to, &id.to_le_bytes());
+            ctx.emit_constant_from_constant_buffer(to, function);
             to
         }
         NodeKind::BitCast { value } => {
