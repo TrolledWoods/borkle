@@ -512,7 +512,10 @@ struct Member {
 #[derive(Debug)]
 pub enum MemberMetaData {
     None,
-    Function { arg_names: Vec<Ustr> },
+    Function {
+        arg_names: Vec<Ustr>,
+        default_values: Vec<ConstantRef>,
+    },
 }
 
 unsafe impl Send for Member {}

@@ -281,6 +281,7 @@ fn emit_node<'a>(ctx: &mut Context<'a>, node: &'a Node) -> Value {
             locals,
             body,
             arg_names: _,
+            default_values: _,
         } => {
             let function = emit_function_declaration(
                 ctx.thread_context,

@@ -286,17 +286,36 @@ fn type_ast<'a>(
         ParsedNodeKind::FunctionDeclaration {
             ref locals,
             ref args,
+            ref default_args,
             ref returns,
             ref body,
         } => {
             let mut locals = locals.clone();
 
-            let mut arg_types = Vec::with_capacity(args.len());
-            let mut arg_names = Vec::with_capacity(args.len());
+            let mut arg_types = Vec::with_capacity(args.len() + default_args.len());
+            let mut arg_names = Vec::with_capacity(args.len() + default_args.len());
+
             for (local, &(name, ref node)) in locals.iter_mut().zip(args) {
                 let arg_type = const_fold_type_expr(ctx, node, buffer)?;
                 local.type_ = Some(arg_type);
                 arg_types.push(arg_type);
+                arg_names.push(name);
+            }
+
+            let mut default_values = Vec::with_capacity(default_args.len());
+            for (local, &(name, ref node)) in locals.iter_mut().skip(args.len()).zip(default_args) {
+                let arg_value = type_ast(ctx, None, node, buffer)?;
+
+                if let NodeKind::Constant(constant) = *arg_value.kind() {
+                    default_values.push(constant);
+                } else {
+                    ctx.errors
+                        .error(node.loc, "Expected constant expression".to_string());
+                    return Err(());
+                }
+
+                local.type_ = Some(arg_value.type_());
+                arg_types.push(arg_value.type_());
                 arg_names.push(name);
             }
 
@@ -320,6 +339,7 @@ fn type_ast<'a>(
                     locals: sub_ctx.locals,
                     body: buffer.insert(body),
                     arg_names,
+                    default_values,
                 },
                 Type::new(TypeKind::Function {
                     args: arg_types,
@@ -382,42 +402,62 @@ fn type_ast<'a>(
                     args.push((i, buffer.insert(arg)));
                 }
 
-                if !named_args.is_empty() {
-                    if let NodeKind::Global(_, meta_data) = calling.kind() {
-                        if let MemberMetaData::Function { arg_names } = &**meta_data {
-                            for (name, arg) in named_args {
-                                if let Some(i) =
-                                    arg_names.iter().position(|arg_name| arg_name == name)
-                                {
-                                    if args.iter().any(|&(arg_i, _)| arg_i == i) {
-                                        ctx.errors.error(
-                                            arg.loc,
-                                            format!("Argument '{}' already defined", name),
-                                        );
-                                        return Err(());
-                                    }
-
-                                    let arg = type_ast(ctx, Some(arg_types[i]), arg, buffer)?;
-                                    args.push((i, buffer.insert(arg)));
-                                } else {
+                if let NodeKind::Global(_, meta_data) = calling.kind() {
+                    if let MemberMetaData::Function {
+                        arg_names,
+                        default_values,
+                    } = &**meta_data
+                    {
+                        for (name, arg) in named_args {
+                            if let Some(i) = arg_names.iter().position(|arg_name| arg_name == name)
+                            {
+                                if args.iter().any(|&(arg_i, _)| arg_i == i) {
                                     ctx.errors.error(
                                         arg.loc,
-                                        format!("Argument '{}' does not exist, available arguments are: {:?}", name, arg_names),
+                                        format!("Argument '{}' already defined", name),
                                     );
                                     return Err(());
                                 }
+
+                                let arg = type_ast(ctx, Some(arg_types[i]), arg, buffer)?;
+                                args.push((i, buffer.insert(arg)));
+                            } else {
+                                ctx.errors.error(
+                                        arg.loc,
+                                        format!("Argument '{}' does not exist, available arguments are: {:?}", name, arg_names),
+                                    );
+                                return Err(());
                             }
-                        } else {
-                            ctx.errors.error(
-                                calling.loc,
-                                "This function has no named parameters".to_string(),
-                            );
-                            return Err(());
                         }
-                    } else {
-                        ctx.errors.error(calling.loc, "Only functions declared in constants can be called with named arguments, not function pointers".to_string());
+
+                        // Go through all the default arguments, and try to fill in the gaps left
+                        // by the caller.
+                        let num_non_default_args = arg_types.len() - default_values.len();
+                        for (i, default_value) in default_values.iter().enumerate() {
+                            if !args
+                                .iter()
+                                .any(|&(arg_i, _)| arg_i == i + num_non_default_args)
+                            {
+                                args.push((
+                                    i + num_non_default_args,
+                                    buffer.insert(Node::new(
+                                        calling.loc,
+                                        NodeKind::Constant(*default_value),
+                                        arg_types[i],
+                                    )),
+                                ));
+                            }
+                        }
+                    } else if !named_args.is_empty() {
+                        ctx.errors.error(
+                            calling.loc,
+                            "This function has no named parameters".to_string(),
+                        );
                         return Err(());
                     }
+                } else if !named_args.is_empty() {
+                    ctx.errors.error(calling.loc, "Only functions declared in constants can be called with named arguments, not function pointers".to_string());
+                    return Err(());
                 }
 
                 if arg_types.len() != args.len() {

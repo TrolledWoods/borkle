@@ -805,6 +805,7 @@ fn function_declaration(
 
     let mut imperative = ImperativeContext::new(dependencies, false);
     let mut args = Vec::new();
+    let mut default_args = Vec::new();
     loop {
         if global.tokens.try_consume(&TokenKind::Close(Bracket::Round)) {
             break;
@@ -823,16 +824,31 @@ fn function_declaration(
                 value: None,
             });
 
-            if global.tokens.try_consume_operator_string(":").is_none() {
+            if global.tokens.try_consume_operator_string(":").is_some() {
+                if !default_args.is_empty() {
+                    global.error(
+                        global.tokens.loc(),
+                        "Cannot define non-default arguments after the first default argument"
+                            .to_string(),
+                    );
+                    return Err(());
+                }
+
+                let arg_type = type_(global, &mut imperative, buffer)?;
+                args.push((name, buffer.insert(arg_type)));
+            } else if global.tokens.try_consume_operator_string("=").is_some() {
+                let old = imperative.evaluate_at_typing;
+                imperative.evaluate_at_typing = true;
+                let arg_value = expression(global, &mut imperative, buffer)?;
+                default_args.push((name, buffer.insert(arg_value)));
+                imperative.evaluate_at_typing = old;
+            } else {
                 global.error(
                     global.tokens.loc(),
-                    "Expected ':' for argument type".to_string(),
+                    "Expected ':' for argument type, or '=' for argument default value".to_string(),
                 );
                 return Err(());
             }
-
-            let arg_type = type_(global, &mut imperative, buffer)?;
-            args.push((name, buffer.insert(arg_type)));
         } else {
             global.error(
                 global.tokens.loc(),
@@ -868,6 +884,7 @@ fn function_declaration(
         NodeKind::FunctionDeclaration {
             locals: imperative.locals,
             args,
+            default_args,
             returns: buffer.insert(returns),
             body: buffer.insert(body),
         },

@@ -58,6 +58,7 @@ pub enum NodeKind {
         locals: LocalVariables,
         arg_names: Vec<Ustr>,
         body: SelfBox<Node>,
+        default_values: Vec<ConstantRef>,
     },
     Break {
         label: crate::locals::LabelId,

@@ -189,8 +189,10 @@ fn worker(program: &Arc<Program>, work: &Arc<WorkPile>) -> (ThreadContext, Error
                                     locals: _,
                                     body: _,
                                     arg_names,
+                                    default_values,
                                 } => MemberMetaData::Function {
                                     arg_names: arg_names.clone(),
+                                    default_values: default_values.clone(),
                                 },
                                 _ => MemberMetaData::None,
                             };
