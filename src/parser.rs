@@ -10,7 +10,7 @@ use crate::locals::Local;
 use crate::location::Location;
 use crate::operators::{AccessOp, BinaryOp};
 use crate::program::{Program, Task};
-use crate::self_buffer::{SelfBuffer, SelfTree};
+use crate::self_buffer::{SelfBox, SelfBuffer, SelfTree};
 use crate::types::TypeKind;
 pub use ast::{Node, NodeKind};
 use context::{DataContext, ImperativeContext};
@@ -83,7 +83,7 @@ pub fn process_string(
 fn constant(global: &mut DataContext<'_>) -> Result<(), ()> {
     let token = global.tokens.expect_next(global.errors)?;
     if let TokenKind::Identifier(name) = token.kind {
-        let polymorphic_parameters = maybe_parse_polymorphic_arguments(global)?;
+        let polymorphic_arguments = maybe_parse_polymorphic_arguments(global)?;
 
         if global.tokens.try_consume_operator_string("=").is_none() {
             global.error(token.loc, "Expected '=' after const".to_string());
@@ -99,7 +99,7 @@ fn constant(global: &mut DataContext<'_>) -> Result<(), ()> {
 
         let locals = imperative.locals;
 
-        if polymorphic_parameters.is_empty() {
+        if polymorphic_arguments.is_empty() {
             let id = global
                 .program
                 .define_member(global.errors, token.loc, name)?;
@@ -241,10 +241,17 @@ fn type_(
     match token.kind {
         TokenKind::Identifier(name) => {
             global.tokens.next();
+
+            let polymorphic_arguments =
+                parse_passed_polymorphic_arguments(global, imperative, buffer)?;
+
             imperative
                 .dependencies
                 .add(loc, name, DependencyKind::Value);
-            Ok(Node::new(loc, NodeKind::GlobalForTyping(name)))
+            Ok(Node::new(
+                loc,
+                NodeKind::GlobalForTyping(name, polymorphic_arguments),
+            ))
         }
         TokenKind::Open(Bracket::Curly) => {
             global.tokens.next();
@@ -380,18 +387,31 @@ fn atom_value(
         let token = global.tokens.expect_next(global.errors)?;
         match token.kind {
             TokenKind::Identifier(name) => {
+                let polymorphic_arguments =
+                    parse_passed_polymorphic_arguments(global, imperative, buffer)?;
+
                 if let Some(local_id) = imperative.get_local(name) {
+                    if !polymorphic_arguments.is_empty() {
+                        global.error(
+                            token.loc,
+                            "Cannot give a local polymorphic arguments".to_string(),
+                        );
+                        return Err(());
+                    }
                     Node::new(token.loc, NodeKind::Local(local_id))
                 } else if imperative.evaluate_at_typing {
                     imperative
                         .dependencies
                         .add(token.loc, name, DependencyKind::Value);
-                    Node::new(token.loc, NodeKind::GlobalForTyping(name))
+                    Node::new(
+                        token.loc,
+                        NodeKind::GlobalForTyping(name, polymorphic_arguments),
+                    )
                 } else {
                     imperative
                         .dependencies
                         .add(token.loc, name, DependencyKind::Type);
-                    Node::new(token.loc, NodeKind::Global(name))
+                    Node::new(token.loc, NodeKind::Global(name, polymorphic_arguments))
                 }
             }
             TokenKind::Literal(literal) => Node::new(token.loc, NodeKind::Literal(literal)),
@@ -889,6 +909,41 @@ fn function_declaration(
             body: buffer.insert(body),
         },
     ))
+}
+
+fn parse_passed_polymorphic_arguments(
+    global: &mut DataContext<'_>,
+    imperative: &mut ImperativeContext<'_>,
+    buffer: &mut SelfBuffer,
+) -> Result<Vec<SelfBox<Node>>, ()> {
+    let mut polymorphic_arguments = Vec::new();
+    if global.tokens.try_consume(&TokenKind::Open(Bracket::Square)) {
+        let old_evaluate_at_typing = imperative.evaluate_at_typing;
+        imperative.evaluate_at_typing = true;
+        loop {
+            if global
+                .tokens
+                .try_consume(&TokenKind::Close(Bracket::Square))
+            {
+                break;
+            }
+
+            let arg = expression(global, imperative, buffer)?;
+            polymorphic_arguments.push(buffer.insert(arg));
+
+            let token = global.tokens.expect_next(global.errors)?;
+            match token.kind {
+                TokenKind::Close(Bracket::Square) => break,
+                TokenKind::Comma => {}
+                _ => {
+                    global.error(token.loc, "Expected either ',' or ']'".to_string());
+                    return Err(());
+                }
+            }
+        }
+        imperative.evaluate_at_typing = old_evaluate_at_typing;
+    }
+    Ok(polymorphic_arguments)
 }
 
 fn maybe_parse_polymorphic_arguments(

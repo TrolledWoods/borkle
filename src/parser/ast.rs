@@ -33,8 +33,8 @@ pub enum NodeKind {
         inner: SelfBox<Node>,
     },
 
-    Global(Ustr),
-    GlobalForTyping(Ustr),
+    Global(Ustr, Vec<SelfBox<Node>>),
+    GlobalForTyping(Ustr, Vec<SelfBox<Node>>),
     Extern {
         library_name: PathBuf,
         symbol_name: String,

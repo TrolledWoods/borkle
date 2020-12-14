@@ -124,6 +124,9 @@ fn main() {
 
                 println!("[main returned: {}]", unsafe { result.read::<u64>() });
             }
+        } else {
+            let elapsed = time.elapsed();
+            println!("Finished in {:.4} seconds", elapsed.as_secs_f32());
         }
     }
 }

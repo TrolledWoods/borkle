@@ -13,6 +13,7 @@
         To test this, default value function parameters are also added.
 * [X] Name arguments when calling a function, and default arguments.
 * [X] Taking a reference does an autocast as well
+* [ ] Polymorphism
 
 * [ ] Add overflow checks to type size calculations, and add a user level error for trying to create too large types.
 * [ ] Generalize primitive types, so that doing more complicated type analysis becomes possible.
@@ -24,7 +25,6 @@
 * [ ] In emit.rs, don't pass nodes by reference but by value instead
 * [ ] Never type
 * [ ] Make locals/labels use pure register ids instead of values, since they are never going to be global anyway
-* [ ] Polymorphism
 * [ ] Figure out if there is a way to have fewer keywords.
 * [ ] BUG! There is a bug with variable shadowing
 * [ ] If the dynamic library in the target directory is already defined, and has the same "last edited" date as the source file, don't copy the file from the source.

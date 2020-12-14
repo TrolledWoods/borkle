@@ -1,0 +1,5 @@
+const Answer[] = 42 : u64;
+
+const main = fn() -> u64 {
+    Answer[type u64]
+};

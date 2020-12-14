@@ -868,7 +868,7 @@ fn type_ast<'a>(
                 return Err(());
             }
         }
-        ParsedNodeKind::GlobalForTyping(name) => {
+        ParsedNodeKind::GlobalForTyping(name, ref polymorphic_arguments) => {
             let id = ctx.program.get_member_id(name).unwrap();
             // FIXME: We should store the metadata for this global somewhere
             Node::new(
@@ -877,7 +877,7 @@ fn type_ast<'a>(
                 ctx.program.get_type_of_member(id),
             )
         }
-        ParsedNodeKind::Global(name) => {
+        ParsedNodeKind::Global(name, ref polymorphic_arguments) => {
             let id = ctx.program.get_member_id(name).unwrap();
             ctx.deps.add(
                 parsed.loc,
@@ -953,7 +953,7 @@ fn const_fold_type_expr<'a>(
     buffer: &mut SelfBuffer,
 ) -> Result<Type, ()> {
     match parsed.kind {
-        ParsedNodeKind::GlobalForTyping(name) => {
+        ParsedNodeKind::GlobalForTyping(name, ref polymorphic_arguments) => {
             let id = ctx.program.get_member_id(name).unwrap();
             let ptr = ctx.program.get_value_of_member(id).as_ptr();
             Ok(unsafe { *ptr.cast::<Type>() })
