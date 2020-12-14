@@ -107,7 +107,16 @@ fn main() {
                     }
                     Err(err) => println!("Failed to run c compiler: {:?}", err),
                 }
+
+                let elapsed = time.elapsed();
+                println!("Finished in {:.4} seconds", elapsed.as_secs_f32());
             } else {
+                let elapsed = time.elapsed();
+                println!(
+                    "Compilation finished in {:.4} seconds",
+                    elapsed.as_secs_f32()
+                );
+
                 let mut stack = interp::Stack::new(1 << 16);
                 let result = interp::interp(&program, &mut stack, unsafe {
                     &*entry_point.cast::<ir::Routine>()
@@ -116,8 +125,5 @@ fn main() {
                 println!("[main returned: {}]", unsafe { result.read::<u64>() });
             }
         }
-
-        let elapsed = time.elapsed();
-        println!("Finished in {:.4} seconds", elapsed.as_secs_f32());
     }
 }

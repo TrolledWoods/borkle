@@ -224,10 +224,7 @@ impl Program {
     }
 
     pub fn add_file(&self, path: impl AsRef<Path>) {
-        self.work
-            .queue
-            .lock()
-            .push_front(Task::Parse(path.as_ref().to_path_buf()));
+        self.work.enqueue(Task::Parse(path.as_ref().to_path_buf()));
     }
 
     pub fn insert_buffer_from_operation(
@@ -387,7 +384,7 @@ impl Program {
             drop(members);
             let mut members = self.members.write();
             if let Some(task) = members.get_mut(&id).unwrap().task.take() {
-                self.work.queue.lock().push_back(task);
+                self.work.enqueue(task);
             } else {
                 // There was no task? This shouldn't happen; if there are dependencies,
                 // there should be a task.
@@ -487,7 +484,7 @@ impl Program {
         if *num_dependencies == 0 {
             // We are already done! We can emit the task without
             // doing dependency stuff
-            self.work.queue.lock().push_back(task);
+            self.work.enqueue(task);
         } else {
             // We are not done with our dependencies. We have to wait a bit,
             // so we have to put the task into the lock.

@@ -1,22 +1,27 @@
 use crate::errors::ErrorCtx;
 use crate::program::{MemberMetaData, Program, Task};
 use bumpalo::Bump;
+use crossbeam::queue::SegQueue;
 use crossbeam::scope;
-use parking_lot::Mutex;
-use std::collections::VecDeque;
+use std::path::Path;
 use std::sync::atomic::{AtomicU32, Ordering};
 
 pub struct WorkPile {
-    pub queue: Mutex<VecDeque<Task>>,
-    num_currently_working: AtomicU32,
+    queue: SegQueue<Task>,
+    tasks_left: AtomicU32,
 }
 
 impl WorkPile {
     pub fn new() -> Self {
         Self {
-            queue: Mutex::new(VecDeque::new()),
-            num_currently_working: AtomicU32::new(0),
+            queue: SegQueue::new(),
+            tasks_left: AtomicU32::new(0),
         }
+    }
+
+    pub fn enqueue(&self, task: Task) {
+        self.tasks_left.fetch_add(1, Ordering::SeqCst);
+        self.queue.push(task);
     }
 }
 
@@ -94,42 +99,9 @@ fn worker<'a>(alloc: &'a mut Bump, program: &'a Program) -> (ThreadContext<'a>, 
     };
 
     loop {
-        // We explicitly take the lock here so that we make sure to increase
-        // the number of currently working threads BEFORE dropping the lock.
-        // This is vital as otherwise threads might think that there is no work
-        // left to do even though there might be some.
-        let mut queue_lock = work.queue.lock();
-        if let Some(task) = queue_lock.pop_back() {
-            // We have to increase the number of currently working threads before
-            // releasing the lock
-            let currently_working_counter = Count::new(&work.num_currently_working);
-
-            drop(queue_lock);
-
+        if let Some(task) = work.queue.pop() {
             match task {
-                Task::Parse(file) => match std::fs::read_to_string(&file) {
-                    Ok(string) => {
-                        let file_name_str = file.to_str().expect("File path is not a valid string, this should not happen since all paths are constructed from strings originally").into();
-
-                        // If the file has already been parsed, do not parse it again!
-                        if !program.loaded_files.lock().insert(file_name_str) {
-                            program.logger.log(format_args!(
-                                "File {} was already loaded, so didn't parse it again",
-                                file_name_str
-                            ));
-                        } else {
-                            let _ = crate::parser::process_string(
-                                &mut errors,
-                                program,
-                                file_name_str,
-                                &string,
-                            );
-                        }
-                    }
-                    Err(_) => {
-                        errors.global_error(format!("File {:?} cannot be loaded", file));
-                    }
-                },
+                Task::Parse(file) => parse_file(&mut errors, program, &file),
                 Task::Type(member_id, locals, ast) => {
                     use crate::typer::ast::NodeKind;
 
@@ -198,37 +170,32 @@ fn worker<'a>(alloc: &'a mut Bump, program: &'a Program) -> (ThreadContext<'a>, 
                 }
             }
 
-            // We have to decrease the number of currently working threads after
-            // the work is done, otherwise we may be pushing more work after
-            // saying nobody is working, which could cause incorrect thread stopping.
-            drop(currently_working_counter);
-        } else {
-            // This has to happen before the drop, because otherwise another thread
-            // might push another piece of work and decrement the currently working counter,
-            // and that would cause this thread to incorrectly stop working.
-            let currently_working = work.num_currently_working.load(Ordering::SeqCst);
-            drop(queue_lock);
-
-            if currently_working == 0 {
-                break;
-            }
+            work.tasks_left.fetch_sub(1, Ordering::SeqCst);
+        } else if work.tasks_left.load(Ordering::SeqCst) == 0 {
+            break;
         }
     }
 
     (thread_context, errors)
 }
 
-struct Count<'a>(&'a AtomicU32);
+fn parse_file(errors: &mut ErrorCtx, program: &Program, file: &Path) {
+    match std::fs::read_to_string(&file) {
+        Ok(string) => {
+            let file_name_str = file.to_str().expect("File path is not a valid string, this should not happen since all paths are constructed from strings originally").into();
 
-impl<'a> Count<'a> {
-    fn new(atomic: &'a AtomicU32) -> Self {
-        atomic.fetch_add(1, Ordering::SeqCst);
-        Self(atomic)
-    }
-}
-
-impl Drop for Count<'_> {
-    fn drop(&mut self) {
-        self.0.fetch_sub(1, Ordering::SeqCst);
+            // If the file has already been parsed, do not parse it again!
+            if !program.loaded_files.lock().insert(file_name_str) {
+                program.logger.log(format_args!(
+                    "File {} was already loaded, so didn't parse it again",
+                    file_name_str
+                ));
+            } else {
+                let _ = crate::parser::process_string(errors, program, file_name_str, &string);
+            }
+        }
+        Err(_) => {
+            errors.global_error(format!("File {:?} cannot be loaded", file));
+        }
     }
 }
