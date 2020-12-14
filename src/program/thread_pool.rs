@@ -188,13 +188,11 @@ fn worker<'a>(alloc: &'a mut Bump, program: &'a Program) -> (ThreadContext<'a>, 
 
                             let result = crate::interp::interp(program, &mut stack, &routine);
 
-                            program.logger.log(format_args!(
-                                "value '{}' {}",
-                                program.member_name(member_id),
-                                unsafe { *(result as *const u64) }
-                            ));
+                            program
+                                .logger
+                                .log(format_args!("value '{}'", program.member_name(member_id),));
 
-                            program.set_value_of_member(member_id, result);
+                            program.set_value_of_member(member_id, result.as_ptr());
                         }
                     }
                 }

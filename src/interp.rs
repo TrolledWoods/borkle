@@ -5,8 +5,7 @@ use crate::program::Program;
 
 mod stack;
 
-pub use stack::Stack;
-use stack::StackFrame;
+pub use stack::{Stack, StackFrame, StackValue, StackValueMut};
 
 pub fn emit_and_run<'a>(
     thread_context: &mut crate::program::thread_pool::ThreadContext<'a>,
@@ -16,15 +15,19 @@ pub fn emit_and_run<'a>(
 ) -> ConstantRef {
     let mut stack = Stack::new(2048);
     let routine = crate::ir::emit::emit(thread_context, program, locals, expr);
-    program.insert_buffer(expr.type_(), interp(program, &mut stack, &routine))
+    let result = interp(program, &mut stack, &routine);
+    program.insert_buffer(expr.type_(), result.as_ptr())
 }
 
-pub fn interp(program: &Program, stack: &mut Stack, routine: &Routine) -> *const u8 {
+pub fn interp<'a>(
+    program: &Program,
+    stack: &'a mut Stack,
+    routine: &'a Routine,
+) -> StackValueMut<'a> {
     let mut stack_frame = stack.stack_frame(&routine.registers);
     interp_internal(program, &mut stack_frame, routine);
 
-    let ptr = stack_frame.get(routine.result).as_ptr();
-    ptr.cast()
+    stack_frame.into_value(routine.result)
 }
 
 // The stack frame has to be set up ahead of time here. That is necessary; because
@@ -37,7 +40,7 @@ fn interp_internal(program: &Program, stack: &mut StackFrame<'_>, routine: &Rout
         match *instr {
             Instr::LabelDefinition(_) => {}
             Instr::JumpIfZero { condition, to } => {
-                if stack.get(condition)[0] == 0 {
+                if unsafe { stack.get(condition).read::<u8>() } == 0 {
                     instr_pointer = routine.label_locations[to.0];
                 }
             }
@@ -50,9 +53,7 @@ fn interp_internal(program: &Program, stack: &mut StackFrame<'_>, routine: &Rout
                 ref args,
                 convention,
             } => {
-                let mut ptr = [0_u8; 8];
-                ptr.copy_from_slice(stack.get(pointer));
-                let function_ptr = unsafe { std::mem::transmute(usize::from_le_bytes(ptr)) };
+                let function_ptr = unsafe { stack.get(pointer).read() };
 
                 let mut arg_pointers = Vec::new();
                 for &arg in args {
@@ -70,29 +71,36 @@ fn interp_internal(program: &Program, stack: &mut StackFrame<'_>, routine: &Rout
                 pointer,
                 ref args,
             } => {
-                let mut ptr = [0_u8; 8];
-                ptr.copy_from_slice(stack.get(pointer));
-                let calling: &Routine = unsafe { std::mem::transmute(usize::from_le_bytes(ptr)) };
+                let calling: &Routine = unsafe { stack.get(pointer).read() };
 
                 let (mut old_stack, mut new_stack) = stack.split(&calling.registers);
 
                 // Put the arguments on top of the new stack frame
                 for (old, new) in args.iter().zip(&calling.registers.locals) {
-                    new_stack
-                        .get_mut_from_reg(new)
-                        .copy_from_slice(old_stack.get(*old));
+                    let size = old.type_().size();
+                    unsafe {
+                        std::ptr::copy_nonoverlapping(
+                            old_stack.get(*old).as_ptr(),
+                            new_stack.get_mut_from_reg(new).as_mut_ptr(),
+                            size,
+                        );
+                    }
                 }
 
                 interp_internal(program, &mut new_stack, calling);
 
-                old_stack
-                    .get_mut(to)
-                    .copy_from_slice(new_stack.get(calling.result));
+                unsafe {
+                    std::ptr::copy_nonoverlapping(
+                        new_stack.get(calling.result).as_ptr(),
+                        old_stack.get_mut(to).as_mut_ptr(),
+                        calling.result.size(),
+                    );
+                }
             }
             Instr::Constant { to, ref from } => {
-                let to = stack.get_mut(to);
+                let mut to_ptr = stack.get_mut(to);
                 unsafe {
-                    std::ptr::copy(from.as_ptr(), to.as_mut_ptr(), to.len());
+                    std::ptr::copy(from.as_ptr(), to_ptr.as_mut_ptr(), to.size());
                 }
             }
             Instr::Binary {
@@ -106,23 +114,31 @@ fn interp_internal(program: &Program, stack: &mut StackFrame<'_>, routine: &Rout
                 op.run(
                     left_type,
                     right_type,
-                    stack.get_ptr(a),
-                    stack.get_ptr(b),
-                    stack.get_mut_ptr(to),
+                    stack.get(a).as_ptr(),
+                    stack.get(b).as_ptr(),
+                    stack.get_mut(to).as_mut_ptr(),
                 );
             },
             Instr::Unary { op, to, from } => match op {
                 UnaryOp::Negate => {
-                    let from = u64_from_bytes(stack.get(from));
+                    let from = u64_from_bytes(unsafe {
+                        std::slice::from_raw_parts(stack.get(from).as_ptr(), from.size())
+                    });
                     let result = from.wrapping_neg();
-                    let to = stack.get_mut(to);
-                    to.copy_from_slice(&result.to_le_bytes()[..to.len()]);
+                    let to_ptr = stack.get_mut(to).as_mut_ptr();
+                    unsafe {
+                        std::ptr::copy(&result as *const _ as *const _, to_ptr, to.size());
+                    }
                 }
                 UnaryOp::Not => {
-                    let from = u64_from_bytes(stack.get(from));
+                    let from = u64_from_bytes(unsafe {
+                        std::slice::from_raw_parts(stack.get(from).as_ptr(), from.size())
+                    });
                     let result = !from;
-                    let to = stack.get_mut(to);
-                    to.copy_from_slice(&result.to_le_bytes()[..to.len()]);
+                    let to_ptr = stack.get_mut(to).as_mut_ptr();
+                    unsafe {
+                        std::ptr::copy(&result as *const _ as *const _, to_ptr, to.size());
+                    }
                 }
                 UnaryOp::AutoCast | UnaryOp::Reference | UnaryOp::Dereference => {
                     unreachable!("This operator is supposed to be a special case");
@@ -135,13 +151,11 @@ fn interp_internal(program: &Program, stack: &mut StackFrame<'_>, routine: &Rout
                 std::ptr::copy_nonoverlapping(from, to, size);
             },
             Instr::Dereference { to, from } => {
-                let mut arr = [0_u8; 8];
-                arr.copy_from_slice(stack.get(from));
-                let ptr = usize::from_le_bytes(arr) as *const u8;
+                let ptr = unsafe { stack.get(from).read::<*const u8>() };
 
-                let to = stack.get_mut(to);
+                let to_ptr = stack.get_mut(to).as_mut_ptr();
                 unsafe {
-                    std::ptr::copy(ptr, to.as_mut_ptr(), to.len());
+                    std::ptr::copy(ptr, to_ptr, to.size());
                 }
             }
             Instr::Reference {
@@ -149,10 +163,10 @@ fn interp_internal(program: &Program, stack: &mut StackFrame<'_>, routine: &Rout
                 from,
                 ref offset,
             } => {
-                let ptr: *mut u8 = stack.get_mut(from).as_mut_ptr();
-                stack
-                    .get_mut(to)
-                    .copy_from_slice(&(ptr as usize + offset.offset).to_le_bytes());
+                let ptr = stack.get_mut(from).as_mut_ptr();
+                unsafe {
+                    stack.get_mut(to).write(ptr as usize + offset.offset);
+                }
             }
             Instr::Move {
                 to,
@@ -171,10 +185,7 @@ fn interp_internal(program: &Program, stack: &mut StackFrame<'_>, routine: &Rout
                 ref member,
             } => unsafe {
                 let from: *const u8 = stack.get(from).as_ptr();
-
-                let mut arr = [0_u8; 8];
-                arr.copy_from_slice(stack.get(to));
-                let to = (usize::from_le_bytes(arr) as *mut u8).add(member.offset);
+                let to = stack.get(to).read::<*mut u8>().add(member.offset);
 
                 std::ptr::copy_nonoverlapping(from, to, size);
             },

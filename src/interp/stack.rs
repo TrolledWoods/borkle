@@ -1,5 +1,6 @@
 use crate::ir::{Register, Registers, Value};
 use std::alloc::{alloc, dealloc, Layout};
+use std::marker::PhantomData;
 use std::ptr::NonNull;
 
 pub struct Stack {
@@ -35,43 +36,81 @@ impl Drop for Stack {
     }
 }
 
+#[derive(Clone, Copy)]
+pub struct StackValue<'a> {
+    ptr: *const u8,
+    _phantom: PhantomData<&'a u8>,
+}
+
+impl StackValue<'_> {
+    pub fn as_ptr(self) -> *const u8 {
+        self.ptr
+    }
+
+    pub unsafe fn read<T: Copy>(self) -> T {
+        *self.ptr.cast()
+    }
+}
+
+pub struct StackValueMut<'a> {
+    ptr: *mut u8,
+    _phantom: PhantomData<&'a mut u8>,
+}
+
+impl StackValueMut<'_> {
+    pub fn as_ptr(&self) -> *const u8 {
+        self.ptr
+    }
+
+    pub fn as_mut_ptr(&mut self) -> *mut u8 {
+        self.ptr
+    }
+
+    pub unsafe fn read<T: Copy>(&self) -> T {
+        *self.ptr.cast()
+    }
+
+    pub unsafe fn write<T>(&self, val: T) {
+        self.ptr.cast::<T>().write(val);
+    }
+}
+
 pub struct StackFrame<'a> {
     stack: &'a mut [u8],
     registers: &'a Registers,
 }
 
 impl<'a> StackFrame<'a> {
-    pub fn get_ptr(&self, value: Value) -> *const u8 {
+    pub fn into_value(self, value: Value) -> StackValueMut<'a> {
         match value {
             Value::Register(reg, _) => {
                 let reg = self.registers.get(reg);
                 let offset = reg.offset();
-                &self.stack[offset]
+                StackValueMut {
+                    ptr: unsafe { self.stack.as_mut_ptr().add(offset) },
+                    _phantom: PhantomData,
+                }
             }
-            Value::Global(ptr, _) => ptr.as_ptr(),
+            Value::Global(ptr, _) => StackValueMut {
+                ptr: ptr.as_ptr() as *mut _,
+                _phantom: PhantomData,
+            },
         }
     }
 
-    pub fn get_mut_ptr(&mut self, value: Value) -> *mut u8 {
+    pub fn get(&self, value: Value) -> StackValue<'_> {
         match value {
             Value::Register(reg, _) => {
                 let reg = self.registers.get(reg);
                 let offset = reg.offset();
-                &mut self.stack[offset]
+                StackValue {
+                    ptr: unsafe { self.stack.as_ptr().add(offset) },
+                    _phantom: PhantomData,
+                }
             }
-            Value::Global(ptr, _) => ptr.as_ptr() as *mut _,
-        }
-    }
-
-    pub fn get(&self, value: Value) -> &[u8] {
-        match value {
-            Value::Register(reg, type_) => {
-                let reg = self.registers.get(reg);
-                let offset = reg.offset();
-                &self.stack[offset..offset + type_.size()]
-            }
-            Value::Global(ptr, type_) => unsafe {
-                std::slice::from_raw_parts(ptr.as_ptr(), type_.size())
+            Value::Global(ptr, _) => StackValue {
+                ptr: ptr.as_ptr(),
+                _phantom: PhantomData,
             },
         }
     }
@@ -81,15 +120,19 @@ impl<'a> StackFrame<'a> {
         &mut self.stack[offset..offset + reg.size()]
     }
 
-    pub fn get_mut(&mut self, value: Value) -> &mut [u8] {
+    pub fn get_mut(&mut self, value: Value) -> StackValueMut<'_> {
         match value {
-            Value::Register(reg, type_) => {
+            Value::Register(reg, _) => {
                 let reg = self.registers.get(reg);
                 let offset = reg.offset();
-                &mut self.stack[offset..offset + type_.size()]
+                StackValueMut {
+                    ptr: unsafe { self.stack.as_mut_ptr().add(offset) },
+                    _phantom: PhantomData,
+                }
             }
-            Value::Global(ptr, type_) => unsafe {
-                std::slice::from_raw_parts_mut(ptr.as_ptr() as *mut _, type_.size())
+            Value::Global(ptr, _) => StackValueMut {
+                ptr: ptr.as_ptr() as *mut _,
+                _phantom: PhantomData,
             },
         }
     }

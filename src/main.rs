@@ -113,7 +113,7 @@ fn main() {
                     &*entry_point.cast::<ir::Routine>()
                 });
 
-                println!("[main returned: {}]", unsafe { *(result as *const u64) });
+                println!("[main returned: {}]", unsafe { result.read::<u64>() });
             }
         }
 
