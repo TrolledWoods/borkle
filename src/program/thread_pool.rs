@@ -1,10 +1,10 @@
 use crate::errors::ErrorCtx;
 use crate::program::{MemberMetaData, Program, Task};
 use bumpalo::Bump;
+use crossbeam::scope;
 use parking_lot::Mutex;
 use std::collections::VecDeque;
 use std::sync::atomic::{AtomicU32, Ordering};
-use std::thread::spawn;
 
 pub struct WorkPile {
     pub queue: Mutex<VecDeque<Task>>,
@@ -20,58 +20,58 @@ impl WorkPile {
     }
 }
 
-/// Tries to run everything in the program
+/// Tries to evaluate everything in the program
 pub fn run(program: &Program, num_threads: usize) -> (String, ErrorCtx) {
     let mut allocators: Vec<_> = std::iter::repeat_with(Bump::new)
         .take(num_threads)
         .collect();
     let mut allocators = allocators.iter_mut();
 
-    let mut threads = Vec::new();
-    for (_, allocator) in (1..num_threads).zip(&mut allocators) {
-        let work = unsafe { &*(&program.work as *const _) };
-        let program = unsafe { &*(program as *const _) };
-        let allocator = unsafe { &mut *(allocator as *mut _) };
-        threads.push(spawn(move || worker(allocator, program, work)));
-    }
-
-    let (thread_context, mut errors) = worker(allocators.next().unwrap(), program, &program.work);
-
-    let mut c_headers = String::new();
-    c_headers.push_str("#include <stdint.h>\n");
-    c_headers.push_str("#include <stdio.h>\n");
-    c_headers.push('\n');
-
-    if program.arguments.release {
-        crate::c_backend::append_c_type_headers(&mut c_headers);
-    }
-    c_headers.push_str(&thread_context.c_headers);
-
-    let ThreadContext {
-        mut c_declarations, ..
-    } = thread_context;
-
-    if program.arguments.release {
-        for thread in threads {
-            let (ctx, other_errors) = thread.join().unwrap();
-            c_headers.push_str(&ctx.c_headers);
-            c_declarations.push_str(&ctx.c_declarations);
-            errors.join(other_errors);
+    scope(|s| {
+        let mut threads = Vec::new();
+        for (_, allocator) in (1..num_threads).zip(&mut allocators) {
+            threads.push(s.spawn(move |_| worker(allocator, program)));
         }
 
-        crate::c_backend::declare_constants(&mut c_headers, program);
-        crate::c_backend::instantiate_constants(&mut c_headers, program);
-        c_headers.push_str(&c_declarations);
-    } else {
-        for thread in threads {
-            let (_, other_errors) = thread.join().unwrap();
-            errors.join(other_errors);
+        let (thread_context, mut errors) = worker(allocators.next().unwrap(), program);
+
+        let mut c_headers = String::new();
+        c_headers.push_str("#include <stdint.h>\n");
+        c_headers.push_str("#include <stdio.h>\n");
+        c_headers.push('\n');
+
+        if program.arguments.release {
+            crate::c_backend::append_c_type_headers(&mut c_headers);
         }
-    }
+        c_headers.push_str(&thread_context.c_headers);
 
-    program.check_for_completion(&mut errors);
+        let ThreadContext {
+            mut c_declarations, ..
+        } = thread_context;
 
-    (c_headers, errors)
+        if program.arguments.release {
+            for thread in threads {
+                let (ctx, other_errors) = thread.join().unwrap();
+                c_headers.push_str(&ctx.c_headers);
+                c_declarations.push_str(&ctx.c_declarations);
+                errors.join(other_errors);
+            }
+
+            crate::c_backend::declare_constants(&mut c_headers, program);
+            crate::c_backend::instantiate_constants(&mut c_headers, program);
+            c_headers.push_str(&c_declarations);
+        } else {
+            for thread in threads {
+                let (_, other_errors) = thread.join().unwrap();
+                errors.join(other_errors);
+            }
+        }
+
+        program.check_for_completion(&mut errors);
+
+        (c_headers, errors)
+    })
+    .unwrap()
 }
 
 /// Data that is local to each thread. This is useful to have because
@@ -83,12 +83,9 @@ pub struct ThreadContext<'a> {
     pub c_declarations: String,
 }
 
-fn worker<'a>(
-    alloc: &'a mut Bump,
-    program: &'a Program,
-    work: &WorkPile,
-) -> (ThreadContext<'a>, ErrorCtx) {
+fn worker<'a>(alloc: &'a mut Bump, program: &'a Program) -> (ThreadContext<'a>, ErrorCtx) {
     let mut errors = ErrorCtx::new();
+    let work = &program.work;
 
     let mut thread_context = ThreadContext {
         alloc,
