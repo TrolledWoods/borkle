@@ -155,7 +155,7 @@ fn worker<'a>(alloc: &'a mut Bump, program: &'a Program) -> (ThreadContext<'a>, 
                         }
                         _ => {
                             let routine =
-                                crate::ir::emit::emit(&mut thread_context, program, locals, &ast);
+                                crate::emit::emit(&mut thread_context, program, locals, &ast);
                             let mut stack = crate::interp::Stack::new(2048);
 
                             let result = crate::interp::interp(program, &mut stack, &routine);

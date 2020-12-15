@@ -13,7 +13,8 @@
         To test this, default value function parameters are also added.
 * [X] Name arguments when calling a function, and default arguments.
 * [X] Taking a reference does an autocast as well
-* [ ] Change the type inference system to allow for more nuanced things, since right now it's cracking at the seems.
+* [X] Change the type inference system to allow for more nuanced things, since right now it's cracking at the seems.
+* [X] Put the emitter context in a different function and make zst type checks for all of them.
 
 * [ ] Polymorphism
 * [ ] Add overflow checks to type size calculations, and add a user level error for trying to create too large types.

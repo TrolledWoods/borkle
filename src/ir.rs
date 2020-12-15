@@ -4,8 +4,6 @@ use crate::program::ffi;
 use crate::types::{to_align, Type, TypeKind};
 use ustr::Ustr;
 
-pub mod emit;
-
 #[derive(Debug, Clone)]
 pub enum Instr {
     CallExtern {
@@ -102,7 +100,7 @@ pub struct Registers {
 }
 
 impl Registers {
-    fn new() -> Self {
+    pub fn new() -> Self {
         Self {
             locals: Vec::new(),
             max_buffer_size: 0,
@@ -114,26 +112,26 @@ impl Registers {
         self.max_buffer_size.max(self.buffer_head)
     }
 
-    fn get_head(&self) -> usize {
+    pub fn get_head(&self) -> usize {
         self.buffer_head
     }
 
-    fn set_head(&mut self, head: usize) {
+    pub fn set_head(&mut self, head: usize) {
         assert!(head <= self.buffer_head);
 
         self.max_buffer_size = self.max_buffer_size.max(self.buffer_head);
         self.buffer_head = head;
     }
 
-    fn create(&mut self, type_: impl Into<Type>) -> Value {
+    pub fn create(&mut self, type_: impl Into<Type>) -> Value {
         self.create_min_align(type_.into(), 1)
     }
 
-    fn zst(&mut self) -> Value {
+    pub fn zst(&mut self) -> Value {
         self.create(TypeKind::Empty)
     }
 
-    fn create_min_align(&mut self, type_: impl Into<Type>, min_align: usize) -> Value {
+    pub fn create_min_align(&mut self, type_: impl Into<Type>, min_align: usize) -> Value {
         let type_ = type_.into();
         let mut align = type_.align();
         if align < min_align {

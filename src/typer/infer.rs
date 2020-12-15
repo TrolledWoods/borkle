@@ -1,5 +1,5 @@
 use super::ast::Node;
-use crate::self_buffer::{SelfBox, SelfBuffer};
+use crate::self_buffer::SelfBuffer;
 use crate::types::{Type, TypeKind};
 use std::fmt;
 
