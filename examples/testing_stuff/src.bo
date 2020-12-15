@@ -1,7 +1,8 @@
-library "fmt.bo";
+const BufferType = type [][] u8;
 
-const main = fn() -> u64 {'outer
-    print("Hello! You are not % years old, are you!?\n", &[fmt_u64(69)]);
+const main = fn() -> u64 {
+    let my_buffer = &[&[4, 5, 6], &[], &[2, 1], &[3, 2, 1]] : BufferType;
+    let my_buffer = &[&[5, 6], &[99], &[2, 1], &[3, 2, 1]] : BufferType;
 
-    5
+    0
 };

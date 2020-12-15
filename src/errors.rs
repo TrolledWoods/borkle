@@ -41,16 +41,12 @@ impl ErrorCtx {
         }
     }
 
-    pub fn global_error(&mut self, message: String) -> ErrorId {
-        let id = ErrorId(self.errors.len());
+    pub fn global_error(&mut self, message: String) {
         self.errors.push((None, message));
-        id
     }
 
-    pub fn error(&mut self, loc: Location, message: String) -> ErrorId {
-        let id = ErrorId(self.errors.len());
+    pub fn error(&mut self, loc: Location, message: String) {
         self.errors.push((Some(loc), message));
-        id
     }
 
     pub fn warning(&mut self, loc: Location, message: String) {

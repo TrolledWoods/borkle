@@ -12,10 +12,12 @@ use crate::program::{MemberMetaData, Program};
 use crate::self_buffer::{SelfBuffer, SelfTree};
 use crate::types::{IntTypeKind, Type, TypeData, TypeKind};
 pub use ast::{Node, NodeKind};
+use infer::WantedType;
 
 pub type Ast = SelfTree<Node>;
 
 pub mod ast;
+mod infer;
 
 struct Context<'a, 'b> {
     thread_context: &'a mut ThreadContext<'b>,
@@ -41,7 +43,7 @@ pub fn process_ast<'a>(
         deps: &mut deps,
     };
     let mut buffer = SelfBuffer::new();
-    let root = type_ast(&mut ctx, None, parsed, &mut buffer)?;
+    let root = type_ast(&mut ctx, WantedType::none(), parsed, &mut buffer)?;
     let tree = buffer.insert_root(root);
     let locals = ctx.locals;
     Ok((deps, locals, tree))
@@ -52,7 +54,7 @@ pub fn process_ast<'a>(
 /// that is guaranteed to be the type_ passed in.
 fn type_ast<'a>(
     ctx: &mut Context<'a, '_>,
-    wanted_type: Option<Type>,
+    wanted_type: WantedType,
     parsed: &'a ParsedNode,
     buffer: &mut SelfBuffer,
 ) -> Result<Node, ()> {
@@ -106,7 +108,7 @@ fn type_ast<'a>(
             Node::new(parsed.loc, NodeKind::Constant(constant), inner.type_())
         }
         ParsedNodeKind::Defer { ref deferring } => {
-            let typed = type_ast(ctx, None, deferring, buffer)?;
+            let typed = type_ast(ctx, WantedType::none(), deferring, buffer)?;
 
             if let NodeKind::Constant(_) | NodeKind::ConstAtEvaluation { .. } = typed.kind() {
                 ctx.errors.warning(parsed.loc, "Useless defer".to_string());
@@ -120,48 +122,51 @@ fn type_ast<'a>(
                 Type::new(TypeKind::Empty),
             )
         }
-        ParsedNodeKind::Literal(Literal::Float(num)) => match wanted_type.map(Type::kind) {
-            Some(TypeKind::F32) => {
-                // FIXME: Maybe we want a compiler error for when num is truncated?
-                #[allow(clippy::cast_possible_truncation)]
-                let bytes = (num as f32).to_bits().to_le_bytes();
-                let type_ = Type::new(TypeKind::F32);
+        ParsedNodeKind::Literal(Literal::Float(num)) => {
+            match wanted_type.get_specific().map(Type::kind) {
+                Some(TypeKind::F32) => {
+                    // FIXME: Maybe we want a compiler error for when num is truncated?
+                    #[allow(clippy::cast_possible_truncation)]
+                    let bytes = (num as f32).to_bits().to_le_bytes();
+                    let type_ = Type::new(TypeKind::F32);
 
-                Node::new(
-                    parsed.loc,
-                    NodeKind::Constant(ctx.program.insert_buffer(type_, bytes.as_ptr())),
-                    type_,
-                )
-            }
-            Some(TypeKind::F64) => {
-                let bytes = num.to_bits().to_le_bytes();
-                let type_ = Type::new(TypeKind::F64);
+                    Node::new(
+                        parsed.loc,
+                        NodeKind::Constant(ctx.program.insert_buffer(type_, bytes.as_ptr())),
+                        type_,
+                    )
+                }
+                Some(TypeKind::F64) => {
+                    let bytes = num.to_bits().to_le_bytes();
+                    let type_ = Type::new(TypeKind::F64);
 
-                Node::new(
-                    parsed.loc,
-                    NodeKind::Constant(ctx.program.insert_buffer(type_, bytes.as_ptr())),
-                    type_,
-                )
-            }
-            Some(wanted_type) => {
-                ctx.errors.error(
-                    parsed.loc,
-                    format!("Expected '{}', found float", wanted_type),
-                );
-                return Err(());
-            }
-            None => {
-                ctx.errors.error(
+                    Node::new(
+                        parsed.loc,
+                        NodeKind::Constant(ctx.program.insert_buffer(type_, bytes.as_ptr())),
+                        type_,
+                    )
+                }
+                Some(wanted_type) => {
+                    ctx.errors.error(
+                        parsed.loc,
+                        format!("Expected '{}', found float", wanted_type),
+                    );
+                    return Err(());
+                }
+                None => {
+                    ctx.errors.error(
                     parsed.loc,
                     "A float literal has to know what type it's supposed to be, consider adding a type bound to it.".to_string(),
                 );
-                return Err(());
+                    return Err(());
+                }
             }
-        },
+        }
         ParsedNodeKind::Literal(Literal::String(ref data)) => {
             let u8_type = Type::new(TypeKind::Int(IntTypeKind::U8));
 
-            if let Some(TypeKind::Int(IntTypeKind::U8)) = wanted_type.map(Type::kind) {
+            if let Some(TypeKind::Int(IntTypeKind::U8)) = wanted_type.get_specific().map(Type::kind)
+            {
                 let bytes = data.as_bytes();
 
                 if bytes.len() != 1 {
@@ -188,25 +193,24 @@ fn type_ast<'a>(
             }
         }
         ParsedNodeKind::ArrayLiteral(ref parsed_elements) => {
-            let mut element_type = match wanted_type.map(Type::kind) {
-                Some(TypeKind::Array(element, _)) => Some(*element),
-                _ => None,
-            };
+            let mut element_type = wanted_type.get_element().ok_or_else(|| {
+                ctx.errors.error(
+                    parsed.loc,
+                    format!("Expected '{}', found array literal", wanted_type),
+                )
+            })?;
 
             let mut elements = Vec::with_capacity(parsed_elements.len());
             for parsed_element in parsed_elements {
                 let element = type_ast(ctx, element_type, parsed_element, buffer)?;
-                element_type = Some(element.type_());
+                element_type = WantedType::specific(element.type_());
                 elements.push(buffer.insert(element));
             }
 
-            let type_ = match element_type {
-                Some(element_type) => Type::new(TypeKind::Array(element_type, elements.len())),
-                None => {
-                    ctx.errors.error(parsed.loc, "Because this is an empty array, the types of the elements cannot be inferred; you have to specify a type bound".to_string());
-                    return Err(());
-                }
-            };
+            let inner = element_type.get_specific().ok_or_else(||
+                    ctx.errors.error(parsed.loc, "Because this is an empty array, the types of the elements cannot be inferred; you have to specify a type bound".to_string())
+            )?;
+            let type_ = Type::new(TypeKind::Array(inner, elements.len()));
 
             Node::new(parsed.loc, NodeKind::ArrayLiteral { elements }, type_)
         }
@@ -214,8 +218,13 @@ fn type_ast<'a>(
             ref condition,
             ref body,
         } => {
-            let condition = type_ast(ctx, Some(Type::new(TypeKind::Bool)), condition, buffer)?;
-            let body = type_ast(ctx, None, body, buffer)?;
+            let condition = type_ast(
+                ctx,
+                WantedType::specific(Type::new(TypeKind::Bool)),
+                condition,
+                buffer,
+            )?;
+            let body = type_ast(ctx, WantedType::none(), body, buffer)?;
 
             Node::new(
                 parsed.loc,
@@ -231,8 +240,13 @@ fn type_ast<'a>(
             ref true_body,
             false_body: None,
         } => {
-            let condition = type_ast(ctx, Some(Type::new(TypeKind::Bool)), condition, buffer)?;
-            let true_body = type_ast(ctx, None, true_body, buffer)?;
+            let condition = type_ast(
+                ctx,
+                WantedType::specific(Type::new(TypeKind::Bool)),
+                condition,
+                buffer,
+            )?;
+            let true_body = type_ast(ctx, WantedType::none(), true_body, buffer)?;
 
             Node::new(
                 parsed.loc,
@@ -249,10 +263,20 @@ fn type_ast<'a>(
             ref true_body,
             false_body: Some(ref false_body),
         } => {
-            let condition = type_ast(ctx, Some(Type::new(TypeKind::Bool)), condition, buffer)?;
+            let condition = type_ast(
+                ctx,
+                WantedType::specific(Type::new(TypeKind::Bool)),
+                condition,
+                buffer,
+            )?;
 
             let true_body = type_ast(ctx, wanted_type, true_body, buffer)?;
-            let false_body = type_ast(ctx, Some(true_body.type_()), false_body, buffer)?;
+            let false_body = type_ast(
+                ctx,
+                WantedType::specific(true_body.type_()),
+                false_body,
+                buffer,
+            )?;
 
             if false_body.type_() != true_body.type_() {
                 ctx.errors.error(
@@ -278,8 +302,8 @@ fn type_ast<'a>(
             ref lvalue,
             ref rvalue,
         } => {
-            let lvalue = type_ast(ctx, None, lvalue, buffer)?;
-            let rvalue = type_ast(ctx, Some(lvalue.type_()), rvalue, buffer)?;
+            let lvalue = type_ast(ctx, WantedType::none(), lvalue, buffer)?;
+            let rvalue = type_ast(ctx, WantedType::specific(lvalue.type_()), rvalue, buffer)?;
 
             Node::new(
                 parsed.loc,
@@ -291,15 +315,13 @@ fn type_ast<'a>(
             )
         }
         ParsedNodeKind::Uninit => {
-            if let Some(wanted_type) = wanted_type {
-                Node::new(parsed.loc, NodeKind::Uninit, wanted_type)
-            } else {
+            let wanted_type = wanted_type.get_specific().ok_or_else(|| {
                 ctx.errors.error(
                     parsed.loc,
                     "Type has to be known at this point; put a type bound on this!".to_string(),
-                );
-                return Err(());
-            }
+                )
+            })?;
+            Node::new(parsed.loc, NodeKind::Uninit, wanted_type)
         }
         ParsedNodeKind::FunctionDeclaration {
             ref locals,
@@ -322,7 +344,7 @@ fn type_ast<'a>(
 
             let mut default_values = Vec::with_capacity(default_args.len());
             for (local, &(name, ref node)) in locals.iter_mut().skip(args.len()).zip(default_args) {
-                let arg_value = type_ast(ctx, None, node, buffer)?;
+                let arg_value = type_ast(ctx, WantedType::none(), node, buffer)?;
 
                 if let NodeKind::Constant(constant) = *arg_value.kind() {
                     default_values.push(constant);
@@ -349,7 +371,12 @@ fn type_ast<'a>(
                 deps: ctx.deps,
             };
 
-            let body = type_ast(&mut sub_ctx, Some(return_type), body, buffer)?;
+            let body = type_ast(
+                &mut sub_ctx,
+                WantedType::specific(return_type),
+                body,
+                buffer,
+            )?;
 
             Node::new(
                 parsed.loc,
@@ -367,39 +394,37 @@ fn type_ast<'a>(
             )
         }
         ParsedNodeKind::BitCast { ref value } => {
-            if let Some(casting_to) = wanted_type {
-                let casting_from = type_ast(ctx, None, value, buffer)?;
+            let casting_to = wanted_type.get_specific().ok_or_else(|| {
+                ctx.errors.error(parsed.loc, "Can only cast if the type we cast to is known; add a type bound after the cast to tell it what to cast to".to_string())
+            })?;
+            let casting_from = type_ast(ctx, WantedType::none(), value, buffer)?;
 
-                if casting_from.type_().size() != casting_to.size() {
-                    ctx.errors.error(parsed.loc, format!("Cannot bit_cast from '{}' to '{}', the sizes of the types have to be the same.", casting_from.type_(), casting_to));
-                    return Err(());
-                }
-
-                if casting_from.type_() == casting_to {
-                    ctx.errors.warning(
-                        parsed.loc,
-                        "Unnecessary bit_cast, the types are the same".to_string(),
-                    );
-                }
-
-                Node::new(
-                    parsed.loc,
-                    NodeKind::BitCast {
-                        value: buffer.insert(casting_from),
-                    },
-                    casting_to,
-                )
-            } else {
-                ctx.errors.error(parsed.loc, "Can only cast if the type we cast to is known; add a type bound after the cast to tell it what to cast to".to_string());
+            if casting_from.type_().size() != casting_to.size() {
+                ctx.errors.error(parsed.loc, format!("Cannot bit_cast from '{}' to '{}', the sizes of the types have to be the same.", casting_from.type_(), casting_to));
                 return Err(());
             }
+
+            if casting_from.type_() == casting_to {
+                ctx.errors.warning(
+                    parsed.loc,
+                    "Unnecessary bit_cast, the types are the same".to_string(),
+                );
+            }
+
+            Node::new(
+                parsed.loc,
+                NodeKind::BitCast {
+                    value: buffer.insert(casting_from),
+                },
+                casting_to,
+            )
         }
         ParsedNodeKind::FunctionCall {
             ref calling,
             args: ref parsed_args,
             ref named_args,
         } => {
-            let calling = type_ast(ctx, None, calling, buffer)?;
+            let calling = type_ast(ctx, WantedType::none(), calling, buffer)?;
             if let TypeKind::Function {
                 args: arg_types,
                 returns,
@@ -416,7 +441,7 @@ fn type_ast<'a>(
 
                 let mut args = Vec::with_capacity(arg_types.len());
                 for (i, got) in parsed_args.iter().enumerate() {
-                    let arg = type_ast(ctx, Some(arg_types[i]), got, buffer)?;
+                    let arg = type_ast(ctx, WantedType::specific(arg_types[i]), got, buffer)?;
                     args.push((i, buffer.insert(arg)));
                 }
 
@@ -437,7 +462,8 @@ fn type_ast<'a>(
                                     return Err(());
                                 }
 
-                                let arg = type_ast(ctx, Some(arg_types[i]), arg, buffer)?;
+                                let arg =
+                                    type_ast(ctx, WantedType::specific(arg_types[i]), arg, buffer)?;
                                 args.push((i, buffer.insert(arg)));
                             } else {
                                 ctx.errors.error(
@@ -508,87 +534,87 @@ fn type_ast<'a>(
             ref library_name,
             ref symbol_name,
         } => {
-            if let Some(wanted_type) = wanted_type {
-                if let TypeKind::Function {
-                    args: _,
-                    returns: _,
-                    is_extern: true,
-                } = wanted_type.kind()
-                {
-                    match ctx.program.load_extern_library(
-                        library_name,
-                        symbol_name.as_str().into(),
-                        wanted_type,
-                    ) {
-                        Ok(func) => Node::new(
-                            parsed.loc,
-                            NodeKind::Constant(ctx.program.insert_buffer(
-                                wanted_type,
-                                &(func as usize) as *const usize as *const _,
-                            )),
-                            wanted_type,
-                        ),
-                        Err(err) => {
-                            ctx.errors.error(
-                                parsed.loc,
-                                format!("Failed to load extern symbol\n{:?}", err),
-                            );
-                            return Err(());
-                        }
-                    }
-                } else {
-                    ctx.errors.error(
+            let wanted_type = wanted_type.get_specific().ok_or_else(|| {
+                ctx.errors.error(parsed.loc, "The type has to be known at this point. You can specify the type of the item to import by adding a type bound, ': [type]' after it".to_string())
+            })?;
+            if let TypeKind::Function {
+                args: _,
+                returns: _,
+                is_extern: true,
+            } = wanted_type.kind()
+            {
+                match ctx.program.load_extern_library(
+                    library_name,
+                    symbol_name.as_str().into(),
+                    wanted_type,
+                ) {
+                    Ok(func) => Node::new(
                         parsed.loc,
-                        "Only extern function pointer types can be imported from external sources"
-                            .to_string(),
-                    );
-                    return Err(());
+                        NodeKind::Constant(ctx.program.insert_buffer(
+                            wanted_type,
+                            &(func as usize) as *const usize as *const _,
+                        )),
+                        wanted_type,
+                    ),
+                    Err(err) => {
+                        ctx.errors.error(
+                            parsed.loc,
+                            format!("Failed to load extern symbol\n{:?}", err),
+                        );
+                        return Err(());
+                    }
                 }
             } else {
-                ctx.errors.error(parsed.loc, "The type has to be known at this point. You can specify the type of the item to import by adding a type bound, ': [type]' after it".to_string());
+                ctx.errors.error(
+                    parsed.loc,
+                    "Only extern function pointer types can be imported from external sources"
+                        .to_string(),
+                );
                 return Err(());
             }
         }
-        ParsedNodeKind::Literal(Literal::Int(num)) => match wanted_type.map(Type::kind) {
-            Some(TypeKind::Int(int)) => {
-                let bytes = num.to_le_bytes();
+        ParsedNodeKind::Literal(Literal::Int(num)) => {
+            match wanted_type.get_specific().map(Type::kind) {
+                Some(TypeKind::Int(int)) => {
+                    let bytes = num.to_le_bytes();
 
-                if !int.range().contains(&(num as i128)) {
-                    let range = int.range();
-                    ctx.errors.error(
+                    if !int.range().contains(&(num as i128)) {
+                        let range = int.range();
+                        ctx.errors.error(
                             parsed.loc,
                             format!("Given integer does not fit within a '{:?}', only values from {} to {} fit in this integer", int, range.start(), range.end())
                         );
+                        return Err(());
+                    }
+
+                    let type_ = (*int).into();
+                    Node::new(
+                        parsed.loc,
+                        NodeKind::Constant(ctx.program.insert_buffer(type_, bytes.as_ptr())),
+                        type_,
+                    )
+                }
+                Some(wanted_type) => {
+                    ctx.errors.error(
+                        parsed.loc,
+                        format!("Expected '{}', found integer", wanted_type),
+                    );
                     return Err(());
                 }
-
-                let type_ = (*int).into();
-                Node::new(
-                    parsed.loc,
-                    NodeKind::Constant(ctx.program.insert_buffer(type_, bytes.as_ptr())),
-                    type_,
-                )
-            }
-            Some(wanted_type) => {
-                ctx.errors.error(
-                    parsed.loc,
-                    format!("Expected '{}', found integer", wanted_type),
-                );
-                return Err(());
-            }
-            None => {
-                ctx.errors.error(
+                None => {
+                    ctx.errors.error(
                     parsed.loc,
                     "An integer literal has to know what type it's supposed to be, consider adding a type bound to it.".to_string(),
                 );
-                return Err(());
+                    return Err(());
+                }
             }
-        },
+        }
         ParsedNodeKind::TypeBound {
             ref value,
             ref bound,
         } => {
-            if wanted_type.is_some() {
+            if wanted_type.get_specific().is_some() {
                 ctx.errors.warning(
                     parsed.loc,
                     "Unnecessary type bound, the type is already known".to_string(),
@@ -596,19 +622,21 @@ fn type_ast<'a>(
             }
 
             let bound = const_fold_type_expr(ctx, bound, buffer)?;
-            type_ast(ctx, Some(bound), value, buffer)?
+            type_ast(ctx, WantedType::specific(bound), value, buffer)?
         }
         ParsedNodeKind::Binary {
             op,
             ref left,
             ref right,
         } => {
-            let left_hand_side = wanted_type.and_then(|t| op.left_hand_side_from_return(t));
+            let left_hand_side = wanted_type
+                .get_specific()
+                .and_then(|t| op.left_hand_side_from_return(t));
 
-            let left = type_ast(ctx, left_hand_side, left, buffer)?;
+            let left = type_ast(ctx, left_hand_side.into(), left, buffer)?;
             let right = type_ast(
                 ctx,
-                op.right_hand_side_from_left(left.type_()),
+                op.right_hand_side_from_left(left.type_()).into(),
                 right,
                 buffer,
             )?;
@@ -665,31 +693,22 @@ fn type_ast<'a>(
             // already such difference in behaviour between nodes.
             match op {
                 UnaryOp::AutoCast => {
-                    if let Some(wanted_type) = wanted_type {
-                        let internal = type_ast(ctx, None, operand, buffer)?;
-                        auto_cast(ctx, parsed.loc, internal, wanted_type, buffer)?
-                    } else {
-                        ctx.errors.error(parsed.loc, "Casting can only be done if the type is known; are you sure you want to cast here?".to_string());
-                        return Err(());
-                    }
+                    let wanted_type = wanted_type.get_specific().ok_or_else(|| {
+                        ctx.errors.error(parsed.loc, "Casting can only be done if the type is known; are you sure you want to cast here?".to_string())
+                    })?;
+                    let internal = type_ast(ctx, WantedType::none(), operand, buffer)?;
+                    auto_cast(ctx, parsed.loc, internal, wanted_type, buffer)?
                 }
                 UnaryOp::Reference => {
-                    let wanted_inner = match wanted_type.map(Type::kind) {
-                        Some(TypeKind::Buffer(_)) => None,
-                        Some(&TypeKind::Reference(inner)) => Some(inner),
-                        Some(_) => {
-                            ctx.errors.error(
-                                parsed.loc,
-                                format!("Expected '{}', not a reference", wanted_type.unwrap()),
-                            );
-                            return Err(());
-                        }
-                        None => None,
-                    };
-
+                    let wanted_inner = wanted_type.get_pointee().ok_or_else(|| {
+                        ctx.errors.error(
+                            parsed.loc,
+                            format!("Expected '{}', got a reference of something", wanted_type),
+                        )
+                    })?;
                     let operand = type_ast(ctx, wanted_inner, operand, buffer)?;
 
-                    match wanted_type {
+                    match wanted_type.get_specific() {
                         Some(Type(TypeData {
                             kind: TypeKind::Reference(_),
                             ..
@@ -730,9 +749,11 @@ fn type_ast<'a>(
                     }
                 }
                 UnaryOp::Dereference => {
-                    let wanted_inner = wanted_type.map(|v| Type::new(TypeKind::Reference(v)));
+                    let wanted_inner = wanted_type
+                        .get_specific()
+                        .map(|v| Type::new(TypeKind::Reference(v)));
 
-                    let operand = type_ast(ctx, wanted_inner, operand, buffer)?;
+                    let operand = type_ast(ctx, wanted_inner.into(), operand, buffer)?;
                     let type_ = if let TypeKind::Reference(inner) = *operand.type_().kind() {
                         inner
                     } else {
@@ -788,7 +809,7 @@ fn type_ast<'a>(
             ref value,
         } => {
             let label_type = ctx.locals.get_label_mut(label).type_;
-            let value = type_ast(ctx, label_type, value, buffer)?;
+            let value = type_ast(ctx, label_type.into(), value, buffer)?;
 
             ctx.locals.get_label_mut(label).type_ = Some(value.type_());
 
@@ -809,12 +830,12 @@ fn type_ast<'a>(
         } => {
             if let Some(label) = label {
                 let label = ctx.locals.get_label_mut(label);
-                label.type_ = wanted_type;
+                label.type_ = wanted_type.get_specific();
             }
 
             let mut contents = Vec::with_capacity(parsed_contents.len());
             for parsed_content in parsed_contents.iter().take(parsed_contents.len() - 1) {
-                let content = type_ast(ctx, None, parsed_content, buffer)?;
+                let content = type_ast(ctx, WantedType::none(), parsed_content, buffer)?;
 
                 if let NodeKind::Constant(_) | NodeKind::ConstAtEvaluation { .. } = content.kind() {
                     ctx.errors.warning(
@@ -845,7 +866,7 @@ fn type_ast<'a>(
             Node::new(parsed.loc, NodeKind::Block { label, contents }, type_)
         }
         ParsedNodeKind::Member { ref of, name } => {
-            let member_of = type_ast(ctx, None, of, buffer)?;
+            let member_of = type_ast(ctx, WantedType::none(), of, buffer)?;
 
             if let Some(member) = member_of.type_().member(name) {
                 Node::new(
@@ -868,7 +889,7 @@ fn type_ast<'a>(
                 return Err(());
             }
         }
-        ParsedNodeKind::GlobalForTyping(name, ref polymorphic_arguments) => {
+        ParsedNodeKind::GlobalForTyping(name, _) => {
             let id = ctx.program.get_member_id(name).unwrap();
             // FIXME: We should store the metadata for this global somewhere
             Node::new(
@@ -877,7 +898,7 @@ fn type_ast<'a>(
                 ctx.program.get_type_of_member(id),
             )
         }
-        ParsedNodeKind::Global(name, ref polymorphic_arguments) => {
+        ParsedNodeKind::Global(name, _) => {
             let id = ctx.program.get_member_id(name).unwrap();
             ctx.deps.add(
                 parsed.loc,
@@ -897,7 +918,7 @@ fn type_ast<'a>(
             local,
             value: ref parsed_value,
         } => {
-            let value = type_ast(ctx, None, parsed_value, buffer)?;
+            let value = type_ast(ctx, WantedType::none(), parsed_value, buffer)?;
 
             ctx.locals.get_mut(local).type_ = Some(value.type_());
             Node::new(
@@ -934,14 +955,12 @@ fn type_ast<'a>(
         }
     };
 
-    if let Some(wanted_type) = wanted_type {
-        if wanted_type != node.type_() {
-            ctx.errors.error(
-                parsed.loc,
-                format!("Expected '{}', found '{}'", wanted_type, node.type_()),
-            );
-            return Err(());
-        }
+    if !wanted_type.type_fits(node.type_()) {
+        ctx.errors.error(
+            parsed.loc,
+            format!("Expected '{}', found '{}'", wanted_type, node.type_()),
+        );
+        return Err(());
     }
 
     Ok(node)
@@ -953,7 +972,7 @@ fn const_fold_type_expr<'a>(
     buffer: &mut SelfBuffer,
 ) -> Result<Type, ()> {
     match parsed.kind {
-        ParsedNodeKind::GlobalForTyping(name, ref polymorphic_arguments) => {
+        ParsedNodeKind::GlobalForTyping(name, _) => {
             let id = ctx.program.get_member_id(name).unwrap();
             let ptr = ctx.program.get_value_of_member(id).as_ptr();
             Ok(unsafe { *ptr.cast::<Type>() })
@@ -979,7 +998,7 @@ fn const_fold_type_expr<'a>(
         } => {
             let len = type_ast(
                 ctx,
-                Some(Type::new(TypeKind::Int(IntTypeKind::Usize))),
+                WantedType::specific(Type::new(TypeKind::Int(IntTypeKind::Usize))),
                 len,
                 buffer,
             )?;

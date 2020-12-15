@@ -224,6 +224,7 @@ pub fn routine_to_c(output: &mut String, routine: &Routine, num_args: usize) {
 
     write!(output, "    // Code\n").unwrap();
     for instr in &routine.instr {
+        write!(output, "    // {:?}\n", instr).unwrap();
         output.push_str("    ");
         match instr {
             Instr::Call { to, pointer, args }

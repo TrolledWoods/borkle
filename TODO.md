@@ -13,8 +13,9 @@
         To test this, default value function parameters are also added.
 * [X] Name arguments when calling a function, and default arguments.
 * [X] Taking a reference does an autocast as well
-* [ ] Polymorphism
+* [ ] Change the type inference system to allow for more nuanced things, since right now it's cracking at the seems.
 
+* [ ] Polymorphism
 * [ ] Add overflow checks to type size calculations, and add a user level error for trying to create too large types.
 * [ ] Generalize primitive types, so that doing more complicated type analysis becomes possible.
 * [ ] Allow array types to contain arbitrary length expressions
@@ -39,7 +40,6 @@
 * [ ] Function arguments are implicitly dereferenced/referenced(maybe we want this?)
 * [ ] 'Any' type, the same as C void\*
     (do we want it to behave this way or do we want 'Any' to use a type id, and have some other type that works like c void)
-* [ ] Change the type inference system to allow for more nuanced things, since right now it's cracking at the seems.
 
 # Version 0.0.3
 * [ ] Compile time functions

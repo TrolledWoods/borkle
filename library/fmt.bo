@@ -12,7 +12,7 @@ const ARGUMENT_SPECIFIER = *"%".ptr;
 
 const print = fn(
     fmt_string: [] u8,
-    fmt_args = const &([] : [0] Format) : [] Format,
+    fmt_args = const &[] : [] Format,
 ) {
     let prev_section = 0 : usize;
     let i = 0 : usize;
