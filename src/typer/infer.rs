@@ -1,5 +1,3 @@
-use super::ast::Node;
-use crate::self_buffer::SelfBuffer;
 use crate::types::{Type, TypeKind};
 use std::fmt;
 
@@ -64,23 +62,6 @@ impl WantedType {
                 _ => None,
             },
             WantedKind::Array(_) => None,
-        }
-    }
-
-    pub fn cast_node(&self, got: Node, buffer: &mut SelfBuffer) -> Result<Node, ()> {
-        match self.kind {
-            WantedKind::None => Ok(got),
-            WantedKind::Specific(type_) => {
-                if got.type_() == type_ {
-                    Ok(got)
-                } else {
-                    Err(())
-                }
-            }
-            WantedKind::Array(inner) => match got.type_().kind() {
-                TypeKind::Array(element, _) if *element == inner => Ok(got),
-                _ => Err(()),
-            },
         }
     }
 

@@ -1,7 +1,19 @@
-const BufferType = type [][] u8;
+library "fmt.bo";
+
+const print_stuff = fn(given: u64) { 'block
+    defer print("Deferred hello!\n");
+    print("Hello!\n");
+    if given > 2 {
+        break block;
+    };
+    defer print("Deferred hello 2!\n");
+    print("Hello2!\n");
+};
 
 const main = fn() -> u64 {
-    let my_buffer = &[] : BufferType;
+    print_stuff(5);
+    print("\n\n");
+    print_stuff(2);
 
     0
 };

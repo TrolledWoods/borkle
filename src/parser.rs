@@ -455,7 +455,16 @@ fn atom_value(
                 };
 
                 let num_defer_deduplications = imperative.locals.get_label(id).num_defers;
-                let value = expression(global, imperative, buffer)?;
+
+                let value = if matches!(
+                    global.tokens.peek().map(|t| &t.kind),
+                    Some(TokenKind::SemiColon)
+                ) {
+                    Node::new(loc, NodeKind::Empty)
+                } else {
+                    expression(global, imperative, buffer)?
+                };
+
                 Node::new(
                     token.loc,
                     NodeKind::Break {
@@ -618,13 +627,6 @@ fn atom_value(
                             global.tokens.next();
                             let token = global.tokens.expect_next(global.errors)?;
                             if let TokenKind::Identifier(name) = token.kind {
-                                let id = imperative.insert_local(Local {
-                                    loc: token.loc,
-                                    name,
-                                    type_: None,
-                                    value: None,
-                                });
-
                                 global.tokens.try_consume_operator_string("=").ok_or_else(
                                     || {
                                         global.error(
@@ -635,6 +637,13 @@ fn atom_value(
                                 )?;
 
                                 let value = expression(global, imperative, buffer)?;
+
+                                let id = imperative.insert_local(Local {
+                                    loc: token.loc,
+                                    name,
+                                    type_: None,
+                                    value: None,
+                                });
 
                                 let declaration = Node::new(
                                     token.loc,
