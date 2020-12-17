@@ -20,22 +20,13 @@
 * [X] If break \<label\> is followed by a ';', then just break with the Empty type.
 * [X] Figure out why ifs with loose expressions after them never seem to work.
 * [X] Allow array types to contain arbitrary length expressions
+* [X] Allow array literals to also become buffers if the wanted type needs it.
 * [ ] Never type
 
 * [ ] Make sure certain types of values are "alone" in an expression.
-* [ ] Polymorphism
-* [ ] Add overflow checks to type size calculations, and add a user level error for trying to create too large types.
-* [ ] Generalize primitive types, so that doing more complicated type analysis becomes possible.
-* [ ] Make locals/labels use pure register ids instead of values, since they are never going to be global anyway
-* [ ] Figure out if there is a way to have fewer keywords.
-* [ ] If the dynamic library in the target directory is already defined, and has the same "last edited" date as the source file, don't copy the file from the source.
-* [ ] Allow running the examples folder as tests
 * [ ] Make a global setup file for the compiler!
-* [ ] Struct literals
-* [ ] Structs in ffi
 * [ ] Indexing operations
-* [ ] Implement the proper separation between 'thread pool' and 'program'
-* [ ] Allow array literals to also become buffers if the wanted type needs it.
+* [ ] Ranges
 * [ ] For loops
 * [ ] Function arguments are implicitly dereferenced/referenced(maybe we want this?)
 * [ ] 'Any' type, the same as C void\*
@@ -44,3 +35,11 @@
 # Version 0.0.3
 * [ ] Compile time functions
 * [ ] Functions for constructing types programmatically at compile time
+* [ ] Polymorphism
+* [ ] Implement the proper separation between 'thread pool' and 'program'
+* [ ] If the dynamic library in the target directory is already defined, and has the same "last edited" date as the source file, don't copy the file from the source.
+* [ ] Struct literals
+* [ ] Structs in ffi
+* [ ] Figure out if there is a way to have fewer keywords.
+* [ ] Make locals/labels use pure register ids instead of values, since they are never going to be global anyway
+* [ ] Add overflow checks to type size calculations, and add a user level error for trying to create too large types.

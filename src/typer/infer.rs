@@ -66,6 +66,10 @@ impl WantedType {
     }
 
     pub fn type_fits(&self, got: Type) -> bool {
+        if got.is_never_type() {
+            return true;
+        }
+
         match self.kind {
             WantedKind::None => true,
             WantedKind::Specific(wanted) => wanted == got,

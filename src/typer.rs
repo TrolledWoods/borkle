@@ -820,7 +820,6 @@ fn type_ast<'a>(
                     num_defer_deduplications,
                     value: buffer.insert(value),
                 },
-                // FIXME: This should eventually be the never type since the code never reaches here.
                 Type::new(TypeKind::Empty),
             )
         }
@@ -847,7 +846,9 @@ fn type_ast<'a>(
                 contents.push(buffer.insert(content));
             }
 
-            let last = type_ast(ctx, wanted_type, parsed_contents.last().unwrap(), buffer)?;
+            let parsed_last = parsed_contents.last().unwrap();
+            let last = type_ast(ctx, wanted_type, parsed_last, buffer)?;
+
             let type_ = last.type_();
             contents.push(buffer.insert(last));
 

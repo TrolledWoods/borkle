@@ -75,6 +75,10 @@ impl Type {
         }
     }
 
+    pub fn is_never_type(self) -> bool {
+        self.0.is_never_type
+    }
+
     pub fn pointers(self) -> &'static [(usize, PointerInType)] {
         &self.0.pointers
     }
