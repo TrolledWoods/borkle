@@ -40,7 +40,8 @@ const print_i64 = extern "target/library" "print_i64" : extern fn (i64);
 const print_u64 = extern "target/library" "print_u64" : extern fn (u64);
 
 const print_i32 = fn(num: i32) {
-    let big = if num < 0 { -1 } else { 0 } : i64;
+    let big = if num < 0  -1 : i64
+    else 0;
     *(bit_cast &big : &i32) = num;
     print_i64(big);
 };

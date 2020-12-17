@@ -487,13 +487,13 @@ fn atom_value(
             }
             TokenKind::Keyword(Keyword::If) => {
                 let condition = expression(global, imperative, buffer)?;
-                let true_body = value(global, imperative, buffer)?;
+                let true_body = expression(global, imperative, buffer)?;
 
                 let false_body = if global
                     .tokens
                     .try_consume(&TokenKind::Keyword(Keyword::Else))
                 {
-                    Some(value(global, imperative, buffer)?)
+                    Some(expression(global, imperative, buffer)?)
                 } else {
                     None
                 };

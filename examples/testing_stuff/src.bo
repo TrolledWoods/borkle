@@ -10,6 +10,8 @@ const print_stuff = fn(given: u64) { 'block
     print("Hello2!\n");
 };
 
+const x[T] = 42 : T;
+
 const main = fn() -> u64 {
     print_stuff(5);
     print("\n\n");

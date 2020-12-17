@@ -17,14 +17,15 @@
 * [X] Put the emitter context in a different function and make zst type checks for all of them.
 * [X] BUG! Seems like empty array literals can be of any type, even though they should only be arrays.
 * [X] BUG! There is a bug with variable shadowing
+* [X] If break \<label\> is followed by a ';', then just break with the Empty type.
+* [X] Figure out why ifs with loose expressions after them never seem to work.
 
+* [ ] Make sure certain types of values are "alone" in an expression.
 * [ ] Polymorphism
 * [ ] Add overflow checks to type size calculations, and add a user level error for trying to create too large types.
 * [ ] Generalize primitive types, so that doing more complicated type analysis becomes possible.
 * [ ] Allow array types to contain arbitrary length expressions
 * [ ] Make a separate ast node kind for type expressions?
-* [ ] Figure out why ifs with loose expressions after them never seem to work.
-* [ ] If break \<label\> is followed by a ';', then just break with the Empty type.
 * [ ] In emit.rs, don't pass nodes by reference but by value instead
 * [ ] Never type
 * [ ] Make locals/labels use pure register ids instead of values, since they are never going to be global anyway
