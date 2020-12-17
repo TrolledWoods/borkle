@@ -48,10 +48,18 @@ impl Type {
     pub fn new(kind: TypeKind) -> Self {
         let (size, align) = kind.calculate_size_align();
 
+        let mut is_never_type = matches!(kind, TypeKind::Never);
+        kind.for_each_child(|child| {
+            if child.0.is_never_type {
+                is_never_type = true
+            }
+        });
+
         let mut pointers = Vec::new();
         kind.get_pointers(&mut pointers);
 
         let data = TypeData {
+            is_never_type,
             size,
             align,
             kind,
@@ -122,6 +130,7 @@ impl Type {
 
 #[derive(Hash, PartialEq, Eq)]
 pub struct TypeData {
+    is_never_type: bool,
     size: usize,
     align: usize,
     pub kind: TypeKind,
@@ -131,6 +140,7 @@ pub struct TypeData {
 impl Display for TypeKind {
     fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::Never => write!(fmt, "!"),
             Self::Type => write!(fmt, "type"),
             Self::Empty => write!(fmt, "()"),
             Self::F64 => write!(fmt, "f64"),
@@ -185,6 +195,7 @@ pub fn to_align(value: usize, align: usize) -> usize {
 
 #[derive(Hash, PartialEq, Eq)]
 pub enum TypeKind {
+    Never,
     Type,
     Empty,
     F64,
@@ -203,8 +214,36 @@ pub enum TypeKind {
 }
 
 impl TypeKind {
+    fn for_each_child(&self, mut on_inner: impl FnMut(Type)) {
+        match self {
+            TypeKind::Never
+            | TypeKind::Type
+            | TypeKind::Empty
+            | TypeKind::F64
+            | TypeKind::F32
+            | TypeKind::Bool
+            | TypeKind::Int(_) => {}
+            TypeKind::Reference(inner) => on_inner(*inner),
+            TypeKind::Function { args, returns, .. } => {
+                for arg in args {
+                    on_inner(*arg);
+                }
+
+                on_inner(*returns);
+            }
+            TypeKind::Buffer(inner) => on_inner(*inner),
+            TypeKind::Array(inner, _) => on_inner(*inner),
+            TypeKind::Struct(members) => {
+                for (_, member) in members {
+                    on_inner(*member);
+                }
+            }
+        }
+    }
+
     fn calculate_size_align(&self) -> (usize, usize) {
         match self {
+            Self::Never => (0, 0),
             Self::Type => (8, 8),
             Self::Empty => (0, 1),
             Self::F64 | Self::Reference(_) | Self::Function { .. } => (8, 8),
@@ -237,7 +276,13 @@ impl TypeKind {
     /// pointers(i.e. pointers behind other pointers).
     fn get_pointers(&self, pointers: &mut Vec<(usize, PointerInType)>) {
         match self {
-            Self::Type | Self::Empty | Self::Int(_) | Self::F32 | Self::F64 | Self::Bool => {}
+            Self::Never
+            | Self::Type
+            | Self::Empty
+            | Self::Int(_)
+            | Self::F32
+            | Self::F64
+            | Self::Bool => {}
             Self::Reference(internal) => {
                 if internal.size() > 0 {
                     pointers.push((0, PointerInType::Pointer(*internal)));

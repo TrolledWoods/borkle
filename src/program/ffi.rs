@@ -134,7 +134,7 @@ fn type_to_ffi_type(type_: Type) -> Option<ffi_type> {
     // Safety: These statics should not be modified ever, I don't know why they are mutable statics.
     unsafe {
         match type_.kind() {
-            TypeKind::Empty => None,
+            TypeKind::Never | TypeKind::Empty => None,
             TypeKind::Type | TypeKind::Int(IntTypeKind::U64) => Some(ffi_type_uint64),
             TypeKind::Int(IntTypeKind::I64) => Some(ffi_type_sint64),
             TypeKind::Int(IntTypeKind::U32) => Some(ffi_type_uint32),
