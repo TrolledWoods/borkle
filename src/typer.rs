@@ -124,7 +124,7 @@ fn type_ast<'a>(
         }
         ParsedNodeKind::Literal(Literal::Float(num)) => {
             match wanted_type.get_specific().map(Type::kind) {
-                Some(TypeKind::F32) => {
+                Some(TypeKind::F32) | None => {
                     // FIXME: Maybe we want a compiler error for when num is truncated?
                     #[allow(clippy::cast_possible_truncation)]
                     let bytes = (num as f32).to_bits().to_le_bytes();
@@ -151,13 +151,6 @@ fn type_ast<'a>(
                         parsed.loc,
                         format!("Expected '{}', found float", wanted_type),
                     );
-                    return Err(());
-                }
-                None => {
-                    ctx.errors.error(
-                    parsed.loc,
-                    "A float literal has to know what type it's supposed to be, consider adding a type bound to it.".to_string(),
-                );
                     return Err(());
                 }
             }
@@ -574,8 +567,12 @@ fn type_ast<'a>(
             }
         }
         ParsedNodeKind::Literal(Literal::Int(num)) => {
-            match wanted_type.get_specific().map(Type::kind) {
-                Some(TypeKind::Int(int)) => {
+            const DEFAULT_KIND: &TypeKind = &TypeKind::Int(IntTypeKind::I32);
+
+            let wanted_type_kind = wanted_type.get_specific().map_or(DEFAULT_KIND, Type::kind);
+
+            match wanted_type_kind {
+                TypeKind::Int(int) => {
                     let bytes = num.to_le_bytes();
 
                     if !int.range().contains(&(num as i128)) {
@@ -594,18 +591,11 @@ fn type_ast<'a>(
                         type_,
                     )
                 }
-                Some(wanted_type) => {
+                _ => {
                     ctx.errors.error(
                         parsed.loc,
                         format!("Expected '{}', found integer", wanted_type),
                     );
-                    return Err(());
-                }
-                None => {
-                    ctx.errors.error(
-                    parsed.loc,
-                    "An integer literal has to know what type it's supposed to be, consider adding a type bound to it.".to_string(),
-                );
                     return Err(());
                 }
             }
