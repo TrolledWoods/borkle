@@ -114,6 +114,19 @@ impl Type {
 
                 None
             }
+            TypeKind::Range(internal) => match member_name.as_str() {
+                "start" => Some(Member {
+                    parent_type: self,
+                    byte_offset: 0,
+                    type_: *internal,
+                }),
+                "end" => Some(Member {
+                    parent_type: self,
+                    byte_offset: to_align(internal.size(), internal.align()),
+                    type_: *internal,
+                }),
+                _ => None,
+            },
             TypeKind::Buffer(internal) => match member_name.as_str() {
                 "ptr" => Some(Member {
                     parent_type: self,
@@ -144,6 +157,7 @@ pub struct TypeData {
 impl Display for TypeKind {
     fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::Range(inner) => write!(fmt, "{0}..{0}", inner),
             Self::Never => write!(fmt, "!"),
             Self::Type => write!(fmt, "type"),
             Self::Empty => write!(fmt, "()"),
@@ -205,6 +219,7 @@ pub enum TypeKind {
     F64,
     F32,
     Bool,
+    Range(Type),
     Int(IntTypeKind),
     Array(Type, usize),
     Reference(Type),
@@ -227,7 +242,10 @@ impl TypeKind {
             | TypeKind::F32
             | TypeKind::Bool
             | TypeKind::Int(_) => {}
-            TypeKind::Reference(inner) => on_inner(*inner),
+            TypeKind::Buffer(inner)
+            | TypeKind::Array(inner, _)
+            | TypeKind::Range(inner)
+            | TypeKind::Reference(inner) => on_inner(*inner),
             TypeKind::Function { args, returns, .. } => {
                 for arg in args {
                     on_inner(*arg);
@@ -235,8 +253,6 @@ impl TypeKind {
 
                 on_inner(*returns);
             }
-            TypeKind::Buffer(inner) => on_inner(*inner),
-            TypeKind::Array(inner, _) => on_inner(*inner),
             TypeKind::Struct(members) => {
                 for (_, member) in members {
                     on_inner(*member);
@@ -254,10 +270,14 @@ impl TypeKind {
             Self::Buffer(_) => (16, 8),
             Self::F32 => (4, 4),
             Self::Bool => (1, 1),
+            Self::Range(inner) => {
+                let size = array_size(inner.size(), inner.align(), 2);
+                (size, inner.align())
+            }
             Self::Array(internal, length) => {
                 let (member_size, align) = internal.kind().calculate_size_align();
-                let member_size = to_align(member_size, align);
-                (member_size * length, align)
+                let size = array_size(member_size, align, *length);
+                (size, align)
             }
             Self::Int(kind) => kind.size_align(),
             Self::Struct(members) => {
@@ -295,6 +315,13 @@ impl TypeKind {
             Self::Buffer(internal) => {
                 if internal.size() > 0 {
                     pointers.push((0, PointerInType::Buffer(*internal)));
+                }
+            }
+            Self::Range(internal) => {
+                let second_element = to_align(internal.size(), internal.align());
+                for (internal_offset, internal_type) in internal.pointers() {
+                    pointers.push((*internal_offset, internal_type.clone()));
+                    pointers.push((second_element + *internal_offset, internal_type.clone()));
                 }
             }
             Self::Array(internal, len) => {
@@ -428,4 +455,9 @@ pub struct Member {
     pub parent_type: Type,
     pub byte_offset: usize,
     pub type_: Type,
+}
+
+fn array_size(size: usize, align: usize, num_elements: usize) -> usize {
+    let element_size = to_align(size, align);
+    element_size * num_elements
 }

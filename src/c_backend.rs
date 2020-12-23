@@ -269,6 +269,29 @@ pub fn routine_to_c(output: &mut String, routine: &Routine, num_args: usize) {
                 .unwrap();
             }
             Instr::Binary {
+                op: BinaryOp::Range,
+                to,
+                a,
+                b,
+                left_type: _,
+                right_type: _,
+            } => {
+                write!(
+                    output,
+                    "{}.start = {};\n",
+                    c_format_value(to),
+                    c_format_value(a),
+                )
+                .unwrap();
+                write!(
+                    output,
+                    "{}.end = {};\n",
+                    c_format_value(to),
+                    c_format_value(b),
+                )
+                .unwrap();
+            }
+            Instr::Binary {
                 op,
                 to,
                 a,
@@ -291,6 +314,7 @@ pub fn routine_to_c(output: &mut String, routine: &Routine, num_args: usize) {
                     BinaryOp::Div => "/",
                     BinaryOp::BitAnd => "&",
                     BinaryOp::BitOr => "|",
+                    BinaryOp::Range => unreachable!("Special case operator"),
                 };
 
                 write!(
@@ -413,6 +437,14 @@ pub fn append_c_type_headers(output: &mut String) {
         match &type_.kind {
             TypeKind::Type => output.push_str("uint64_t "),
             TypeKind::Never | TypeKind::Empty => unreachable!(),
+            TypeKind::Range(internal) => {
+                write!(
+                    output,
+                    "struct {{ {0} start; {0} end; }}",
+                    c_format_type(*internal),
+                )
+                .unwrap();
+            }
             TypeKind::Array(internal, len) => {
                 write!(
                     output,

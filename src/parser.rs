@@ -8,7 +8,7 @@ use crate::errors::ErrorCtx;
 use crate::literal::Literal;
 use crate::locals::Local;
 use crate::location::Location;
-use crate::operators::{AccessOp, BinaryOp};
+use crate::operators::BinaryOp;
 use crate::program::{Program, Task};
 use crate::self_buffer::{SelfBox, SelfBuffer, SelfTree};
 use crate::types::TypeKind;
@@ -209,22 +209,18 @@ fn member_value(
 ) -> Result<Node, ()> {
     let mut value = atom_value(global, imperative, buffer)?;
 
-    while let Some((_, op)) = global.tokens.try_consume_operator() {
-        match op {
-            AccessOp::Member => {
-                let token = global.tokens.expect_next(global.errors)?;
-                if let TokenKind::Identifier(name) = token.kind {
-                    value = Node::new(
-                        token.loc,
-                        NodeKind::Member {
-                            of: buffer.insert(value),
-                            name,
-                        },
-                    );
-                } else {
-                    global.error(token.loc, "Expected identifier".to_string());
-                }
-            }
+    while global.tokens.try_consume(&TokenKind::Operator(".".into())) {
+        let token = global.tokens.expect_next(global.errors)?;
+        if let TokenKind::Identifier(name) = token.kind {
+            value = Node::new(
+                token.loc,
+                NodeKind::Member {
+                    of: buffer.insert(value),
+                    name,
+                },
+            );
+        } else {
+            global.error(token.loc, "Expected identifier".to_string());
         }
     }
 

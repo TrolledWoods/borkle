@@ -104,6 +104,7 @@ operator!(UnaryOp {
 operator!(BinaryOp {
     And = ("&&", 1),
     Or  = ("||", 2),
+    Range = ("..", 48539),
 
     Equals = ("==", 3),
     NotEquals = ("!=", 3),
@@ -163,6 +164,7 @@ impl BinaryOp {
         match (self, returns.kind()) {
             (op, _) if op.is_algebraic() => Some(returns),
             (BinaryOp::And, _) | (BinaryOp::Or, _) => Some(Type::new(TypeKind::Bool)),
+            (BinaryOp::Range, TypeKind::Range(inner)) => Some(*inner),
             _ => None,
         }
     }
@@ -174,6 +176,8 @@ impl BinaryOp {
             {
                 Some(left)
             }
+
+            (BinaryOp::Range, _) => Some(left),
 
             (BinaryOp::Add, TypeKind::Reference(_)) => {
                 Some(Type::new(TypeKind::Int(IntTypeKind::Usize)))
@@ -204,6 +208,8 @@ impl BinaryOp {
             (op, TypeKind::Bool, TypeKind::Bool) if op.is_comparison() => {
                 Some(Type::new(TypeKind::Bool))
             }
+
+            (BinaryOp::Range, a, b) if a == b => Some(Type::new(TypeKind::Range(left))),
 
             (BinaryOp::And, TypeKind::Bool, TypeKind::Bool)
             | (BinaryOp::Or, TypeKind::Bool, TypeKind::Bool) => Some(left),
@@ -310,6 +316,12 @@ impl BinaryOp {
                 *output.cast() = *a.cast::<f32>() >= *b.cast::<f32>(),
             (BinaryOp::LargerThanEquals, TypeKind::F64, TypeKind::F64) =>
                 *output.cast() = *a.cast::<f64>() >= *b.cast::<f64>(),
+
+            (BinaryOp::Range, _, _) => {
+                std::ptr::copy(a, output, left.size());
+                let offset = crate::types::to_align(left.size(), left.align());
+                std::ptr::copy(b, output.add(offset), left.size());
+            }
 
             (BinaryOp::And, TypeKind::Bool, TypeKind::Bool) => {
                 *output = ((*a > 0) & (*b > 0)) as u8;
