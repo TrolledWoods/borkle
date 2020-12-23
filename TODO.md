@@ -21,7 +21,6 @@
 * [X] Figure out why ifs with loose expressions after them never seem to work.
 * [X] Allow array types to contain arbitrary length expressions
 * [X] Allow array literals to also become buffers if the wanted type needs it.
-* [ ] Never type
 
 * [ ] Make sure certain types of values are "alone" in an expression.
 * [ ] Make a global setup file for the compiler!
@@ -43,3 +42,4 @@
 * [ ] Figure out if there is a way to have fewer keywords.
 * [ ] Make locals/labels use pure register ids instead of values, since they are never going to be global anyway
 * [ ] Add overflow checks to type size calculations, and add a user level error for trying to create too large types.
+* [ ] Never type

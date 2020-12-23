@@ -17,6 +17,7 @@ pub enum TokenKind {
     SemiColon,
     Comma,
     SingleQuote,
+    Tag(Ustr),
     Open(Bracket),
     Close(Bracket),
     Keyword(Keyword),
@@ -98,6 +99,17 @@ pub fn process_string(errors: &mut ErrorCtx, file: Ustr, string: &str) -> Result
                     }
                 }
 
+                '#' => {
+                    chars.next();
+                    let tag_name = slice_while(
+                        string,
+                        &mut chars,
+                        |c| matches!(c, 'a'..='z' | 'A'..='Z' | '_' | '0'..='9'),
+                    );
+
+                    TokenKind::Tag(tag_name.into())
+                }
+
                 'a'..='z' | 'A'..='Z' | '_' => {
                     let identifier = slice_while(
                         string,
@@ -170,7 +182,7 @@ pub fn process_string(errors: &mut ErrorCtx, file: Ustr, string: &str) -> Result
                     TokenKind::Operator(string.into())
                 }
                 c => {
-                    errors.error(loc, format!("jnknown character {:?}", c));
+                    errors.error(loc, format!("Unknown character {:?}", c));
                     return Err(());
                 }
             };
