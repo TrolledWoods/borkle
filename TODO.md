@@ -21,12 +21,12 @@
 * [X] Figure out why ifs with loose expressions after them never seem to work.
 * [X] Allow array types to contain arbitrary length expressions
 * [X] Allow array literals to also become buffers if the wanted type needs it.
+* [X] Ranges
+* [X] For loops
 
 * [ ] Make sure certain types of values are "alone" in an expression.
 * [ ] Make a global setup file for the compiler!
 * [ ] Indexing operations
-* [ ] Ranges
-* [ ] For loops
 * [ ] Function arguments are implicitly dereferenced/referenced(maybe we want this?)
 * [ ] 'Any' type, the same as C void\*
     (do we want it to behave this way or do we want 'Any' to use a type id, and have some other type that works like c void)

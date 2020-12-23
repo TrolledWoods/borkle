@@ -74,6 +74,11 @@ pub enum NodeKind {
         contents: Vec<SelfBox<Node>>,
     },
 
+    For {
+        iterator: LocalId,
+        iterating: SelfBox<Node>,
+        body: SelfBox<Node>,
+    },
     While {
         condition: SelfBox<Node>,
         body: SelfBox<Node>,

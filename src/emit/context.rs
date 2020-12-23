@@ -69,6 +69,12 @@ impl Context<'_, '_> {
         }
     }
 
+    pub fn emit_increment(&mut self, value: Value) {
+        if value.size() != 0 {
+            self.instr.push(Instr::Increment { value });
+        }
+    }
+
     /// Emits a move instruction unless the values are zero sized.
     pub fn emit_move(&mut self, to: Value, from: Value, member: Member) {
         if from.size() != 0 {

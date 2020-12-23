@@ -2,6 +2,7 @@ use crate::ir::{Instr, Routine};
 use crate::operators::UnaryOp;
 use crate::program::constant::ConstantRef;
 use crate::program::Program;
+use crate::types::TypeKind;
 
 mod stack;
 
@@ -101,6 +102,21 @@ fn interp_internal(program: &Program, stack: &mut StackFrame<'_>, routine: &Rout
                 let mut to_ptr = stack.get_mut(to);
                 unsafe {
                     std::ptr::copy(from.as_ptr(), to_ptr.as_mut_ptr(), to.size());
+                }
+            }
+            Instr::Increment { value } => {
+                let incr_amount = match value.type_().kind() {
+                    TypeKind::Int(_) => 1,
+                    TypeKind::Reference(inner) => inner.size() as u64,
+                    _ => unreachable!(),
+                };
+
+                let size = value.size();
+
+                let mut value = stack.get_mut(value);
+                let result = unsafe { value.read::<u64>() } + incr_amount;
+                unsafe {
+                    std::ptr::copy(result.to_le_bytes().as_ptr(), value.as_mut_ptr(), size);
                 }
             }
             Instr::Binary {

@@ -207,6 +207,66 @@ fn type_ast<'a>(
 
             Node::new(parsed.loc, NodeKind::ArrayLiteral { elements }, type_)
         }
+        ParsedNodeKind::For {
+            iterator,
+            ref iterating,
+            ref body,
+        } => {
+            let mut iterating = type_ast(ctx, WantedType::none(), iterating, buffer)?;
+
+            let iterator_type = match iterating.type_().kind() {
+                TypeKind::Range(inner) if matches!(inner.kind(), TypeKind::Int(_) | TypeKind::Reference(_)) => {
+                    *inner
+                }
+                TypeKind::Buffer(inner) => Type::new(TypeKind::Reference(*inner)),
+                TypeKind::Reference(inner) => match inner.kind() {
+                    TypeKind::Array(inner, length) => {
+                        iterating = Node::new(
+                            parsed.loc,
+                            NodeKind::ArrayToBuffer {
+                                length: *length,
+                                array: buffer.insert(iterating),
+                            },
+                            Type::new(TypeKind::Buffer(*inner)),
+                        );
+                        Type::new(TypeKind::Reference(*inner))
+                    }
+                    _ => {
+                        ctx.errors.error(
+                            iterating.loc,
+                            format!(
+                                "'{}' cannot be iterated over in a for loop",
+                                iterating.type_()
+                            ),
+                        );
+                        return Err(());
+                    }
+                },
+                _ => {
+                    ctx.errors.error(
+                        iterating.loc,
+                        format!(
+                            "'{}' cannot be iterated over in a for loop",
+                            iterating.type_()
+                        ),
+                    );
+                    return Err(());
+                }
+            };
+
+            ctx.locals.get_mut(iterator).type_ = Some(iterator_type);
+            let body = type_ast(ctx, WantedType::none(), body, buffer)?;
+
+            Node::new(
+                parsed.loc,
+                NodeKind::For {
+                    iterator,
+                    iterating: buffer.insert(iterating),
+                    body: buffer.insert(body),
+                },
+                Type::new(TypeKind::Empty),
+            )
+        }
         ParsedNodeKind::While {
             ref condition,
             ref body,

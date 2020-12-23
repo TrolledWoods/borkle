@@ -23,6 +23,9 @@ pub enum Instr {
         to: Value,
         from: ConstantRef,
     },
+    Increment {
+        value: Value,
+    },
     Binary {
         op: BinaryOp,
         to: Value,

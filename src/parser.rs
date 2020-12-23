@@ -470,9 +470,48 @@ fn atom_value(
                     },
                 )
             }
+            TokenKind::Keyword(Keyword::For) => {
+                imperative.push_scope_boundary();
+
+                let iterator = if let Some(Token {
+                    kind: TokenKind::Keyword(Keyword::In),
+                    ..
+                }) = global.tokens.peek_nth(1)
+                {
+                    let (name_loc, name) = global.tokens.expect_identifier(global.errors)?;
+                    global.tokens.next();
+
+                    imperative.insert_local(Local {
+                        loc: name_loc,
+                        name,
+                        type_: None,
+                        value: None,
+                    })
+                } else {
+                    imperative.insert_local(Local {
+                        loc: token.loc,
+                        name: "it".into(),
+                        type_: None,
+                        value: None,
+                    })
+                };
+
+                let iterating = expression(global, imperative, buffer)?;
+                let body = expression(global, imperative, buffer)?;
+
+                imperative.pop_scope_boundary();
+                Node::new(
+                    token.loc,
+                    NodeKind::For {
+                        iterator,
+                        iterating: buffer.insert(iterating),
+                        body: buffer.insert(body),
+                    },
+                )
+            }
             TokenKind::Keyword(Keyword::While) => {
                 let condition = expression(global, imperative, buffer)?;
-                let body = value(global, imperative, buffer)?;
+                let body = expression(global, imperative, buffer)?;
                 Node::new(
                     token.loc,
                     NodeKind::While {

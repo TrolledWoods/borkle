@@ -285,6 +285,8 @@ impl BinaryOp {
                 all_int_types!(i1, output, (a, b), !=)
             }
 
+            (BinaryOp::LessThan, TypeKind::Reference(i1), TypeKind::Reference(i2)) if i1 == i2 => 
+                *output.cast() = *a.cast::<*const u8>() < *b.cast::<*const u8>(),
             (BinaryOp::LessThan, TypeKind::Int(i1), TypeKind::Int(i2)) if i1 == i2 => {
                 all_int_types!(i1, output, (a, b), <)
             }

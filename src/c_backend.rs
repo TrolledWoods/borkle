@@ -268,6 +268,9 @@ pub fn routine_to_c(output: &mut String, routine: &Routine, num_args: usize) {
                 )
                 .unwrap();
             }
+            Instr::Increment { value } => {
+                write!(output, "{0} = {0} + 1;\n", c_format_value(value)).unwrap();
+            }
             Instr::Binary {
                 op: BinaryOp::Range,
                 to,

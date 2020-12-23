@@ -141,6 +141,105 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, node: &'a Node) -> Value {
 
             ctx.registers.zst()
         }
+        NodeKind::For {
+            iterator,
+            iterating,
+            body,
+        } => {
+            let end_label = ctx.create_label();
+
+            let iterating_value = emit_node(ctx, iterating);
+
+            let iterator_local = ctx.locals.get_mut(*iterator);
+            let iterator_type = iterator_local.type_.unwrap();
+
+            let iterator_value = ctx.registers.create(iterator_type);
+            iterator_local.value = Some(iterator_value);
+
+            let start = ctx.registers.create(iterator_type);
+            let end = ctx.registers.create(iterator_type);
+
+            match iterating.type_().kind() {
+                TypeKind::Range(inner) => match inner.kind() {
+                    TypeKind::Int(_) | TypeKind::Reference(_) => {
+                        ctx.emit_member(
+                            start,
+                            iterating_value,
+                            Member {
+                                offset: 0,
+                                name_list: vec!["start".into()],
+                            },
+                        );
+                        ctx.emit_member(
+                            end,
+                            iterating_value,
+                            Member {
+                                offset: inner.size(),
+                                name_list: vec!["end".into()],
+                            },
+                        );
+                    }
+                    _ => unreachable!(),
+                },
+                TypeKind::Buffer(inner) => {
+                    ctx.emit_member(
+                        start,
+                        iterating_value,
+                        Member {
+                            offset: 0,
+                            name_list: vec!["ptr".into()],
+                        },
+                    );
+
+                    let len = ctx
+                        .registers
+                        .create(Type::new(TypeKind::Int(IntTypeKind::Usize)));
+                    ctx.emit_member(
+                        len,
+                        iterating_value,
+                        Member {
+                            offset: 8,
+                            name_list: vec!["len".into()],
+                        },
+                    );
+
+                    ctx.emit_binary(
+                        BinaryOp::Add,
+                        end,
+                        start,
+                        len,
+                        Type::new(TypeKind::Reference(*inner)),
+                        len.type_(),
+                    );
+                }
+                _ => unreachable!(),
+            }
+
+            let condition = ctx.registers.create(Type::new(TypeKind::Bool));
+
+            let condition_label = ctx.create_label();
+            ctx.define_label(condition_label);
+
+            ctx.emit_binary(
+                BinaryOp::LessThan,
+                condition,
+                start,
+                end,
+                iterator_type,
+                iterator_type,
+            );
+            ctx.emit_jump_if_zero(condition, end_label);
+
+            ctx.emit_move(iterator_value, start, Member::default());
+            emit_node(ctx, body);
+            ctx.emit_increment(start);
+
+            ctx.emit_jump(condition_label);
+
+            ctx.define_label(end_label);
+
+            ctx.registers.zst()
+        }
         NodeKind::While { condition, body } => {
             let end_label = ctx.create_label();
 
@@ -295,20 +394,9 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, node: &'a Node) -> Value {
             let ref_type = Type::new(TypeKind::Reference(internal_type));
             let reference = ctx.registers.create(ref_type);
             ctx.emit_reference(reference, to, Member::default());
-            let one = ctx
-                .registers
-                .create(Type::new(TypeKind::Int(IntTypeKind::Usize)));
-            ctx.emit_constant_from_buffer(one, &1_usize.to_le_bytes());
             for (i, element) in elements.iter().enumerate() {
                 if i > 0 {
-                    ctx.emit_binary(
-                        BinaryOp::Add,
-                        reference,
-                        reference,
-                        one,
-                        ref_type,
-                        Type::new(TypeKind::Int(IntTypeKind::Usize)),
-                    );
+                    ctx.emit_increment(reference);
                 }
                 let from = emit_node(ctx, element);
                 ctx.emit_move_indirect(reference, from, Member::default());
