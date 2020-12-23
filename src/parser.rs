@@ -19,6 +19,8 @@ use std::path::Path;
 use ustr::Ustr;
 
 pub type Ast = SelfTree<Node>;
+type NodeList = Vec<SelfBox<Node>>;
+type NamedNodeList = Vec<(Ustr, SelfBox<Node>)>;
 
 pub fn process_string(
     errors: &mut ErrorCtx,
@@ -209,18 +211,35 @@ fn member_value(
 ) -> Result<Node, ()> {
     let mut value = atom_value(global, imperative, buffer)?;
 
-    while global.tokens.try_consume(&TokenKind::Operator(".".into())) {
-        let token = global.tokens.expect_next(global.errors)?;
-        if let TokenKind::Identifier(name) = token.kind {
-            value = Node::new(
-                token.loc,
-                NodeKind::Member {
-                    of: buffer.insert(value),
-                    name,
-                },
-            );
-        } else {
-            global.error(token.loc, "Expected identifier".to_string());
+    while let Some(&Token { ref kind, loc, .. }) = global.tokens.peek() {
+        match kind {
+            TokenKind::Operator(string) if string.as_str() == "." => {
+                global.tokens.next();
+
+                let (_, name) = global.tokens.expect_identifier(global.errors)?;
+                value = Node::new(
+                    loc,
+                    NodeKind::Member {
+                        of: buffer.insert(value),
+                        name,
+                    },
+                );
+            }
+            TokenKind::Open(Bracket::Round) => {
+                global.tokens.next();
+
+                let (args, named_args) = function_arguments(global, imperative, buffer)?;
+
+                value = Node::new(
+                    loc,
+                    NodeKind::FunctionCall {
+                        calling: buffer.insert(value),
+                        args,
+                        named_args,
+                    },
+                );
+            }
+            _ => break,
         }
     }
 
@@ -379,7 +398,7 @@ fn atom_value(
     imperative: &mut ImperativeContext<'_>,
     buffer: &mut SelfBuffer,
 ) -> Result<Node, ()> {
-    let mut value = {
+    Ok({
         let token = global.tokens.expect_next(global.errors)?;
         match token.kind {
             TokenKind::Identifier(name) => {
@@ -739,72 +758,7 @@ fn atom_value(
                 return Err(());
             }
         }
-    };
-
-    // FIXME: This should be done in frigging members
-    while let Some(loc) = global
-        .tokens
-        .try_consume_with_data(&TokenKind::Open(Bracket::Round))
-    {
-        let mut args = Vec::new();
-        let mut named_args = Vec::new();
-        loop {
-            if global.tokens.try_consume(&TokenKind::Close(Bracket::Round)) {
-                break;
-            }
-
-            match (
-                global.tokens.peek().map(|t| &t.kind),
-                global.tokens.peek_nth(1).map(|t| &t.kind),
-            ) {
-                (Some(&TokenKind::Identifier(name)), Some(TokenKind::Operator(operator)))
-                    if operator.starts_with('=') =>
-                {
-                    // Named argument
-                    global.tokens.next();
-                    global.tokens.try_consume_operator_string("=").unwrap();
-
-                    let arg = expression(global, imperative, buffer)?;
-
-                    named_args.push((name, buffer.insert(arg)));
-                }
-                _ => {
-                    let arg = expression(global, imperative, buffer)?;
-
-                    if !named_args.is_empty() {
-                        global.error(
-                            arg.loc,
-                            "You cannot have unnamed arguments after named arguments".to_string(),
-                        );
-                        return Err(());
-                    }
-
-                    args.push(buffer.insert(arg));
-                }
-            }
-
-            let token = global.tokens.expect_next(global.errors)?;
-            match token.kind {
-                TokenKind::Close(Bracket::Round) => break,
-                TokenKind::Comma => {}
-                _ => {
-                    global.error(token.loc, "Expected ',' or ')'".into());
-                    return Err(());
-                }
-            }
-        }
-
-        value = Node::new(
-            loc,
-            NodeKind::FunctionCall {
-                calling: buffer.insert(value),
-                args,
-                named_args,
-            },
-        );
-    }
-
-    Ok(value)
+    })
 }
 
 fn function_type(
@@ -853,6 +807,62 @@ fn function_type(
             returns: buffer.insert(returns),
         },
     ))
+}
+
+fn function_arguments(
+    global: &mut DataContext<'_>,
+    imperative: &mut ImperativeContext<'_>,
+    buffer: &mut SelfBuffer,
+) -> Result<(NodeList, NamedNodeList), ()> {
+    let mut args = Vec::new();
+    let mut named_args = Vec::new();
+    loop {
+        if global.tokens.try_consume(&TokenKind::Close(Bracket::Round)) {
+            break;
+        }
+
+        match (
+            global.tokens.peek().map(|t| &t.kind),
+            global.tokens.peek_nth(1).map(|t| &t.kind),
+        ) {
+            (Some(&TokenKind::Identifier(name)), Some(TokenKind::Operator(operator)))
+                if operator.starts_with('=') =>
+            {
+                // Named argument
+                global.tokens.next();
+                global.tokens.try_consume_operator_string("=").unwrap();
+
+                let arg = expression(global, imperative, buffer)?;
+
+                named_args.push((name, buffer.insert(arg)));
+            }
+            _ => {
+                let arg = expression(global, imperative, buffer)?;
+
+                if !named_args.is_empty() {
+                    global.error(
+                        arg.loc,
+                        "You cannot have unnamed arguments after named arguments".to_string(),
+                    );
+                    return Err(());
+                }
+
+                args.push(buffer.insert(arg));
+            }
+        }
+
+        let token = global.tokens.expect_next(global.errors)?;
+        match token.kind {
+            TokenKind::Close(Bracket::Round) => break,
+            TokenKind::Comma => {}
+            _ => {
+                global.error(token.loc, "Expected ',' or ')'".into());
+                return Err(());
+            }
+        }
+    }
+
+    Ok((args, named_args))
 }
 
 /// Parses a function declaration, although doesn't expect the 'fn' keyword to be included because
