@@ -4,9 +4,12 @@ use ustr::UstrMap;
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub struct ErrorId(usize);
 
+type InfoList = Vec<(Location, String)>;
+
 pub struct ErrorCtx {
-    errors: Vec<(Option<Location>, String)>,
-    warnings: Vec<(Location, String)>,
+    temp_info: Vec<(Location, String)>,
+    errors: Vec<(Option<Location>, String, InfoList)>,
+    warnings: Vec<(Location, String, InfoList)>,
 }
 
 impl Default for ErrorCtx {
@@ -18,6 +21,7 @@ impl Default for ErrorCtx {
 impl ErrorCtx {
     pub const fn new() -> Self {
         Self {
+            temp_info: Vec::new(),
             errors: Vec::new(),
             warnings: Vec::new(),
         }
@@ -29,33 +33,52 @@ impl ErrorCtx {
     }
 
     pub fn print(&self, file_contents: &UstrMap<String>) {
-        for &(loc, ref message) in &self.errors {
+        for &(loc, ref message, ref info) in &self.errors {
             println!("Error:");
             if let Some(loc) = loc {
                 print_loc(loc, message, file_contents);
             } else {
                 println!("{}", message);
             }
+
+            for &(info_loc, ref info_message) in info {
+                print_loc(info_loc, info_message, file_contents);
+            }
         }
 
         if self.errors.is_empty() {
-            for &(loc, ref message) in &self.warnings {
+            for &(loc, ref message, ref info) in &self.warnings {
                 println!("Warning: ");
                 print_loc(loc, message, file_contents);
+
+                for &(info_loc, ref info_message) in info {
+                    print_loc(info_loc, info_message, file_contents);
+                }
             }
         }
     }
 
+    fn consume_info(&mut self) -> Vec<(Location, String)> {
+        std::mem::replace(&mut self.temp_info, Vec::new())
+    }
+
+    pub fn info(&mut self, loc: Location, message: String) {
+        self.temp_info.push((loc, message));
+    }
+
     pub fn global_error(&mut self, message: String) {
-        self.errors.push((None, message));
+        let info = self.consume_info();
+        self.errors.push((None, message, info));
     }
 
     pub fn error(&mut self, loc: Location, message: String) {
-        self.errors.push((Some(loc), message));
+        let info = self.consume_info();
+        self.errors.push((Some(loc), message, info));
     }
 
     pub fn warning(&mut self, loc: Location, message: String) {
-        self.warnings.push((loc, message));
+        let info = self.consume_info();
+        self.warnings.push((loc, message, info));
     }
 }
 

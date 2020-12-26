@@ -196,7 +196,7 @@ fn type_ast<'a>(
             let mut elements = Vec::with_capacity(parsed_elements.len());
             for parsed_element in parsed_elements {
                 let element = type_ast(ctx, element_type, parsed_element, buffer)?;
-                element_type = WantedType::specific(element.type_());
+                element_type = WantedType::specific(None, element.type_());
                 elements.push(buffer.insert(element));
             }
 
@@ -273,7 +273,7 @@ fn type_ast<'a>(
         } => {
             let condition = type_ast(
                 ctx,
-                WantedType::specific(Type::new(TypeKind::Bool)),
+                WantedType::specific(None, Type::new(TypeKind::Bool)),
                 condition,
                 buffer,
             )?;
@@ -295,7 +295,7 @@ fn type_ast<'a>(
         } => {
             let condition = type_ast(
                 ctx,
-                WantedType::specific(Type::new(TypeKind::Bool)),
+                WantedType::specific(None, Type::new(TypeKind::Bool)),
                 condition,
                 buffer,
             )?;
@@ -318,7 +318,7 @@ fn type_ast<'a>(
         } => {
             let condition = type_ast(
                 ctx,
-                WantedType::specific(Type::new(TypeKind::Bool)),
+                WantedType::specific(None, Type::new(TypeKind::Bool)),
                 condition,
                 buffer,
             )?;
@@ -326,7 +326,7 @@ fn type_ast<'a>(
             let true_body = type_ast(ctx, wanted_type, true_body, buffer)?;
             let false_body = type_ast(
                 ctx,
-                WantedType::specific(true_body.type_()),
+                WantedType::specific(wanted_type.loc, true_body.type_()),
                 false_body,
                 buffer,
             )?;
@@ -356,7 +356,12 @@ fn type_ast<'a>(
             ref rvalue,
         } => {
             let lvalue = type_ast(ctx, WantedType::none(), lvalue, buffer)?;
-            let rvalue = type_ast(ctx, WantedType::specific(lvalue.type_()), rvalue, buffer)?;
+            let rvalue = type_ast(
+                ctx,
+                WantedType::specific(Some(lvalue.loc), lvalue.type_()),
+                rvalue,
+                buffer,
+            )?;
 
             Node::new(
                 parsed.loc,
@@ -426,7 +431,7 @@ fn type_ast<'a>(
 
             let body = type_ast(
                 &mut sub_ctx,
-                WantedType::specific(return_type),
+                WantedType::specific(Some(returns.loc), return_type),
                 body,
                 buffer,
             )?;
@@ -494,7 +499,7 @@ fn type_ast<'a>(
 
                 let mut args = Vec::with_capacity(arg_types.len());
                 for (i, got) in parsed_args.iter().enumerate() {
-                    let arg = type_ast(ctx, WantedType::specific(arg_types[i]), got, buffer)?;
+                    let arg = type_ast(ctx, WantedType::specific(None, arg_types[i]), got, buffer)?;
                     args.push((i, buffer.insert(arg)));
                 }
 
@@ -515,8 +520,12 @@ fn type_ast<'a>(
                                     return Err(());
                                 }
 
-                                let arg =
-                                    type_ast(ctx, WantedType::specific(arg_types[i]), arg, buffer)?;
+                                let arg = type_ast(
+                                    ctx,
+                                    WantedType::specific(None, arg_types[i]),
+                                    arg,
+                                    buffer,
+                                )?;
                                 args.push((i, buffer.insert(arg)));
                             } else {
                                 ctx.errors.error(
@@ -671,8 +680,14 @@ fn type_ast<'a>(
                 );
             }
 
+            let bound_loc = bound.loc;
             let bound = const_fold_type_expr(ctx, bound, buffer)?;
-            type_ast(ctx, WantedType::specific(bound), value, buffer)?
+            type_ast(
+                ctx,
+                WantedType::specific(Some(bound_loc), bound),
+                value,
+                buffer,
+            )?
         }
         ParsedNodeKind::Binary {
             op,
@@ -960,11 +975,15 @@ fn type_ast<'a>(
             let (type_, meta_data) = ctx.program.get_member_meta_data(id);
             Node::new(parsed.loc, NodeKind::Global(id, meta_data), type_)
         }
-        ParsedNodeKind::Local(local) => Node::new(
-            parsed.loc,
-            NodeKind::Local(local),
-            ctx.locals.get(local).type_.unwrap(),
-        ),
+        ParsedNodeKind::Local(local_id) => {
+            let local = ctx.locals.get(local_id);
+            let local_type = local.type_.unwrap();
+            if !wanted_type.type_fits(local_type) {
+                ctx.errors
+                    .info(local.loc, format!("'{}' declared here", local.name));
+            }
+            Node::new(parsed.loc, NodeKind::Local(local_id), local_type)
+        }
         ParsedNodeKind::Declare {
             local,
             value: ref parsed_value,
@@ -1007,6 +1026,11 @@ fn type_ast<'a>(
     };
 
     if !wanted_type.type_fits(node.type_()) {
+        if let Some(loc) = wanted_type.loc {
+            ctx.errors
+                .info(loc, "Expected type came from here".to_string());
+        }
+
         ctx.errors.error(
             parsed.loc,
             format!("Expected '{}', found '{}'", wanted_type, node.type_()),
@@ -1049,7 +1073,7 @@ fn const_fold_type_expr<'a>(
         } => {
             let len = type_ast(
                 ctx,
-                WantedType::specific(Type::new(TypeKind::Int(IntTypeKind::Usize))),
+                WantedType::specific(None, Type::new(TypeKind::Int(IntTypeKind::Usize))),
                 len,
                 buffer,
             )?;
