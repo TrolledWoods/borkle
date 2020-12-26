@@ -123,6 +123,7 @@ fn worker<'a>(alloc: &'a mut Bump, program: &'a Program) -> (ThreadContext<'a>, 
                                     arg_names: arg_names.clone(),
                                     default_values: default_values.clone(),
                                 },
+                                NodeKind::Global(_, meta_data) => (&**meta_data).clone(),
                                 _ => MemberMetaData::None,
                             };
                             let type_ = ast.type_();

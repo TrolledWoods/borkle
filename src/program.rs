@@ -503,7 +503,7 @@ struct Member {
     is_defined: bool,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum MemberMetaData {
     None,
     Function {

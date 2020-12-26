@@ -119,7 +119,7 @@ impl Context<'_, '_> {
     }
 
     pub fn emit_unary(&mut self, op: UnaryOp, to: Value, from: Value) {
-        if to.size() == 0 {
+        if to.size() != 0 {
             self.instr.push(Instr::Unary { op, to, from });
         }
     }

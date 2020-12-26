@@ -24,10 +24,10 @@
 * [X] Ranges
 * [X] For loops
 * [X] Make sure certain types of values are "alone" in an expression.
+* [X] Meta data is kept when aliasing
 
 * [ ] Make a global setup file for the compiler!
 * [ ] Indexing operations
-* [ ] Function arguments are implicitly dereferenced/referenced(maybe we want this?)
 * [ ] 'Any' type, the same as C void\*
     (do we want it to behave this way or do we want 'Any' to use a type id, and have some other type that works like c void)
 
