@@ -31,8 +31,6 @@ pub enum Instr {
         to: Value,
         a: Value,
         b: Value,
-        left_type: Type,
-        right_type: Type,
     },
     Unary {
         op: UnaryOp,

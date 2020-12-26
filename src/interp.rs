@@ -119,17 +119,10 @@ fn interp_internal(program: &Program, stack: &mut StackFrame<'_>, routine: &Rout
                     std::ptr::copy(result.to_le_bytes().as_ptr(), value.as_mut_ptr(), size);
                 }
             }
-            Instr::Binary {
-                op,
-                to,
-                a,
-                b,
-                left_type,
-                right_type,
-            } => unsafe {
+            Instr::Binary { op, to, a, b } => unsafe {
                 op.run(
-                    left_type,
-                    right_type,
+                    a.type_(),
+                    b.type_(),
                     stack.get(a).as_ptr(),
                     stack.get(b).as_ptr(),
                     stack.get_mut(to).as_mut_ptr(),

@@ -5,7 +5,6 @@ use crate::program::constant::ConstantRef;
 use crate::program::thread_pool::ThreadContext;
 use crate::program::Program;
 use crate::typer::ast::Node;
-use crate::types::Type;
 
 pub struct Context<'a, 'b> {
     pub thread_context: &'a mut ThreadContext<'b>,
@@ -124,24 +123,9 @@ impl Context<'_, '_> {
         }
     }
 
-    pub fn emit_binary(
-        &mut self,
-        op: BinaryOp,
-        to: Value,
-        a: Value,
-        b: Value,
-        left_type: Type,
-        right_type: Type,
-    ) {
+    pub fn emit_binary(&mut self, op: BinaryOp, to: Value, a: Value, b: Value) {
         if to.size() != 0 {
-            self.instr.push(Instr::Binary {
-                op,
-                to,
-                a,
-                b,
-                left_type,
-                right_type,
-            });
+            self.instr.push(Instr::Binary { op, to, a, b });
         }
     }
 }

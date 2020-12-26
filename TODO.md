@@ -28,7 +28,6 @@
 * [X] Nice error message formatting
 
 * [ ] Make a global setup file for the compiler!
-* [ ] Indexing operations
 * [ ] 'Any' type, the same as C void\*
     (do we want it to behave this way or do we want 'Any' to use a type id, and have some other type that works like c void)
 
@@ -43,4 +42,5 @@
 * [ ] Figure out if there is a way to have fewer keywords.
 * [ ] Make locals/labels use pure register ids instead of values, since they are never going to be global anyway
 * [ ] Add overflow checks to type size calculations, and add a user level error for trying to create too large types.
-* [ ] Never type
+* [ ] Use the never type to find dead code, and allow casting from it to anything.
+* [ ] Indexing operations

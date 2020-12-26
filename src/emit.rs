@@ -181,7 +181,7 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, node: &'a Node) -> Value {
                     }
                     _ => unreachable!(),
                 },
-                TypeKind::Buffer(inner) => {
+                TypeKind::Buffer(_) => {
                     ctx.emit_member(
                         start,
                         iterating_value,
@@ -203,14 +203,7 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, node: &'a Node) -> Value {
                         },
                     );
 
-                    ctx.emit_binary(
-                        BinaryOp::Add,
-                        end,
-                        start,
-                        len,
-                        Type::new(TypeKind::Reference(*inner)),
-                        len.type_(),
-                    );
+                    ctx.emit_binary(BinaryOp::Add, end, start, len);
                 }
                 _ => unreachable!(),
             }
@@ -220,14 +213,7 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, node: &'a Node) -> Value {
             let condition_label = ctx.create_label();
             ctx.define_label(condition_label);
 
-            ctx.emit_binary(
-                BinaryOp::LessThan,
-                condition,
-                start,
-                end,
-                iterator_type,
-                iterator_type,
-            );
+            ctx.emit_binary(BinaryOp::LessThan, condition, start, end);
             ctx.emit_jump_if_zero(condition, end_label);
 
             ctx.emit_move(iterator_value, start, Member::default());
@@ -379,7 +365,7 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, node: &'a Node) -> Value {
             let a = emit_node(ctx, left);
             let b = emit_node(ctx, right);
 
-            ctx.emit_binary(*op, to, a, b, left.type_(), right.type_());
+            ctx.emit_binary(*op, to, a, b);
 
             to
         }

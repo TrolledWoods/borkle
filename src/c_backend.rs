@@ -276,8 +276,6 @@ pub fn routine_to_c(output: &mut String, routine: &Routine, num_args: usize) {
                 to,
                 a,
                 b,
-                left_type: _,
-                right_type: _,
             } => {
                 write!(
                     output,
@@ -294,14 +292,7 @@ pub fn routine_to_c(output: &mut String, routine: &Routine, num_args: usize) {
                 )
                 .unwrap();
             }
-            Instr::Binary {
-                op,
-                to,
-                a,
-                b,
-                left_type: _,
-                right_type: _,
-            } => {
+            Instr::Binary { op, to, a, b } => {
                 let op_name = match op {
                     BinaryOp::And => "&&",
                     BinaryOp::Or => "||",
