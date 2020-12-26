@@ -23,8 +23,8 @@
 * [X] Allow array literals to also become buffers if the wanted type needs it.
 * [X] Ranges
 * [X] For loops
+* [X] Make sure certain types of values are "alone" in an expression.
 
-* [ ] Make sure certain types of values are "alone" in an expression.
 * [ ] Make a global setup file for the compiler!
 * [ ] Indexing operations
 * [ ] Function arguments are implicitly dereferenced/referenced(maybe we want this?)

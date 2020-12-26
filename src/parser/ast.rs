@@ -17,6 +17,17 @@ impl Node {
     pub const fn new(loc: Location, kind: NodeKind) -> Self {
         Self { loc, kind }
     }
+
+    pub fn has_to_be_alone(&self) -> bool {
+        match self.kind {
+            NodeKind::If { .. } | NodeKind::For { .. } | NodeKind::While { .. } => true,
+            NodeKind::BitCast {
+                value: ref operand, ..
+            }
+            | NodeKind::Unary { ref operand, .. } => operand.has_to_be_alone(),
+            _ => false,
+        }
+    }
 }
 
 #[derive(Debug)]

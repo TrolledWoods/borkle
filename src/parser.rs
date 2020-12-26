@@ -137,7 +137,19 @@ fn expression(
     let mut expr = value(global, imperative, buffer)?;
 
     let mut old_op: Option<BinaryOp> = None;
+    let mut is_first_iteration = false;
     while let Some((loc, op, meta_data)) = global.tokens.try_consume_operator_with_metadata() {
+        if is_first_iteration {
+            if expr.has_to_be_alone() {
+                global
+                    .errors
+                    .error(expr.loc, "Parsing ambiguity, this is a value that contains another expression, hence it is required that you put it inside of parenthesees if you want to use it as an operand.".to_string());
+                return Err(());
+            }
+
+            is_first_iteration = false;
+        }
+
         if !meta_data.cleared_operator_string {
             global.errors.warning(
                 loc,
@@ -156,6 +168,12 @@ fn expression(
         }
 
         let right = value(global, imperative, buffer)?;
+        if right.has_to_be_alone() {
+            global
+                .errors
+                .error(right.loc, "Parsing ambiguity, this is a value that contains another expression, hence it is required that you put it inside of parenthesees if you want to use it as an operand.".to_string());
+            return Err(());
+        }
         expr = Node::new(
             loc,
             NodeKind::Binary {
