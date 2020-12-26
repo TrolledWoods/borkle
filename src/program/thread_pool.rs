@@ -193,6 +193,8 @@ fn parse_file(errors: &mut ErrorCtx, program: &Program, file: &Path) {
                 ));
             } else {
                 let _ = crate::parser::process_string(errors, program, file_name_str, &string);
+
+                program.files.lock().insert(file_name_str, string);
             }
         }
         Err(_) => {

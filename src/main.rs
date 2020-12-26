@@ -48,7 +48,9 @@ fn main() {
 
         let (mut c_output, errors) = program::thread_pool::run(&program, options.num_threads);
 
-        errors.print();
+        let files = program.files.lock();
+        errors.print(&files);
+        drop(files);
 
         if !options.check {
             // FIXME: Make a proper error message for when the entry point doesn't exist.

@@ -36,6 +36,7 @@ impl fmt::Debug for MemberId {
 /// e.g. data scopes, and the dependency system.
 pub struct Program {
     pub arguments: Arguments,
+    pub files: Mutex<UstrMap<String>>,
 
     pub logger: Logger,
     // FIXME: We will have scopes eventually, but for now
@@ -74,6 +75,7 @@ impl Program {
 
             members: RwLock::default(),
             scope: RwLock::default(),
+            files: Mutex::default(),
 
             extern_fn_calling_conventions: RwLock::default(),
             calling_conventions_alloc: Mutex::default(),
