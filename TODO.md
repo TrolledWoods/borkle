@@ -25,6 +25,7 @@
 * [X] For loops
 * [X] Make sure certain types of values are "alone" in an expression.
 * [X] Meta data is kept when aliasing
+* [X] Nice error message formatting
 
 * [ ] Make a global setup file for the compiler!
 * [ ] Indexing operations

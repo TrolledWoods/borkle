@@ -49,7 +49,10 @@ fn main() {
         let (mut c_output, errors) = program::thread_pool::run(&program, options.num_threads);
 
         let files = program.files.lock();
-        errors.print(&files);
+        if !errors.print(&files) {
+            // There were errors!
+            return;
+        }
         drop(files);
 
         if !options.check {

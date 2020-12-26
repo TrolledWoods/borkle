@@ -32,7 +32,7 @@ impl ErrorCtx {
         self.warnings.append(&mut other.warnings);
     }
 
-    pub fn print(&self, file_contents: &UstrMap<String>) {
+    pub fn print(&self, file_contents: &UstrMap<String>) -> bool {
         for &(loc, ref message, ref info) in &self.errors {
             println!("Error:");
             if let Some(loc) = loc {
@@ -56,6 +56,8 @@ impl ErrorCtx {
                 }
             }
         }
+
+        self.errors.is_empty()
     }
 
     fn consume_info(&mut self) -> Vec<(Location, String)> {
