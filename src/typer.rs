@@ -214,6 +214,8 @@ fn type_ast<'a>(
             label,
             ref else_body,
         } => {
+            ctx.locals.get_label_mut(label).type_ = wanted_type.get_specific();
+
             let mut iterating = type_ast(ctx, WantedType::none(), iterating, buffer)?;
 
             let iterator_type = match iterating.type_().kind() {
@@ -297,7 +299,11 @@ fn type_ast<'a>(
         ParsedNodeKind::While {
             ref condition,
             ref body,
+            ref else_body,
+            label,
         } => {
+            ctx.locals.get_label_mut(label).type_ = wanted_type.get_specific();
+
             let condition = type_ast(
                 ctx,
                 WantedType::specific(None, Type::new(TypeKind::Bool)),
@@ -306,13 +312,37 @@ fn type_ast<'a>(
             )?;
             let body = type_ast(ctx, WantedType::none(), body, buffer)?;
 
+            let else_body = if let Some(else_body) = else_body {
+                let else_body = type_ast(ctx, wanted_type, else_body, buffer)?;
+                Some(buffer.insert(else_body))
+            } else {
+                None
+            };
+
+            let type_ = else_body
+                .as_ref()
+                .map_or(Type::new(TypeKind::Empty), |node| node.type_());
+
+            let label_def = ctx.locals.get_label(label);
+            if let Some(label_type) = label_def.type_ {
+                if label_type != type_ {
+                    ctx.errors.error(
+                        label_def.first_break_location.unwrap(),
+                        format!("Expected '{}', found '{}'", type_, label_type),
+                    );
+                    return Err(());
+                }
+            }
+
             Node::new(
                 parsed.loc,
                 NodeKind::While {
                     condition: buffer.insert(condition),
                     body: buffer.insert(body),
+                    else_body,
+                    label,
                 },
-                Type::new(TypeKind::Empty),
+                type_,
             )
         }
         ParsedNodeKind::If {

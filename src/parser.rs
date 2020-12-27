@@ -591,13 +591,32 @@ fn atom_value(
                 )
             }
             TokenKind::Keyword(Keyword::While) => {
+                imperative.push_scope_boundary();
+                let label = parse_default_label(global, imperative)?;
+
                 let condition = expression(global, imperative, buffer)?;
                 let body = expression(global, imperative, buffer)?;
+
+                imperative.pop_default_label();
+                imperative.pop_scope_boundary();
+
+                let else_body = if global
+                    .tokens
+                    .try_consume(&TokenKind::Keyword(Keyword::Else))
+                {
+                    let else_body = expression(global, imperative, buffer)?;
+                    Some(buffer.insert(else_body))
+                } else {
+                    None
+                };
+
                 Node::new(
                     token.loc,
                     NodeKind::While {
                         condition: buffer.insert(condition),
                         body: buffer.insert(body),
+                        label,
+                        else_body,
                     },
                 )
             }

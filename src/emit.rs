@@ -239,21 +239,42 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, node: &'a Node) -> Value {
 
             to
         }
-        NodeKind::While { condition, body } => {
+        NodeKind::While {
+            condition,
+            body,
+            else_body,
+            label,
+        } => {
             let end_label = ctx.create_label();
+            let else_body_label = ctx.create_label();
 
+            let to = ctx.registers.create(node.type_());
+            let label = ctx.locals.get_label_mut(*label);
+            label.value = Some(to);
+            label.ir_labels = Some(vec![end_label]);
+
+            // Condition
             let condition_label = ctx.create_label();
             ctx.define_label(condition_label);
+
             let condition = emit_node(ctx, condition);
+            ctx.emit_jump_if_zero(condition, else_body_label);
 
-            ctx.emit_jump_if_zero(condition, end_label);
-
+            // Loop body
             emit_node(ctx, body);
-
             ctx.emit_jump(condition_label);
+
+            // Else body
+            ctx.define_label(else_body_label);
+            if let Some(else_body) = else_body {
+                let else_body_value = emit_node(ctx, else_body);
+                ctx.emit_move(to, else_body_value, Member::default());
+            }
+
+            // End
             ctx.define_label(end_label);
 
-            ctx.registers.zst()
+            to
         }
         NodeKind::If {
             condition,

@@ -1,14 +1,13 @@
 library "fmt.bo";
 
-const main = fn() -> u64 {'my_block
-    let x = for 'named_for_loop 0 .. 9 {
-        print("Hello!\n");
-        if it > 4  break 'named_for_loop it;
-    } else {
-        8
-    };
+const main = fn() -> u64 {
+    let buffer = &[5, 1, 2, 3, 6, 8, 7, 9, 0, 4] : [] i64;
 
-    print("For loop returned %\n", &[fmt_i32(x)]);
+    let index = for buffer {
+        if *it == 6  break bit_cast it - bit_cast buffer.ptr : i64;
+    } else -1 : i64;
 
-    0
+    print("The index is %\n", &[fmt_i64(index)]);
+
+    5
 };

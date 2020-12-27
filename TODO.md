@@ -32,6 +32,7 @@
 
 * [ ] Make a global setup file for the compiler!
 * [ ] Add a flag to types that are not storable in constants.
+* [ ] BUG! Parsing ambiguity error is not resolved even after adding parenthesees
 
 # Version 0.0.3
 * [ ] Compile time functions

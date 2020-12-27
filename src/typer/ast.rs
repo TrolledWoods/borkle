@@ -84,6 +84,8 @@ pub enum NodeKind {
     While {
         condition: SelfBox<Node>,
         body: SelfBox<Node>,
+        else_body: Option<SelfBox<Node>>,
+        label: crate::locals::LabelId,
     },
     If {
         condition: SelfBox<Node>,

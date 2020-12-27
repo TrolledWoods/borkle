@@ -61,6 +61,8 @@ pub enum NodeKind {
     While {
         condition: SelfBox<Node>,
         body: SelfBox<Node>,
+        else_body: Option<SelfBox<Node>>,
+        label: LabelId,
     },
     If {
         condition: SelfBox<Node>,
