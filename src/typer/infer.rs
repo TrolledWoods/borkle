@@ -23,6 +23,16 @@ impl WantedType {
         }
     }
 
+    pub fn maybe_specific(loc: Option<Location>, type_: Option<Type>) -> Self {
+        Self {
+            loc,
+            kind: match type_ {
+                Some(type_) => WantedKind::Specific(type_),
+                None => WantedKind::None,
+            },
+        }
+    }
+
     pub fn specific(loc: Option<Location>, type_: Type) -> Self {
         Self {
             loc,

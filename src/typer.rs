@@ -661,6 +661,10 @@ fn type_ast<'a>(
                     )
                 }
                 _ => {
+                    if let Some(loc) = wanted_type.loc {
+                        ctx.errors.info(loc, format!("This is '{}'", wanted_type));
+                    }
+
                     ctx.errors.error(
                         parsed.loc,
                         format!("Expected '{}', found integer", wanted_type),
@@ -873,8 +877,15 @@ fn type_ast<'a>(
             num_defer_deduplications,
             ref value,
         } => {
-            let label_type = ctx.locals.get_label_mut(label).type_;
-            let value = type_ast(ctx, label_type.into(), value, buffer)?;
+            let label_mut = ctx.locals.get_label_mut(label);
+            let label_type = label_mut.type_;
+            let label_loc = label_mut.first_break_location;
+            let value = type_ast(
+                ctx,
+                WantedType::maybe_specific(label_loc, label_type),
+                value,
+                buffer,
+            )?;
 
             ctx.locals.get_label_mut(label).type_ = Some(value.type_());
 
@@ -921,7 +932,16 @@ fn type_ast<'a>(
                 let label = ctx.locals.get_label_mut(label);
                 if let Some(label_type) = label.type_ {
                     if label_type != type_ {
-                        ctx.errors.error(parsed.loc, format!("This blocks label has been determined to be of type '{}', but you passed '{}'", label_type, type_));
+                        ctx.errors
+                            .info(parsed.loc, format!("'{}' is defined here", label.name));
+                        ctx.errors.info(
+                            label.first_break_location.unwrap(),
+                            format!("Here you break to the block with the type '{}'", label_type),
+                        );
+                        ctx.errors.error(
+                            parsed_last.loc,
+                            format!("Tried returning type '{}' from a block, but you also tried breaking to it with the type '{}'", type_, label_type),
+                        );
                         return Err(());
                     }
                 } else {

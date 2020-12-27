@@ -42,6 +42,7 @@ impl ErrorCtx {
             }
 
             for &(info_loc, ref info_message) in info {
+                println!();
                 print_loc(info_loc, info_message, file_contents);
             }
         }

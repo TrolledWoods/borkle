@@ -25,6 +25,7 @@ pub struct Label {
     /// are how many defers whose instructions can be combined with the target.
     pub defer_depth: usize,
     pub num_defers: usize,
+    pub first_break_location: Option<Location>,
     pub type_: Option<Type>,
     pub value: Option<crate::ir::Value>,
     pub ir_labels: Option<Vec<crate::ir::LabelId>>,

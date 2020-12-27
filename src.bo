@@ -1,110 +1,34 @@
-const testing_constant = fn () -> [3][]u8  ["One!\n", "Two!\n", "Three!\n"];
+library "fmt.bo";
+library "mem.bo";
 
-const __ones = ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine"];
-const __teens = ["ten", "eleven", "twelve", "thirteen", "fourteen", "sixteen", "seventeen", "eighteen", "nineteen"];
-const __tens = ["", "__", "twenty", "thirty", "fourty", "fifty", "sixty", "seventy", "eighty", "ninety"];
-
-const mod = fn(num: usize, div: usize) -> usize  num - ((num / div) * div);
-
-const print_number_string = fn(num: usize) {
-    let thousands = mod(num / 1000, 10);
-    let hundreds = mod(num / 100, 10);
-    let tens = mod(num / 10, 10);
-    let one = mod(num, 10);
-
-    if thousands > 0 {
-        print(*get_string(<<&__ones, thousands));
-        print(" thousand ");
-    };
-
-    if hundreds > 0 {
-        print(*get_string(<<&__ones, hundreds));
-        print(" hundred ");
-    };
-
-    if tens == 1 {
-        print(*get_string(<<&__teens, one));
-    } else {
-        print(*get_string(<<&__tens, tens));
-
-        print(*get_string(<<&__ones, one));
-    };
-
-    print("\n");
+const Vec3 = type {
+    x: i32,
+    y: i32,
+    z: i32,
 };
 
-const get_string = fn(buf: [][]u8, index: usize) -> &[]u8 {
-    buf.ptr + index
+const vec3 = fn(x: i32, y: i32, z = 0 : i32) -> Vec3 {
+    let vec3 = uninit : Vec3;
+    vec3.x = x; vec3.y = y; vec3.z = z;
+    vec3
 };
 
-const get = fn(buf: [] u8, index: usize) -> &u8 {
-    buf.ptr + index
-};
-
-const copy = fn(from: [] u8, to: [] u8) {
-    let i = 0 : usize;
-    while i < from.len {
-        *(to.ptr + i) = *(from.ptr + i);
-        i = i + 1;
-    };
-};
-
-const slice = fn(buf: [] u8, start: usize, end: usize) -> [] u8 {
-    let new_buf = uninit : [] u8;
-    new_buf.ptr = buf.ptr + start;
-    if end == 0 {
-        new_buf.len = buf.len - start;
-    } else {
-        new_buf.len = end - start;
-    };
-    new_buf
-};
+const vec3_new = vec3;
 
 const main = fn() -> u64 {
-    let ptr = &testing_constant();
-
-    print_number_string(2482);
-
-    print_usize(<< ptr);
-
-    let x = -5 : i64;
-    let y = 3 : i64;
-
-    if x < y {
-        print("-5 is less than -3!\n");
+    { 'block
+        break 'block 9;
+        3
     };
 
-    let ptr_to_elem = << ptr : &[] u8;
-    print_usize(<< ptr_to_elem);
+    let my_vec = vec3(y = 1, z = 2, x = !9);
+    let my_vec = vec3_new(y = 1, z = 2, x = !9);
 
-    print(* <<ptr);
-    print(*(<<ptr + 1));
-    print(*(<<ptr + 2));
+    let z = 4;
 
-    0
+    print("x: %, y: %, z: %\n", &[
+        fmt_i32(my_vec.x), fmt_i32(my_vec.y), fmt_i32(my_vec.z),
+    ]);
+
+    3
 };
-
-const print = fn (buffer: [] u8) -> u64 {
-    (extern "borkle_lib/hello" "put_string" : extern fn(&u8, usize) -> u64)
-        (buffer.ptr, buffer.len)
-};
-
-const print_usize = fn (num: usize) { print_i64(bit_cast num); };
-const print_i64 = extern "borkle_lib/hello" "print_i64" : extern fn (i64) -> i64;
-const does_this_work_maybe = callback();
-
-const alloc = fn (len: usize) -> [] u8 {
-    let buf = uninit : [] u8;
-    buf.ptr = (extern "borkle_lib/hello" "alloc" : extern fn (usize) -> &u8)(len);
-    buf.len = len;
-    buf
-};
-
-const dealloc = fn (buf: [] u8) {
-    (extern "borkle_lib/hello" "dealloc" : extern fn (&u8, usize))(buf.ptr, buf.len);
-};
-
-// const flush = extern "borkle_lib/hello" "flush_stdout" : extern fn();
-
-const print_u8  = extern "borkle_lib/hello" "print_u8"  : extern fn (u8) -> u8;
-const callback  = extern "borkle_lib/hello" "callback"  : extern fn () -> extern fn (i64) -> i64;

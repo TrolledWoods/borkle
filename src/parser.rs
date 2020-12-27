@@ -489,14 +489,20 @@ fn atom_value(
 
                 let num_defer_deduplications = imperative.locals.get_label(id).num_defers;
 
-                let value = if matches!(
-                    global.tokens.peek().map(|t| &t.kind),
-                    Some(TokenKind::SemiColon)
-                ) {
+                let value = if let Some(&Token {
+                    loc,
+                    kind: TokenKind::SemiColon,
+                }) = global.tokens.peek()
+                {
                     Node::new(loc, NodeKind::Empty)
                 } else {
                     expression(global, imperative, buffer)?
                 };
+
+                let label_mut = imperative.locals.get_label_mut(id);
+                if label_mut.first_break_location.is_none() {
+                    label_mut.first_break_location = Some(value.loc);
+                }
 
                 Node::new(
                     token.loc,
@@ -1058,6 +1064,7 @@ fn maybe_parse_label(
             name,
             loc,
             defer_depth: imperative.defer_depth,
+            first_break_location: None,
             num_defers: 0,
             type_: None,
             value: None,
