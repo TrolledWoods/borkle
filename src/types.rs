@@ -140,6 +140,19 @@ impl Type {
                 }),
                 _ => None,
             },
+            TypeKind::AnyBuffer => match member_name.as_str() {
+                "ptr" => Some(Member {
+                    parent_type: self,
+                    byte_offset: 0,
+                    type_: Type::new(TypeKind::Any),
+                }),
+                "len" => Some(Member {
+                    parent_type: self,
+                    byte_offset: 8,
+                    type_: Type::new(TypeKind::Int(IntTypeKind::Usize)),
+                }),
+                _ => None,
+            },
             _ => None,
         }
     }
@@ -158,6 +171,7 @@ impl Display for TypeKind {
     fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Range(inner) => write!(fmt, "{0}..{0}", inner),
+            Self::AnyBuffer => write!(fmt, "[] any"),
             Self::Any => write!(fmt, "&any"),
             Self::Never => write!(fmt, "!"),
             Self::Type => write!(fmt, "type"),
@@ -221,6 +235,7 @@ pub enum TypeKind {
     F32,
     Bool,
     Any,
+    AnyBuffer,
     Range(Type),
     Int(IntTypeKind),
     Array(Type, usize),
@@ -240,6 +255,7 @@ impl TypeKind {
             TypeKind::Never
             | TypeKind::Type
             | TypeKind::Any
+            | TypeKind::AnyBuffer
             | TypeKind::Empty
             | TypeKind::F64
             | TypeKind::F32
@@ -270,7 +286,7 @@ impl TypeKind {
             Self::Type => (8, 8),
             Self::Empty => (0, 1),
             Self::Any | Self::F64 | Self::Reference(_) | Self::Function { .. } => (8, 8),
-            Self::Buffer(_) => (16, 8),
+            Self::AnyBuffer | Self::Buffer(_) => (16, 8),
             Self::F32 => (4, 4),
             Self::Bool => (1, 1),
             Self::Range(inner) => {
@@ -320,6 +336,12 @@ impl TypeKind {
                 if internal.size() > 0 {
                     pointers.push((0, PointerInType::Buffer(*internal)));
                 }
+            }
+            Self::AnyBuffer => {
+                pointers.push((
+                    0,
+                    PointerInType::Buffer(Type::new(TypeKind::Int(IntTypeKind::U8))),
+                ));
             }
             Self::Range(internal) => {
                 let second_element = to_align(internal.size(), internal.align());

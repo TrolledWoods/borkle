@@ -314,6 +314,109 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, node: &'a Node) -> Value {
             ctx.emit_move(to, from, Member::default());
             to
         }
+        NodeKind::BufferToAny { buffer, inner } => {
+            let from = emit_node(ctx, buffer);
+
+            let ptr = ctx.registers.create(Type::new(TypeKind::Any));
+            ctx.emit_member(
+                ptr,
+                from,
+                Member {
+                    offset: 0,
+                    name_list: vec!["ptr".into()],
+                },
+            );
+
+            let usize_type = Type::new(TypeKind::Int(IntTypeKind::Usize));
+            let len = ctx.registers.create(usize_type);
+            ctx.emit_member(
+                len,
+                from,
+                Member {
+                    offset: 8,
+                    name_list: vec!["len".into()],
+                },
+            );
+
+            let constant = ctx
+                .program
+                .insert_buffer(usize_type, inner.size().to_le_bytes().as_ptr());
+            ctx.emit_binary(
+                BinaryOp::Mult,
+                len,
+                len,
+                Value::Global(constant, usize_type),
+            );
+
+            let to = ctx.registers.create(node.type_());
+            ctx.emit_move(
+                to,
+                len,
+                Member {
+                    offset: 8,
+                    name_list: vec!["len".into()],
+                },
+            );
+            ctx.emit_move(
+                to,
+                ptr,
+                Member {
+                    offset: 0,
+                    name_list: vec!["ptr".into()],
+                },
+            );
+
+            to
+        }
+        NodeKind::AnyToBuffer { any, inner } => {
+            let from = emit_node(ctx, any);
+
+            let ptr = ctx.registers.create(Type::new(TypeKind::Any));
+            ctx.emit_member(
+                ptr,
+                from,
+                Member {
+                    offset: 0,
+                    name_list: vec!["ptr".into()],
+                },
+            );
+
+            let usize_type = Type::new(TypeKind::Int(IntTypeKind::Usize));
+            let len = ctx.registers.create(usize_type);
+            ctx.emit_member(
+                len,
+                from,
+                Member {
+                    offset: 8,
+                    name_list: vec!["len".into()],
+                },
+            );
+
+            let constant = ctx
+                .program
+                .insert_buffer(usize_type, inner.size().to_le_bytes().as_ptr());
+            ctx.emit_binary(BinaryOp::Div, len, len, Value::Global(constant, usize_type));
+
+            let to = ctx.registers.create(node.type_());
+            ctx.emit_move(
+                to,
+                len,
+                Member {
+                    offset: 8,
+                    name_list: vec!["len".into()],
+                },
+            );
+            ctx.emit_move(
+                to,
+                ptr,
+                Member {
+                    offset: 0,
+                    name_list: vec!["ptr".into()],
+                },
+            );
+
+            to
+        }
         NodeKind::ArrayToBuffer { length, array } => {
             let from = emit_node(ctx, array);
             let to = ctx.registers.create(node.type_());

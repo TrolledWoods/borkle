@@ -154,7 +154,7 @@ fn type_to_ffi_type(type_: Type) -> Option<ffi_type> {
             TypeKind::Array(_, _) => {
                 todo!("Array ffi is not implemented yet");
             }
-            TypeKind::Buffer(_) => {
+            TypeKind::AnyBuffer | TypeKind::Buffer(_) => {
                 todo!("Buffer ffi is not implemented yet");
             }
             TypeKind::Struct(_) => {

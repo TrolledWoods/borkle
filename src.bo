@@ -1,28 +1,13 @@
-library "fmt.bo";
-library "mem.bo";
+const main = fn() -> u64 {'my_block
+    let x = 3;
+    let y = 4;
+    let z = 6;
 
-const Vec3 = type {
-    x: i32,
-    y: i32,
-    z: i32,
-};
+    {'hello
+        if x < y  break hello;
 
-const vec3 = fn(x: i32, y: i32, z = 0 : i32) -> Vec3 {
-    let vec3 = uninit : Vec3;
-    vec3.x = x; vec3.y = y; vec3.z = z;
-    vec3
-};
+        if x < z  break hello;
+    };
 
-const vec3_new = vec3;
-
-const function = fn(ptr: &any, callback: fn(&any)) {
-    callback(ptr);
-};
-
-const main = fn() -> u64 {
-    function(<< &99, fn(data: &any) {
-        print("The number is %\n", &[fmt_i32(* << data)]);
-    });
-
-    3
+    0
 };

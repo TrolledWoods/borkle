@@ -1,12 +1,12 @@
-const alloc = fn (len: usize) -> [] u8 {
-    let buf = uninit : [] u8;
-    buf.ptr = (extern "target/library" "alloc" : extern fn (usize) -> &u8)(len);
+const alloc = fn (len: usize) -> [] any {
+    let buf = uninit : [] any;
+    buf.ptr = (extern "target/library" "alloc" : extern fn (usize) -> &any)(len);
     buf.len = len;
     buf
 };
 
-const dealloc = fn (buf: [] u8) {
-    (extern "target/library" "dealloc" : extern fn (&u8, usize))(buf.ptr, buf.len);
+const dealloc = fn (buf: [] any) {
+    (extern "target/library" "dealloc" : extern fn (&any, usize))(buf.ptr, buf.len);
 };
 
 const mem_compare = fn (a: &u8, b: &u8, size: usize) -> i32 {

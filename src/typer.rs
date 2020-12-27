@@ -572,7 +572,8 @@ fn type_ast<'a>(
                     return Err(());
                 }
 
-                Node::new(
+                let calling_loc = calling.loc;
+                let node = Node::new(
                     calling.loc,
                     NodeKind::FunctionCall {
                         is_extern: *is_extern,
@@ -580,7 +581,17 @@ fn type_ast<'a>(
                         args,
                     },
                     *returns,
-                )
+                );
+
+                if let Some(specific) = wanted_type.get_specific() {
+                    if specific != *returns {
+                        auto_cast(ctx, calling_loc, node, specific, buffer)?
+                    } else {
+                        node
+                    }
+                } else {
+                    node
+                }
             } else {
                 ctx.errors.error(
                     calling.loc,
@@ -1197,6 +1208,22 @@ fn auto_cast<'a>(
             loc,
             NodeKind::BitCast {
                 value: buffer.insert(from),
+            },
+            to_type,
+        )),
+        (TypeKind::AnyBuffer, TypeKind::Buffer(inner)) => Ok(Node::new(
+            loc,
+            NodeKind::AnyToBuffer {
+                any: buffer.insert(from),
+                inner: *inner,
+            },
+            to_type,
+        )),
+        (TypeKind::Buffer(inner), TypeKind::AnyBuffer) => Ok(Node::new(
+            loc,
+            NodeKind::BufferToAny {
+                buffer: buffer.insert(from),
+                inner: *inner,
             },
             to_type,
         )),

@@ -468,6 +468,9 @@ pub fn append_c_type_headers(output: &mut String) {
             TypeKind::Reference(internal) => {
                 write!(output, "{}", c_format_pointer_type(*internal)).unwrap()
             }
+            TypeKind::AnyBuffer => {
+                write!(output, "struct{{\n  uint8_t ptr;\n  uint64_t len;\n}}",).unwrap();
+            }
             TypeKind::Buffer(internal) => {
                 write!(
                     output,

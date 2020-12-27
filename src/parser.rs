@@ -331,8 +331,16 @@ fn type_(
             match global.tokens.expect_peek(global.errors)?.kind {
                 TokenKind::Close(Bracket::Square) => {
                     global.tokens.next();
-                    let inner = type_(global, imperative, buffer)?;
-                    Ok(Node::new(loc, NodeKind::BufferType(buffer.insert(inner))))
+
+                    if global.tokens.try_consume(&TokenKind::Keyword(Keyword::Any)) {
+                        Ok(Node::new(
+                            loc,
+                            NodeKind::LiteralType(TypeKind::AnyBuffer.into()),
+                        ))
+                    } else {
+                        let inner = type_(global, imperative, buffer)?;
+                        Ok(Node::new(loc, NodeKind::BufferType(buffer.insert(inner))))
+                    }
                 }
                 _ => {
                     let old_evaluate_at_typing = imperative.evaluate_at_typing;

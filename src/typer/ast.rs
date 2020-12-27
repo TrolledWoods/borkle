@@ -121,6 +121,14 @@ pub enum NodeKind {
         length: usize,
         array: SelfBox<Node>,
     },
+    BufferToAny {
+        buffer: SelfBox<Node>,
+        inner: Type,
+    },
+    AnyToBuffer {
+        any: SelfBox<Node>,
+        inner: Type,
+    },
 }
 
 unsafe impl Send for NodeKind {}
