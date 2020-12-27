@@ -148,7 +148,9 @@ fn type_to_ffi_type(type_: Type) -> Option<ffi_type> {
             TypeKind::Bool => Some(ffi_type_uint8),
             TypeKind::Int(IntTypeKind::Usize) => Some(ffi_type_pointer),
             TypeKind::Int(IntTypeKind::Isize) => Some(ffi_type_pointer),
-            TypeKind::Reference(_) | TypeKind::Function { .. } => Some(ffi_type_pointer),
+            TypeKind::Any | TypeKind::Reference(_) | TypeKind::Function { .. } => {
+                Some(ffi_type_pointer)
+            }
             TypeKind::Array(_, _) => {
                 todo!("Array ffi is not implemented yet");
             }

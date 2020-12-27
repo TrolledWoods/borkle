@@ -158,6 +158,7 @@ impl Display for TypeKind {
     fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Range(inner) => write!(fmt, "{0}..{0}", inner),
+            Self::Any => write!(fmt, "&any"),
             Self::Never => write!(fmt, "!"),
             Self::Type => write!(fmt, "type"),
             Self::Empty => write!(fmt, "()"),
@@ -219,6 +220,7 @@ pub enum TypeKind {
     F64,
     F32,
     Bool,
+    Any,
     Range(Type),
     Int(IntTypeKind),
     Array(Type, usize),
@@ -237,6 +239,7 @@ impl TypeKind {
         match self {
             TypeKind::Never
             | TypeKind::Type
+            | TypeKind::Any
             | TypeKind::Empty
             | TypeKind::F64
             | TypeKind::F32
@@ -266,7 +269,7 @@ impl TypeKind {
             Self::Never => (0, 0),
             Self::Type => (8, 8),
             Self::Empty => (0, 1),
-            Self::F64 | Self::Reference(_) | Self::Function { .. } => (8, 8),
+            Self::Any | Self::F64 | Self::Reference(_) | Self::Function { .. } => (8, 8),
             Self::Buffer(_) => (16, 8),
             Self::F32 => (4, 4),
             Self::Bool => (1, 1),
@@ -306,6 +309,7 @@ impl TypeKind {
             | Self::Int(_)
             | Self::F32
             | Self::F64
+            | Self::Any
             | Self::Bool => {}
             Self::Reference(internal) => {
                 if internal.size() > 0 {

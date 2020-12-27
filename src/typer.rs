@@ -1186,6 +1186,20 @@ fn auto_cast<'a>(
             },
             to_type,
         )),
+        (TypeKind::Reference(_), TypeKind::Any) => Ok(Node::new(
+            loc,
+            NodeKind::BitCast {
+                value: buffer.insert(from),
+            },
+            to_type,
+        )),
+        (TypeKind::Any, TypeKind::Reference(_)) => Ok(Node::new(
+            loc,
+            NodeKind::BitCast {
+                value: buffer.insert(from),
+            },
+            to_type,
+        )),
         (
             TypeKind::Reference(Type(TypeData {
                 kind: TypeKind::Array(from_inner, _),

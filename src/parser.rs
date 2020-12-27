@@ -394,11 +394,15 @@ fn type_(
         }
         _ => {
             if global.tokens.try_consume_operator_string("&").is_some() {
-                let inner = type_(global, imperative, buffer)?;
-                Ok(Node::new(
-                    loc,
-                    NodeKind::ReferenceType(buffer.insert(inner)),
-                ))
+                if global.tokens.try_consume(&TokenKind::Keyword(Keyword::Any)) {
+                    Ok(Node::new(loc, NodeKind::LiteralType(TypeKind::Any.into())))
+                } else {
+                    let inner = type_(global, imperative, buffer)?;
+                    Ok(Node::new(
+                        loc,
+                        NodeKind::ReferenceType(buffer.insert(inner)),
+                    ))
+                }
             } else {
                 global.error(
                     loc,

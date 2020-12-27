@@ -26,10 +26,12 @@
 * [X] Make sure certain types of values are "alone" in an expression.
 * [X] Meta data is kept when aliasing
 * [X] Nice error message formatting
-
-* [ ] Make a global setup file for the compiler!
 * [ ] 'Any' type, the same as C void\*
     (do we want it to behave this way or do we want 'Any' to use a type id, and have some other type that works like c void)
+* [ ] 'Any' buffer type.
+
+* [ ] Make a global setup file for the compiler!
+* [ ] Add a flag to types that are not storable in constants.
 
 # Version 0.0.3
 * [ ] Compile time functions

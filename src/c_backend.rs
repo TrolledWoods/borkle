@@ -449,6 +449,7 @@ pub fn append_c_type_headers(output: &mut String) {
                 .unwrap();
             }
 
+            TypeKind::Any => output.push_str("void *"),
             TypeKind::Bool => output.push_str("uint8_t "),
             TypeKind::Int(IntTypeKind::U8) => output.push_str("uint8_t "),
             TypeKind::Int(IntTypeKind::U16) => output.push_str("uint16_t "),

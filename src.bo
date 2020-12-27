@@ -15,20 +15,14 @@ const vec3 = fn(x: i32, y: i32, z = 0 : i32) -> Vec3 {
 
 const vec3_new = vec3;
 
+const function = fn(ptr: &any, callback: fn(&any)) {
+    callback(ptr);
+};
+
 const main = fn() -> u64 {
-    { 'block
-        break 'block 9;
-        3
-    };
-
-    let my_vec = vec3(y = 1, z = 2, x = !9);
-    let my_vec = vec3_new(y = 1, z = 2, x = !9);
-
-    let z = 4;
-
-    print("x: %, y: %, z: %\n", &[
-        fmt_i32(my_vec.x), fmt_i32(my_vec.y), fmt_i32(my_vec.z),
-    ]);
+    function(<< &99, fn(data: &any) {
+        print("The number is %\n", &[fmt_i32(* << data)]);
+    });
 
     3
 };
