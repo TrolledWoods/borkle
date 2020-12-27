@@ -1,13 +1,26 @@
 library "fmt.bo";
 
 const main = fn() -> u64 {
-    let buffer = &[5, 1, 2, 3, 6, 8, 7, 9, 0, 4] : [] i64;
+    let line = 0 : usize;
+    let line_start = 0 : usize;
+    for read_file("src.bo") {
+        if *_it == "\n" {
+            line = line + 1;
+            line_start = _iteration - 1;
+        };
 
-    let index = for buffer {
-        if *it == 6  break bit_cast it - bit_cast buffer.ptr : i64;
-    } else -1 : i64;
-
-    print("The index is %\n", &[fmt_i64(index)]);
+        if *_it == "{" {
+            print("'{' at line %, char %!\n", &[
+                fmt_usize(line + 1),
+                fmt_usize(_iteration - line_start + 1),
+            ]);
+        } else if *_it == "}" {
+            print("'}' at line %, char %!\n", &[
+                fmt_usize(line + 1),
+                fmt_usize(_iteration - line_start + 1),
+            ]);
+        };
+    };
 
     5
 };

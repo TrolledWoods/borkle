@@ -143,6 +143,7 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, node: &'a Node) -> Value {
         }
         NodeKind::For {
             iterator,
+            iteration_var,
             iterating,
             body,
             label,
@@ -158,8 +159,14 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, node: &'a Node) -> Value {
             let iterator_local = ctx.locals.get_mut(*iterator);
             let iterator_type = iterator_local.type_.unwrap();
 
+            // Set up iterator values
             let iterator_value = ctx.registers.create(iterator_type);
             iterator_local.value = Some(iterator_value);
+            let iteration_var_value = ctx
+                .registers
+                .create(Type::new(TypeKind::Int(IntTypeKind::Usize)));
+            ctx.locals.get_mut(*iteration_var).value = Some(iteration_var_value);
+            ctx.emit_constant_from_buffer(iteration_var_value, &0_usize.to_le_bytes());
 
             let start = ctx.registers.create(iterator_type);
             let end = ctx.registers.create(iterator_type);
@@ -226,6 +233,7 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, node: &'a Node) -> Value {
             ctx.emit_move(iterator_value, start, Member::default());
             emit_node(ctx, body);
             ctx.emit_increment(start);
+            ctx.emit_increment(iteration_var_value);
 
             ctx.emit_jump(condition_label);
 
@@ -241,6 +249,7 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, node: &'a Node) -> Value {
         }
         NodeKind::While {
             condition,
+            iteration_var,
             body,
             else_body,
             label,
@@ -253,6 +262,12 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, node: &'a Node) -> Value {
             label.value = Some(to);
             label.ir_labels = Some(vec![end_label]);
 
+            let iteration_var_value = ctx
+                .registers
+                .create(Type::new(TypeKind::Int(IntTypeKind::Usize)));
+            ctx.locals.get_mut(*iteration_var).value = Some(iteration_var_value);
+            ctx.emit_constant_from_buffer(iteration_var_value, &0_usize.to_le_bytes());
+
             // Condition
             let condition_label = ctx.create_label();
             ctx.define_label(condition_label);
@@ -262,6 +277,7 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, node: &'a Node) -> Value {
 
             // Loop body
             emit_node(ctx, body);
+            ctx.emit_increment(iteration_var_value);
             ctx.emit_jump(condition_label);
 
             // Else body

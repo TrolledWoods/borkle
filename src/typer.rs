@@ -209,12 +209,15 @@ fn type_ast<'a>(
         }
         ParsedNodeKind::For {
             iterator,
+            iteration_var,
             ref iterating,
             ref body,
             label,
             ref else_body,
         } => {
             ctx.locals.get_label_mut(label).type_ = wanted_type.get_specific();
+            ctx.locals.get_mut(iteration_var).type_ =
+                Some(Type::new(TypeKind::Int(IntTypeKind::Usize)));
 
             let mut iterating = type_ast(ctx, WantedType::none(), iterating, buffer)?;
 
@@ -288,6 +291,7 @@ fn type_ast<'a>(
                 parsed.loc,
                 NodeKind::For {
                     iterator,
+                    iteration_var,
                     iterating: buffer.insert(iterating),
                     body: buffer.insert(body),
                     label,
@@ -300,9 +304,12 @@ fn type_ast<'a>(
             ref condition,
             ref body,
             ref else_body,
+            iteration_var,
             label,
         } => {
             ctx.locals.get_label_mut(label).type_ = wanted_type.get_specific();
+            ctx.locals.get_mut(iteration_var).type_ =
+                Some(Type::new(TypeKind::Int(IntTypeKind::Usize)));
 
             let condition = type_ast(
                 ctx,
@@ -338,6 +345,7 @@ fn type_ast<'a>(
                 parsed.loc,
                 NodeKind::While {
                     condition: buffer.insert(condition),
+                    iteration_var,
                     body: buffer.insert(body),
                     else_body,
                     label,

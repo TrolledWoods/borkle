@@ -26,13 +26,19 @@
 * [X] Make sure certain types of values are "alone" in an expression.
 * [X] Meta data is kept when aliasing
 * [X] Nice error message formatting
-* [ ] 'Any' type, the same as C void\*
+* [X] 'Any' type, the same as C void\*
     (do we want it to behave this way or do we want 'Any' to use a type id, and have some other type that works like c void)
-* [ ] 'Any' buffer type.
+* [X] 'Any' buffer type.
+* [X] for/while loops have else clauses
+* [X] for/while loops have labels
+* [X] breaks that don't jump to a named labels
+* [X] \_iteration variable in loops that shows how many times the loop has iterated
 
+* [ ] Make assignment an expression.
 * [ ] Make a global setup file for the compiler!
 * [ ] Add a flag to types that are not storable in constants.
 * [ ] BUG! Parsing ambiguity error is not resolved even after adding parenthesees
+* [ ] When a file cannot be loaded, show where the task was queued.
 
 # Version 0.0.3
 * [ ] Compile time functions

@@ -557,11 +557,18 @@ fn atom_value(
                 } else {
                     imperative.insert_local(Local {
                         loc: token.loc,
-                        name: "it".into(),
+                        name: "_it".into(),
                         type_: None,
                         value: None,
                     })
                 };
+
+                let iteration_var = imperative.insert_local(Local {
+                    loc: token.loc,
+                    name: "_iteration".into(),
+                    type_: None,
+                    value: None,
+                });
 
                 let iterating = expression(global, imperative, buffer)?;
                 let body = expression(global, imperative, buffer)?;
@@ -583,6 +590,7 @@ fn atom_value(
                     token.loc,
                     NodeKind::For {
                         iterator,
+                        iteration_var,
                         iterating: buffer.insert(iterating),
                         body: buffer.insert(body),
                         label,
@@ -593,6 +601,13 @@ fn atom_value(
             TokenKind::Keyword(Keyword::While) => {
                 imperative.push_scope_boundary();
                 let label = parse_default_label(global, imperative)?;
+
+                let iteration_var = imperative.insert_local(Local {
+                    loc: token.loc,
+                    name: "_iteration".into(),
+                    type_: None,
+                    value: None,
+                });
 
                 let condition = expression(global, imperative, buffer)?;
                 let body = expression(global, imperative, buffer)?;
@@ -614,6 +629,7 @@ fn atom_value(
                     token.loc,
                     NodeKind::While {
                         condition: buffer.insert(condition),
+                        iteration_var,
                         body: buffer.insert(body),
                         label,
                         else_body,

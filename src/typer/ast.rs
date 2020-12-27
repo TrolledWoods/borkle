@@ -76,6 +76,7 @@ pub enum NodeKind {
 
     For {
         iterator: LocalId,
+        iteration_var: LocalId,
         iterating: SelfBox<Node>,
         body: SelfBox<Node>,
         label: crate::locals::LabelId,
@@ -83,6 +84,7 @@ pub enum NodeKind {
     },
     While {
         condition: SelfBox<Node>,
+        iteration_var: LocalId,
         body: SelfBox<Node>,
         else_body: Option<SelfBox<Node>>,
         label: crate::locals::LabelId,
