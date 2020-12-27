@@ -18,7 +18,6 @@ pub struct Local {
 
 #[derive(Debug, Clone)]
 pub struct Label {
-    pub name: Ustr,
     pub loc: Location,
     /// This is how many many defers exist that aren't 'after' this label. defer_depth + num_defers
     /// is how many defers have to be inserted before jumping to the label, since num_defers

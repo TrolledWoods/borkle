@@ -47,6 +47,7 @@ pub struct ImperativeContext<'a> {
     pub evaluate_at_typing: bool,
     pub in_const_expression: bool,
 
+    default_labels: Vec<LabelId>,
     scope_boundaries: Vec<ScopeBoundary>,
     local_map: Vec<(Ustr, LocalId)>,
     label_map: Vec<(Ustr, LabelId)>,
@@ -61,6 +62,7 @@ impl<'a> ImperativeContext<'a> {
             evaluate_at_typing,
             in_const_expression: false,
 
+            default_labels: Vec::new(),
             scope_boundaries: Vec::new(),
             local_map: Vec::new(),
             label_map: Vec::new(),
@@ -88,8 +90,24 @@ impl<'a> ImperativeContext<'a> {
         self.label_map.truncate(boundary.labels);
     }
 
-    pub fn insert_label(&mut self, label: Label) -> LabelId {
-        let name = label.name;
+    pub fn insert_default_label(&mut self, name: Option<Ustr>, label: Label) -> LabelId {
+        let id = self.locals.insert_label(label);
+        self.default_labels.push(id);
+        if let Some(name) = name {
+            self.label_map.push((name, id));
+        }
+        id
+    }
+
+    pub fn last_default_label(&mut self) -> Option<LabelId> {
+        self.default_labels.last().copied()
+    }
+
+    pub fn pop_default_label(&mut self) {
+        self.default_labels.pop();
+    }
+
+    pub fn insert_label(&mut self, name: Ustr, label: Label) -> LabelId {
         let id = self.locals.insert_label(label);
         self.label_map.push((name, id));
         id

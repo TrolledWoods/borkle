@@ -145,8 +145,13 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, node: &'a Node) -> Value {
             iterator,
             iterating,
             body,
+            label,
+            else_body,
         } => {
             let end_label = ctx.create_label();
+            let to = ctx.registers.create(node.type_());
+            ctx.locals.get_label_mut(*label).value = Some(to);
+            ctx.locals.get_label_mut(*label).ir_labels = Some(vec![end_label]);
 
             let iterating_value = emit_node(ctx, iterating);
 
@@ -214,7 +219,9 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, node: &'a Node) -> Value {
             ctx.define_label(condition_label);
 
             ctx.emit_binary(BinaryOp::LessThan, condition, start, end);
-            ctx.emit_jump_if_zero(condition, end_label);
+
+            let else_body_label = ctx.create_label();
+            ctx.emit_jump_if_zero(condition, else_body_label);
 
             ctx.emit_move(iterator_value, start, Member::default());
             emit_node(ctx, body);
@@ -222,9 +229,15 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, node: &'a Node) -> Value {
 
             ctx.emit_jump(condition_label);
 
+            ctx.define_label(else_body_label);
+            if let Some(else_body) = else_body {
+                let else_body_from = emit_node(ctx, else_body);
+                ctx.emit_move(to, else_body_from, Member::default());
+            }
+
             ctx.define_label(end_label);
 
-            ctx.registers.zst()
+            to
         }
         NodeKind::While { condition, body } => {
             let end_label = ctx.create_label();

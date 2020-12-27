@@ -78,6 +78,8 @@ pub enum NodeKind {
         iterator: LocalId,
         iterating: SelfBox<Node>,
         body: SelfBox<Node>,
+        label: crate::locals::LabelId,
+        else_body: Option<SelfBox<Node>>,
     },
     While {
         condition: SelfBox<Node>,

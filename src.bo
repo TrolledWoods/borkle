@@ -1,13 +1,14 @@
+library "fmt.bo";
+
 const main = fn() -> u64 {'my_block
-    let x = 3;
-    let y = 4;
-    let z = 6;
-
-    {'hello
-        if x < y  break hello;
-
-        if x < z  break hello;
+    let x = for 'named_for_loop 0 .. 9 {
+        print("Hello!\n");
+        if it > 4  break 'named_for_loop it;
+    } else {
+        8
     };
+
+    print("For loop returned %\n", &[fmt_i32(x)]);
 
     0
 };

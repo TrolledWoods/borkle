@@ -55,6 +55,8 @@ pub enum NodeKind {
         iterator: LocalId,
         iterating: SelfBox<Node>,
         body: SelfBox<Node>,
+        else_body: Option<SelfBox<Node>>,
+        label: LabelId,
     },
     While {
         condition: SelfBox<Node>,

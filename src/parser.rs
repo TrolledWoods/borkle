@@ -489,14 +489,24 @@ fn atom_value(
                 Node::new(token.loc, NodeKind::TypeAsValue(buffer.insert(t)))
             }
             TokenKind::Keyword(Keyword::Break) => {
-                let (loc, label_name) = global.tokens.expect_identifier(global.errors)?;
+                let id = if global.tokens.try_consume(&TokenKind::SingleQuote) {
+                    let (loc, label_name) = global.tokens.expect_identifier(global.errors)?;
 
-                let id = match imperative.get_label(label_name) {
-                    Some(id) => id,
-                    None => {
-                        global.error(loc, format!("There is no label called '{}'", label_name));
-                        return Err(());
+                    match imperative.get_label(label_name) {
+                        Some(id) => id,
+                        None => {
+                            global.error(loc, format!("There is no label called '{}'", label_name));
+                            return Err(());
+                        }
                     }
+                } else if let Some(label) = imperative.last_default_label() {
+                    label
+                } else {
+                    global.error(
+                        token.loc,
+                        "There is no default label to break to".to_string(),
+                    );
+                    return Err(());
                 };
 
                 let num_defer_deduplications = imperative.locals.get_label(id).num_defers;
@@ -528,6 +538,8 @@ fn atom_value(
             TokenKind::Keyword(Keyword::For) => {
                 imperative.push_scope_boundary();
 
+                let label = parse_default_label(global, imperative)?;
+
                 let iterator = if let Some(Token {
                     kind: TokenKind::Keyword(Keyword::In),
                     ..
@@ -554,13 +566,27 @@ fn atom_value(
                 let iterating = expression(global, imperative, buffer)?;
                 let body = expression(global, imperative, buffer)?;
 
+                imperative.pop_default_label();
                 imperative.pop_scope_boundary();
+
+                let else_body = if global
+                    .tokens
+                    .try_consume(&TokenKind::Keyword(Keyword::Else))
+                {
+                    let else_body = expression(global, imperative, buffer)?;
+                    Some(buffer.insert(else_body))
+                } else {
+                    None
+                };
+
                 Node::new(
                     token.loc,
                     NodeKind::For {
                         iterator,
                         iterating: buffer.insert(iterating),
                         body: buffer.insert(body),
+                        label,
+                        else_body,
                     },
                 )
             }
@@ -678,9 +704,9 @@ fn atom_value(
             }
 
             TokenKind::Open(Bracket::Curly) => {
-                let label = maybe_parse_label(global, imperative)?;
-
                 imperative.push_scope_boundary();
+
+                let label = maybe_parse_label(global, imperative)?;
 
                 let mut contents = Vec::new();
                 loop {
@@ -1066,14 +1092,22 @@ fn maybe_parse_polymorphic_arguments(
     Ok(args)
 }
 
-fn maybe_parse_label(
+fn parse_default_label(
     global: &mut DataContext<'_>,
     imperative: &mut ImperativeContext<'_>,
-) -> Result<Option<crate::locals::LabelId>, ()> {
-    if global.tokens.try_consume(&TokenKind::SingleQuote) {
-        let (loc, name) = global.tokens.expect_identifier(global.errors)?;
-        let id = imperative.insert_label(crate::locals::Label {
-            name,
+) -> Result<crate::locals::LabelId, ()> {
+    let loc = global.tokens.loc();
+
+    let name = if global.tokens.try_consume(&TokenKind::SingleQuote) {
+        let (_, name) = global.tokens.expect_identifier(global.errors)?;
+        Some(name)
+    } else {
+        None
+    };
+
+    let id = imperative.insert_default_label(
+        name,
+        crate::locals::Label {
             loc,
             defer_depth: imperative.defer_depth,
             first_break_location: None,
@@ -1081,7 +1115,30 @@ fn maybe_parse_label(
             type_: None,
             value: None,
             ir_labels: None,
-        });
+        },
+    );
+
+    Ok(id)
+}
+
+fn maybe_parse_label(
+    global: &mut DataContext<'_>,
+    imperative: &mut ImperativeContext<'_>,
+) -> Result<Option<crate::locals::LabelId>, ()> {
+    if global.tokens.try_consume(&TokenKind::SingleQuote) {
+        let (loc, name) = global.tokens.expect_identifier(global.errors)?;
+        let id = imperative.insert_label(
+            name,
+            crate::locals::Label {
+                loc,
+                defer_depth: imperative.defer_depth,
+                first_break_location: None,
+                num_defers: 0,
+                type_: None,
+                value: None,
+                ir_labels: None,
+            },
+        );
         Ok(Some(id))
     } else {
         Ok(None)

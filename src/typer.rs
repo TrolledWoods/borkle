@@ -211,6 +211,8 @@ fn type_ast<'a>(
             iterator,
             ref iterating,
             ref body,
+            label,
+            ref else_body,
         } => {
             let mut iterating = type_ast(ctx, WantedType::none(), iterating, buffer)?;
 
@@ -254,8 +256,31 @@ fn type_ast<'a>(
                 }
             };
 
+            ctx.locals.get_label_mut(label).type_ = wanted_type.get_specific();
             ctx.locals.get_mut(iterator).type_ = Some(iterator_type);
             let body = type_ast(ctx, WantedType::none(), body, buffer)?;
+
+            let else_body = if let Some(else_body) = else_body {
+                let else_body = type_ast(ctx, wanted_type, else_body, buffer)?;
+                Some(buffer.insert(else_body))
+            } else {
+                None
+            };
+
+            let type_ = else_body
+                .as_ref()
+                .map_or(Type::new(TypeKind::Empty), |node| node.type_());
+
+            let label_def = ctx.locals.get_label(label);
+            if let Some(label_type) = label_def.type_ {
+                if label_type != type_ {
+                    ctx.errors.error(
+                        label_def.first_break_location.unwrap(),
+                        format!("Expected '{}', found '{}'", type_, label_type),
+                    );
+                    return Err(());
+                }
+            }
 
             Node::new(
                 parsed.loc,
@@ -263,8 +288,10 @@ fn type_ast<'a>(
                     iterator,
                     iterating: buffer.insert(iterating),
                     body: buffer.insert(body),
+                    label,
+                    else_body,
                 },
-                Type::new(TypeKind::Empty),
+                type_,
             )
         }
         ParsedNodeKind::While {
@@ -944,7 +971,7 @@ fn type_ast<'a>(
                 if let Some(label_type) = label.type_ {
                     if label_type != type_ {
                         ctx.errors
-                            .info(parsed.loc, format!("'{}' is defined here", label.name));
+                            .info(parsed.loc, "Block is defined here".to_string());
                         ctx.errors.info(
                             label.first_break_location.unwrap(),
                             format!("Here you break to the block with the type '{}'", label_type),
