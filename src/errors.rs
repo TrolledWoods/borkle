@@ -90,6 +90,7 @@ fn print_loc(loc: Location, message: &str, file_contents: &UstrMap<String>) {
         if let Some(line) = content.lines().nth(loc.line as usize - 1) {
             let prefix = format!("{:>4} | ", loc.line);
 
+            println!("in '{}':", loc.file);
             println!("{}{}", prefix, line);
 
             print!("{}", " ".repeat(prefix.len()));

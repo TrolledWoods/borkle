@@ -382,6 +382,7 @@ fn value(
                     );
                     return Err(());
                 }
+                imperative.locals.get_mut(local_id).num_uses += 1;
                 Node::new(token.loc, NodeKind::Local(local_id))
             } else if imperative.evaluate_at_typing {
                 imperative
@@ -487,27 +488,12 @@ fn value(
                 let (name_loc, name) = global.tokens.expect_identifier(global.errors)?;
                 global.tokens.next();
 
-                imperative.insert_local(Local {
-                    loc: name_loc,
-                    name,
-                    type_: None,
-                    value: None,
-                })
+                imperative.insert_local(Local::new(name_loc, name))
             } else {
-                imperative.insert_local(Local {
-                    loc: token.loc,
-                    name: "_it".into(),
-                    type_: None,
-                    value: None,
-                })
+                imperative.insert_local(Local::new(token.loc, "_it".into()))
             };
 
-            let iteration_var = imperative.insert_local(Local {
-                loc: token.loc,
-                name: "_iteration".into(),
-                type_: None,
-                value: None,
-            });
+            let iteration_var = imperative.insert_local(Local::new(token.loc, "_iters".into()));
 
             let iterating = expression(global, imperative, buffer)?;
             let body = expression(global, imperative, buffer)?;
@@ -541,12 +527,7 @@ fn value(
             imperative.push_scope_boundary();
             let label = parse_default_label(global, imperative)?;
 
-            let iteration_var = imperative.insert_local(Local {
-                loc: token.loc,
-                name: "_iteration".into(),
-                type_: None,
-                value: None,
-            });
+            let iteration_var = imperative.insert_local(Local::new(token.loc, "_iters".into()));
 
             let condition = expression(global, imperative, buffer)?;
             let body = expression(global, imperative, buffer)?;
@@ -726,12 +707,7 @@ fn value(
 
                             let value = expression(global, imperative, buffer)?;
 
-                            let id = imperative.insert_local(Local {
-                                loc: token.loc,
-                                name,
-                                type_: None,
-                                value: None,
-                            });
+                            let id = imperative.insert_local(Local::new(token.loc, name));
 
                             let declaration = Node::new(
                                 token.loc,
@@ -968,12 +944,7 @@ fn function_declaration(
             ..
         }) = global.tokens.next()
         {
-            imperative.insert_local(Local {
-                loc,
-                name,
-                type_: None,
-                value: None,
-            });
+            imperative.insert_local(Local::new(loc, name));
 
             if global.tokens.try_consume_operator_string(":").is_some() {
                 if !default_args.is_empty() {

@@ -14,6 +14,19 @@ pub struct Local {
     pub loc: Location,
     pub type_: Option<Type>,
     pub value: Option<crate::ir::Value>,
+    pub num_uses: usize,
+}
+
+impl Local {
+    pub fn new(loc: Location, name: Ustr) -> Self {
+        Self {
+            name,
+            loc,
+            type_: None,
+            value: None,
+            num_uses: 0,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
