@@ -199,71 +199,6 @@ fn expression(
     }
 }
 
-/// A value allows for unary operators and member accesses or function insertions.
-/// However, unary operators are only allowed before the accesses.
-fn value(
-    global: &mut DataContext<'_>,
-    imperative: &mut ImperativeContext<'_>,
-    buffer: &mut SelfBuffer,
-) -> Result<Node, ()> {
-    if let Some((loc, op)) = global.tokens.try_consume_operator() {
-        let operand = value(global, imperative, buffer)?;
-        Ok(Node::new(
-            loc,
-            NodeKind::Unary {
-                operand: buffer.insert(operand),
-                op,
-            },
-        ))
-    } else {
-        member_value(global, imperative, buffer)
-    }
-}
-
-/// A member value only allows for member accesses or function insertions. It does not
-/// allow for unary operators.
-fn member_value(
-    global: &mut DataContext<'_>,
-    imperative: &mut ImperativeContext<'_>,
-    buffer: &mut SelfBuffer,
-) -> Result<Node, ()> {
-    let mut value = atom_value(global, imperative, buffer)?;
-
-    while let Some(&Token { ref kind, loc, .. }) = global.tokens.peek() {
-        match kind {
-            TokenKind::Operator(string) if string.as_str() == "." => {
-                global.tokens.next();
-
-                let (_, name) = global.tokens.expect_identifier(global.errors)?;
-                value = Node::new(
-                    loc,
-                    NodeKind::Member {
-                        of: buffer.insert(value),
-                        name,
-                    },
-                );
-            }
-            TokenKind::Open(Bracket::Round) => {
-                global.tokens.next();
-
-                let (args, named_args) = function_arguments(global, imperative, buffer)?;
-
-                value = Node::new(
-                    loc,
-                    NodeKind::FunctionCall {
-                        calling: buffer.insert(value),
-                        args,
-                        named_args,
-                    },
-                );
-            }
-            _ => break,
-        }
-    }
-
-    Ok(value)
-}
-
 fn type_(
     global: &mut DataContext<'_>,
     imperative: &mut ImperativeContext<'_>,
@@ -422,278 +357,275 @@ fn type_(
     }
 }
 
-/// A value without unary operators, member accesses, or anything like that.
-fn atom_value(
+/// A value
+fn value(
     global: &mut DataContext<'_>,
     imperative: &mut ImperativeContext<'_>,
     buffer: &mut SelfBuffer,
 ) -> Result<Node, ()> {
-    Ok({
-        let token = global.tokens.expect_next(global.errors)?;
-        match token.kind {
-            TokenKind::Identifier(name) => {
-                let polymorphic_arguments =
-                    parse_passed_polymorphic_arguments(global, imperative, buffer)?;
+    let mut unary_operators = Vec::new();
+    while let Some((loc, op)) = global.tokens.try_consume_operator() {
+        unary_operators.push((loc, op));
+    }
 
-                if let Some(local_id) = imperative.get_local(name) {
-                    if !polymorphic_arguments.is_empty() {
-                        global.error(
-                            token.loc,
-                            "Cannot give a local polymorphic arguments".to_string(),
-                        );
-                        return Err(());
-                    }
-                    Node::new(token.loc, NodeKind::Local(local_id))
-                } else if imperative.evaluate_at_typing {
-                    imperative
-                        .dependencies
-                        .add(token.loc, name, DependencyKind::Value);
-                    Node::new(
-                        token.loc,
-                        NodeKind::GlobalForTyping(name, polymorphic_arguments),
-                    )
-                } else {
-                    imperative
-                        .dependencies
-                        .add(token.loc, name, DependencyKind::Type);
-                    Node::new(token.loc, NodeKind::Global(name, polymorphic_arguments))
-                }
-            }
-            TokenKind::Literal(literal) => Node::new(token.loc, NodeKind::Literal(literal)),
-            TokenKind::Keyword(Keyword::Const) => {
-                let mut sub_ctx =
-                    ImperativeContext::new(imperative.dependencies, imperative.evaluate_at_typing);
-                sub_ctx.in_const_expression = true;
-                let inner = expression(global, &mut sub_ctx, buffer)?;
+    let token = global.tokens.expect_next(global.errors)?;
+    let mut value = match token.kind {
+        TokenKind::Identifier(name) => {
+            let polymorphic_arguments =
+                parse_passed_polymorphic_arguments(global, imperative, buffer)?;
 
-                if imperative.evaluate_at_typing {
-                    Node::new(
-                        token.loc,
-                        NodeKind::ConstAtTyping {
-                            locals: sub_ctx.locals,
-                            inner: buffer.insert(inner),
-                        },
-                    )
-                } else {
-                    Node::new(
-                        token.loc,
-                        NodeKind::ConstAtEvaluation {
-                            locals: sub_ctx.locals,
-                            inner: buffer.insert(inner),
-                        },
-                    )
-                }
-            }
-            TokenKind::Keyword(Keyword::Type) => {
-                let t = type_(global, imperative, buffer)?;
-                Node::new(token.loc, NodeKind::TypeAsValue(buffer.insert(t)))
-            }
-            TokenKind::Keyword(Keyword::Break) => {
-                let id = if global.tokens.try_consume(&TokenKind::SingleQuote) {
-                    let (loc, label_name) = global.tokens.expect_identifier(global.errors)?;
-
-                    match imperative.get_label(label_name) {
-                        Some(id) => id,
-                        None => {
-                            global.error(loc, format!("There is no label called '{}'", label_name));
-                            return Err(());
-                        }
-                    }
-                } else if let Some(label) = imperative.last_default_label() {
-                    label
-                } else {
+            if let Some(local_id) = imperative.get_local(name) {
+                if !polymorphic_arguments.is_empty() {
                     global.error(
                         token.loc,
-                        "There is no default label to break to".to_string(),
+                        "Cannot give a local polymorphic arguments".to_string(),
                     );
                     return Err(());
-                };
-
-                let num_defer_deduplications = imperative.locals.get_label(id).num_defers;
-
-                let value = if let Some(&Token {
-                    loc,
-                    kind: TokenKind::SemiColon,
-                }) = global.tokens.peek()
-                {
-                    Node::new(loc, NodeKind::Empty)
-                } else {
-                    expression(global, imperative, buffer)?
-                };
-
-                let label_mut = imperative.locals.get_label_mut(id);
-                if label_mut.first_break_location.is_none() {
-                    label_mut.first_break_location = Some(value.loc);
                 }
-
+                Node::new(token.loc, NodeKind::Local(local_id))
+            } else if imperative.evaluate_at_typing {
+                imperative
+                    .dependencies
+                    .add(token.loc, name, DependencyKind::Value);
                 Node::new(
                     token.loc,
-                    NodeKind::Break {
-                        label: id,
-                        num_defer_deduplications,
-                        value: buffer.insert(value),
+                    NodeKind::GlobalForTyping(name, polymorphic_arguments),
+                )
+            } else {
+                imperative
+                    .dependencies
+                    .add(token.loc, name, DependencyKind::Type);
+                Node::new(token.loc, NodeKind::Global(name, polymorphic_arguments))
+            }
+        }
+        TokenKind::Literal(literal) => Node::new(token.loc, NodeKind::Literal(literal)),
+        TokenKind::Keyword(Keyword::Const) => {
+            let mut sub_ctx =
+                ImperativeContext::new(imperative.dependencies, imperative.evaluate_at_typing);
+            sub_ctx.in_const_expression = true;
+            let inner = expression(global, &mut sub_ctx, buffer)?;
+
+            if imperative.evaluate_at_typing {
+                Node::new(
+                    token.loc,
+                    NodeKind::ConstAtTyping {
+                        locals: sub_ctx.locals,
+                        inner: buffer.insert(inner),
+                    },
+                )
+            } else {
+                Node::new(
+                    token.loc,
+                    NodeKind::ConstAtEvaluation {
+                        locals: sub_ctx.locals,
+                        inner: buffer.insert(inner),
                     },
                 )
             }
-            TokenKind::Keyword(Keyword::For) => {
-                imperative.push_scope_boundary();
+        }
+        TokenKind::Keyword(Keyword::Type) => {
+            let t = type_(global, imperative, buffer)?;
+            Node::new(token.loc, NodeKind::TypeAsValue(buffer.insert(t)))
+        }
+        TokenKind::Keyword(Keyword::Break) => {
+            let id = if global.tokens.try_consume(&TokenKind::SingleQuote) {
+                let (loc, label_name) = global.tokens.expect_identifier(global.errors)?;
 
-                let label = parse_default_label(global, imperative)?;
-
-                let iterator = if let Some(Token {
-                    kind: TokenKind::Keyword(Keyword::In),
-                    ..
-                }) = global.tokens.peek_nth(1)
-                {
-                    let (name_loc, name) = global.tokens.expect_identifier(global.errors)?;
-                    global.tokens.next();
-
-                    imperative.insert_local(Local {
-                        loc: name_loc,
-                        name,
-                        type_: None,
-                        value: None,
-                    })
-                } else {
-                    imperative.insert_local(Local {
-                        loc: token.loc,
-                        name: "_it".into(),
-                        type_: None,
-                        value: None,
-                    })
-                };
-
-                let iteration_var = imperative.insert_local(Local {
-                    loc: token.loc,
-                    name: "_iteration".into(),
-                    type_: None,
-                    value: None,
-                });
-
-                let iterating = expression(global, imperative, buffer)?;
-                let body = expression(global, imperative, buffer)?;
-
-                imperative.pop_default_label();
-                imperative.pop_scope_boundary();
-
-                let else_body = if global
-                    .tokens
-                    .try_consume(&TokenKind::Keyword(Keyword::Else))
-                {
-                    let else_body = expression(global, imperative, buffer)?;
-                    Some(buffer.insert(else_body))
-                } else {
-                    None
-                };
-
-                Node::new(
-                    token.loc,
-                    NodeKind::For {
-                        iterator,
-                        iteration_var,
-                        iterating: buffer.insert(iterating),
-                        body: buffer.insert(body),
-                        label,
-                        else_body,
-                    },
-                )
-            }
-            TokenKind::Keyword(Keyword::While) => {
-                imperative.push_scope_boundary();
-                let label = parse_default_label(global, imperative)?;
-
-                let iteration_var = imperative.insert_local(Local {
-                    loc: token.loc,
-                    name: "_iteration".into(),
-                    type_: None,
-                    value: None,
-                });
-
-                let condition = expression(global, imperative, buffer)?;
-                let body = expression(global, imperative, buffer)?;
-
-                imperative.pop_default_label();
-                imperative.pop_scope_boundary();
-
-                let else_body = if global
-                    .tokens
-                    .try_consume(&TokenKind::Keyword(Keyword::Else))
-                {
-                    let else_body = expression(global, imperative, buffer)?;
-                    Some(buffer.insert(else_body))
-                } else {
-                    None
-                };
-
-                Node::new(
-                    token.loc,
-                    NodeKind::While {
-                        condition: buffer.insert(condition),
-                        iteration_var,
-                        body: buffer.insert(body),
-                        label,
-                        else_body,
-                    },
-                )
-            }
-            TokenKind::Keyword(Keyword::If) => {
-                let condition = expression(global, imperative, buffer)?;
-                let true_body = expression(global, imperative, buffer)?;
-
-                let false_body = if global
-                    .tokens
-                    .try_consume(&TokenKind::Keyword(Keyword::Else))
-                {
-                    Some(expression(global, imperative, buffer)?)
-                } else {
-                    None
-                };
-
-                Node::new(
-                    token.loc,
-                    NodeKind::If {
-                        condition: buffer.insert(condition),
-                        true_body: buffer.insert(true_body),
-                        false_body: false_body.map(|v| buffer.insert(v)),
-                    },
-                )
-            }
-            TokenKind::Keyword(Keyword::Uninit) => Node::new(token.loc, NodeKind::Uninit),
-            TokenKind::Keyword(Keyword::Function) => {
-                function_declaration(global, imperative.dependencies, buffer, token.loc)?
-            }
-            TokenKind::Keyword(Keyword::BitCast) => {
-                let value = value(global, imperative, buffer)?;
-                Node::new(
-                    token.loc,
-                    NodeKind::BitCast {
-                        value: buffer.insert(value),
-                    },
-                )
-            }
-            TokenKind::Keyword(Keyword::Extern) => {
-                let loc = token.loc;
-                let token = global.tokens.expect_next(global.errors)?;
-                if let TokenKind::Literal(Literal::String(library_name)) = token.kind {
-                    let token = global.tokens.expect_next(global.errors)?;
-                    if let TokenKind::Literal(Literal::String(symbol_name)) = token.kind {
-                        let mut library_path = global.path.to_path_buf();
-                        library_path.pop();
-                        library_path.push(&library_name);
-                        Node::new(
-                            loc,
-                            NodeKind::Extern {
-                                library_name: library_path,
-                                symbol_name,
-                            },
-                        )
-                    } else {
-                        global.error(
-                            token.loc,
-                            "Expected string literal containing the library name".to_string(),
-                        );
+                match imperative.get_label(label_name) {
+                    Some(id) => id,
+                    None => {
+                        global.error(loc, format!("There is no label called '{}'", label_name));
                         return Err(());
                     }
+                }
+            } else if let Some(label) = imperative.last_default_label() {
+                label
+            } else {
+                global.error(
+                    token.loc,
+                    "There is no default label to break to".to_string(),
+                );
+                return Err(());
+            };
+
+            let num_defer_deduplications = imperative.locals.get_label(id).num_defers;
+
+            let value = if let Some(&Token {
+                loc,
+                kind: TokenKind::SemiColon,
+            }) = global.tokens.peek()
+            {
+                Node::new(loc, NodeKind::Empty)
+            } else {
+                expression(global, imperative, buffer)?
+            };
+
+            let label_mut = imperative.locals.get_label_mut(id);
+            if label_mut.first_break_location.is_none() {
+                label_mut.first_break_location = Some(value.loc);
+            }
+
+            Node::new(
+                token.loc,
+                NodeKind::Break {
+                    label: id,
+                    num_defer_deduplications,
+                    value: buffer.insert(value),
+                },
+            )
+        }
+        TokenKind::Keyword(Keyword::For) => {
+            imperative.push_scope_boundary();
+
+            let label = parse_default_label(global, imperative)?;
+
+            let iterator = if let Some(Token {
+                kind: TokenKind::Keyword(Keyword::In),
+                ..
+            }) = global.tokens.peek_nth(1)
+            {
+                let (name_loc, name) = global.tokens.expect_identifier(global.errors)?;
+                global.tokens.next();
+
+                imperative.insert_local(Local {
+                    loc: name_loc,
+                    name,
+                    type_: None,
+                    value: None,
+                })
+            } else {
+                imperative.insert_local(Local {
+                    loc: token.loc,
+                    name: "_it".into(),
+                    type_: None,
+                    value: None,
+                })
+            };
+
+            let iteration_var = imperative.insert_local(Local {
+                loc: token.loc,
+                name: "_iteration".into(),
+                type_: None,
+                value: None,
+            });
+
+            let iterating = expression(global, imperative, buffer)?;
+            let body = expression(global, imperative, buffer)?;
+
+            imperative.pop_default_label();
+            imperative.pop_scope_boundary();
+
+            let else_body = if global
+                .tokens
+                .try_consume(&TokenKind::Keyword(Keyword::Else))
+            {
+                let else_body = expression(global, imperative, buffer)?;
+                Some(buffer.insert(else_body))
+            } else {
+                None
+            };
+
+            Node::new(
+                token.loc,
+                NodeKind::For {
+                    iterator,
+                    iteration_var,
+                    iterating: buffer.insert(iterating),
+                    body: buffer.insert(body),
+                    label,
+                    else_body,
+                },
+            )
+        }
+        TokenKind::Keyword(Keyword::While) => {
+            imperative.push_scope_boundary();
+            let label = parse_default_label(global, imperative)?;
+
+            let iteration_var = imperative.insert_local(Local {
+                loc: token.loc,
+                name: "_iteration".into(),
+                type_: None,
+                value: None,
+            });
+
+            let condition = expression(global, imperative, buffer)?;
+            let body = expression(global, imperative, buffer)?;
+
+            imperative.pop_default_label();
+            imperative.pop_scope_boundary();
+
+            let else_body = if global
+                .tokens
+                .try_consume(&TokenKind::Keyword(Keyword::Else))
+            {
+                let else_body = expression(global, imperative, buffer)?;
+                Some(buffer.insert(else_body))
+            } else {
+                None
+            };
+
+            Node::new(
+                token.loc,
+                NodeKind::While {
+                    condition: buffer.insert(condition),
+                    iteration_var,
+                    body: buffer.insert(body),
+                    label,
+                    else_body,
+                },
+            )
+        }
+        TokenKind::Keyword(Keyword::If) => {
+            let condition = expression(global, imperative, buffer)?;
+            let true_body = expression(global, imperative, buffer)?;
+
+            let false_body = if global
+                .tokens
+                .try_consume(&TokenKind::Keyword(Keyword::Else))
+            {
+                Some(expression(global, imperative, buffer)?)
+            } else {
+                None
+            };
+
+            Node::new(
+                token.loc,
+                NodeKind::If {
+                    condition: buffer.insert(condition),
+                    true_body: buffer.insert(true_body),
+                    false_body: false_body.map(|v| buffer.insert(v)),
+                },
+            )
+        }
+        TokenKind::Keyword(Keyword::Uninit) => Node::new(token.loc, NodeKind::Uninit),
+        TokenKind::Keyword(Keyword::Function) => {
+            function_declaration(global, imperative.dependencies, buffer, token.loc)?
+        }
+        TokenKind::Keyword(Keyword::BitCast) => {
+            let value = value(global, imperative, buffer)?;
+            Node::new(
+                token.loc,
+                NodeKind::BitCast {
+                    value: buffer.insert(value),
+                },
+            )
+        }
+        TokenKind::Keyword(Keyword::Extern) => {
+            let loc = token.loc;
+            let token = global.tokens.expect_next(global.errors)?;
+            if let TokenKind::Literal(Literal::String(library_name)) = token.kind {
+                let token = global.tokens.expect_next(global.errors)?;
+                if let TokenKind::Literal(Literal::String(symbol_name)) = token.kind {
+                    let mut library_path = global.path.to_path_buf();
+                    library_path.pop();
+                    library_path.push(&library_name);
+                    Node::new(
+                        loc,
+                        NodeKind::Extern {
+                            library_name: library_path,
+                            symbol_name,
+                        },
+                    )
                 } else {
                     global.error(
                         token.loc,
@@ -701,161 +633,209 @@ fn atom_value(
                     );
                     return Err(());
                 }
-            }
-            TokenKind::Open(Bracket::Square) => {
-                let mut args = Vec::new();
-                loop {
-                    if global
-                        .tokens
-                        .try_consume(&TokenKind::Close(Bracket::Square))
-                    {
-                        break;
-                    }
-
-                    let expr = expression(global, imperative, buffer)?;
-                    args.push(buffer.insert(expr));
-
-                    let token = global.tokens.expect_next(global.errors)?;
-                    match token.kind {
-                        TokenKind::Close(Bracket::Square) => break,
-                        TokenKind::Comma => {}
-                        _ => {
-                            global.error(token.loc, "Expected either ',' or ']'".to_string());
-                            return Err(());
-                        }
-                    }
-                }
-
-                Node::new(token.loc, NodeKind::ArrayLiteral(args))
-            }
-            TokenKind::Open(Bracket::Round) => {
-                let expr = expression(global, imperative, buffer)?;
-
-                global
-                    .tokens
-                    .expect_next_is(global.errors, &TokenKind::Close(Bracket::Round))?;
-
-                expr
-            }
-
-            TokenKind::Open(Bracket::Curly) => {
-                imperative.push_scope_boundary();
-
-                let label = maybe_parse_label(global, imperative)?;
-
-                let mut contents = Vec::new();
-                loop {
-                    if let Some(loc) = global
-                        .tokens
-                        .try_consume_with_data(&TokenKind::Close(Bracket::Curly))
-                    {
-                        contents.push(buffer.insert(Node::new(loc, NodeKind::Empty)));
-                        break;
-                    }
-
-                    let peek_token = global.tokens.expect_peek(global.errors)?;
-                    let loc = peek_token.loc;
-                    match peek_token.kind {
-                        TokenKind::Keyword(Keyword::Defer) => {
-                            global.tokens.next();
-
-                            let deferring = expression(global, imperative, buffer)?;
-                            let defer = Node::new(
-                                loc,
-                                NodeKind::Defer {
-                                    deferring: buffer.insert(deferring),
-                                },
-                            );
-                            contents.push(buffer.insert(defer));
-
-                            imperative.defer_depth += 1;
-
-                            if let Some(label) = label {
-                                imperative.locals.get_label_mut(label).num_defers += 1;
-                            }
-                        }
-                        TokenKind::Keyword(Keyword::Let) => {
-                            global.tokens.next();
-                            let token = global.tokens.expect_next(global.errors)?;
-                            if let TokenKind::Identifier(name) = token.kind {
-                                global.tokens.try_consume_operator_string("=").ok_or_else(
-                                    || {
-                                        global.error(
-                                            token.loc,
-                                            "Expected '=' after identifier".into(),
-                                        );
-                                    },
-                                )?;
-
-                                let value = expression(global, imperative, buffer)?;
-
-                                let id = imperative.insert_local(Local {
-                                    loc: token.loc,
-                                    name,
-                                    type_: None,
-                                    value: None,
-                                });
-
-                                let declaration = Node::new(
-                                    token.loc,
-                                    NodeKind::Declare {
-                                        local: id,
-                                        value: buffer.insert(value),
-                                    },
-                                );
-
-                                contents.push(buffer.insert(declaration));
-                            } else {
-                                global.error(token.loc, "Expected identifier".to_string());
-                                return Err(());
-                            }
-                        }
-                        _ => {
-                            let inner = expression(global, imperative, buffer)?;
-
-                            if let Some(loc) = global.tokens.try_consume_operator_string("=") {
-                                let rvalue = expression(global, imperative, buffer)?;
-                                let assignment = Node::new(
-                                    loc,
-                                    NodeKind::Assign {
-                                        lvalue: buffer.insert(inner),
-                                        rvalue: buffer.insert(rvalue),
-                                    },
-                                );
-                                contents.push(buffer.insert(assignment));
-                            } else {
-                                contents.push(buffer.insert(inner));
-                            }
-                        }
-                    }
-
-                    let token = global.tokens.expect_next(global.errors)?;
-                    match token.kind {
-                        TokenKind::SemiColon => {}
-                        TokenKind::Close(Bracket::Curly) => break,
-                        _ => {
-                            global.error(
-                                token.loc,
-                                "Expected ';' or '}', or a '=' for assignment".to_string(),
-                            );
-                            return Err(());
-                        }
-                    }
-                }
-
-                imperative.pop_scope_boundary();
-                Node::new(token.loc, NodeKind::Block { label, contents })
-            }
-
-            _ => {
+            } else {
                 global.error(
                     token.loc,
-                    format!("Unexpected token '{:?}', expected value", token.kind),
+                    "Expected string literal containing the library name".to_string(),
                 );
                 return Err(());
             }
         }
-    })
+        TokenKind::Open(Bracket::Square) => {
+            let mut args = Vec::new();
+            loop {
+                if global
+                    .tokens
+                    .try_consume(&TokenKind::Close(Bracket::Square))
+                {
+                    break;
+                }
+
+                let expr = expression(global, imperative, buffer)?;
+                args.push(buffer.insert(expr));
+
+                let token = global.tokens.expect_next(global.errors)?;
+                match token.kind {
+                    TokenKind::Close(Bracket::Square) => break,
+                    TokenKind::Comma => {}
+                    _ => {
+                        global.error(token.loc, "Expected either ',' or ']'".to_string());
+                        return Err(());
+                    }
+                }
+            }
+
+            Node::new(token.loc, NodeKind::ArrayLiteral(args))
+        }
+        TokenKind::Open(Bracket::Round) => {
+            let expr = expression(global, imperative, buffer)?;
+
+            global
+                .tokens
+                .expect_next_is(global.errors, &TokenKind::Close(Bracket::Round))?;
+
+            expr
+        }
+
+        TokenKind::Open(Bracket::Curly) => {
+            imperative.push_scope_boundary();
+
+            let label = maybe_parse_label(global, imperative)?;
+
+            let mut contents = Vec::new();
+            loop {
+                if let Some(loc) = global
+                    .tokens
+                    .try_consume_with_data(&TokenKind::Close(Bracket::Curly))
+                {
+                    contents.push(buffer.insert(Node::new(loc, NodeKind::Empty)));
+                    break;
+                }
+
+                let peek_token = global.tokens.expect_peek(global.errors)?;
+                let loc = peek_token.loc;
+                match peek_token.kind {
+                    TokenKind::Keyword(Keyword::Defer) => {
+                        global.tokens.next();
+
+                        let deferring = expression(global, imperative, buffer)?;
+                        let defer = Node::new(
+                            loc,
+                            NodeKind::Defer {
+                                deferring: buffer.insert(deferring),
+                            },
+                        );
+                        contents.push(buffer.insert(defer));
+
+                        imperative.defer_depth += 1;
+
+                        if let Some(label) = label {
+                            imperative.locals.get_label_mut(label).num_defers += 1;
+                        }
+                    }
+                    TokenKind::Keyword(Keyword::Let) => {
+                        global.tokens.next();
+                        let token = global.tokens.expect_next(global.errors)?;
+                        if let TokenKind::Identifier(name) = token.kind {
+                            global
+                                .tokens
+                                .try_consume_operator_string("=")
+                                .ok_or_else(|| {
+                                    global.error(token.loc, "Expected '=' after identifier".into());
+                                })?;
+
+                            let value = expression(global, imperative, buffer)?;
+
+                            let id = imperative.insert_local(Local {
+                                loc: token.loc,
+                                name,
+                                type_: None,
+                                value: None,
+                            });
+
+                            let declaration = Node::new(
+                                token.loc,
+                                NodeKind::Declare {
+                                    local: id,
+                                    value: buffer.insert(value),
+                                },
+                            );
+
+                            contents.push(buffer.insert(declaration));
+                        } else {
+                            global.error(token.loc, "Expected identifier".to_string());
+                            return Err(());
+                        }
+                    }
+                    _ => {
+                        let inner = expression(global, imperative, buffer)?;
+
+                        if let Some(loc) = global.tokens.try_consume_operator_string("=") {
+                            let rvalue = expression(global, imperative, buffer)?;
+                            let assignment = Node::new(
+                                loc,
+                                NodeKind::Assign {
+                                    lvalue: buffer.insert(inner),
+                                    rvalue: buffer.insert(rvalue),
+                                },
+                            );
+                            contents.push(buffer.insert(assignment));
+                        } else {
+                            contents.push(buffer.insert(inner));
+                        }
+                    }
+                }
+
+                let token = global.tokens.expect_next(global.errors)?;
+                match token.kind {
+                    TokenKind::SemiColon => {}
+                    TokenKind::Close(Bracket::Curly) => break,
+                    _ => {
+                        global.error(
+                            token.loc,
+                            "Expected ';' or '}', or a '=' for assignment".to_string(),
+                        );
+                        return Err(());
+                    }
+                }
+            }
+
+            imperative.pop_scope_boundary();
+            Node::new(token.loc, NodeKind::Block { label, contents })
+        }
+
+        _ => {
+            global.error(
+                token.loc,
+                format!("Unexpected token '{:?}', expected value", token.kind),
+            );
+            return Err(());
+        }
+    };
+
+    while let Some(&Token { ref kind, loc, .. }) = global.tokens.peek() {
+        match kind {
+            TokenKind::Operator(string) if string.as_str() == "." => {
+                global.tokens.next();
+
+                let (_, name) = global.tokens.expect_identifier(global.errors)?;
+                value = Node::new(
+                    loc,
+                    NodeKind::Member {
+                        of: buffer.insert(value),
+                        name,
+                    },
+                );
+            }
+            TokenKind::Open(Bracket::Round) => {
+                global.tokens.next();
+
+                let (args, named_args) = function_arguments(global, imperative, buffer)?;
+
+                value = Node::new(
+                    loc,
+                    NodeKind::FunctionCall {
+                        calling: buffer.insert(value),
+                        args,
+                        named_args,
+                    },
+                );
+            }
+            _ => break,
+        }
+    }
+
+    while let Some((loc, op)) = unary_operators.pop() {
+        value = Node::new(
+            loc,
+            NodeKind::Unary {
+                operand: buffer.insert(value),
+                op,
+            },
+        );
+    }
+
+    Ok(value)
 }
 
 fn function_type(
