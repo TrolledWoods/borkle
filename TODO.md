@@ -34,6 +34,7 @@
 * [X] breaks that don't jump to a named labels
 * [X] \_iteration variable in loops that shows how many times the loop has iterated
 
+* [ ] Look into reducing the amount of recursion, the stack can overflow quite easily at the moment!
 * [ ] Make assignment an expression.
 * [ ] Make a global setup file for the compiler!
 * [ ] Add a flag to types that are not storable in constants.
