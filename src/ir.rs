@@ -2,9 +2,10 @@ use crate::operators::{BinaryOp, UnaryOp};
 use crate::program::constant::ConstantRef;
 use crate::program::ffi;
 use crate::types::{to_align, Type, TypeKind};
+use std::fmt;
 use ustr::Ustr;
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub enum Instr {
     CallExtern {
         to: Value,
@@ -71,6 +72,79 @@ pub enum Instr {
         to: LabelId,
     },
     LabelDefinition(LabelId),
+}
+
+impl fmt::Debug for Instr {
+    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::CallExtern {
+                to,
+                pointer,
+                args,
+                convention: _,
+            }
+            | Self::Call { to, pointer, args } => {
+                write!(fmt, "{} = {}(", to, pointer)?;
+                for (i, arg) in args.iter().enumerate() {
+                    if i > 0 {
+                        write!(fmt, ", ")?;
+                    }
+
+                    write!(fmt, "{}", arg)?;
+                }
+                write!(fmt, ")")?;
+                Ok(())
+            }
+            Self::Constant { to, from: _ } => write!(fmt, "{} = const", to),
+            Self::Increment { value } => write!(fmt, "{} += 1", value),
+            Self::Binary { op, to, a, b } => write!(fmt, "{} = {} {:?} {}", to, a, op, b),
+            Self::Unary { op, to, from } => write!(fmt, "{} = {:?} {}", to, op, from),
+            Self::Member { to, of, member } => {
+                write!(fmt, "{} = {}", to, of)?;
+                for name in &member.name_list {
+                    write!(fmt, ".{}", name)?;
+                }
+                Ok(())
+            }
+            Self::Dereference { to, from } => write!(fmt, "{} = *{}", to, from),
+            Self::Reference { to, from, offset } => {
+                write!(fmt, "{}", to)?;
+                for name in &offset.name_list {
+                    write!(fmt, ".{}", name)?;
+                }
+                write!(fmt, "= &{}", from)
+            }
+            Self::Move {
+                to,
+                from,
+                size: _,
+                member,
+            } => {
+                write!(fmt, "{}", to)?;
+                for name in &member.name_list {
+                    write!(fmt, ".{}", name)?;
+                }
+                write!(fmt, "= {}", from)
+            }
+            Self::MoveIndirect {
+                to,
+                from,
+                size: _,
+                member,
+            } => {
+                write!(fmt, "*{}", to)?;
+                for name in &member.name_list {
+                    write!(fmt, ".{}", name)?;
+                }
+                write!(fmt, "= {}", from)
+            }
+            Self::JumpIfZero { condition, to } => {
+                write!(fmt, "jump to {} if {} == 0", to.0, condition)
+            }
+            Self::Jump { to } => write!(fmt, "jump to {}", to.0),
+            Self::LabelDefinition(id) => write!(fmt, "-- label {}", id.0),
+        }
+    }
 }
 
 #[derive(Default, Debug, Clone)]
@@ -172,6 +246,15 @@ impl Register {
 pub enum Value {
     Register(usize, Type),
     Global(ConstantRef, Type),
+}
+
+impl fmt::Display for Value {
+    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Value::Register(id, type_) => write!(fmt, "{} {}", type_, id),
+            Value::Global(_, type_) => write!(fmt, "const {}", type_),
+        }
+    }
 }
 
 unsafe impl Send for Value {}

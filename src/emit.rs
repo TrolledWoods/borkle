@@ -69,6 +69,7 @@ pub fn emit_function_declaration<'a>(
     }
 
     let result = emit_node(&mut sub_ctx, body);
+
     let routine = Routine {
         label_locations: sub_ctx.label_locations,
         instr: sub_ctx.instr,
@@ -314,14 +315,20 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, node: &'a Node) -> Value {
             true_body,
             false_body: None,
         } => {
-            let condition = emit_node(ctx, condition);
+            if let NodeKind::Constant(data) = condition.kind() {
+                if unsafe { *data.as_ptr() } != 0 {
+                    emit_node(ctx, true_body);
+                }
+            } else {
+                let condition = emit_node(ctx, condition);
 
-            let end_of_body = ctx.create_label();
-            ctx.emit_jump_if_zero(condition, end_of_body);
+                let end_of_body = ctx.create_label();
+                ctx.emit_jump_if_zero(condition, end_of_body);
 
-            emit_node(ctx, true_body);
+                emit_node(ctx, true_body);
 
-            ctx.define_label(end_of_body);
+                ctx.define_label(end_of_body);
+            }
 
             ctx.registers.zst()
         }

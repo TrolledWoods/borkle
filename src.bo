@@ -1,5 +1,5 @@
-library "fmt.bo";
-library "io.bo";
+// library "fmt.bo";
+// library "io.bo";
 
 const main = fn() -> u64 {
     let line = 0 : usize;

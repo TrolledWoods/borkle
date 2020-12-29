@@ -20,7 +20,11 @@ impl Node {
 
     pub fn has_to_be_alone(&self) -> bool {
         match self.kind {
-            NodeKind::If { .. } | NodeKind::For { .. } | NodeKind::While { .. } => true,
+            NodeKind::ConstAtTyping { .. }
+            | NodeKind::ConstAtEvaluation { .. }
+            | NodeKind::If { .. }
+            | NodeKind::For { .. }
+            | NodeKind::While { .. } => true,
             NodeKind::BitCast {
                 value: ref operand, ..
             }

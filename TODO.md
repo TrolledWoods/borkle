@@ -44,6 +44,7 @@
 * [ ] When the type of a function is known, allow for omitting the parameter and return types.
 
 # Version 0.0.3
+* [ ] Ambiguous rules about what expression a type bound applies to.
 * [ ] Make assignment an expression.
 * [ ] Compile time functions
 * [ ] Functions for constructing types programmatically at compile time
