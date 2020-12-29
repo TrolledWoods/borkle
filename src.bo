@@ -1,9 +1,15 @@
-// library "fmt.bo";
-// library "io.bo";
+library "fmt.bo";
+library "io.bo";
 
 const main = fn() -> u64 {
     let line = 0 : usize;
     let line_start = 0 : usize;
+
+    // Wrong!
+    // let x = 3 + if 1 < 2  6 else 9;
+
+    // Good! (didn't use to compile either)
+    let x = 3 + (if 1 < 2  6);
 
     for &[1, 2, 3]  print("%\n", &[fmt_usize(_iters)]);
     for &[1, 2, 3]  print("%\n", &[fmt_i32(*_it)]);

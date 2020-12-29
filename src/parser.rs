@@ -655,7 +655,7 @@ fn value(
                 .tokens
                 .expect_next_is(global.errors, &TokenKind::Close(Bracket::Round))?;
 
-            expr
+            Node::new(token.loc, NodeKind::Parenthesis(buffer.insert(expr)))
         }
 
         TokenKind::Open(Bracket::Curly) => {

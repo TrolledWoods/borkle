@@ -35,11 +35,12 @@
 * [X] \_iteration variable in loops that shows how many times the loop has iterated
 * [X] Variables know how many times they have been used
 * [X] Code for the \_iters variable is only generated if it is used.
+* [X] Custom printing for intermediate representation
+* [X] BUG! Parsing ambiguity error is not resolved even after adding parenthesees
 
 * [ ] Look into reducing the amount of recursion, the stack can overflow quite easily at the moment!
 * [ ] Make a global setup file for the compiler!
 * [ ] Add a flag to types that are not storable in constants.
-* [ ] BUG! Parsing ambiguity error is not resolved even after adding parenthesees
 * [ ] When a file cannot be loaded, show where the task was queued.
 * [ ] When the type of a function is known, allow for omitting the parameter and return types.
 

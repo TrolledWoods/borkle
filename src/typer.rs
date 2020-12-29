@@ -59,6 +59,7 @@ fn type_ast<'a>(
     buffer: &mut SelfBuffer,
 ) -> Result<Node, ()> {
     let node = match parsed.kind {
+        ParsedNodeKind::Parenthesis(ref inner) => type_ast(ctx, wanted_type, inner, buffer)?,
         ParsedNodeKind::ConstAtEvaluation {
             ref locals,
             ref inner,

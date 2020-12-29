@@ -135,6 +135,7 @@ pub enum NodeKind {
         contents: Vec<SelfBox<Node>>,
         label: Option<LabelId>,
     },
+    Parenthesis(SelfBox<Node>),
     Empty,
     Uninit,
 
