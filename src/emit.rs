@@ -159,14 +159,20 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, node: &'a Node) -> Value {
             let iterator_local = ctx.locals.get_mut(*iterator);
             let iterator_type = iterator_local.type_.unwrap();
 
-            // Set up iterator values
             let iterator_value = ctx.registers.create(iterator_type);
             iterator_local.value = Some(iterator_value);
-            let iteration_var_value = ctx
-                .registers
-                .create(Type::new(TypeKind::Int(IntTypeKind::Usize)));
-            ctx.locals.get_mut(*iteration_var).value = Some(iteration_var_value);
-            ctx.emit_constant_from_buffer(iteration_var_value, &0_usize.to_le_bytes());
+
+            // Set up iterator values
+            let iteration_var_value = if ctx.locals.get(*iteration_var).num_uses > 0 {
+                let reg = ctx
+                    .registers
+                    .create(Type::new(TypeKind::Int(IntTypeKind::Usize)));
+                ctx.locals.get_mut(*iteration_var).value = Some(reg);
+                ctx.emit_constant_from_buffer(reg, &0_usize.to_le_bytes());
+                Some(reg)
+            } else {
+                None
+            };
 
             let start = ctx.registers.create(iterator_type);
             let end = ctx.registers.create(iterator_type);
@@ -233,7 +239,10 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, node: &'a Node) -> Value {
             ctx.emit_move(iterator_value, start, Member::default());
             emit_node(ctx, body);
             ctx.emit_increment(start);
-            ctx.emit_increment(iteration_var_value);
+
+            if let Some(iteration_var_value) = iteration_var_value {
+                ctx.emit_increment(iteration_var_value);
+            }
 
             ctx.emit_jump(condition_label);
 
@@ -262,11 +271,17 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, node: &'a Node) -> Value {
             label.value = Some(to);
             label.ir_labels = Some(vec![end_label]);
 
-            let iteration_var_value = ctx
-                .registers
-                .create(Type::new(TypeKind::Int(IntTypeKind::Usize)));
-            ctx.locals.get_mut(*iteration_var).value = Some(iteration_var_value);
-            ctx.emit_constant_from_buffer(iteration_var_value, &0_usize.to_le_bytes());
+            let iteration_var_mut = ctx.locals.get_mut(*iteration_var);
+            let iteration_var_value = if iteration_var_mut.num_uses > 0 {
+                let reg = ctx
+                    .registers
+                    .create(Type::new(TypeKind::Int(IntTypeKind::Usize)));
+                iteration_var_mut.value = Some(reg);
+                ctx.emit_constant_from_buffer(reg, &0_usize.to_le_bytes());
+                Some(reg)
+            } else {
+                None
+            };
 
             // Condition
             let condition_label = ctx.create_label();
@@ -277,7 +292,9 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, node: &'a Node) -> Value {
 
             // Loop body
             emit_node(ctx, body);
-            ctx.emit_increment(iteration_var_value);
+            if let Some(iteration_var_value) = iteration_var_value {
+                ctx.emit_increment(iteration_var_value);
+            }
             ctx.emit_jump(condition_label);
 
             // Else body

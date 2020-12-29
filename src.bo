@@ -1,8 +1,17 @@
 library "fmt.bo";
+library "io.bo";
 
 const main = fn() -> u64 {
     let line = 0 : usize;
     let line_start = 0 : usize;
+
+    for &[1, 2, 3]  print("%\n", &[fmt_usize(_iters)]);
+    for &[1, 2, 3]  print("%\n", &[fmt_i32(*_it)]);
+
+    while _iters < 100 {
+        print("The loop has been done % times\n", &[fmt_usize(_iters)]);
+    };
+
     for read_file("src.bo") {
         if *_it == "\n" {
             line = line + 1;

@@ -34,9 +34,9 @@
 * [X] breaks that don't jump to a named labels
 * [X] \_iteration variable in loops that shows how many times the loop has iterated
 * [X] Variables know how many times they have been used
+* [X] Code for the \_iters variable is only generated if it is used.
 
 * [ ] Look into reducing the amount of recursion, the stack can overflow quite easily at the moment!
-* [ ] Make assignment an expression.
 * [ ] Make a global setup file for the compiler!
 * [ ] Add a flag to types that are not storable in constants.
 * [ ] BUG! Parsing ambiguity error is not resolved even after adding parenthesees
@@ -44,6 +44,7 @@
 * [ ] When the type of a function is known, allow for omitting the parameter and return types.
 
 # Version 0.0.3
+* [ ] Make assignment an expression.
 * [ ] Compile time functions
 * [ ] Functions for constructing types programmatically at compile time
 * [ ] Polymorphism
