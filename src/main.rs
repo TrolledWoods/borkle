@@ -80,20 +80,22 @@ fn main() {
                 command.arg("-Wno-everything");
 
                 for lib in program.libraries.lock().iter() {
-                    let from: &std::path::Path = lib.as_str().as_ref();
-                    let mut from_dll = from.to_path_buf();
-                    from_dll.set_extension(std::env::consts::DLL_EXTENSION);
-                    let mut to = options.output.clone();
-                    to.push(from.file_name().expect(
-                        "TODO: Make proper error message for lib path not having a file name",
-                    ));
-                    to.set_extension(std::env::consts::DLL_EXTENSION);
+                    if options.copy_dlls {
+                        let from: &std::path::Path = lib.as_str().as_ref();
+                        let mut from_dll = from.to_path_buf();
+                        from_dll.set_extension(std::env::consts::DLL_EXTENSION);
+                        let mut to = options.output.clone();
+                        to.push(from.file_name().expect(
+                            "TODO: Make proper error message for lib path not having a file name",
+                        ));
+                        to.set_extension(std::env::consts::DLL_EXTENSION);
 
-                    if from_dll != to {
-                        println!("Copying library file {:?} to {:?}", from_dll, to);
-                        std::fs::copy(&from_dll, &to).expect(
-                            "TODO: Make an error message for failing to copy a dynamic library",
-                        );
+                        if from_dll != to {
+                            println!("Copying library file {:?} to {:?}", from_dll, to);
+                            std::fs::copy(&from_dll, &to).expect(
+                                "TODO: Make an error message for failing to copy a dynamic library",
+                            );
+                        }
                     }
 
                     command.arg("-l");
