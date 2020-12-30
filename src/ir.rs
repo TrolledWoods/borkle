@@ -7,6 +7,7 @@ use ustr::Ustr;
 
 #[derive(Clone)]
 pub enum Instr {
+    // to = pointer(args)
     CallExtern {
         to: Value,
         pointer: Value,
@@ -14,60 +15,78 @@ pub enum Instr {
         args: Vec<Value>,
         convention: ffi::CallingConvention,
     },
+    // to = pointer(args)
     Call {
         to: Value,
         pointer: Value,
         // FIXME: We don't really want a vector here, we want a more efficient datastructure
         args: Vec<Value>,
     },
+    // to = from
     Constant {
         to: Value,
         from: ConstantRef,
     },
+    // value ++
     Increment {
         value: Value,
     },
+    // to = a op b
     Binary {
         op: BinaryOp,
         to: Value,
         a: Value,
         b: Value,
     },
+    // to = op from
     Unary {
         op: UnaryOp,
         to: Value,
         from: Value,
     },
+    // to = of.member
     Member {
         to: Value,
         of: Value,
         member: Member,
     },
+    // to = &(*of).member
+    MemberIndirect {
+        to: Value,
+        of: Value,
+        member: Member,
+    },
+    // to = *from
     Dereference {
         to: Value,
         from: Value,
     },
+    // to = &from.offset
     Reference {
         to: Value,
         from: Value,
         offset: Member,
     },
+    // to.member = from
     Move {
         to: Value,
         from: Value,
         size: usize,
         member: Member,
     },
+    // &(*to).member = from
     MoveIndirect {
         to: Value,
         from: Value,
         size: usize,
         member: Member,
     },
+    // jump to 'to' if condition
     JumpIfZero {
         condition: Value,
         to: LabelId,
     },
+    // jump to 'to'
     Jump {
         to: LabelId,
     },
@@ -99,6 +118,13 @@ impl fmt::Debug for Instr {
             Self::Increment { value } => write!(fmt, "{} += 1", value),
             Self::Binary { op, to, a, b } => write!(fmt, "{} = {} {:?} {}", to, a, op, b),
             Self::Unary { op, to, from } => write!(fmt, "{} = {:?} {}", to, op, from),
+            Self::MemberIndirect { to, of, member } => {
+                write!(fmt, "{} = &(*{})", to, of)?;
+                for name in &member.name_list {
+                    write!(fmt, ".{}", name)?;
+                }
+                Ok(())
+            }
             Self::Member { to, of, member } => {
                 write!(fmt, "{} = {}", to, of)?;
                 for name in &member.name_list {

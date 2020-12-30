@@ -574,7 +574,7 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, node: &'a Node) -> Value {
             let from = emit_lvalue(ctx, true, operand);
             match from {
                 LValue::Reference(from, member) => {
-                    ctx.emit_member(to, from, member);
+                    ctx.emit_member_indirect(to, from, member);
                 }
                 LValue::Value(from, offset) => {
                     ctx.emit_reference(to, from, offset);

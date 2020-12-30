@@ -1043,7 +1043,19 @@ fn type_ast<'a>(
             Node::new(parsed.loc, NodeKind::Block { label, contents }, type_)
         }
         ParsedNodeKind::Member { ref of, name } => {
-            let member_of = type_ast(ctx, WantedType::none(), of, buffer)?;
+            let mut member_of = type_ast(ctx, WantedType::none(), of, buffer)?;
+
+            // Dereference it as many times as necessary
+            while let TypeKind::Reference(inner) = *member_of.type_().kind() {
+                member_of = Node::new(
+                    parsed.loc,
+                    NodeKind::Unary {
+                        op: UnaryOp::Dereference,
+                        operand: buffer.insert(member_of),
+                    },
+                    inner,
+                );
+            }
 
             if let Some(member) = member_of.type_().member(name) {
                 Node::new(

@@ -159,6 +159,12 @@ fn interp_internal(program: &Program, stack: &mut StackFrame<'_>, routine: &Rout
                 let to: *mut u8 = stack.get_mut(to).as_mut_ptr();
                 std::ptr::copy_nonoverlapping(from, to, size);
             },
+            Instr::MemberIndirect { to, of, ref member } => unsafe {
+                let from: *const u8 =
+                    (*stack.get(of).as_ptr().cast::<*const u8>()).add(member.offset);
+                let to: *mut u8 = stack.get_mut(to).as_mut_ptr();
+                *to.cast::<*const u8>() = from;
+            },
             Instr::Dereference { to, from } => {
                 let ptr = unsafe { stack.get(from).read::<*const u8>() };
 

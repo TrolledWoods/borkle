@@ -38,12 +38,16 @@
 * [X] Custom printing for intermediate representation
 * [X] BUG! Parsing ambiguity error is not resolved even after adding parenthesees
 * [X] Zeroed values
+* [X] Auto dereference things when taking a member.
+* [X] BUG! Problem when doing something like &(\*value).member\_name
 
+* [ ] BUG! Indirect members do not handle ZST:s yet.
 * [ ] Look into reducing the amount of recursion, the stack can overflow quite easily at the moment!
 * [ ] Make a global setup file for the compiler!
 * [ ] Add a flag to types that are not storable in constants.
 * [ ] When a file cannot be loaded, show where the task was queued.
 * [ ] When the type of a function is known, allow for omitting the parameter and return types.
+* [ ] In the Instr it's unclear what thing members are for. Make this more general. Also, probably remove some members as there are a lot of instructions that have them and it's probably unnecessary, or make that information part of Values?
 
 # Version 0.0.3
 * [ ] Ambiguous rules about what expression a type bound applies to.

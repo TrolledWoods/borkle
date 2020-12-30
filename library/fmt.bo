@@ -44,14 +44,14 @@ const print = fn(
 };
 
 const fmt_str = fn(string: [] u8) -> Format {
-    let format = uninit : Format;
+    let format = #uninit : Format;
     *bit_cast &format.data : [] u8 = string;
     format.print_it = fn(data: FormatSpec)  put_string(*bit_cast &data);
     format
 };
 
 const dbg_str = fn(string: [] u8) -> Format {
-    let format = uninit : Format;
+    let format = #uninit : Format;
     *bit_cast &format.data : [] u8 = string;
     format.print_it = fn(data: FormatSpec) {
         put_string("\"");
@@ -70,7 +70,7 @@ const FormatNumber = type {
 };
 
 const internal_fmt_number = fn(data: FormatNumber) -> Format {
-    let format = uninit : Format;
+    let format = #uninit : Format;
     *bit_cast &format.data : FormatNumber = data;
     format.print_it = fn (arg: FormatSpec) {
         let data = *bit_cast &arg : FormatNumber;
@@ -144,7 +144,7 @@ const fmt_u64 = fn(
     pad = PAD_LEFT,
     pad_char = " " : u8,
 ) -> Format {
-    let format = uninit : FormatNumber;
+    let format = #uninit : FormatNumber;
     format.number = number;
     format.width = width;
     format.pad = pad;
@@ -159,7 +159,7 @@ const fmt_u32 = fn(
     pad = PAD_LEFT,
     pad_char = " " : u8,
 ) -> Format {
-    let format = uninit : FormatNumber;
+    let format = #uninit : FormatNumber;
     format.number = 0;
     *bit_cast &format.number : u32 = number;
     format.width = width;
@@ -175,7 +175,7 @@ const fmt_u16 = fn(
     pad = PAD_LEFT,
     pad_char = " " : u8,
 ) -> Format {
-    let format = uninit : FormatNumber;
+    let format = #uninit : FormatNumber;
     format.number = 0;
     *bit_cast &format.number : u16 = number;
     format.width = width;
@@ -191,7 +191,7 @@ const fmt_u8 = fn(
     pad = PAD_LEFT,
     pad_char = " " : u8,
 ) -> Format {
-    let format = uninit : FormatNumber;
+    let format = #uninit : FormatNumber;
     format.number = 0;
     *bit_cast &format.number : u8 = number;
     format.width = width;
@@ -207,7 +207,7 @@ const fmt_i64 = fn(
     pad = PAD_LEFT,
     pad_char = " " : u8,
 ) -> Format {
-    let format = uninit : FormatNumber;
+    let format = #uninit : FormatNumber;
     format.number = 0;
     format.is_negative = number < 0;
     *bit_cast &format.number : i64 = if number < 0 { -number } else number;
@@ -223,7 +223,7 @@ const fmt_i32 = fn(
     pad = PAD_LEFT,
     pad_char = " " : u8,
 ) -> Format {
-    let format = uninit : FormatNumber;
+    let format = #uninit : FormatNumber;
     format.number = 0;
     format.is_negative = number < 0;
     *bit_cast &format.number : i32 = if number < 0 { -number } else number;
@@ -239,7 +239,7 @@ const fmt_i16 = fn(
     pad = PAD_LEFT,
     pad_char = " " : u8,
 ) -> Format {
-    let format = uninit : FormatNumber;
+    let format = #uninit : FormatNumber;
     format.number = 0;
     format.is_negative = number < 0;
     *bit_cast &format.number : i16 = if number < 0 { -number } else number;
@@ -255,7 +255,7 @@ const fmt_i8 = fn(
     pad = PAD_LEFT,
     pad_char = " " : u8,
 ) -> Format {
-    let format = uninit : FormatNumber;
+    let format = #uninit : FormatNumber;
     format.number = 0;
     format.is_negative = number < 0;
     *bit_cast &format.number : i8 = if number < 0 { -number } else number;
@@ -271,7 +271,7 @@ const fmt_isize = fn(
     pad = PAD_LEFT,
     pad_char = " " : u8,
 ) -> Format {
-    let format = uninit : FormatNumber;
+    let format = #uninit : FormatNumber;
     format.number = 0;
     format.is_negative = number < 0;
     *bit_cast &format.number : isize = if number < 0 { -number } else number;

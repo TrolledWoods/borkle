@@ -347,6 +347,22 @@ pub fn routine_to_c(output: &mut String, routine: &Routine, num_args: usize) {
 
                 write!(output, ";\n").unwrap();
             }
+            Instr::MemberIndirect { to, of, member } => {
+                write!(
+                    output,
+                    "{} = &(*{})",
+                    c_format_value(to),
+                    c_format_value(of)
+                )
+                .unwrap();
+
+                for name in &member.name_list {
+                    output.push('.');
+                    output.push_str(name);
+                }
+
+                write!(output, ";\n").unwrap();
+            }
             Instr::Dereference { to, from } => {
                 write!(
                     output,

@@ -7,13 +7,13 @@ const print_usize = fn (num: usize)  print_u64(bit_cast num);
 const print_isize = fn (num: isize)  print_i64(bit_cast num);
 
 const read_input = fn () -> [] u8 {
-    let buf = uninit : [] u8;
+    let buf = #uninit : [] u8;
     (extern "target/library" "read_input" : extern fn (&&u8, &usize))(&buf.ptr, &buf.len);
     buf
 };
 
 const read_file = fn (file_name: [] u8) -> [] u8 {
-    let buf = uninit : [] u8;
+    let buf = #uninit : [] u8;
     (extern "target/library" "read_file" : extern fn (&u8, usize, &&u8, &usize))
         (file_name.ptr, file_name.len, &buf.ptr, &buf.len);
     buf

@@ -43,6 +43,15 @@ impl Context<'_, '_> {
         }
     }
 
+    pub fn emit_member_indirect(&mut self, to: Value, of: Value, member: Member) {
+        debug_assert_eq!(
+            to.size(),
+            8,
+            "When emitting an indirect member the 'to' value has to be a pointer"
+        );
+        self.instr.push(Instr::MemberIndirect { to, of, member });
+    }
+
     pub fn emit_reference(&mut self, to: Value, from: Value, offset: Member) {
         if from.size() != 0 {
             self.instr.push(Instr::Reference { to, from, offset });
