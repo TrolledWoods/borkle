@@ -96,6 +96,7 @@ pub enum NodeKind {
     },
 
     Uninit,
+
     Assign {
         lvalue: SelfBox<Node>,
         rvalue: SelfBox<Node>,

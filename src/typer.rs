@@ -438,6 +438,20 @@ fn type_ast<'a>(
                 Type::new(TypeKind::Empty),
             )
         }
+        ParsedNodeKind::Zeroed => {
+            let wanted = wanted_type.get_specific().ok_or_else(|| {
+                ctx.errors.error(
+                    parsed.loc,
+                    "Type has to be known at this point; put a type bound on this!".to_string(),
+                )
+            })?;
+
+            Node::new(
+                parsed.loc,
+                NodeKind::Constant(ctx.program.insert_zeroed_buffer(wanted)),
+                wanted,
+            )
+        }
         ParsedNodeKind::Uninit => {
             let wanted_type = wanted_type.get_specific().ok_or_else(|| {
                 ctx.errors.error(

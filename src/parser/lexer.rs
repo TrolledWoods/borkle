@@ -55,6 +55,7 @@ pub enum Keyword {
     Function,
     BitCast,
     Uninit,
+    Zeroed,
     Bool,
     Import,
     Library,
@@ -110,7 +111,11 @@ pub fn process_string(errors: &mut ErrorCtx, file: Ustr, string: &str) -> Result
                         |c| matches!(c, 'a'..='z' | 'A'..='Z' | '_' | '0'..='9'),
                     );
 
-                    TokenKind::Tag(tag_name.into())
+                    match tag_name {
+                        "uninit" => TokenKind::Keyword(Keyword::Uninit),
+                        "0" => TokenKind::Keyword(Keyword::Zeroed),
+                        _ => TokenKind::Tag(tag_name.into()),
+                    }
                 }
 
                 'a'..='z' | 'A'..='Z' | '_' => {
@@ -132,7 +137,6 @@ pub fn process_string(errors: &mut ErrorCtx, file: Ustr, string: &str) -> Result
                         "else" => TokenKind::Keyword(Keyword::Else),
                         "extern" => TokenKind::Keyword(Keyword::Extern),
                         "bit_cast" => TokenKind::Keyword(Keyword::BitCast),
-                        "uninit" => TokenKind::Keyword(Keyword::Uninit),
                         "bool" => TokenKind::Keyword(Keyword::Bool),
                         "while" => TokenKind::Keyword(Keyword::While),
                         "for" => TokenKind::Keyword(Keyword::For),

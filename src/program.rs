@@ -268,6 +268,45 @@ impl Program {
         const_ref
     }
 
+    pub fn insert_zeroed_buffer(&self, type_: Type) -> ConstantRef {
+        if type_.size() == 0 {
+            return ConstantRef::dangling();
+        }
+
+        let layout = alloc::Layout::from_size_align(type_.size(), 16).unwrap();
+        let size = crate::types::to_align(type_.size(), 8);
+
+        let owned_data = unsafe {
+            let buffer = alloc::alloc(layout);
+            buffer.write_bytes(0, size);
+            buffer
+        };
+
+        let slice_version = unsafe { std::slice::from_raw_parts(owned_data, size) };
+        let mut constant_data = self.constant_data.lock();
+        for pre_computed_constant in constant_data.iter() {
+            if pre_computed_constant.type_ == type_
+                && pre_computed_constant.as_slice() == slice_version
+            {
+                unsafe {
+                    alloc::dealloc(owned_data, layout);
+                }
+                return pre_computed_constant.as_ref();
+            }
+        }
+
+        let constant = Constant {
+            ptr: NonNull::new(owned_data).unwrap(),
+            size,
+            type_,
+        };
+
+        let const_ref = constant.as_ref();
+        constant_data.push(constant);
+
+        const_ref
+    }
+
     pub fn insert_buffer(&self, type_: Type, data: *const u8) -> ConstantRef {
         if type_.size() == 0 {
             return ConstantRef::dangling();
@@ -277,9 +316,6 @@ impl Program {
         let size = crate::types::to_align(type_.size(), 8);
 
         let owned_data = unsafe {
-            // The alignment of the buffer is '16' here, no matter what the type is, because
-            // different types of constants might have the same memory in static memory,
-            // but their alignment might be different, so it's better to be safe here than sorry.
             let buffer = alloc::alloc(layout);
             std::ptr::copy(data, buffer, type_.size());
             buffer.add(type_.size()).write_bytes(0, size - type_.size());

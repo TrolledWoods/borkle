@@ -138,6 +138,7 @@ pub enum NodeKind {
     Parenthesis(SelfBox<Node>),
     Empty,
     Uninit,
+    Zeroed,
 
     TypeBound {
         value: SelfBox<Node>,

@@ -579,6 +579,7 @@ fn value(
             )
         }
         TokenKind::Keyword(Keyword::Uninit) => Node::new(token.loc, NodeKind::Uninit),
+        TokenKind::Keyword(Keyword::Zeroed) => Node::new(token.loc, NodeKind::Zeroed),
         TokenKind::Keyword(Keyword::Function) => {
             function_declaration(global, imperative.dependencies, buffer, token.loc)?
         }

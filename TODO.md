@@ -37,6 +37,7 @@
 * [X] Code for the \_iters variable is only generated if it is used.
 * [X] Custom printing for intermediate representation
 * [X] BUG! Parsing ambiguity error is not resolved even after adding parenthesees
+* [X] Zeroed values
 
 * [ ] Look into reducing the amount of recursion, the stack can overflow quite easily at the moment!
 * [ ] Make a global setup file for the compiler!
