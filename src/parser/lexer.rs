@@ -77,130 +77,197 @@ pub fn process_string(errors: &mut ErrorCtx, file: Ustr, string: &str) -> Result
         .peekable();
 
     while let Some(&(loc, _, character)) = chars.peek() {
-        let kind =
-            match character {
-                c if c.is_whitespace() => {
-                    chars.next();
+        let kind = match character {
+            c if c.is_whitespace() => {
+                chars.next();
+                continue;
+            }
+
+            ';' | '\'' | ',' | '(' | ')' | '[' | ']' | '{' | '}' => {
+                chars.next();
+                match character {
+                    '\'' => TokenKind::SingleQuote,
+                    ';' => TokenKind::SemiColon,
+                    ',' => TokenKind::Comma,
+
+                    '(' => TokenKind::Open(Bracket::Round),
+                    ')' => TokenKind::Close(Bracket::Round),
+
+                    '[' => TokenKind::Open(Bracket::Square),
+                    ']' => TokenKind::Close(Bracket::Square),
+
+                    '{' => TokenKind::Open(Bracket::Curly),
+                    '}' => TokenKind::Close(Bracket::Curly),
+                    _ => unreachable!(),
+                }
+            }
+
+            '#' => {
+                chars.next();
+                let tag_name = slice_while(
+                    string,
+                    &mut chars,
+                    |c| matches!(c, 'a'..='z' | 'A'..='Z' | '_' | '0'..='9'),
+                );
+
+                match tag_name {
+                    "uninit" => TokenKind::Keyword(Keyword::Uninit),
+                    "0" => TokenKind::Keyword(Keyword::Zeroed),
+                    _ => TokenKind::Tag(tag_name.into()),
+                }
+            }
+
+            'a'..='z' | 'A'..='Z' | '_' => {
+                let identifier = slice_while(
+                    string,
+                    &mut chars,
+                    |c| matches!(c, 'a'..='z' | 'A'..='Z' | '_' | '0'..='9'),
+                );
+
+                match identifier {
+                    "const" => TokenKind::Keyword(Keyword::Const),
+                    "type" => TokenKind::Keyword(Keyword::Type),
+                    "break" => TokenKind::Keyword(Keyword::Break),
+                    "any" => TokenKind::Keyword(Keyword::Any),
+                    "let" => TokenKind::Keyword(Keyword::Let),
+                    "defer" => TokenKind::Keyword(Keyword::Defer),
+                    "fn" => TokenKind::Keyword(Keyword::Function),
+                    "if" => TokenKind::Keyword(Keyword::If),
+                    "else" => TokenKind::Keyword(Keyword::Else),
+                    "extern" => TokenKind::Keyword(Keyword::Extern),
+                    "bit_cast" => TokenKind::Keyword(Keyword::BitCast),
+                    "bool" => TokenKind::Keyword(Keyword::Bool),
+                    "while" => TokenKind::Keyword(Keyword::While),
+                    "for" => TokenKind::Keyword(Keyword::For),
+                    "in" => TokenKind::Keyword(Keyword::In),
+                    "import" => TokenKind::Keyword(Keyword::Import),
+                    "library" => TokenKind::Keyword(Keyword::Library),
+
+                    "f32" => TokenKind::Type(Type::new(TypeKind::F32)),
+                    "f64" => TokenKind::Type(Type::new(TypeKind::F64)),
+
+                    "isize" => TokenKind::PrimitiveInt(IntTypeKind::Isize),
+                    "usize" => TokenKind::PrimitiveInt(IntTypeKind::Usize),
+                    "i64" => TokenKind::PrimitiveInt(IntTypeKind::I64),
+                    "u64" => TokenKind::PrimitiveInt(IntTypeKind::U64),
+                    "i32" => TokenKind::PrimitiveInt(IntTypeKind::I32),
+                    "u32" => TokenKind::PrimitiveInt(IntTypeKind::U32),
+                    "i16" => TokenKind::PrimitiveInt(IntTypeKind::I16),
+                    "u16" => TokenKind::PrimitiveInt(IntTypeKind::U16),
+                    "i8" => TokenKind::PrimitiveInt(IntTypeKind::I8),
+                    "u8" => TokenKind::PrimitiveInt(IntTypeKind::U8),
+                    _ => TokenKind::Identifier(identifier.into()),
+                }
+            }
+            '0'..='9' => lex_number(errors, loc, &mut chars)?,
+            '"' => TokenKind::Literal(Literal::String(string_literal(errors, &mut chars)?)),
+
+            c if is_operator_token(c) => {
+                let string = slice_while(string, &mut chars, is_operator_token);
+
+                // FIXME: Is this the best place to put comment checking?
+                // It's certainly versatile, but maybe we want a separate place
+                // for them?
+                if string.starts_with("//") {
+                    for (_, _, c) in &mut chars {
+                        if c == '\n' {
+                            break;
+                        }
+                    }
+
                     continue;
                 }
 
-                ';' | '\'' | ',' | '(' | ')' | '[' | ']' | '{' | '}' => {
-                    chars.next();
-                    match character {
-                        '\'' => TokenKind::SingleQuote,
-                        ';' => TokenKind::SemiColon,
-                        ',' => TokenKind::Comma,
-
-                        '(' => TokenKind::Open(Bracket::Round),
-                        ')' => TokenKind::Close(Bracket::Round),
-
-                        '[' => TokenKind::Open(Bracket::Square),
-                        ']' => TokenKind::Close(Bracket::Square),
-
-                        '{' => TokenKind::Open(Bracket::Curly),
-                        '}' => TokenKind::Close(Bracket::Curly),
-                        _ => unreachable!(),
-                    }
-                }
-
-                '#' => {
-                    chars.next();
-                    let tag_name = slice_while(
-                        string,
-                        &mut chars,
-                        |c| matches!(c, 'a'..='z' | 'A'..='Z' | '_' | '0'..='9'),
-                    );
-
-                    match tag_name {
-                        "uninit" => TokenKind::Keyword(Keyword::Uninit),
-                        "0" => TokenKind::Keyword(Keyword::Zeroed),
-                        _ => TokenKind::Tag(tag_name.into()),
-                    }
-                }
-
-                'a'..='z' | 'A'..='Z' | '_' => {
-                    let identifier = slice_while(
-                        string,
-                        &mut chars,
-                        |c| matches!(c, 'a'..='z' | 'A'..='Z' | '_' | '0'..='9'),
-                    );
-
-                    match identifier {
-                        "const" => TokenKind::Keyword(Keyword::Const),
-                        "type" => TokenKind::Keyword(Keyword::Type),
-                        "break" => TokenKind::Keyword(Keyword::Break),
-                        "any" => TokenKind::Keyword(Keyword::Any),
-                        "let" => TokenKind::Keyword(Keyword::Let),
-                        "defer" => TokenKind::Keyword(Keyword::Defer),
-                        "fn" => TokenKind::Keyword(Keyword::Function),
-                        "if" => TokenKind::Keyword(Keyword::If),
-                        "else" => TokenKind::Keyword(Keyword::Else),
-                        "extern" => TokenKind::Keyword(Keyword::Extern),
-                        "bit_cast" => TokenKind::Keyword(Keyword::BitCast),
-                        "bool" => TokenKind::Keyword(Keyword::Bool),
-                        "while" => TokenKind::Keyword(Keyword::While),
-                        "for" => TokenKind::Keyword(Keyword::For),
-                        "in" => TokenKind::Keyword(Keyword::In),
-                        "import" => TokenKind::Keyword(Keyword::Import),
-                        "library" => TokenKind::Keyword(Keyword::Library),
-
-                        "f32" => TokenKind::Type(Type::new(TypeKind::F32)),
-                        "f64" => TokenKind::Type(Type::new(TypeKind::F64)),
-
-                        "isize" => TokenKind::PrimitiveInt(IntTypeKind::Isize),
-                        "usize" => TokenKind::PrimitiveInt(IntTypeKind::Usize),
-                        "i64" => TokenKind::PrimitiveInt(IntTypeKind::I64),
-                        "u64" => TokenKind::PrimitiveInt(IntTypeKind::U64),
-                        "i32" => TokenKind::PrimitiveInt(IntTypeKind::I32),
-                        "u32" => TokenKind::PrimitiveInt(IntTypeKind::U32),
-                        "i16" => TokenKind::PrimitiveInt(IntTypeKind::I16),
-                        "u16" => TokenKind::PrimitiveInt(IntTypeKind::U16),
-                        "i8" => TokenKind::PrimitiveInt(IntTypeKind::I8),
-                        "u8" => TokenKind::PrimitiveInt(IntTypeKind::U8),
-                        _ => TokenKind::Identifier(identifier.into()),
-                    }
-                }
-                '0'..='9' => {
-                    let string = slice_while(string, &mut chars, |c| c.is_digit(10) || c == '.');
-
-                    if string.contains('.') {
-                        TokenKind::Literal(Literal::Float(string.parse().expect(
-                            "Error message for float literal parsing fails are not done yet",
-                        )))
-                    } else {
-                        TokenKind::Literal(Literal::Int(string.parse().unwrap()))
-                    }
-                }
-                '"' => TokenKind::Literal(Literal::String(string_literal(errors, &mut chars)?)),
-
-                c if is_operator_token(c) => {
-                    let string = slice_while(string, &mut chars, is_operator_token);
-
-                    // FIXME: Is this the best place to put comment checking?
-                    // It's certainly versatile, but maybe we want a separate place
-                    // for them?
-                    if string.starts_with("//") {
-                        for (_, _, c) in &mut chars {
-                            if c == '\n' {
-                                break;
-                            }
-                        }
-
-                        continue;
-                    }
-
-                    TokenKind::Operator(string.into())
-                }
-                c => {
-                    errors.error(loc, format!("Unknown character {:?}", c));
-                    return Err(());
-                }
-            };
+                TokenKind::Operator(string.into())
+            }
+            c => {
+                errors.error(loc, format!("Unknown character {:?}", c));
+                return Err(());
+            }
+        };
 
         tokens.push(Token { loc, kind });
     }
 
     Ok(TokenStream::new(loc, tokens))
+}
+
+fn lex_number(
+    errors: &mut ErrorCtx,
+    loc: Location,
+    chars: &mut Peekable<impl Iterator<Item = (Location, usize, char)>>,
+) -> Result<TokenKind, ()> {
+    fn lex_basic_number(
+        chars: &mut Peekable<impl Iterator<Item = (Location, usize, char)>>,
+        base: u32,
+        digit_count: &mut i32,
+    ) -> u64 {
+        let mut number = 0;
+
+        while let Some(&(_, _, c)) = chars.peek() {
+            if let Some(digit) = c.to_digit(base) {
+                chars.next();
+                number *= u64::from(base);
+                number += u64::from(digit);
+                *digit_count += 1;
+            } else if c == '_' {
+                chars.next();
+            } else {
+                break;
+            }
+        }
+
+        number
+    }
+
+    let first = lex_basic_number(chars, 10, &mut 0);
+
+    if let Some(&(_, _, c)) = chars.peek() {
+        match c {
+            'x' => {
+                chars.next();
+
+                if first != 0 {
+                    errors.error(
+                        loc,
+                        "Expected '0' before 'x' in hexadecimal integer literal".to_string(),
+                    );
+                    return Err(());
+                }
+
+                Ok(TokenKind::Literal(Literal::Int(i128::from(
+                    lex_basic_number(chars, 16, &mut 0),
+                ))))
+            }
+            'b' => {
+                chars.next();
+
+                // Use the first as a base for the second number
+                if first > 36 {
+                    errors.error(loc, "Too large base, max is 36".to_string());
+                    return Err(());
+                }
+
+                #[allow(clippy::cast_possible_truncation)]
+                Ok(TokenKind::Literal(Literal::Int(i128::from(
+                    lex_basic_number(chars, first as u32, &mut 0),
+                ))))
+            }
+            '.' => {
+                chars.next();
+
+                let mut digits = 0;
+                let fractal_part = lex_basic_number(chars, 10, &mut digits);
+
+                #[allow(clippy::cast_precision_loss)]
+                let float = first as f64 + (fractal_part as f64 / 10.0_f64.powi(digits));
+                Ok(TokenKind::Literal(Literal::Float(float)))
+            }
+            _ => Ok(TokenKind::Literal(Literal::Int(i128::from(first)))),
+        }
+    } else {
+        Ok(TokenKind::Literal(Literal::Int(i128::from(first))))
+    }
 }
 
 /// Creates a string slice while a predicate is true.

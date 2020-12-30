@@ -40,6 +40,7 @@
 * [X] Zeroed values
 * [X] Auto dereference things when taking a member.
 * [X] BUG! Problem when doing something like &(\*value).member\_name
+* [X] Hexadecimal integers
 
 * [ ] BUG! Indirect members do not handle ZST:s yet.
 * [ ] Look into reducing the amount of recursion, the stack can overflow quite easily at the moment!
