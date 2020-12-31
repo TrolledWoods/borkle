@@ -181,6 +181,7 @@ pub struct TypeData {
 impl Display for TypeKind {
     fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::Intrinsic(inner) => write!(fmt, "{}", inner),
             Self::Range(inner) => write!(fmt, "{0}..{0}", inner),
             Self::AnyBuffer => write!(fmt, "[] any"),
             Self::Any => write!(fmt, "&any"),
@@ -239,6 +240,7 @@ pub fn to_align(value: usize, align: usize) -> usize {
 
 #[derive(Hash, PartialEq, Eq)]
 pub enum TypeKind {
+    Intrinsic(crate::intrinsic::Intrinsic),
     Never,
     Type,
     Empty,
@@ -271,6 +273,7 @@ impl TypeKind {
             | TypeKind::F64
             | TypeKind::F32
             | TypeKind::Bool
+            | TypeKind::Intrinsic(_)
             | TypeKind::Int(_) => {}
             TypeKind::Buffer(inner)
             | TypeKind::Array(inner, _)
@@ -311,7 +314,7 @@ impl TypeKind {
         match self {
             Self::Never => (0, 0),
             Self::Type => (8, 8),
-            Self::Empty => (0, 1),
+            Self::Intrinsic(_) | Self::Empty => (0, 1),
             Self::Any | Self::F64 | Self::Reference(_) | Self::Function { .. } => (8, 8),
             Self::AnyBuffer | Self::Buffer(_) => (16, 8),
             Self::F32 => (4, 4),
@@ -353,6 +356,7 @@ impl TypeKind {
             | Self::F32
             | Self::F64
             | Self::Any
+            | Self::Intrinsic(_)
             | Self::Bool => {}
             Self::Reference(internal) => {
                 if internal.size() > 0 {

@@ -437,7 +437,7 @@ pub fn routine_to_c(output: &mut String, routine: &Routine, num_args: usize) {
 
 pub fn append_c_type_headers(output: &mut String) {
     for &type_ in &*TYPES.lock() {
-        if let TypeKind::Empty | TypeKind::Never = type_.kind {
+        if let TypeKind::Intrinsic(_) | TypeKind::Empty | TypeKind::Never = type_.kind {
             continue;
         }
 
@@ -446,7 +446,7 @@ pub fn append_c_type_headers(output: &mut String) {
         let mut name_is_needed = true;
         match &type_.kind {
             TypeKind::Type => output.push_str("uint64_t "),
-            TypeKind::Never | TypeKind::Empty => unreachable!(),
+            TypeKind::Intrinsic(_) | TypeKind::Never | TypeKind::Empty => unreachable!(),
             TypeKind::Range(internal) => {
                 write!(
                     output,

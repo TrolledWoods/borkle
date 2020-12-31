@@ -91,6 +91,13 @@ pub enum Instr {
         to: LabelId,
     },
     LabelDefinition(LabelId),
+    //
+    // ##################################
+    // ##                              ##
+    // ## Intrinsic-esque instructions ##
+    // ##                              ##
+    // ##################################
+    //
 }
 
 impl fmt::Debug for Instr {

@@ -24,6 +24,7 @@ mod dependencies;
 mod emit;
 mod errors;
 mod interp;
+mod intrinsic;
 mod ir;
 mod literal;
 mod locals;

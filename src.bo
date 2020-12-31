@@ -1,5 +1,21 @@
 library "test.bo";
 
+// Intrinsics roadmap;
+// intrinsics are an enum of all the different intrinsics.
+// There is a corresponding ZST for each intrinsic.
+// 'Instances' of the intrinsic ZSTs can be called as if they 
+// were functions.
+// The 'signature' of each intrinsic can be specific when defining it.
+// Each backend has to implement the behaviour of each intrinsics separately(this is intentional of course).
+// Intrinsics have a flag if they have side effects or not; which is hard coded, or maybe put at the site of the
+// intrinsic definition.
+
+// Should intrinsics only be definable in one function?
+
+// library "intrinsics.bo";
+
+// #intrinsic i_put_string : fn([] u8);
+
 #entry fn() -> u64 {
     InTest
 };

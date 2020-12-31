@@ -43,7 +43,8 @@
 * [X] Hexadecimal integers
 * [X] Make 'namespaces', i.e. only imported files are in scope, they do not indirectly pollute scopes like they do right now
 * [X] Error for having two #entry points
-* [ ] Add a flag to types that are not storable in constants.
+* [X] Add a flag to types that are not storable in constants.
+* [ ] Make put\_string, read\_line, read\_file e.t.c. built into the compiler(though lower level equivalents)
 
 * [ ] BUG! Some files are still imported twice! Fix this by converting all paths to absolute paths first, so that there is no ambiguity as to which file something is
 * [ ] BUG! extern still uses relative paths I think, that's a bug.
@@ -52,7 +53,6 @@
 * [ ] Look into reducing the amount of recursion, the stack can overflow quite easily at the moment!
 * [ ] When a file cannot be loaded, show where the task was queued.
 * [ ] Make a global setup file for the compiler!
-* [ ] Make put\_string, read\_line, read\_file e.t.c. built into the compiler(though lower level equivalents)
 
 # Version 0.0.3
 * [ ] When the type of a function is known, allow for omitting the parameter and return types.
