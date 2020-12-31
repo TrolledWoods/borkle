@@ -1,22 +1,18 @@
+library "intrinsics.bo";
+
 const put_string = fn (buffer: [] u8) {
-    (extern "target/library" "put_string" : extern fn(&u8, usize))
-        (buffer.ptr, buffer.len);
+    i_stdout_write(buffer);
+};
+
+const put_char = fn(char: u8) {
+    i_stdout_write(&[char]);
 };
 
 const print_usize = fn (num: usize)  print_u64(bit_cast num);
 const print_isize = fn (num: isize)  print_i64(bit_cast num);
 
 const read_input = fn () -> [] u8 {
-    let buf = #uninit : [] u8;
-    (extern "target/library" "read_input" : extern fn (&&u8, &usize))(&buf.ptr, &buf.len);
-    buf
-};
-
-const read_file = fn (file_name: [] u8) -> [] u8 {
-    let buf = #uninit : [] u8;
-    (extern "target/library" "read_file" : extern fn (&u8, usize, &&u8, &usize))
-        (file_name.ptr, file_name.len, &buf.ptr, &buf.len);
-    buf
+    i_stdin_getline()
 };
 
 const string_to_int = fn(string: [] u8) -> u64 {
@@ -33,8 +29,36 @@ const string_to_int = fn(string: [] u8) -> u64 {
     sum
 };
 
-const print_i64 = extern "target/library" "print_i64" : extern fn (i64);
-const print_u64 = extern "target/library" "print_u64" : extern fn (u64);
+const print_i64 = fn(num: i64) {
+    if num < 0 {
+        put_char("-");
+        print_u64(bit_cast -num);
+    } else {
+        print_u64(bit_cast num);
+    };
+};
+
+const print_u64 = fn(num: u64) {
+    if num == 0  put_char("0");
+
+    let buffer = #0 : [20] u8;
+
+    let data = #uninit : [] u8;
+    data.ptr = << &buffer + 20;
+    data.len = 0;
+
+    while num > 0 {
+        let next = num / 10;
+        let digit = num - (next * 10);
+        num = next;
+
+        data.ptr = data.ptr - 1;
+        data.len = data.len + 1;
+        *data.ptr = "0" + *bit_cast &digit;
+    };
+
+    put_string(data);
+};
 
 const print_i32 = fn(num: i32) {
     let big = if num < 0 { -1 : i64 }

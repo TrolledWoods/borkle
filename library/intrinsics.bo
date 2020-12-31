@@ -1,0 +1,7 @@
+#import_intrinsic_from_compiler i_stdout_write;
+#import_intrinsic_from_compiler i_stdout_flush;
+#import_intrinsic_from_compiler i_stdin_getline;
+#import_intrinsic_from_compiler i_alloc;
+#import_intrinsic_from_compiler i_dealloc;
+#import_intrinsic_from_compiler i_copy;
+#import_intrinsic_from_compiler i_copy_nonoverlapping;

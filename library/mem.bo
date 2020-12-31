@@ -1,12 +1,11 @@
+library "intrinsics.bo";
+
 const alloc = fn (len: usize) -> [] any {
-    let buf = #uninit : [] any;
-    buf.ptr = (extern "target/library" "alloc" : extern fn (usize) -> &any)(len);
-    buf.len = len;
-    buf
+    i_alloc(len)
 };
 
 const dealloc = fn (buf: [] any) {
-    (extern "target/library" "dealloc" : extern fn (&any, usize))(buf.ptr, buf.len);
+    i_dealloc(buf)
 };
 
 const mem_compare = fn (a: &u8, b: &u8, size: usize) -> i32 {
@@ -33,10 +32,6 @@ const mem_set = fn (to: &u8, value: u8, size: usize) {
     };
 };
 
-const mem_copy = fn (to: &u8, from: &u8, size: usize) {
-    let i = 0 : usize;
-    while i < size {
-        *(to + i) = *(from + i);
-        i = i + 1;
-    };
+const mem_copy = fn (to: &any, from: &any, size: usize) {
+    i_copy(from, to, size);
 };

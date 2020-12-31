@@ -1,60 +1,7 @@
-library "test.bo";
-// library "io.bo";
-
-// Intrinsics roadmap;
-// intrinsics are an enum of all the different intrinsics.
-// There is a corresponding ZST for each intrinsic.
-// 'Instances' of the intrinsic ZSTs can be called as if they 
-// were functions.
-// The 'signature' of each intrinsic can be specific when defining it.
-// Each backend has to implement the behaviour of each intrinsics separately(this is intentional of course).
-// Intrinsics have a flag if they have side effects or not; which is hard coded, or maybe put at the site of the
-// intrinsic definition.
-
-// Should intrinsics only be definable in one function?
-
-// library "intrinsics.bo";
-
-#import_intrinsic_from_compiler i_stdout_write;
-#import_intrinsic_from_compiler i_stdout_flush;
-#import_intrinsic_from_compiler i_stdin_getline;
-#import_intrinsic_from_compiler i_alloc;
-#import_intrinsic_from_compiler i_dealloc;
-#import_intrinsic_from_compiler i_copy;
-#import_intrinsic_from_compiler i_copy_nonoverlapping;
+library "fmt.bo";
 
 #entry fn() -> u64 {
-    i_stdout_write("Hello, who are you? ");
-    i_stdout_flush();
-
-    let buffer = #0 : [3] u8;
-    i_copy(<< "testing".ptr, << &buffer, 3);
-
-    i_stdout_write(&buffer);
-    i_stdout_flush();
-
-    let buffer = #0 : [3] u8;
-    i_copy_nonoverlapping(<< "teasting".ptr, << &buffer, 3);
-
-    i_stdout_write(&buffer);
-    i_stdout_flush();
-
-    let input = i_stdin_getline();
-    defer i_dealloc(<< input);
-
-    let buffer = #uninit : [] any;
-    buffer.ptr = i_alloc(8);
-    buffer.len = 8;
-    i_dealloc(buffer);
-
-    i_stdout_write(input);
-    i_stdout_write("\n");
-    i_stdout_flush();
-
-    i_stdout_write("Hello!\n");
-    i_stdout_flush();
+    print("Hello? %\n", &[fmt_u8(129)]);
 
     0
 };
-
-
