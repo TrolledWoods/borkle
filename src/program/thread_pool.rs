@@ -1,5 +1,6 @@
 use crate::errors::ErrorCtx;
-use crate::program::{MemberMetaData, Program, Task};
+use crate::location::Location;
+use crate::program::{MemberMetaData, Program, ScopeId, Task};
 use bumpalo::Bump;
 use crossbeam::queue::SegQueue;
 use crossbeam::scope;
@@ -101,7 +102,7 @@ fn worker<'a>(alloc: &'a mut Bump, program: &'a Program) -> (ThreadContext<'a>, 
     loop {
         if let Some(task) = work.queue.pop() {
             match task {
-                Task::Parse(file) => parse_file(&mut errors, program, &file),
+                Task::Parse(meta_data, file) => parse_file(&mut errors, program, &file, meta_data),
                 Task::Type(member_id, locals, ast) => {
                     use crate::typer::ast::NodeKind;
 
@@ -180,21 +181,40 @@ fn worker<'a>(alloc: &'a mut Bump, program: &'a Program) -> (ThreadContext<'a>, 
     (thread_context, errors)
 }
 
-fn parse_file(errors: &mut ErrorCtx, program: &Program, file: &Path) {
+fn parse_file(
+    errors: &mut ErrorCtx,
+    program: &Program,
+    file: &Path,
+    meta_data: Option<(Location, ScopeId)>,
+) {
     match std::fs::read_to_string(&file) {
         Ok(string) => {
             let file_name_str = file.to_str().expect("File path is not a valid string, this should not happen since all paths are constructed from strings originally").into();
 
             // If the file has already been parsed, do not parse it again!
-            if !program.loaded_files.lock().insert(file_name_str) {
+            let mut loaded_files = program.loaded_files.lock();
+            let scope = if let Some(&old) = loaded_files.get(&file_name_str) {
+                drop(loaded_files);
                 program.logger.log(format_args!(
                     "File {} was already loaded, so didn't parse it again",
                     file_name_str
                 ));
+                old
             } else {
-                let _ = crate::parser::process_string(errors, program, file_name_str, &string);
+                let scope = program.create_scope();
+
+                loaded_files.insert(file_name_str, scope);
+                drop(loaded_files);
+
+                let _ =
+                    crate::parser::process_string(errors, program, file_name_str, &string, scope);
 
                 program.files.lock().insert(file_name_str, string);
+                scope
+            };
+
+            if let Some((loc, dependant)) = meta_data {
+                let _ = program.add_scope_dependency(errors, loc, dependant, scope);
             }
         }
         Err(_) => {

@@ -1,5 +1,5 @@
 use crate::command_line_arguments::Arguments;
-use crate::dependencies::DependencyList;
+use crate::dependencies::{DependencyKind, DependencyList};
 use crate::errors::ErrorCtx;
 use crate::ir::Routine;
 use crate::location::Location;
@@ -24,7 +24,16 @@ pub mod thread_pool;
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub struct MemberId(usize);
 
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+pub struct ScopeId(usize);
+
 impl fmt::Debug for MemberId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+impl fmt::Debug for ScopeId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.0)
     }
@@ -39,10 +48,10 @@ pub struct Program {
     pub files: Mutex<UstrMap<String>>,
 
     pub logger: Logger,
-    // FIXME: We will have scopes eventually, but for now
-    // everything is just in the same scope.
+    // FIXME: Make this a vector, not a hashmap you dummy, hashmaps aren't as fast as vectors in
+    // this case!?!?!??!?!?!
     members: RwLock<HashMap<MemberId, Member>>,
-    scope: RwLock<UstrMap<MemberId>>,
+    scopes: RwLock<Vec<Scope>>,
 
     pub constant_data: Mutex<Vec<Constant>>,
 
@@ -55,7 +64,8 @@ pub struct Program {
 
     work: thread_pool::WorkPile,
 
-    pub loaded_files: Mutex<HashSet<Ustr>>,
+    pub loaded_files: Mutex<UstrMap<ScopeId>>,
+    pub entry_point: Mutex<Option<MemberId>>,
 }
 
 // FIXME: Make a wrapper type for *const _ and have Send and Sync for that.
@@ -68,42 +78,41 @@ impl Program {
     pub fn new(logger: Logger, arguments: Arguments) -> Self {
         Self {
             arguments,
-
-            external_symbols: Mutex::default(),
-
+            external_symbols: default(),
             logger,
-
-            members: RwLock::default(),
-            scope: RwLock::default(),
-            files: Mutex::default(),
-
+            members: default(),
+            scopes: default(),
+            files: default(),
             extern_fn_calling_conventions: RwLock::default(),
             calling_conventions_alloc: Mutex::default(),
-            functions: Mutex::default(),
+            functions: default(),
             libraries: Mutex::new(ffi::Libraries::new()),
-            constant_data: Mutex::default(),
+            constant_data: default(),
             work: thread_pool::WorkPile::new(),
-
-            loaded_files: Mutex::default(),
+            loaded_files: default(),
+            entry_point: default(),
         }
     }
 
     pub fn check_for_completion(&self, errors: &mut ErrorCtx) {
+        let scopes = self.scopes.read();
         let members = self.members.read();
-        for member in members.values() {
-            for &(loc, _) in member.type_.dependants() {
-                if member.is_defined {
-                    errors.error(loc, format!("'{}' can't be evaluated", member.name));
-                } else {
-                    errors.error(loc, format!("'{}' is not defined", member.name));
+        for scope in scopes.iter() {
+            let wanted_names = scope.wanted_names.read();
+            for (&name, dependants) in wanted_names.iter() {
+                for &(_, loc, _) in dependants {
+                    errors.info(loc, "Dependant here".to_string());
                 }
+                errors.global_error(format!("'{}' is not defined", name));
             }
 
-            for &(loc, _) in member.value.dependants() {
-                if member.is_defined {
-                    errors.error(loc, format!("'{}' can't be evaluated", member.name));
-                } else {
-                    errors.error(loc, format!("'{}' is not defined", member.name));
+            let public_members = scope.public_members.read();
+            for (&name, &member_id) in public_members.iter() {
+                let member = members.get(&member_id).unwrap();
+                if member.type_.to_option().is_none() {
+                    errors.global_error(format!("'{}' cannot be computed", name));
+                } else if member.value.to_option().is_none() {
+                    errors.global_error(format!("'{}' cannot be computed(value)", name));
                 }
             }
         }
@@ -132,7 +141,7 @@ impl Program {
 
     pub fn get_entry_point(&self) -> Option<*const u8> {
         let members = self.members.read();
-        let member_id = self.get_member_id("main".into())?;
+        let member_id = (*self.entry_point.lock())?;
         let member = members.get(&member_id).unwrap();
 
         let type_ = member.type_.to_option()?.0;
@@ -163,8 +172,50 @@ impl Program {
         crate::ir::Value::Global(value_ptr, type_)
     }
 
-    pub fn get_member_id(&self, name: Ustr) -> Option<MemberId> {
-        self.scope.read().get(&name).copied()
+    pub fn create_scope(&self) -> ScopeId {
+        let mut scopes = self.scopes.write();
+        let id = ScopeId(scopes.len());
+        scopes.push(Scope {
+            public_members: default(),
+            private_members: default(),
+            wanted_names: default(),
+            dependants: default(),
+        });
+        id
+    }
+
+    /// # Fails
+    /// When the scopes have conflicting members.
+    pub fn add_scope_dependency(
+        &self,
+        errors: &mut ErrorCtx,
+        loc: Location,
+        dependant: ScopeId,
+        depending_on: ScopeId,
+    ) -> Result<(), ()> {
+        let scopes = self.scopes.read();
+        let mut dependants = scopes[depending_on.0].dependants.write();
+
+        if dependants.contains(&dependant) {
+            errors.error(loc, "This is imported twice".to_string());
+            return Err(());
+        }
+
+        dependants.push(dependant);
+        drop(dependants);
+
+        let depending_publics = scopes[depending_on.0].public_members.read();
+        for (&name, &member_id) in depending_publics.iter() {
+            self.bind_member_to_name(errors, dependant, name, loc, member_id, false)?;
+        }
+
+        Ok(())
+    }
+
+    pub fn get_member_id(&self, scope: ScopeId, name: Ustr) -> Option<MemberId> {
+        let scopes = self.scopes.read();
+        let public = scopes[scope.0].public_members.read().get(&name).copied();
+        public.or_else(|| scopes[scope.0].private_members.read().get(&name).copied())
     }
 
     pub fn member_name(&self, id: MemberId) -> Ustr {
@@ -226,7 +277,20 @@ impl Program {
     }
 
     pub fn add_file(&self, path: impl AsRef<Path>) {
-        self.work.enqueue(Task::Parse(path.as_ref().to_path_buf()));
+        self.work
+            .enqueue(Task::Parse(None, path.as_ref().to_path_buf()));
+    }
+
+    pub fn add_file_from_import(
+        &self,
+        path: impl AsRef<Path>,
+        location: Location,
+        from_scope: ScopeId,
+    ) {
+        self.work.enqueue(Task::Parse(
+            Some((location, from_scope)),
+            path.as_ref().to_path_buf(),
+        ));
     }
 
     pub fn insert_buffer_from_operation(
@@ -435,33 +499,97 @@ impl Program {
         &self,
         errors: &mut ErrorCtx,
         loc: Location,
+        scope_id: ScopeId,
         name: Ustr,
     ) -> Result<MemberId, ()> {
-        let mut scope = self.scope.write();
         let mut members = self.members.write();
+        let id = MemberId(members.len());
+        members.insert(id, Member::new(name));
+        drop(members);
 
-        if let Some(&id) = scope.get(&name) {
-            let member = members.get_mut(&id).unwrap();
-            if member.is_defined {
-                errors.error(loc, format!("'{}' is already defined", name));
-                return Err(());
-            }
-            // Here it was already depended upon, so it had a non-defined version, so we just flag
-            // it to be defined now.
-            member.is_defined = true;
-            Ok(id)
-        } else {
-            let id = MemberId(members.len());
-            scope.insert(name, id);
-            members.insert(id, Member::new(name, true));
-            Ok(id)
+        self.bind_member_to_name(errors, scope_id, name, loc, id, true)?;
+        Ok(id)
+    }
+
+    fn bind_member_to_name(
+        &self,
+        errors: &mut ErrorCtx,
+        scope_id: ScopeId,
+        name: Ustr,
+        loc: Location,
+        member_id: MemberId,
+        is_public: bool,
+    ) -> Result<(), ()> {
+        let scopes = self.scopes.read();
+
+        let mut public_members = scopes[scope_id.0].public_members.write();
+        let mut private_members = scopes[scope_id.0].private_members.write();
+
+        if public_members.contains_key(&name) | private_members.contains_key(&name) {
+            errors.error(loc, format!("'{}' is already defined", name));
+            return Err(());
         }
+
+        let mut used_list = if is_public {
+            &mut public_members
+        } else {
+            &mut private_members
+        };
+
+        used_list.insert(name, member_id);
+
+        drop(public_members);
+        drop(private_members);
+
+        if is_public {
+            for dependant in scopes[scope_id.0].dependants.read().iter() {
+                self.bind_member_to_name(errors, *dependant, name, loc, member_id, false)?;
+            }
+        }
+
+        let mut wanted_names = scopes[scope_id.0].wanted_names.write();
+        if let Some(dependants) = wanted_names.remove(&name) {
+            drop(wanted_names);
+            drop(scopes);
+            // FIXME: Check if this is congesting it or not.
+            for &(kind, _, dependant) in dependants.iter() {
+                let dependant_name = self.member_name(dependant);
+                let mut members = self.members.write();
+                let member = members.get_mut(&member_id).unwrap();
+                match kind {
+                    DependencyKind::Type => {
+                        self.logger.log(format_args!(
+                            "'{}' found definition of '{}', now searches for the type of it",
+                            dependant_name, member.name,
+                        ));
+
+                        if !member.type_.add_dependant(loc, dependant) {
+                            drop(members);
+                            self.resolve_dependency(dependant);
+                        }
+                    }
+                    DependencyKind::Value => {
+                        self.logger.log(format_args!(
+                            "'{}' found definition of '{}', now searches for the value of it",
+                            dependant_name, member.name,
+                        ));
+
+                        if !member.type_.add_dependant(loc, dependant) {
+                            drop(members);
+                            self.resolve_dependency(dependant);
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok(())
     }
 
     pub fn queue_task(&self, id: MemberId, deps: DependencyList, task: Task) {
         let name = self.member_name(id);
 
-        let mut scope = self.scope.write();
+        let scopes = self.scopes.read();
         let mut members = self.members.write();
         let mut num_deps = 0;
 
@@ -479,39 +607,43 @@ impl Program {
             0
         );
 
-        for (dep_name, loc) in deps.types {
-            if let Some(&dep_id) = scope.get(&dep_name) {
+        for (dep_name, (scope_id, loc)) in deps.types {
+            let scope = &scopes[scope_id.0];
+            let mut scope_wanted_names = scope.wanted_names.write();
+
+            if let Some(dep_id) = scope.get(dep_name) {
                 let dependency = members.get_mut(&dep_id).unwrap();
                 if dependency.type_.add_dependant(loc, id) {
                     num_deps += 1;
                 }
             } else {
                 num_deps += 1;
-                self.logger.log(format_args!("temporary: '{}'", dep_name,));
-                let mut dependency = Member::new(dep_name, false);
-                dependency.type_.add_dependant(loc, id);
-
-                let dep_id = MemberId(members.len());
-                scope.insert(dep_name, dep_id);
-                members.insert(dep_id, dependency);
+                self.logger.log(format_args!(
+                    "Undefined identifier '{}' in scope {}, wants type of it",
+                    dep_name, scope_id.0
+                ));
+                let wanted = scope_wanted_names.entry(dep_name).or_insert_with(Vec::new);
+                wanted.push((DependencyKind::Type, loc, id));
             }
         }
 
-        for (dep_name, loc) in deps.values {
-            if let Some(dep_id) = scope.get(&dep_name) {
+        for (dep_name, (scope_id, loc)) in deps.values {
+            let scope = &scopes[scope_id.0];
+            let mut scope_wanted_names = scope.wanted_names.write();
+
+            if let Some(dep_id) = scope.get(dep_name) {
                 let dependency = members.get_mut(&dep_id).unwrap();
                 if dependency.value.add_dependant(loc, id) {
                     num_deps += 1;
                 }
             } else {
                 num_deps += 1;
-                self.logger.log(format_args!("temporary: '{}'", dep_name,));
-                let mut dependency = Member::new(dep_name, false);
-                dependency.value.add_dependant(loc, id);
-
-                let dep_id = MemberId(members.len());
-                scope.insert(dep_name, dep_id);
-                members.insert(dep_id, dependency);
+                self.logger.log(format_args!(
+                    "Undefined identifier '{}' in scope {}, wants value of it",
+                    dep_name, scope_id.0
+                ));
+                let wanted = scope_wanted_names.entry(dep_name).or_insert_with(Vec::new);
+                wanted.push((DependencyKind::Value, loc, id));
             }
         }
 
@@ -532,13 +664,29 @@ impl Program {
     }
 }
 
+struct Scope {
+    // FIXME: Have these store the location where the thing was bound to a name as well.
+    // At least in the public_members, since those are usually not imported but bound in the scope?
+    // However, even private_members would have a use for the location of the import/library
+    public_members: RwLock<UstrMap<MemberId>>,
+    private_members: RwLock<UstrMap<MemberId>>,
+    wanted_names: RwLock<UstrMap<Vec<(DependencyKind, Location, MemberId)>>>,
+    dependants: RwLock<Vec<ScopeId>>,
+}
+
+impl Scope {
+    fn get(&self, name: Ustr) -> Option<MemberId> {
+        let public = self.public_members.read().get(&name).copied();
+        public.or_else(|| self.private_members.read().get(&name).copied())
+    }
+}
+
 struct Member {
     name: Ustr,
     type_: DependableOption<(Type, Arc<MemberMetaData>)>,
     value: DependableOption<ConstantRef>,
     dependencies_left: AtomicI32,
     task: Option<Task>,
-    is_defined: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -554,14 +702,13 @@ unsafe impl Send for Member {}
 unsafe impl Sync for Member {}
 
 impl Member {
-    const fn new(name: Ustr, is_defined: bool) -> Self {
+    const fn new(name: Ustr) -> Self {
         Self {
             name,
             type_: DependableOption::None(Vec::new()),
             value: DependableOption::None(Vec::new()),
             dependencies_left: AtomicI32::new(0),
             task: None,
-            is_defined,
         }
     }
 }
@@ -602,7 +749,7 @@ impl<T> DependableOption<T> {
 }
 
 pub enum Task {
-    Parse(PathBuf),
+    Parse(Option<(Location, ScopeId)>, PathBuf),
     Type(MemberId, crate::locals::LocalVariables, crate::parser::Ast),
     Value(MemberId, crate::locals::LocalVariables, crate::typer::Ast),
 }
@@ -610,9 +757,13 @@ pub enum Task {
 impl fmt::Debug for Task {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Task::Parse(buf) => write!(f, "parse({:?})", buf),
+            Task::Parse(_, buf) => write!(f, "parse({:?})", buf),
             Task::Type(id, _, _) => write!(f, "type({:?})", id),
             Task::Value(id, _, _) => write!(f, "value({:?})", id),
         }
     }
+}
+
+fn default<T: Default>() -> T {
+    T::default()
 }

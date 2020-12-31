@@ -12,7 +12,8 @@
                 "args": [
                     "build",
                     "--bin=borkle",
-                    "--package=borkle"
+                    "--package=borkle",
+                    "--features=log_print",
                 ],
                 "filter": {
                     "name": "borkle",

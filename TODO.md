@@ -41,16 +41,19 @@
 * [X] Auto dereference things when taking a member.
 * [X] BUG! Problem when doing something like &(\*value).member\_name
 * [X] Hexadecimal integers
+* [ ] Make 'namespaces', i.e. only imported files are in scope, they do not indirectly pollute scopes like they do right now
 
+* [ ] BUG! extern still uses relative paths I think, that's a bug.
+* [ ] Have a way for named function parameter meta data to be created for extern functions.
 * [ ] BUG! Indirect members do not handle ZST:s yet.
 * [ ] Look into reducing the amount of recursion, the stack can overflow quite easily at the moment!
 * [ ] Make a global setup file for the compiler!
 * [ ] Add a flag to types that are not storable in constants.
 * [ ] When a file cannot be loaded, show where the task was queued.
 * [ ] When the type of a function is known, allow for omitting the parameter and return types.
-* [ ] In the Instr it's unclear what thing members are for. Make this more general. Also, probably remove some members as there are a lot of instructions that have them and it's probably unnecessary, or make that information part of Values?
 
 # Version 0.0.3
+* [ ] extern allows you to specify an abi to use
 * [ ] Ambiguous rules about what expression a type bound applies to.
 * [ ] Make assignment an expression.
 * [ ] Compile time functions
@@ -65,3 +68,4 @@
 * [ ] Add overflow checks to type size calculations, and add a user level error for trying to create too large types.
 * [ ] Use the never type to find dead code, and allow casting from it to anything.
 * [ ] Indexing operations
+* [ ] In the Instr it's unclear what thing members are for. Make this more general. Also, probably remove some members as there are a lot of instructions that have them and it's probably unnecessary, or make that information part of Values?

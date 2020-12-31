@@ -3,7 +3,7 @@ use crate::dependencies::DependencyList;
 use crate::errors::ErrorCtx;
 use crate::locals::{Label, LabelId, Local, LocalId, LocalVariables};
 use crate::location::Location;
-use crate::program::Program;
+use crate::program::{Program, ScopeId};
 use std::path::Path;
 use ustr::Ustr;
 
@@ -18,6 +18,7 @@ pub struct DataContext<'a> {
     pub program: &'a Program,
     pub tokens: &'a mut TokenStream,
     pub path: &'a Path,
+    pub scope: ScopeId,
 }
 
 impl<'a> DataContext<'a> {
@@ -26,12 +27,14 @@ impl<'a> DataContext<'a> {
         program: &'a Program,
         tokens: &'a mut TokenStream,
         path: &'a Path,
+        scope: ScopeId,
     ) -> Self {
         Self {
             errors,
             program,
             tokens,
             path,
+            scope,
         }
     }
 

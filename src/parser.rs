@@ -9,7 +9,7 @@ use crate::literal::Literal;
 use crate::locals::Local;
 use crate::location::Location;
 use crate::operators::BinaryOp;
-use crate::program::{Program, Task};
+use crate::program::{Program, ScopeId, Task};
 use crate::self_buffer::{SelfBox, SelfBuffer, SelfTree};
 use crate::types::TypeKind;
 pub use ast::{Node, NodeKind};
@@ -27,10 +27,11 @@ pub fn process_string(
     program: &Program,
     file: Ustr,
     string: &str,
+    scope: ScopeId,
 ) -> Result<(), ()> {
     let mut tokens = lexer::process_string(errors, file, string)?;
 
-    let mut context = DataContext::new(errors, program, &mut tokens, Path::new(&*file));
+    let mut context = DataContext::new(errors, program, &mut tokens, Path::new(&*file), scope);
 
     while let Some(token) = context.tokens.next() {
         match token.kind {
@@ -44,7 +45,7 @@ pub fn process_string(
 
                     let mut path = context.program.arguments.lib_path.to_path_buf();
                     path.push(&name);
-                    program.add_file(path);
+                    program.add_file_from_import(path, token.loc, context.scope);
                 } else {
                     context.error(
                         name.loc,
@@ -52,6 +53,30 @@ pub fn process_string(
                     );
                     return Err(());
                 }
+            }
+            TokenKind::Keyword(Keyword::Entry) => {
+                let mut buffer = SelfBuffer::new();
+                let mut dependencies = DependencyList::new();
+                let mut imperative = ImperativeContext::new(&mut dependencies, false);
+                let expr = expression(&mut context, &mut imperative, &mut buffer)?;
+                let tree = buffer.insert_root(expr);
+
+                context
+                    .tokens
+                    .expect_next_is(context.errors, &TokenKind::SemiColon)?;
+
+                let locals = imperative.locals;
+
+                let id = context.program.define_member(
+                    context.errors,
+                    token.loc,
+                    context.scope,
+                    "__entry_point_blah_idk_we_dont_have_anonymous_members_yet".into(),
+                )?;
+                context
+                    .program
+                    .queue_task(id, dependencies, Task::Type(id, locals, tree));
+                *context.program.entry_point.lock() = Some(id);
             }
             TokenKind::Keyword(Keyword::Import) => {
                 let name = context.tokens.expect_next(context.errors)?;
@@ -63,7 +88,7 @@ pub fn process_string(
                     let mut path = context.path.to_path_buf();
                     path.pop();
                     path.push(&name);
-                    program.add_file(path);
+                    program.add_file_from_import(path, token.loc, context.scope);
                 } else {
                     context.error(
                         name.loc,
@@ -104,7 +129,7 @@ fn constant(global: &mut DataContext<'_>) -> Result<(), ()> {
         if polymorphic_arguments.is_empty() {
             let id = global
                 .program
-                .define_member(global.errors, token.loc, name)?;
+                .define_member(global.errors, token.loc, global.scope, name)?;
             global
                 .program
                 .queue_task(id, dependencies, Task::Type(id, locals, tree));
@@ -215,10 +240,10 @@ fn type_(
 
             imperative
                 .dependencies
-                .add(loc, name, DependencyKind::Value);
+                .add(loc, global.scope, name, DependencyKind::Value);
             Ok(Node::new(
                 loc,
-                NodeKind::GlobalForTyping(name, polymorphic_arguments),
+                NodeKind::GlobalForTyping(global.scope, name, polymorphic_arguments),
             ))
         }
         TokenKind::Open(Bracket::Curly) => {
@@ -387,16 +412,19 @@ fn value(
             } else if imperative.evaluate_at_typing {
                 imperative
                     .dependencies
-                    .add(token.loc, name, DependencyKind::Value);
+                    .add(token.loc, global.scope, name, DependencyKind::Value);
                 Node::new(
                     token.loc,
-                    NodeKind::GlobalForTyping(name, polymorphic_arguments),
+                    NodeKind::GlobalForTyping(global.scope, name, polymorphic_arguments),
                 )
             } else {
                 imperative
                     .dependencies
-                    .add(token.loc, name, DependencyKind::Type);
-                Node::new(token.loc, NodeKind::Global(name, polymorphic_arguments))
+                    .add(token.loc, global.scope, name, DependencyKind::Type);
+                Node::new(
+                    token.loc,
+                    NodeKind::Global(global.scope, name, polymorphic_arguments),
+                )
             }
         }
         TokenKind::Literal(literal) => Node::new(token.loc, NodeKind::Literal(literal)),

@@ -1,10 +1,11 @@
 use crate::location::Location;
+use crate::program::ScopeId;
 use std::fmt;
 use ustr::{Ustr, UstrMap};
 
 pub struct DependencyList {
-    pub values: UstrMap<Location>,
-    pub types: UstrMap<Location>,
+    pub values: UstrMap<(ScopeId, Location)>,
+    pub types: UstrMap<(ScopeId, Location)>,
 }
 
 impl DependencyList {
@@ -15,10 +16,10 @@ impl DependencyList {
         }
     }
 
-    pub fn add(&mut self, loc: Location, name: Ustr, kind: DependencyKind) {
+    pub fn add(&mut self, loc: Location, scope_id: ScopeId, name: Ustr, kind: DependencyKind) {
         match kind {
-            DependencyKind::Value => self.values.insert(name, loc),
-            DependencyKind::Type => self.types.insert(name, loc),
+            DependencyKind::Value => self.values.insert(name, (scope_id, loc)),
+            DependencyKind::Type => self.types.insert(name, (scope_id, loc)),
         };
     }
 }

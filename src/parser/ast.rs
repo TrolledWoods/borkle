@@ -2,6 +2,7 @@ use crate::literal::Literal;
 use crate::locals::{LabelId, LocalId, LocalVariables};
 use crate::location::Location;
 use crate::operators::{BinaryOp, UnaryOp};
+use crate::program::ScopeId;
 use crate::self_buffer::SelfBox;
 use crate::types::Type;
 use std::fmt;
@@ -48,8 +49,8 @@ pub enum NodeKind {
         inner: SelfBox<Node>,
     },
 
-    Global(Ustr, Vec<SelfBox<Node>>),
-    GlobalForTyping(Ustr, Vec<SelfBox<Node>>),
+    Global(ScopeId, Ustr, Vec<SelfBox<Node>>),
+    GlobalForTyping(ScopeId, Ustr, Vec<SelfBox<Node>>),
     Extern {
         library_name: PathBuf,
         symbol_name: String,
