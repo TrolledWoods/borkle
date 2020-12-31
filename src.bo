@@ -14,8 +14,8 @@ library "test.bo";
 
 // library "intrinsics.bo";
 
-// #intrinsic i_put_string : fn([] u8);
+#intrinsic i_stdout_write;
 
 #entry fn() -> u64 {
-    InTest
+    0
 };

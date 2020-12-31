@@ -40,6 +40,7 @@ pub enum Bracket {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Keyword {
+    Intrinsic,
     Entry,
     Any,
     Break,
@@ -115,6 +116,7 @@ pub fn process_string(errors: &mut ErrorCtx, file: Ustr, string: &str) -> Result
                     "entry" => TokenKind::Keyword(Keyword::Entry),
                     "uninit" => TokenKind::Keyword(Keyword::Uninit),
                     "0" => TokenKind::Keyword(Keyword::Zeroed),
+                    "intrinsic" => TokenKind::Keyword(Keyword::Intrinsic),
                     _ => TokenKind::Tag(tag_name.into()),
                 }
             }

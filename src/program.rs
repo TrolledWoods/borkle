@@ -421,6 +421,7 @@ impl Program {
         let value = self.insert_buffer(member.type_.unwrap().0, data);
         let old = std::mem::replace(&mut member.value, DependableOption::Some(value));
 
+        // This is a zst, we don't need a value.
         drop(members);
 
         if let DependableOption::None(dependencies) = old {
