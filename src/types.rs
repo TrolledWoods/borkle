@@ -293,6 +293,7 @@ impl TypeKind {
 
     fn can_be_stored_in_constant(&self) -> bool {
         match self {
+            TypeKind::Array(_, 0) | TypeKind::Function { .. } => true,
             TypeKind::Any | TypeKind::AnyBuffer | TypeKind::Never => false,
             _ => {
                 let mut can_be = true;

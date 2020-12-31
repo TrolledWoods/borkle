@@ -66,6 +66,12 @@ fn type_ast<'a>(
         } => {
             let mut locals = std::mem::replace(&mut ctx.locals, locals.clone());
             let inner = type_ast(ctx, wanted_type, inner, buffer)?;
+
+            if !inner.type_().can_be_stored_in_constant() {
+                ctx.errors.error(parsed.loc, format!("'{}' cannot be stored in a constant, because it contains types that the compiler cannot reason about properly, such as '&any', '[] any', or similar", inner.type_()));
+                return Err(());
+            }
+
             locals = std::mem::replace(&mut ctx.locals, locals);
 
             if let NodeKind::Constant(_)
@@ -94,6 +100,12 @@ fn type_ast<'a>(
         } => {
             let mut locals = std::mem::replace(&mut ctx.locals, locals.clone());
             let inner = type_ast(ctx, wanted_type, inner, buffer)?;
+
+            if !inner.type_().can_be_stored_in_constant() {
+                ctx.errors.error(parsed.loc, format!("'{}' cannot be stored in a constant, because it contains types that the compiler cannot reason about properly, such as '&any', '[] any', or similar", inner.type_()));
+                return Err(());
+            }
+
             locals = std::mem::replace(&mut ctx.locals, locals);
 
             if let NodeKind::Constant(_) = inner.kind() {

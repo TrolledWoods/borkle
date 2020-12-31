@@ -1,10 +1,5 @@
 library "test.bo";
-library "io.bo";
-
-const load = put_string("Loaded main!\n");
 
 #entry fn() -> u64 {
-    put_string("This is a string!\n");
-
     InTest
 };

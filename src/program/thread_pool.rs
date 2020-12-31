@@ -129,18 +129,22 @@ fn worker<'a>(alloc: &'a mut Bump, program: &'a Program) -> (ThreadContext<'a>, 
                             };
                             let type_ = ast.type_();
 
-                            program.logger.log(format_args!(
-                                "type '{}' {:?}",
-                                program.member_name(member_id),
-                                ast.type_(),
-                            ));
+                            if type_.can_be_stored_in_constant() {
+                                program.logger.log(format_args!(
+                                    "type '{}' {:?}",
+                                    program.member_name(member_id),
+                                    ast.type_(),
+                                ));
 
-                            program.set_type_of_member(member_id, type_, meta_data);
-                            program.queue_task(
-                                member_id,
-                                dependencies,
-                                Task::Value(member_id, locals, ast),
-                            );
+                                program.set_type_of_member(member_id, type_, meta_data);
+                                program.queue_task(
+                                    member_id,
+                                    dependencies,
+                                    Task::Value(member_id, locals, ast),
+                                );
+                            } else {
+                                errors.error(ast.loc, format!("'{}' cannot be stored in a constant, because it contains types that the compiler cannot reason about properly, such as '&any', '[] any', or similar", type_));
+                            }
                         }
                         Err(()) => {
                             // TODO: Here we want to poison the Value parameter of the thing this
