@@ -1,6 +1,5 @@
-use crate::types::{IntTypeKind, Type, TypeKind};
+use crate::types::{type_creation::*, Type};
 use std::fmt;
-use ustr::Ustr;
 
 macro_rules! create_intrinsics {
     ($($name:ident [$($arg_type:expr),*] $return_type:expr),*,) => {
@@ -44,18 +43,27 @@ macro_rules! create_intrinsics {
 }
 
 create_intrinsics! {
-    i_add_u64
-        [Type::new(TypeKind::Int(IntTypeKind::U64)), Type::new(TypeKind::Int(IntTypeKind::U64))]
-        Type::new(TypeKind::Int(IntTypeKind::U64)),
-    // i_stdin_read
-    //     [Type::new(TypeKind::Buffer(Type::new(TypeKind::Int(IntTypeKind::U8))))]
-    //     Type::new(TypeKind::Int(IntTypeKind::Usize)),
-    // i_alloc
-    //     [Type::new(TypeKind::Buffer(Type::new(TypeKind::Int(IntTypeKind::U8))))]
-    //     Type::new(TypeKind::Int(IntTypeKind::Usize)),
-    // i_dealloc
-    //     [Type::new(TypeKind::Buffer(Type::new(TypeKind::Int(IntTypeKind::U8))))]
-    //     Type::new(TypeKind::Int(IntTypeKind::Usize)),
+    i_stdout_write
+        [buf_type(u8_type())]
+        usize_type(),
+    i_stdout_flush
+        []
+        empty_type(),
+    i_stdin_getline
+        []
+        buf_type(u8_type()),
+    i_alloc
+        [usize_type()]
+        any_type(),
+    i_dealloc
+        [any_buf_type()]
+        empty_type(),
+    i_copy
+        [any_type(), any_type(), usize_type()]
+        empty_type(),
+    i_copy_nonoverlapping
+        [any_type(), any_type(), usize_type()]
+        empty_type(),
 }
 
 impl fmt::Display for Intrinsic {

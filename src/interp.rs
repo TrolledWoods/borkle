@@ -2,7 +2,7 @@ use crate::ir::{Instr, Routine};
 use crate::operators::UnaryOp;
 use crate::program::constant::ConstantRef;
 use crate::program::Program;
-use crate::types::TypeKind;
+use crate::types::{BufferRepr, TypeKind};
 
 mod stack;
 
@@ -203,6 +203,62 @@ fn interp_internal(program: &Program, stack: &mut StackFrame<'_>, routine: &Rout
                 let to = stack.get(to).read::<*mut u8>().add(member.offset);
 
                 std::ptr::copy_nonoverlapping(from, to, size);
+            },
+            Instr::i_stdout_write { to, buffer } => unsafe {
+                use std::io::Write;
+                let buffer = stack.get(buffer).read::<BufferRepr>();
+
+                let output = std::io::stdout()
+                    .write(std::slice::from_raw_parts(buffer.ptr, buffer.length))
+                    .unwrap_or(0);
+
+                stack.get_mut(to).write::<usize>(output);
+            },
+            Instr::i_stdout_flush => {
+                use std::io::Write;
+                let _ = std::io::stdout().lock().flush();
+            }
+            Instr::i_stdin_getline { to } => unsafe {
+                let mut string = String::new();
+                let _ = std::io::stdin().read_line(&mut string);
+
+                let string_bytes = string.into_bytes().into_boxed_slice();
+
+                let repr = BufferRepr {
+                    length: string_bytes.len(),
+                    ptr: Box::into_raw(string_bytes).cast(),
+                };
+                stack.get_mut(to).write(repr);
+            },
+            Instr::i_alloc { to, size } => unsafe {
+                use std::alloc::{alloc, Layout};
+                let ptr = alloc(Layout::from_size_align_unchecked(
+                    stack.get(size).read::<usize>(),
+                    8,
+                ));
+                stack.get_mut(to).write(ptr);
+            },
+            Instr::i_dealloc { buffer } => unsafe {
+                use std::alloc::{dealloc, Layout};
+                let buffer = stack.get(buffer).read::<BufferRepr>();
+                dealloc(
+                    buffer.ptr,
+                    Layout::from_size_align_unchecked(buffer.length, 8),
+                );
+            },
+            Instr::i_copy { from, to, size } => unsafe {
+                std::ptr::copy(
+                    stack.get(from).read::<*const u8>(),
+                    stack.get_mut(to).read::<*mut u8>(),
+                    stack.get(size).read::<usize>(),
+                );
+            },
+            Instr::i_copy_nonoverlapping { from, to, size } => unsafe {
+                std::ptr::copy_nonoverlapping(
+                    stack.get(from).read::<*const u8>(),
+                    stack.get_mut(to).read::<*mut u8>(),
+                    stack.get(size).read::<usize>(),
+                );
             },
         }
 

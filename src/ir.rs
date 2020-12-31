@@ -6,6 +6,7 @@ use std::fmt;
 use ustr::Ustr;
 
 #[derive(Clone)]
+#[allow(non_camel_case_types)]
 pub enum Instr {
     // to = pointer(args)
     CallExtern {
@@ -98,6 +99,31 @@ pub enum Instr {
     // ##                              ##
     // ##################################
     //
+    i_stdout_write {
+        to: Value,
+        buffer: Value,
+    },
+    i_stdout_flush,
+    i_stdin_getline {
+        to: Value,
+    },
+    i_alloc {
+        to: Value,
+        size: Value,
+    },
+    i_dealloc {
+        buffer: Value,
+    },
+    i_copy {
+        from: Value,
+        to: Value,
+        size: Value,
+    },
+    i_copy_nonoverlapping {
+        from: Value,
+        to: Value,
+        size: Value,
+    },
 }
 
 impl fmt::Debug for Instr {
@@ -176,6 +202,19 @@ impl fmt::Debug for Instr {
             }
             Self::Jump { to } => write!(fmt, "jump to {}", to.0),
             Self::LabelDefinition(id) => write!(fmt, "-- label {}", id.0),
+            Self::i_stdout_write { to, buffer } => {
+                write!(fmt, "{} = i_stdout_write({})", to, buffer)
+            }
+            Self::i_stdout_flush => write!(fmt, "i_stdout_flush()"),
+            Self::i_stdin_getline { to } => {
+                write!(fmt, "{} = i_stdin_getline()", to)
+            }
+            Self::i_alloc { to, size } => write!(fmt, "{} = i_alloc({})", to, size),
+            Self::i_dealloc { buffer } => write!(fmt, "i_dealloc({})", buffer),
+            Self::i_copy { from, to, size } => write!(fmt, "i_copy({}, {}, {})", from, to, size),
+            Self::i_copy_nonoverlapping { from, to, size } => {
+                write!(fmt, "i_copy_nonoverlapping({}, {}, {})", from, to, size)
+            }
         }
     }
 }

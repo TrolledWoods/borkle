@@ -116,7 +116,7 @@ pub fn process_string(errors: &mut ErrorCtx, file: Ustr, string: &str) -> Result
                     "entry" => TokenKind::Keyword(Keyword::Entry),
                     "uninit" => TokenKind::Keyword(Keyword::Uninit),
                     "0" => TokenKind::Keyword(Keyword::Zeroed),
-                    "intrinsic" => TokenKind::Keyword(Keyword::Intrinsic),
+                    "import_intrinsic_from_compiler" => TokenKind::Keyword(Keyword::Intrinsic),
                     _ => TokenKind::Tag(tag_name.into()),
                 }
             }

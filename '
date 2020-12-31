@@ -428,62 +428,23 @@ pub fn routine_to_c(output: &mut String, routine: &Routine, num_args: usize) {
                 write!(output, "label_{}:;\n", id.0).unwrap();
             }
 
-            Instr::i_stdout_write { to, buffer } => {
+            Instr::StdoutWrite { to, ptr, len } => {
                 write!(
                     output,
-                    "{} = fwrite({}.ptr, 1, {}.len, stdout);\n",
+                    "{} = fwrite({}, 1, {}, stdout);\n",
                     c_format_value(to),
-                    c_format_value(buffer),
-                    c_format_value(buffer),
+                    c_format_value(ptr),
+                    c_format_value(len),
                 )
                 .unwrap();
             }
-            Instr::i_stdout_flush => {
-                output.push_str("fflush(stdout);\n");
-            }
-            Instr::i_stdin_getline { to } => {
+            Instr::StdinRead { to, ptr, len } => {
                 write!(
                     output,
-                    "{{
-                        char temp_data[512];
-                        gets(temp_data);\n
-                        {0}.len = strlen(temp_data);
-                        {0}.ptr = malloc({0}.len);
-                        memcpy({0}.ptr, temp_data, {0}.len);
-                    }}\n",
+                    "{} = fread({}, 1, {}, stdin);\n",
                     c_format_value(to),
-                )
-                .unwrap();
-            }
-            Instr::i_alloc { to, size } => {
-                write!(
-                    output,
-                    "{} = malloc({});\n",
-                    c_format_value(to),
-                    c_format_value(size),
-                )
-                .unwrap();
-            }
-            Instr::i_dealloc { buffer } => {
-                write!(output, "free({}.ptr);\n", c_format_value(buffer)).unwrap();
-            }
-            Instr::i_copy { from, to, size } => {
-                write!(
-                    output,
-                    "memmove({}, {}, {});\n",
-                    c_format_value(to),
-                    c_format_value(from),
-                    c_format_value(size)
-                )
-                .unwrap();
-            }
-            Instr::i_copy_nonoverlapping { from, to, size } => {
-                write!(
-                    output,
-                    "memcpy({}, {}, {});\n",
-                    c_format_value(to),
-                    c_format_value(from),
-                    c_format_value(size)
+                    c_format_value(ptr),
+                    c_format_value(len),
                 )
                 .unwrap();
             }
@@ -545,7 +506,7 @@ pub fn append_c_type_headers(output: &mut String) {
                 write!(output, "{}", c_format_pointer_type(*internal)).unwrap()
             }
             TypeKind::AnyBuffer => {
-                write!(output, "struct{{\n  void *ptr;\n  uint64_t len;\n}}",).unwrap();
+                write!(output, "struct{{\n  uint8_t ptr;\n  uint64_t len;\n}}",).unwrap();
             }
             TypeKind::Buffer(internal) => {
                 write!(

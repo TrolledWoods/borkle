@@ -532,3 +532,36 @@ fn array_size(size: usize, align: usize, num_elements: usize) -> usize {
     let element_size = to_align(size, align);
     element_size * num_elements
 }
+
+pub mod type_creation {
+    #![allow(unused)]
+    use super::{IntTypeKind, Type, TypeKind};
+
+    pub fn any_type() -> Type {
+        Type::new(TypeKind::Any)
+    }
+
+    pub fn any_buf_type() -> Type {
+        Type::new(TypeKind::AnyBuffer)
+    }
+
+    pub fn empty_type() -> Type {
+        Type::new(TypeKind::Empty)
+    }
+
+    pub fn u8_type() -> Type {
+        Type::new(TypeKind::Int(IntTypeKind::U8))
+    }
+
+    pub fn usize_type() -> Type {
+        Type::new(TypeKind::Int(IntTypeKind::Usize))
+    }
+
+    pub fn ref_type(inner: Type) -> Type {
+        Type::new(TypeKind::Reference(inner))
+    }
+
+    pub fn buf_type(inner: Type) -> Type {
+        Type::new(TypeKind::Buffer(inner))
+    }
+}

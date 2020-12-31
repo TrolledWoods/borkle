@@ -94,7 +94,6 @@ pub fn process_string(
                     .tokens
                     .expect_next_is(context.errors, &TokenKind::SemiColon)?;
 
-                // Find which intrinsic it is
                 if let Some(intrinsic) = Intrinsic::from_string(&name) {
                     let id = context.program.define_member(
                         context.errors,

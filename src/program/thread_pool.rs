@@ -44,6 +44,8 @@ pub fn run(program: &Program, num_threads: usize) -> (String, ErrorCtx) {
         let mut c_headers = String::new();
         c_headers.push_str("#include <stdint.h>\n");
         c_headers.push_str("#include <stdio.h>\n");
+        c_headers.push_str("#include <string.h>\n");
+        c_headers.push_str("#include <stdlib.h>\n");
         c_headers.push('\n');
 
         if program.arguments.release {

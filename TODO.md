@@ -55,6 +55,7 @@
 * [ ] Make a global setup file for the compiler!
 
 # Version 0.0.3
+* [ ] Make intrinsics use stubs instead of the #intrinsic stuff that's there right now
 * [ ] When the type of a function is known, allow for omitting the parameter and return types.
 * [ ] Make functions have their own scope.
 * [ ] Allow loading files in a parent directory easily with "../file.bo" syntax.

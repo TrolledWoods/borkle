@@ -1,5 +1,5 @@
 library "test.bo";
-library "io.bo";
+// library "io.bo";
 
 // Intrinsics roadmap;
 // intrinsics are an enum of all the different intrinsics.
@@ -15,10 +15,46 @@ library "io.bo";
 
 // library "intrinsics.bo";
 
-#intrinsic i_add_u64;
+#import_intrinsic_from_compiler i_stdout_write;
+#import_intrinsic_from_compiler i_stdout_flush;
+#import_intrinsic_from_compiler i_stdin_getline;
+#import_intrinsic_from_compiler i_alloc;
+#import_intrinsic_from_compiler i_dealloc;
+#import_intrinsic_from_compiler i_copy;
+#import_intrinsic_from_compiler i_copy_nonoverlapping;
 
 #entry fn() -> u64 {
-    let result = i_add_u64(1, "hello!");
+    i_stdout_write("Hello, who are you? ");
+    i_stdout_flush();
 
-    result
+    let buffer = #0 : [3] u8;
+    i_copy(<< "testing".ptr, << &buffer, 3);
+
+    i_stdout_write(&buffer);
+    i_stdout_flush();
+
+    let buffer = #0 : [3] u8;
+    i_copy_nonoverlapping(<< "teasting".ptr, << &buffer, 3);
+
+    i_stdout_write(&buffer);
+    i_stdout_flush();
+
+    let input = i_stdin_getline();
+    defer i_dealloc(<< input);
+
+    let buffer = #uninit : [] any;
+    buffer.ptr = i_alloc(8);
+    buffer.len = 8;
+    i_dealloc(buffer);
+
+    i_stdout_write(input);
+    i_stdout_write("\n");
+    i_stdout_flush();
+
+    i_stdout_write("Hello!\n");
+    i_stdout_flush();
+
+    0
 };
+
+

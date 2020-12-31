@@ -705,11 +705,33 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, node: &'a Node) -> Value {
                 } => {
                     ctx.emit_call(to, calling, args);
                 }
-                TypeKind::Intrinsic(intrinsic) => match intrinsic {
-                    Intrinsic::i_add_u64 => {
-                        ctx.emit_binary(BinaryOp::Add, to, args[0], args[1]);
+                TypeKind::Intrinsic(intrinsic) => {
+                    use crate::ir::Instr;
+                    match intrinsic {
+                        Intrinsic::i_stdout_write => ctx.instr.push(Instr::i_stdout_write {
+                            to,
+                            buffer: args[0],
+                        }),
+                        Intrinsic::i_stdout_flush => ctx.instr.push(Instr::i_stdout_flush),
+                        Intrinsic::i_stdin_getline => ctx.instr.push(Instr::i_stdin_getline { to }),
+                        Intrinsic::i_alloc => ctx.instr.push(Instr::i_alloc { to, size: args[0] }),
+                        Intrinsic::i_dealloc => {
+                            ctx.instr.push(Instr::i_dealloc { buffer: args[0] })
+                        }
+                        Intrinsic::i_copy => ctx.instr.push(Instr::i_copy {
+                            from: args[0],
+                            to: args[1],
+                            size: args[2],
+                        }),
+                        Intrinsic::i_copy_nonoverlapping => {
+                            ctx.instr.push(Instr::i_copy_nonoverlapping {
+                                from: args[0],
+                                to: args[1],
+                                size: args[2],
+                            })
+                        }
                     }
-                },
+                }
                 _ => todo!("The emitter doesn't know how to emit this type of call"),
             }
             to
