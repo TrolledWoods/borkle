@@ -60,6 +60,7 @@ impl Type {
         kind.get_pointers(&mut pointers);
 
         let data = TypeData {
+            call_scheme: kind.call_scheme(),
             is_never_type,
             size,
             align,
@@ -75,6 +76,10 @@ impl Type {
             types.push(leaked);
             Self(leaked)
         }
+    }
+
+    pub fn call_scheme(self) -> Option<&'static (Vec<Type>, Type)> {
+        self.0.call_scheme.as_ref()
     }
 
     pub fn can_be_stored_in_constant(self) -> bool {
@@ -174,6 +179,7 @@ pub struct TypeData {
     size: usize,
     align: usize,
     pub kind: TypeKind,
+    call_scheme: Option<(Vec<Type>, Type)>,
     pointers: Vec<(usize, PointerInType)>,
     can_be_stored_in_constant: bool,
 }
@@ -291,6 +297,14 @@ impl TypeKind {
                     on_inner(*member);
                 }
             }
+        }
+    }
+
+    fn call_scheme(&self) -> Option<(Vec<Type>, Type)> {
+        match self {
+            TypeKind::Function { args, returns, .. } => Some((args.clone(), *returns)),
+            TypeKind::Intrinsic(inner) => Some(inner.get_function_data()),
+            _ => None,
         }
     }
 

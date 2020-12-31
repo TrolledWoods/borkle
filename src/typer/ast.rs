@@ -50,7 +50,6 @@ pub enum NodeKind {
         of: SelfBox<Node>,
     },
     FunctionCall {
-        is_extern: bool,
         calling: SelfBox<Node>,
         args: Vec<(usize, SelfBox<Node>)>,
     },

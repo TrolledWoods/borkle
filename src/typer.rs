@@ -575,12 +575,7 @@ fn type_ast<'a>(
             ref named_args,
         } => {
             let calling = type_ast(ctx, WantedType::none(), calling, buffer)?;
-            if let TypeKind::Function {
-                args: arg_types,
-                returns,
-                is_extern,
-            } = calling.type_().kind()
-            {
+            if let Some((arg_types, returns)) = calling.type_().call_scheme() {
                 if parsed_args.len() > arg_types.len() {
                     ctx.errors.error(
                         calling.loc,
@@ -668,7 +663,6 @@ fn type_ast<'a>(
                 let node = Node::new(
                     calling.loc,
                     NodeKind::FunctionCall {
-                        is_extern: *is_extern,
                         calling: buffer.insert(calling),
                         args,
                     },

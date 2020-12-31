@@ -1,3 +1,4 @@
+use crate::intrinsic::Intrinsic;
 use crate::ir::{Member, Registers, Routine, Value};
 use crate::locals::LocalVariables;
 use crate::operators::{BinaryOp, UnaryOp};
@@ -677,7 +678,6 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, node: &'a Node) -> Value {
         }
         NodeKind::Global(id, _) => ctx.program.get_constant_as_value(*id),
         NodeKind::FunctionCall {
-            is_extern,
             calling: typed_calling,
             args: typed_args,
         } => {
@@ -689,15 +689,28 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, node: &'a Node) -> Value {
                 args[*i] = emit_node(ctx, arg);
             }
 
-            if *is_extern {
-                ctx.emit_call_extern(
-                    to,
-                    calling,
-                    args,
-                    ctx.program.ffi_calling_convention(typed_calling.type_()),
-                );
-            } else {
-                ctx.emit_call(to, calling, args);
+            match typed_calling.type_().kind() {
+                TypeKind::Function {
+                    is_extern: true, ..
+                } => {
+                    ctx.emit_call_extern(
+                        to,
+                        calling,
+                        args,
+                        ctx.program.ffi_calling_convention(typed_calling.type_()),
+                    );
+                }
+                TypeKind::Function {
+                    is_extern: false, ..
+                } => {
+                    ctx.emit_call(to, calling, args);
+                }
+                TypeKind::Intrinsic(intrinsic) => match intrinsic {
+                    Intrinsic::i_add_u64 => {
+                        ctx.emit_binary(BinaryOp::Add, to, args[0], args[1]);
+                    }
+                },
+                _ => todo!("The emitter doesn't know how to emit this type of call"),
             }
             to
         }

@@ -1,4 +1,5 @@
 library "test.bo";
+library "io.bo";
 
 // Intrinsics roadmap;
 // intrinsics are an enum of all the different intrinsics.
@@ -14,8 +15,10 @@ library "test.bo";
 
 // library "intrinsics.bo";
 
-#intrinsic i_stdout_write;
+#intrinsic i_add_u64;
 
 #entry fn() -> u64 {
-    0
+    let result = i_add_u64(1, "hello!");
+
+    result
 };
