@@ -59,7 +59,7 @@ fn main() {
             // FIXME: Make a proper error message for when the entry point doesn't exist.
             let entry_point = program
                 .get_entry_point()
-                .expect("Entry point 'main' of program has to exist and be of type 'fn () -> u64'");
+                .expect("You have to define an entry point with '#entry' and it has to be of type 'fn () -> u64'");
 
             if options.release {
                 let mut c_file = options.output.clone();

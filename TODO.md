@@ -41,8 +41,11 @@
 * [X] Auto dereference things when taking a member.
 * [X] BUG! Problem when doing something like &(\*value).member\_name
 * [X] Hexadecimal integers
-* [ ] Make 'namespaces', i.e. only imported files are in scope, they do not indirectly pollute scopes like they do right now
+* [X] Make 'namespaces', i.e. only imported files are in scope, they do not indirectly pollute scopes like they do right now
+* [X] Error for having two #entry points
 
+* [ ] Make functions have their own scope.
+* [ ] BUG! Some files are still imported twice! Fix this by converting all paths to absolute paths first, so that there is no ambiguity as to which file something is
 * [ ] BUG! extern still uses relative paths I think, that's a bug.
 * [ ] Have a way for named function parameter meta data to be created for extern functions.
 * [ ] BUG! Indirect members do not handle ZST:s yet.
@@ -53,6 +56,7 @@
 * [ ] When the type of a function is known, allow for omitting the parameter and return types.
 
 # Version 0.0.3
+* [ ] Allow loading files in a parent directory easily with "../file.bo" syntax.
 * [ ] extern allows you to specify an abi to use
 * [ ] Ambiguous rules about what expression a type bound applies to.
 * [ ] Make assignment an expression.

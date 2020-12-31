@@ -71,12 +71,21 @@ pub fn process_string(
                     context.errors,
                     token.loc,
                     context.scope,
-                    "__entry_point_blah_idk_we_dont_have_anonymous_members_yet".into(),
+                    "__entry_point".into(),
                 )?;
                 context
                     .program
                     .queue_task(id, dependencies, Task::Type(id, locals, tree));
-                *context.program.entry_point.lock() = Some(id);
+
+                let mut entry_point = context.program.entry_point.lock();
+                if entry_point.is_some() {
+                    context.error(
+                        token.loc,
+                        "There is already an entry point defined elsewhere".to_string(),
+                    );
+                    return Err(());
+                }
+                *entry_point = Some(id);
             }
             TokenKind::Keyword(Keyword::Import) => {
                 let name = context.tokens.expect_next(context.errors)?;

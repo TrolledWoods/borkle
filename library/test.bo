@@ -1,6 +1,3 @@
 const InTest = HiddenTest : u64;
 
-const MyThing = DefinedInMain;
-
-import "C:/dev/borkle/src.bo";
 import "test2.bo";
