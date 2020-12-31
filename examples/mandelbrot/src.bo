@@ -6,35 +6,41 @@ import "complex.bo";
 const PIXEL_HEIGHT = 0.10 : f64;
 const PIXEL_WIDTH = PIXEL_HEIGHT * 0.5;
 
-const main = fn() -> u64 {
+#entry fn() -> u64 {
     let timer = start_timer();
+    defer log_timer(timer);
+
     let y = -2.0 : f64;
 
-    let buffer = alloc(div_to_int(4.0, PIXEL_WIDTH) - 1);
-    defer dealloc(buffer);
+    // Create a stack allocated buffer
+    let buffer = #uninit : [const div_to_int(4.0, PIXEL_WIDTH) - 1] u8;
+    // Turn it into a 'slice'
+    let buffer = &buffer : [] u8;
 
     while y < 2.0 {
         let x = 0.0 - 2.0 : f64;
-        let pixel = 0 : usize;
         while x < 2.0 {
-            let c = [x, y];
-            let z = [0.0 : f64, 0.0];
+            let c = complex(x, y);
+            let z = complex(0.0, 0.0);
 
-            let i = 0 : u64;
-            while (complex_abs(z) <= 4.0) && (i < 1000) {
+            // This is just a showcase of the '_iters' implicit variable, you decide if it's cleaner or not.
+            let i = while _iters < 1000 {
+                if complex_abs(z) > 4.0 {
+                    break _iters;
+                };
+
                 z = complex_add(complex_mult(z, z), c);
-
-                i = i + 1;
+            } else {
+                1000 : usize
             };
 
-            *(buffer.ptr + pixel) =
+            *(buffer.ptr + _iters) =
                 if i == 1000    { *"#".ptr }
                 else if i >= 14 { *"x".ptr }
                 else if i >= 10 { *".".ptr }
                 else            { *" ".ptr };
 
             x = x + PIXEL_WIDTH;
-            pixel = pixel + 1;
         };
 
         put_string(buffer);
@@ -42,8 +48,6 @@ const main = fn() -> u64 {
 
         y = y + PIXEL_HEIGHT;
     };
-
-    log_timer(timer);
 
     0
 };

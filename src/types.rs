@@ -47,6 +47,7 @@ impl From<TypeKind> for Type {
 impl Type {
     pub fn new(kind: TypeKind) -> Self {
         let (size, align) = kind.calculate_size_align();
+        let can_be_stored_in_constant = kind.can_be_stored_in_constant();
 
         let mut is_never_type = matches!(kind, TypeKind::Never);
         kind.for_each_child(|child| {
@@ -64,6 +65,7 @@ impl Type {
             align,
             kind,
             pointers,
+            can_be_stored_in_constant,
         };
         let mut types = TYPES.lock();
         if let Some(content) = types.iter().find(|&&c| c == &data) {
@@ -75,6 +77,10 @@ impl Type {
         }
     }
 
+    pub fn can_be_stored_in_constant(self) -> bool {
+        self.0.can_be_stored_in_constant
+    }
+
     pub fn is_never_type(self) -> bool {
         self.0.is_never_type
     }
@@ -83,18 +89,22 @@ impl Type {
         &self.0.pointers
     }
 
+    #[inline]
     pub fn as_ptr(self) -> *const u8 {
         self.0 as *const TypeData as *const _
     }
 
+    #[inline]
     pub const fn size(self) -> usize {
         self.0.size
     }
 
+    #[inline]
     pub const fn align(self) -> usize {
         self.0.align
     }
 
+    #[inline]
     pub const fn kind(self) -> &'static TypeKind {
         &self.0.kind
     }
@@ -165,6 +175,7 @@ pub struct TypeData {
     align: usize,
     pub kind: TypeKind,
     pointers: Vec<(usize, PointerInType)>,
+    can_be_stored_in_constant: bool,
 }
 
 impl Display for TypeKind {
@@ -276,6 +287,21 @@ impl TypeKind {
                 for (_, member) in members {
                     on_inner(*member);
                 }
+            }
+        }
+    }
+
+    fn can_be_stored_in_constant(&self) -> bool {
+        match self {
+            TypeKind::Any | TypeKind::AnyBuffer | TypeKind::Never => false,
+            _ => {
+                let mut can_be = true;
+                self.for_each_child(|child| {
+                    if !child.can_be_stored_in_constant() {
+                        can_be = false;
+                    }
+                });
+                can_be
             }
         }
     }

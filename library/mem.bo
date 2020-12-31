@@ -1,5 +1,5 @@
 const alloc = fn (len: usize) -> [] any {
-    let buf = uninit : [] any;
+    let buf = #uninit : [] any;
     buf.ptr = (extern "target/library" "alloc" : extern fn (usize) -> &any)(len);
     buf.len = len;
     buf

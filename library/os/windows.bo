@@ -1,0 +1,147 @@
+const UINT      = type u32;
+const UINT_PTR  = type u32;
+const WORD      = type u16;
+const DWORD     = type u32;
+const LPDWORD   = type &DWORD;
+const LONG_PTR  = type u64;
+const LRESULT   = type LONG_PTR;
+const LPARAM    = type LONG_PTR;
+const WPARAM    = type UINT_PTR;
+const int       = type i32;
+const LONG      = type i64;
+const PVOID     = type &any;
+const LPVOID    = type &any;
+const HANDLE    = type PVOID;
+const HMENU     = type HANDLE;
+const HWND      = type &any;
+const WNDPROC   = type &any;
+const HMODULE   = type &any;
+const HINSTANCE = type &any;
+const HICON     = type &any;
+const HDC       = type &any;
+const HCURSOR   = type HICON;
+const HBRUSH    = type &any;
+const LPCSTR    = type &u8;
+const ATOM      = type WORD;
+const BOOL      = type i32;
+
+const MSG = type {
+    hwnd: HWND,
+    message: UINT,
+    wParam: WPARAM,
+    lParam: LPARAM,
+    time: DWORD,
+    pt: POINT,
+    lPrivate: DWORD,
+};
+
+const POINT = type {
+    x: LONG,
+    y: LONG,
+};
+
+const WNDCLASS = type {
+    style: UINT,
+    lpfnWndProc: WNDPROC,
+    cbClsExtra: int,
+    cbWndExtra: int,
+    hInstance: HINSTANCE,
+    hIcon: HICON,
+    hCursor: HCURSOR,
+    hbrBackground: HBRUSH,
+    lpszMenuName: LPCSTR,
+    lpszClassName: LPCSTR,
+};
+
+const GetModuleHandle = extern "Kernel32" "GetModuleHandleA" : extern fn(LPCSTR) -> HMODULE;
+const OutputDebugString = extern "Kernel32" "OutputDebugStringA" : extern fn(LPCSTR);
+
+const GetStdHandle = extern "Kernel32" "GetStdHandle" : extern fn(DWORD) -> HANDLE;
+const WriteConsole = extern "Kernel32" "WriteConsoleA" : extern fn(HANDLE, &any, DWORD, LPDWORD, LPVOID);
+const ReadConsoleInput = extern "Kernel32" "ReadConsoleInputA" : extern fn(HANDLE, &any, DWORD, LPDWORD, LPVOID);
+
+const DefWindowProc = extern "User32" "DefWindowProcA" : extern fn(HWND, UINT, WPARAM, LPARAM) -> LRESULT;
+const RegisterClass = extern "User32" "RegisterClassA" : extern fn(&WNDCLASS) -> ATOM;
+
+const CreateWindowEx = extern "User32" "CreateWindowExA" : 
+    extern fn(DWORD, LPCSTR, LPCSTR, DWORD, i32, i32, i32, i32, HWND, HMENU, HINSTANCE, LPVOID) -> HWND;
+
+const GetMessage = extern "User32" "GetMessageA" : extern fn(&MSG, HWND, UINT, UINT) -> BOOL;
+const TranslateMessage = extern "User32" "TranslateMessage" : extern fn(&MSG);
+const DispatchMessage = extern "User32" "DispatchMessageA" : extern fn(&MSG) -> LRESULT;
+
+const Windows_PutString = fn(message: [] u8) {
+    let handle = GetStdHandle(bit_cast -11);
+    WriteConsole(handle, << message.ptr, *bit_cast &message.len, #0, #0);
+};
+
+const Windows_PutChar = fn(c: u8) {
+    let handle = GetStdHandle(bit_cast -11);
+    WriteConsole(handle, << &c, 1, #0, #0);
+};
+
+const RECT = type {
+    left: LONG,
+    top: LONG,
+    right: LONG,
+    bottom: LONG,
+};
+
+const PAINTSTRUCT = type {
+    hdc: HDC,
+    fErase: BOOL,
+    rcPaint: RECT,
+    fRestore: BOOL,
+    fIncUpdate: BOOL,
+    rgbReserved: [32] u8,
+};
+
+const BeginPaint = extern "User32" "BeginPaint" : extern fn(HWND, &PAINTSTRUCT) -> HDC;
+const EndPaint   = extern "User32" "EndPaint"   : extern fn(HWND, &PAINTSTRUCT) -> BOOL;
+const PatBlt     = extern "Gdi32"  "PatBlt"     : extern fn(HDC, i32, i32, i32, i32, DWORD) -> BOOL;
+
+const GetLastError = extern "Kernel32" "GetLastError" : extern fn() -> DWORD;
+
+const CS_VREDRAW    = 0x0000_0001 : UINT;
+const CS_HREDRAW    = 0x0000_0002 : UINT;
+const CS_OWNDC      = 0x0000_0020 : UINT;
+const CS_CLASSDC    = 0x0000_0040 : UINT;
+const CS_DROPSHADOW = 0x0002_0000 : UINT;
+
+const WM_DESTROY = 0x0002 : UINT;
+const WM_CLOSE   = 0x0010 : UINT;
+const WM_SIZE    = 0x0005 : UINT;
+const WM_PAINT   = 0x000F : UINT;
+
+const WS_BORDER = 0x00800000 : DWORD;
+const WS_CAPTION = 0x00C00000 : DWORD;
+const WS_CHILD = 0x40000000 : DWORD;
+const WS_CHILDWINDOW = 0x40000000 : DWORD;
+const WS_CLIPCHILDREN = 0x02000000 : DWORD;
+const WS_CLIPSIBLINGS = 0x04000000 : DWORD;
+const WS_DISABLED = 0x08000000 : DWORD;
+const WS_DLGFRAME = 0x00400000 : DWORD;
+const WS_GROUP = 0x00020000 : DWORD;
+const WS_HSCROLL = 0x00100000 : DWORD;
+const WS_ICONIC = 0x20000000 : DWORD;
+const WS_MAXIMIZE = 0x01000000 : DWORD;
+const WS_MAXIMIZEBOX = 0x00010000 : DWORD;
+const WS_MINIMIZE = 0x20000000 : DWORD;
+const WS_MINIMIZEBOX = 0x00020000 : DWORD;
+const WS_OVERLAPPED = 0x00000000 : DWORD;
+const WS_OVERLAPPEDWINDOW = WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_THICKFRAME | WS_MINIMIZEBOX | WS_MAXIMIZEBOX;
+const WS_POPUP = 0x80000000 : DWORD;
+const WS_POPUPWINDOW = WS_POPUP | WS_BORDER | WS_SYSMENU;
+const WS_SIZEBOX = 0x00040000 : DWORD;
+const WS_SYSMENU = 0x00080000 : DWORD;
+const WS_TABSTOP = 0x00010000 : DWORD;
+const WS_THICKFRAME = 0x00040000 : DWORD;
+const WS_TILED = 0x00000000 : DWORD;
+const WS_TILEDWINDOW = WS_OVERLAPPEDWINDOW;
+const WS_VISIBLE = 0x10000000 : DWORD;
+const WS_VSCROLL = 0x00200000 : DWORD;
+
+const CW_USEDEFAULT = bit_cast (0x80000000 : u32) : i32;
+
+const WHITENESS = 0x00FF0062 : DWORD;
+const BLACKNESS = 0x00000042 : DWORD;

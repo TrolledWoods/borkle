@@ -178,7 +178,7 @@ create_arguments!(
         copy_dlls: bool = false;
             "[Legacy]: Copies dlls automatically into the target folder; this is deemed unnecessary now as the dependency on dlls that are not system dlls should be reduced anyway",
 
-        num_threads: usize = 1_usize;
+        num_threads: usize = 3_usize;
             "The number of threads to use for compilation",
     }
 );

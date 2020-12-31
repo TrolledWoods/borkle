@@ -43,19 +43,20 @@
 * [X] Hexadecimal integers
 * [X] Make 'namespaces', i.e. only imported files are in scope, they do not indirectly pollute scopes like they do right now
 * [X] Error for having two #entry points
+* [ ] Add a flag to types that are not storable in constants.
 
-* [ ] Make functions have their own scope.
 * [ ] BUG! Some files are still imported twice! Fix this by converting all paths to absolute paths first, so that there is no ambiguity as to which file something is
 * [ ] BUG! extern still uses relative paths I think, that's a bug.
 * [ ] Have a way for named function parameter meta data to be created for extern functions.
 * [ ] BUG! Indirect members do not handle ZST:s yet.
 * [ ] Look into reducing the amount of recursion, the stack can overflow quite easily at the moment!
-* [ ] Make a global setup file for the compiler!
-* [ ] Add a flag to types that are not storable in constants.
 * [ ] When a file cannot be loaded, show where the task was queued.
-* [ ] When the type of a function is known, allow for omitting the parameter and return types.
+* [ ] Make a global setup file for the compiler!
+* [ ] Make put\_string, read\_line, read\_file e.t.c. built into the compiler(though lower level equivalents)
 
 # Version 0.0.3
+* [ ] When the type of a function is known, allow for omitting the parameter and return types.
+* [ ] Make functions have their own scope.
 * [ ] Allow loading files in a parent directory easily with "../file.bo" syntax.
 * [ ] extern allows you to specify an abi to use
 * [ ] Ambiguous rules about what expression a type bound applies to.

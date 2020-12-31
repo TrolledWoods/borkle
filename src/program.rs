@@ -530,7 +530,7 @@ impl Program {
             return Err(());
         }
 
-        let mut used_list = if is_public {
+        let used_list = if is_public {
             &mut public_members
         } else {
             &mut private_members
@@ -552,7 +552,7 @@ impl Program {
             drop(wanted_names);
             drop(scopes);
             // FIXME: Check if this is congesting it or not.
-            for &(kind, _, dependant) in dependants.iter() {
+            for &(kind, _, dependant) in &dependants {
                 let dependant_name = self.member_name(dependant);
                 let mut members = self.members.write();
                 let member = members.get_mut(&member_id).unwrap();
@@ -726,13 +726,6 @@ impl<T> DependableOption<T> {
                 dependants.push((loc, dependant));
                 true
             }
-        }
-    }
-
-    fn dependants(&self) -> &[(Location, MemberId)] {
-        match self {
-            Self::Some(_) => &[],
-            Self::None(dependants) => dependants,
         }
     }
 

@@ -635,8 +635,7 @@ fn value(
             if let TokenKind::Literal(Literal::String(library_name)) = token.kind {
                 let token = global.tokens.expect_next(global.errors)?;
                 if let TokenKind::Literal(Literal::String(symbol_name)) = token.kind {
-                    let mut library_path = global.path.to_path_buf();
-                    library_path.pop();
+                    let mut library_path = std::path::PathBuf::new();
                     library_path.push(&library_name);
                     Node::new(
                         loc,
