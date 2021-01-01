@@ -224,7 +224,11 @@ fn parse_file(
             }
         }
         Err(_) => {
-            errors.global_error(format!("File {:?} cannot be loaded", file));
+            if let Some((loc, _)) = meta_data {
+                errors.error(loc, format!("File {:?} cannot be loaded", file));
+            } else {
+                errors.global_error(format!("File {:?} cannot be loaded", file));
+            }
         }
     }
 }

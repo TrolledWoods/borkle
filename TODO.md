@@ -45,6 +45,7 @@
 * [X] Error for having two #entry points
 * [X] Add a flag to types that are not storable in constants.
 * [X] Make put\_string, read\_line, read\_file e.t.c. built into the compiler(though lower level equivalents)
+* [X] When a file cannot be loaded, show where the task was queued.
 
 * [ ] Add a way to run all the borkle sub-programs in a markdown file
 * [ ] BUG! Some files are still imported twice! Fix this by converting all paths to absolute paths first, so that there is no ambiguity as to which file something is
@@ -52,10 +53,10 @@
 * [ ] Have a way for named function parameter meta data to be created for extern functions.
 * [ ] BUG! Indirect members do not handle ZST:s yet.
 * [ ] Look into reducing the amount of recursion, the stack can overflow quite easily at the moment!
-* [ ] When a file cannot be loaded, show where the task was queued.
 * [ ] Make a global setup file for the compiler!
 
 # Version 0.0.3
+* [ ] IDEA: &out pointer, write only pointer, if a function takes a pointer like this you can also declare a variable like this; initialize(let variable), where initialize is a fn(&out Something)
 * [ ] The compiler locks up sometimes.
 * [ ] Make intrinsics use stubs instead of the #intrinsic stuff that's there right now
 * [ ] When the type of a function is known, allow for omitting the parameter and return types.
