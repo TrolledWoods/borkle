@@ -11,11 +11,12 @@ Just build with cargo, like any other rust program.
 ## Command line arguments
 Run with the ``--help`` flag to print up-to-date information. To do this with cargo, type ``cargo run -- --help``.
 
-For now you will have to run with the ``--lib_path`` argument set to whatever the path on
-your computer is to the ``library/`` directory in this folder, because for development purposes I've hardcoded the default argument to what it is on my machine. Eventually I may make a ``build.rs`` file copy it into the executable directory and then the default will be a path relative to the executable.
-
 ## Examples
 Look in the ``examples`` directory for example programs. A lot of these are not up-to-date with the latest version, but concepts should cary across at least.
+
+In the ``library`` directory there are more up-to-date examples, these are also the library files you can import with the ``library`` command. However, since these are library files and not full programs their utility as examples is questionable I think.
+
+There is also a ``src.bo`` file, this is mostly for just quickly checking that the compiler somewhat works while developing it, but it's a good up to date small example file as well.
 
 ## Hello World
 Because every language needs a hello world program, here is the one for borkle:
@@ -69,7 +70,7 @@ library "mem.bo";
     // (the type bound here is unnecessary, it's just to show how the type looks)
     let pointer_to_x = &x : &i32;
 
-    // You can offset pointers. The type of integer you offset with is called 
+    // You can offset pointers. The type of integer you offset with is called
     // ``usize``, it's an integer the size of a pointer.
     // The offset not in bytes, but in elements of the thing behind the pointer,
     // in this case we offset it by 4 bytes.
@@ -261,3 +262,5 @@ const ADDED_STRANGE = add_more_numbers(1, c = 9);
 ```
 
 That's it for now! There may be more documentation later. Some things that weren't covered; if, types as values, structs, &any type.
+
+You can look in the ``library/`` directory for somewhat up-to-date files that you can import into your borkle program with ``library "library_file.bo";``

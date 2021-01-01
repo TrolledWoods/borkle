@@ -54,9 +54,7 @@ const dbg_str = fn(string: [] u8) -> Format {
     let format = #uninit : Format;
     *bit_cast &format.data : [] u8 = string;
     format.print_it = fn(data: FormatSpec) {
-        put_string("\"");
-        put_string(*bit_cast &data);
-        put_string("\"");
+        debug_string(*bit_cast &data);
     };
     format
 };

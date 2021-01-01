@@ -140,13 +140,22 @@ fn interp_internal(program: &Program, stack: &mut StackFrame<'_>, routine: &Rout
                     }
                 }
                 UnaryOp::Not => {
-                    let from = u64_from_bytes(unsafe {
-                        std::slice::from_raw_parts(stack.get(from).as_ptr(), from.size())
-                    });
-                    let result = !from;
-                    let to_ptr = stack.get_mut(to).as_mut_ptr();
-                    unsafe {
-                        std::ptr::copy(&result as *const _ as *const _, to_ptr, to.size());
+                    // FIXME; Make this more efficient, this is just a hack to get it working
+                    if *from.type_().kind() == TypeKind::Bool {
+                        let from = unsafe { stack.get(from).read::<bool>() };
+                        let result = !from;
+                        unsafe {
+                            stack.get_mut(to).write(result);
+                        }
+                    } else {
+                        let from = u64_from_bytes(unsafe {
+                            std::slice::from_raw_parts(stack.get(from).as_ptr(), from.size())
+                        });
+                        let result = !from;
+                        let to_ptr = stack.get_mut(to).as_mut_ptr();
+                        unsafe {
+                            std::ptr::copy(&result as *const _ as *const _, to_ptr, to.size());
+                        }
                     }
                 }
                 UnaryOp::AutoCast | UnaryOp::Reference | UnaryOp::Dereference => {

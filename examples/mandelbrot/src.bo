@@ -1,15 +1,11 @@
 library "mem.bo";
 library "io.bo";
-library "time.bo";
 import "complex.bo";
 
 const PIXEL_HEIGHT = 0.10 : f64;
 const PIXEL_WIDTH = PIXEL_HEIGHT * 0.5;
 
 #entry fn() -> u64 {
-    let timer = start_timer();
-    defer log_timer(timer);
-
     let y = -2.0 : f64;
 
     // Create a stack allocated buffer

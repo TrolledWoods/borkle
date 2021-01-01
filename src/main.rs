@@ -68,10 +68,13 @@ fn main() {
         drop(files);
 
         if !options.check {
-            // FIXME: Make a proper error message for when the entry point doesn't exist.
-            let entry_point = program
-                .get_entry_point()
-                .expect("You have to define an entry point with '#entry' and it has to be of type 'fn () -> u64'");
+            let entry_point = match program.get_entry_point() {
+                Some(value) => value,
+                None => {
+                    println!("Expected '#entry' to denote an entry point, and for that entry point to be of type 'fn() -> u64'");
+                    return;
+                }
+            };
 
             if options.release {
                 let mut c_file = options.output.clone();

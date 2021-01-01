@@ -1,3 +1,0 @@
-const InTest = HiddenTest : u64;
-
-import "test2.bo";

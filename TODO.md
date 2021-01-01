@@ -49,11 +49,11 @@
 * [X] BUG! extern still uses relative paths I think, that's a bug.
 * [X] BUG! Some files are still imported twice! Fix this by converting all paths to absolute paths first, so that there is no ambiguity as to which file something is
 * [X] BUG! Indirect members do not handle ZST:s yet.
-
-* [ ] Look into reducing the amount of recursion, the stack can overflow quite easily at the moment!
-* [ ] Make a global setup file for the compiler!
+* [X] Cleaned up some stuff in the Program
+* [X] Look into reducing the amount of recursion, the stack can overflow quite easily at the moment!
 
 # Version 0.0.3
+* [ ] Make a global setup file for the compiler!
 * [ ] Add a way to run all the borkle sub-programs in a markdown file
 * [ ] Have a way for named function parameter meta data to be created for extern functions.
 * [ ] IDEA: &out pointer, write only pointer, if a function takes a pointer like this you can also declare a variable like this; initialize(let variable), where initialize is a fn(&out Something)

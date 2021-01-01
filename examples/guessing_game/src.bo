@@ -1,11 +1,12 @@
 library "mem.bo";
 library "fmt.bo";
+library "io.bo";
 
-const main = fn() -> u64 {
+#entry fn() -> u64 {
     print("Enter the number the other person should guess(don't let them see it): \n");
 
     let input = read_input();
-    defer dealloc(input);
+    defer dealloc(<< input);
 
     let answer = string_to_int(input);
 
@@ -19,7 +20,7 @@ const main = fn() -> u64 {
     while guess != answer {
         print("Take a guess!\n");
         let input = read_input();
-        defer dealloc(input);
+        defer dealloc(<< input);
 
         guess = string_to_int(input); 
 

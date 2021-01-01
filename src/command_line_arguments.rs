@@ -160,15 +160,12 @@ create_arguments!(
             "The c compiler to use",
 
         lib_path: PathBuf = {
-            let mut path = PathBuf::new();
-            // This is a temporary path to help with development, so it's not necessary to copy
-            // around the path too much. Eventually it will completely removed and replaced with
-            // a path relative to the executable
-            path.push("C:\\dev\\borkle\\library");
+            let mut path = std::env::current_exe().expect("We have to be able to locate the executable");
+            path.pop(); // Pop the executable
+            path.pop(); // Pop the debug/release folder
+            path.pop(); // Pop the target folder
+            path.push("library");
             path
-            // let mut path = std::env::current_exe().expect("Failed to load the path of the executable");
-            // path.push("library");
-            // path
         };
             "The folder where global libraries are stored",
 

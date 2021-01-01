@@ -326,10 +326,10 @@ impl BinaryOp {
             }
 
             (BinaryOp::And, TypeKind::Bool, TypeKind::Bool) => {
-                *output = ((*a > 0) & (*b > 0)) as u8;
+                *output = ((*a > 0) && (*b > 0)) as u8;
             }
             (BinaryOp::Or, TypeKind::Bool, TypeKind::Bool) => {
-                *output = ((*a > 0) | (*b > 0)) as u8;
+                *output = ((*a > 0) || (*b > 0)) as u8;
             }
 
             _ => unreachable!("{:?} does not have an overload for '{}' and '{}', yet somehow it was still attempted to be run", self, left, right),

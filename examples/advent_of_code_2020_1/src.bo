@@ -1,37 +1,24 @@
 library "mem.bo";
 library "fmt.bo";
 library "io.bo";
-library "slice.bo";
+library "string.bo";
 
-const NEW_LINE = *"\n".ptr;
+import "input.bo";
 
-const main = fn() -> u64 {
-    let numbers = uninit : [] u64;
+#entry fn() -> u64 {
     let num_buffer = alloc(300 * 8);
-    numbers.ptr = bit_cast num_buffer.ptr;
-    numbers.len = num_buffer.len / 8;
+    defer dealloc(num_buffer);
 
-    let input = read_file("input.txt");
+    let numbers = << num_buffer : [] u64;
 
-    let i = 0 : usize;
-    let word_start = 0 : usize;
-    let word_index = 0 : usize;
-    while i < input.len {
-        if *(input.ptr + i) == NEW_LINE {
-            *(numbers.ptr + word_index) = string_to_int(slice_u8(input, word_start, i));
+    let input = INPUT;
+    while !string_empty(input) {
+        let line = string_trim(string_consume_at(&input, "\n"));
 
-            word_start = i + 1;
-            word_index = word_index + 1;
+        if !string_empty(line) { // Unnecessary block; parsing bug prevents removing it for now...
+            *(numbers.ptr + _iters) = string_to_int(line);
         };
-
-        i = i + 1;
     };
-
-    *(numbers.ptr + word_index) = string_to_int(slice_u8(input, word_start, i));
-    dealloc(input);
-
-    // Cap of the numbers to as many as actually exist
-    numbers = slice_u64(numbers, 0, word_index);
 
     let i = 0 : usize;
     let result_a = 0 : u64;
@@ -50,7 +37,7 @@ const main = fn() -> u64 {
         i = i + 1;
     };
 
-    print("Found the two numbers % and %. The product of those is %.\n", << &[
+    print("Found the two numbers % and %. The product of those is %.\n", &[
         fmt_u64(result_a), fmt_u64(result_b), fmt_u64(result_a * result_b)
     ]);
 
@@ -78,10 +65,9 @@ const main = fn() -> u64 {
         i = i + 1;
     };
 
-    print("Found the three numbers %, % and %. The product of those is %.\n", << &[
+    print("Found the three numbers %, % and %. The product of those is %.\n", &[
         fmt_u64(result_a2), fmt_u64(result_b2), fmt_u64(result_c2), fmt_u64(result_a2 * result_b2 * result_c2)
     ]);
 
-    dealloc(num_buffer);
     0
 };

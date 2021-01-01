@@ -8,6 +8,13 @@ const put_char = fn(char: u8) {
     i_stdout_write(&[char]);
 };
 
+const debug_string = fn(buffer: [] u8) {
+    for buffer {
+        if _iters > 0  put_string(" ");
+        print_u8(*_it);
+    };
+};
+
 const print_usize = fn (num: usize)  print_u64(bit_cast num);
 const print_isize = fn (num: isize)  print_i64(bit_cast num);
 
