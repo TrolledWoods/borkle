@@ -46,7 +46,12 @@ fn main() {
     let borrowed_args: Vec<&str> = args.iter().map(|v| &**v).collect();
     if let Some(options) = command_line_arguments::Arguments::from_args(&borrowed_args) {
         let program = program::Program::new(logger, options.clone());
-        program.add_file(options.file);
+        program.add_file(
+            &options
+                .file
+                .canonicalize()
+                .expect("The main source file couldn't be canonicalized"),
+        );
 
         let (mut c_output, errors) = program::thread_pool::run(&program, options.num_threads);
 

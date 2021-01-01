@@ -16,7 +16,7 @@ use crate::types::{Type, TypeKind};
 pub use ast::{Node, NodeKind};
 use context::{DataContext, ImperativeContext};
 use lexer::{Bracket, Keyword, Token, TokenKind};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use ustr::Ustr;
 
 pub type Ast = SelfTree<Node>;
@@ -44,8 +44,8 @@ pub fn process_string(
                         .tokens
                         .expect_next_is(context.errors, &TokenKind::SemiColon)?;
 
-                    let mut path = context.program.arguments.lib_path.to_path_buf();
-                    path.push(&name);
+                    let path = offset_path(&context.program.arguments.lib_path, &name);
+
                     program.add_file_from_import(path, token.loc, context.scope);
                 } else {
                     context.error(
@@ -121,7 +121,8 @@ pub fn process_string(
 
                     let mut path = context.path.to_path_buf();
                     path.pop();
-                    path.push(&name);
+                    let path = offset_path(&path, &name);
+
                     program.add_file_from_import(path, token.loc, context.scope);
                 } else {
                     context.error(
@@ -1191,4 +1192,20 @@ fn maybe_parse_label(
     } else {
         Ok(None)
     }
+}
+
+fn offset_path(path: &Path, addition: &str) -> PathBuf {
+    let mut path = path
+        .canonicalize()
+        .expect("TODO: Make an error message for not being able to canonicalize paths");
+
+    for part in addition.split('/') {
+        if part == ".." {
+            path.pop();
+        } else {
+            path.push(part);
+        }
+    }
+
+    path
 }
