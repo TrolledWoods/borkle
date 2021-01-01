@@ -255,9 +255,11 @@ impl Program {
         for (offset, ptr) in type_.pointers() {
             match ptr {
                 PointerInType::Pointer(internal) => unsafe {
-                    let sub_buffer =
-                        self.insert_buffer(*internal, *data.add(*offset).cast::<*const u8>());
-                    *data.cast::<*const u8>() = sub_buffer.as_ptr();
+                    let ptr = *data.add(*offset).cast::<*const u8>();
+                    if !ptr.is_null() {
+                        let sub_buffer = self.insert_buffer(*internal, ptr);
+                        *data.cast::<*const u8>() = sub_buffer.as_ptr();
+                    }
                 },
                 PointerInType::Buffer(internal) => {
                     let buffer = unsafe { &mut *data.cast::<crate::types::BufferRepr>() };
@@ -307,6 +309,8 @@ impl Program {
         let owned_data = unsafe { alloc::alloc(layout) };
         get_data(owned_data);
 
+        self.insert_sub_buffers(type_, owned_data);
+
         let mut constant_data = self.constant_data.lock();
         let slice_version = unsafe { std::slice::from_raw_parts(owned_data, type_.size()) };
         for pre_computed_constant in constant_data.iter() {
@@ -333,83 +337,13 @@ impl Program {
     }
 
     pub fn insert_zeroed_buffer(&self, type_: Type) -> ConstantRef {
-        if type_.size() == 0 {
-            return ConstantRef::dangling();
-        }
-
-        let layout = alloc::Layout::from_size_align(type_.size(), 16).unwrap();
-        let size = crate::types::to_align(type_.size(), 8);
-
-        let owned_data = unsafe {
-            let buffer = alloc::alloc(layout);
-            buffer.write_bytes(0, size);
-            buffer
-        };
-
-        let slice_version = unsafe { std::slice::from_raw_parts(owned_data, size) };
-        let mut constant_data = self.constant_data.lock();
-        for pre_computed_constant in constant_data.iter() {
-            if pre_computed_constant.type_ == type_
-                && pre_computed_constant.as_slice() == slice_version
-            {
-                unsafe {
-                    alloc::dealloc(owned_data, layout);
-                }
-                return pre_computed_constant.as_ref();
-            }
-        }
-
-        let constant = Constant {
-            ptr: NonNull::new(owned_data).unwrap(),
-            size,
-            type_,
-        };
-
-        let const_ref = constant.as_ref();
-        constant_data.push(constant);
-
-        const_ref
+        self.insert_buffer_from_operation(type_, |buf| unsafe { buf.write_bytes(0, type_.size()) })
     }
 
     pub fn insert_buffer(&self, type_: Type, data: *const u8) -> ConstantRef {
-        if type_.size() == 0 {
-            return ConstantRef::dangling();
-        }
-
-        let layout = alloc::Layout::from_size_align(type_.size(), type_.align()).unwrap();
-
-        let owned_data = unsafe {
-            let buffer = alloc::alloc(layout);
-            std::ptr::copy(data, buffer, type_.size());
-            buffer
-        };
-
-        self.insert_sub_buffers(type_, owned_data);
-
-        let mut constant_data = self.constant_data.lock();
-
-        let slice_version = unsafe { std::slice::from_raw_parts(owned_data, type_.size()) };
-        for pre_computed_constant in constant_data.iter() {
-            if pre_computed_constant.type_ == type_
-                && pre_computed_constant.as_slice() == slice_version
-            {
-                unsafe {
-                    alloc::dealloc(owned_data, layout);
-                }
-                return pre_computed_constant.as_ref();
-            }
-        }
-
-        let constant = Constant {
-            ptr: NonNull::new(owned_data).unwrap(),
-            size: type_.size(),
-            type_,
-        };
-
-        let const_ref = constant.as_ref();
-        constant_data.push(constant);
-
-        const_ref
+        self.insert_buffer_from_operation(type_, |buf| unsafe {
+            std::ptr::copy(data, buf, type_.size())
+        })
     }
 
     pub fn set_value_of_member(&self, id: MemberId, data: *const u8) {
