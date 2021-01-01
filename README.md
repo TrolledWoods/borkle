@@ -141,7 +141,7 @@ library "mem.bo";
         *_it = bit_cast _iters;
     };
     // bit_cast is a cast that just reinterprets the bits. It requires the types it's casting
-    // between to be the same type, but other than that there is no restriction.
+    // between to be the same size, but other than that there is no restriction.
 
     // Also, just in case you're worried, the ``_iters`` variable is only created if you use it.
 
