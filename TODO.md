@@ -44,8 +44,9 @@
 * [X] Make 'namespaces', i.e. only imported files are in scope, they do not indirectly pollute scopes like they do right now
 * [X] Error for having two #entry points
 * [X] Add a flag to types that are not storable in constants.
-* [ ] Make put\_string, read\_line, read\_file e.t.c. built into the compiler(though lower level equivalents)
+* [X] Make put\_string, read\_line, read\_file e.t.c. built into the compiler(though lower level equivalents)
 
+* [ ] Add a way to run all the borkle sub-programs in a markdown file
 * [ ] BUG! Some files are still imported twice! Fix this by converting all paths to absolute paths first, so that there is no ambiguity as to which file something is
 * [ ] BUG! extern still uses relative paths I think, that's a bug.
 * [ ] Have a way for named function parameter meta data to be created for extern functions.
@@ -55,6 +56,7 @@
 * [ ] Make a global setup file for the compiler!
 
 # Version 0.0.3
+* [ ] The compiler locks up sometimes.
 * [ ] Make intrinsics use stubs instead of the #intrinsic stuff that's there right now
 * [ ] When the type of a function is known, allow for omitting the parameter and return types.
 * [ ] Make functions have their own scope.

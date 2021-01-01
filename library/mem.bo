@@ -1,7 +1,10 @@
 library "intrinsics.bo";
 
 const alloc = fn (len: usize) -> [] any {
-    i_alloc(len)
+    let buffer = #uninit : [] any;
+    buffer.ptr = i_alloc(len);
+    buffer.len = len;
+    buffer
 };
 
 const dealloc = fn (buf: [] any) {
