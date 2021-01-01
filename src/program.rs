@@ -376,13 +376,11 @@ impl Program {
             return ConstantRef::dangling();
         }
 
-        let layout = alloc::Layout::from_size_align(type_.size(), 16).unwrap();
-        let size = crate::types::to_align(type_.size(), 8);
+        let layout = alloc::Layout::from_size_align(type_.size(), type_.align()).unwrap();
 
         let owned_data = unsafe {
             let buffer = alloc::alloc(layout);
             std::ptr::copy(data, buffer, type_.size());
-            buffer.add(type_.size()).write_bytes(0, size - type_.size());
             buffer
         };
 
@@ -390,7 +388,7 @@ impl Program {
 
         let mut constant_data = self.constant_data.lock();
 
-        let slice_version = unsafe { std::slice::from_raw_parts(owned_data, size) };
+        let slice_version = unsafe { std::slice::from_raw_parts(owned_data, type_.size()) };
         for pre_computed_constant in constant_data.iter() {
             if pre_computed_constant.type_ == type_
                 && pre_computed_constant.as_slice() == slice_version
@@ -404,7 +402,7 @@ impl Program {
 
         let constant = Constant {
             ptr: NonNull::new(owned_data).unwrap(),
-            size,
+            size: type_.size(),
             type_,
         };
 

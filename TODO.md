@@ -47,9 +47,9 @@
 * [X] Make put\_string, read\_line, read\_file e.t.c. built into the compiler(though lower level equivalents)
 * [X] When a file cannot be loaded, show where the task was queued.
 * [X] BUG! extern still uses relative paths I think, that's a bug.
-* [ ] BUG! Some files are still imported twice! Fix this by converting all paths to absolute paths first, so that there is no ambiguity as to which file something is
+* [X] BUG! Some files are still imported twice! Fix this by converting all paths to absolute paths first, so that there is no ambiguity as to which file something is
+* [X] BUG! Indirect members do not handle ZST:s yet.
 
-* [ ] BUG! Indirect members do not handle ZST:s yet.
 * [ ] Look into reducing the amount of recursion, the stack can overflow quite easily at the moment!
 * [ ] Make a global setup file for the compiler!
 

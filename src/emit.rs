@@ -554,18 +554,25 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, node: &'a Node) -> Value {
                 unreachable!()
             };
 
-            let to = ctx.registers.create(node.type_());
-            let ref_type = Type::new(TypeKind::Reference(internal_type));
-            let reference = ctx.registers.create(ref_type);
-            ctx.emit_reference(reference, to, Member::default());
-            for (i, element) in elements.iter().enumerate() {
-                if i > 0 {
-                    ctx.emit_increment(reference);
+            // This is a bit weird but it has to be checked here. The reason is we generate a temporary pointer to the elements
+            // of the array, and this internal pointer does not account for the array being zero sized; i.e., getting a non zero
+            // sized pointer from a zero sized type.
+            if !elements.is_empty() && internal_type.size() > 0 {
+                let to = ctx.registers.create(node.type_());
+                let ref_type = Type::new(TypeKind::Reference(internal_type));
+                let reference = ctx.registers.create(ref_type);
+                ctx.emit_reference(reference, to, Member::default());
+                for (i, element) in elements.iter().enumerate() {
+                    if i > 0 {
+                        ctx.emit_increment(reference);
+                    }
+                    let from = emit_node(ctx, element);
+                    ctx.emit_move_indirect(reference, from, Member::default());
                 }
-                let from = emit_node(ctx, element);
-                ctx.emit_move_indirect(reference, from, Member::default());
+                to
+            } else {
+                ctx.registers.zst()
             }
-            to
         }
         NodeKind::Unary {
             op: UnaryOp::Reference,

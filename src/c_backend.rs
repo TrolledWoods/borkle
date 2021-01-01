@@ -497,7 +497,7 @@ pub fn routine_to_c(output: &mut String, routine: &Routine, num_args: usize) {
 
 pub fn append_c_type_headers(output: &mut String) {
     for &type_ in &*TYPES.lock() {
-        if let TypeKind::Intrinsic(_) | TypeKind::Empty | TypeKind::Never = type_.kind {
+        if type_.size == 0 {
             continue;
         }
 
@@ -590,7 +590,9 @@ pub fn append_c_type_headers(output: &mut String) {
             TypeKind::Struct(fields) => {
                 output.push_str("struct {\n");
                 for (name, _, type_) in crate::types::struct_field_offsets(fields) {
-                    write!(output, "    {} {};\n", c_format_type(type_), name).unwrap();
+                    if type_.size() != 0 {
+                        write!(output, "    {} {};\n", c_format_type(type_), name).unwrap();
+                    }
                 }
                 output.push('}');
             }

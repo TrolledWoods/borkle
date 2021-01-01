@@ -1323,11 +1323,11 @@ fn auto_cast<'a>(
         )),
         (
             TypeKind::Reference(Type(TypeData {
-                kind: TypeKind::Array(from_inner, _),
+                kind: TypeKind::Array(from_inner, len),
                 ..
             })),
             TypeKind::Reference(to_inner),
-        ) if from_inner == to_inner => Ok(Node::new(
+        ) if from_inner == to_inner && *len > 0 => Ok(Node::new(
             loc,
             NodeKind::BitCast {
                 value: buffer.insert(from),

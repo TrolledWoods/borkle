@@ -45,6 +45,11 @@ fn main() {
     let args: Vec<_> = std::env::args().skip(1).collect();
     let borrowed_args: Vec<&str> = args.iter().map(|v| &**v).collect();
     if let Some(options) = command_line_arguments::Arguments::from_args(&borrowed_args) {
+        if options.num_threads == 0 {
+            println!("Has to have at least one thread");
+            return;
+        }
+
         let program = program::Program::new(logger, options.clone());
         program.add_file(
             &options

@@ -3,7 +3,6 @@ use crate::location::Location;
 use crate::program::{MemberMetaData, Program, ScopeId, Task};
 use bumpalo::Bump;
 use crossbeam::queue::SegQueue;
-use crossbeam::scope;
 use std::path::Path;
 use std::sync::atomic::{AtomicU32, Ordering};
 
@@ -33,53 +32,56 @@ pub fn run(program: &Program, num_threads: usize) -> (String, ErrorCtx) {
         .collect();
     let mut allocators = allocators.iter_mut();
 
-    scope(|s| {
-        let mut threads = Vec::new();
-        for (_, allocator) in (1..num_threads).zip(&mut allocators) {
-            threads.push(s.spawn(move |_| worker(allocator, program)));
+    let mut threads = Vec::new();
+    for (_, allocator) in (1..num_threads).zip(&mut allocators) {
+        let allocator_static = unsafe { std::mem::transmute::<_, &'static mut Bump>(allocator) };
+        let program_static = unsafe { std::mem::transmute::<_, &'static Program>(program) };
+        threads.push(std::thread::spawn(move || {
+            let allocator = unsafe { std::mem::transmute::<_, &mut Bump>(allocator_static) };
+            let program_static = unsafe { std::mem::transmute::<_, &Program>(program_static) };
+            worker(allocator, program_static)
+        }));
+    }
+
+    let (thread_context, mut errors) = worker(allocators.next().unwrap(), program);
+
+    let mut c_headers = String::new();
+    c_headers.push_str("#include <stdint.h>\n");
+    c_headers.push_str("#include <stdio.h>\n");
+    c_headers.push_str("#include <string.h>\n");
+    c_headers.push_str("#include <stdlib.h>\n");
+    c_headers.push('\n');
+
+    if program.arguments.release {
+        crate::c_backend::append_c_type_headers(&mut c_headers);
+    }
+    c_headers.push_str(&thread_context.c_headers);
+
+    let ThreadContext {
+        mut c_declarations, ..
+    } = thread_context;
+
+    if program.arguments.release {
+        for thread in threads {
+            let (ctx, other_errors) = thread.join().unwrap();
+            c_headers.push_str(&ctx.c_headers);
+            c_declarations.push_str(&ctx.c_declarations);
+            errors.join(other_errors);
         }
 
-        let (thread_context, mut errors) = worker(allocators.next().unwrap(), program);
-
-        let mut c_headers = String::new();
-        c_headers.push_str("#include <stdint.h>\n");
-        c_headers.push_str("#include <stdio.h>\n");
-        c_headers.push_str("#include <string.h>\n");
-        c_headers.push_str("#include <stdlib.h>\n");
-        c_headers.push('\n');
-
-        if program.arguments.release {
-            crate::c_backend::append_c_type_headers(&mut c_headers);
+        crate::c_backend::declare_constants(&mut c_headers, program);
+        crate::c_backend::instantiate_constants(&mut c_headers, program);
+        c_headers.push_str(&c_declarations);
+    } else {
+        for thread in threads {
+            let (_, other_errors) = thread.join().unwrap();
+            errors.join(other_errors);
         }
-        c_headers.push_str(&thread_context.c_headers);
+    }
 
-        let ThreadContext {
-            mut c_declarations, ..
-        } = thread_context;
+    program.check_for_completion(&mut errors);
 
-        if program.arguments.release {
-            for thread in threads {
-                let (ctx, other_errors) = thread.join().unwrap();
-                c_headers.push_str(&ctx.c_headers);
-                c_declarations.push_str(&ctx.c_declarations);
-                errors.join(other_errors);
-            }
-
-            crate::c_backend::declare_constants(&mut c_headers, program);
-            crate::c_backend::instantiate_constants(&mut c_headers, program);
-            c_headers.push_str(&c_declarations);
-        } else {
-            for thread in threads {
-                let (_, other_errors) = thread.join().unwrap();
-                errors.join(other_errors);
-            }
-        }
-
-        program.check_for_completion(&mut errors);
-
-        (c_headers, errors)
-    })
-    .unwrap()
+    (c_headers, errors)
 }
 
 /// Data that is local to each thread. This is useful to have because

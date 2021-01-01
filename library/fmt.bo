@@ -20,26 +20,26 @@ const print = fn(
     while i < fmt_string.len {
         if *(fmt_string.ptr + i) == ARGUMENT_SPECIFIER {
             put_string(slice_u8(fmt_string, prev_section, i));
-
+ 
             if arg_i >= fmt_args.len {
                 put_string("\n\n ---- printf formatting error! There are not enough given formatting arguments!!! ---- \n");
             };
-
+ 
             let format = *(fmt_args.ptr + arg_i);
             (format.print_it)(format.data);
-
+ 
             arg_i = arg_i + 1;
-
+ 
             prev_section = i + 1;
         };
         
         i = i + 1;
     };
-
+ 
     if arg_i != fmt_args.len {
         put_string("\n\n ---- printf formatting error! There number of formatting arguments does not match the number in the string\n");
     };
-
+ 
     put_string(slice_u8(fmt_string, prev_section, i));
 };
 

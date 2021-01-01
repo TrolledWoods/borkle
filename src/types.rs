@@ -60,6 +60,7 @@ impl Type {
         kind.get_pointers(&mut pointers);
 
         let data = TypeData {
+            is_pointer_to_zst: matches!(kind, TypeKind::Reference(inner) | TypeKind::Buffer(inner) if inner.size() == 0),
             call_scheme: kind.call_scheme(),
             is_never_type,
             size,
@@ -76,6 +77,10 @@ impl Type {
             types.push(leaked);
             Self(leaked)
         }
+    }
+
+    pub fn is_pointer_to_zst(self) -> bool {
+        self.0.is_pointer_to_zst
     }
 
     pub fn call_scheme(self) -> Option<&'static (Vec<Type>, Type)> {
@@ -176,12 +181,13 @@ impl Type {
 #[derive(Hash, PartialEq, Eq)]
 pub struct TypeData {
     is_never_type: bool,
-    size: usize,
+    pub size: usize,
     align: usize,
     pub kind: TypeKind,
     call_scheme: Option<(Vec<Type>, Type)>,
     pointers: Vec<(usize, PointerInType)>,
     can_be_stored_in_constant: bool,
+    pub is_pointer_to_zst: bool,
 }
 
 impl Display for TypeKind {

@@ -5,23 +5,15 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "type": "lldb",
+            "name": "(Windows) Launch",
+            "type": "cppvsdbg",
             "request": "launch",
-            "name": "Debug executable 'borkle'",
-            "cargo": {
-                "args": [
-                    "build",
-                    "--bin=borkle",
-                    "--package=borkle",
-                    "--features=log_print",
-                ],
-                "filter": {
-                    "name": "borkle",
-                    "kind": "bin"
-                }
-            },
+            "program": "${workspaceRoot}/target/debug/borkle.exe",
             "args": [],
-            "cwd": "${workspaceFolder}"
-        },
+            "stopAtEntry": false,
+            "cwd": "${workspaceRoot}",
+            "environment": [],
+            "externalConsole": true
+        }
     ]
 }

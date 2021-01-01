@@ -1,5 +1,6 @@
 library "fmt.bo";
 library "mem.bo";
+library "io.bo";
 
 #entry fn() -> u64 {
     // This is our hello world example again, so I can show you around a bit.
@@ -33,30 +34,30 @@ library "mem.bo";
     // to a ``void *`` in c, but it knows the length of allocation. The power
     // of this type is that you can cast it to any other buffer type, and it will
     // calculate the correct length.
-    let memory_block = alloc(512) : [] any;
+    // let memory_block = alloc(512) : [] any;
 
     // We can also deallocate the block here, with a defer. The defer will run the code
     // inside of it right before the current scope is exited.
-    defer dealloc(memory_block);
+    // defer dealloc(memory_block);
 
     // ``<<`` is how you cast, and here we cast the ``memory_block`` to a
     // buffer of u8.
-    let u8_block = << memory_block : [] u8;
+    // let u8_block = << memory_block : [] u8;
 
     // Here we instead cast the ``memory_block`` to a buffer of ``u64``.
-    let u64_block = << memory_block : [] u64;
+    // let u64_block = << memory_block : [] u64;
 
     // We can get the lengths of our blocks by accessing the ``len`` fields
     // on them.
-    let u8_block_len = u8_block.len;
-    let u64_block_len = u64_block.len;
+    // let u8_block_len = u8_block.len;
+    // let u64_block_len = u64_block.len;
     // Here, ``u8_block_len`` will be 512, while the ``u64_block_len`` will be 64.
 
     // Let's say we now want to initialize our memory block to zero. We can do this
     // with a for loop!
-    for u8_block { // NOTE: The block here isn't meant to be necessary, but because of a parser limitation it is for now.
-        *_it = 0;
-    };
+    // for u8_block { // NOTE: The block here isn't meant to be necessary, but because of a parser limitation it is for now.
+        // *_it = 0;
+    // };
     // This is a very strange for loop probably coming from other languages.
     // What's happening is we are iterating over the ``u8_block``. By default, for loops
     // use ``_it`` as the iteration variable, and sets this to pointers to the values
@@ -68,11 +69,11 @@ library "mem.bo";
     // space in the u8, since u8 only stores up to 255, while the length of our buffer
     // is 512 bytes! So let's use the u64_block instead(it's still the same memory, just
     // a different 'interpretation' of that memory).
-    let num = 0 : u64;
-    for u64_block {
-        *_it = num;
-        num = num + 1; // This is temporary, += is not implemented yet
-    };
+    // let num = 0 : u64;
+    // for u64_block {
+        // *_it = num;
+        // num = num + 1; // This is temporary, += is not implemented yet
+    // };
 
     // One thing to note is that ``for`` loops also require a semicolon after them.
     // The reason is simple; for loops are also expressions, they just return the ``()``
@@ -86,18 +87,18 @@ library "mem.bo";
 
     // One minor hickup though is that this variable is of type ``usize``, so we're going
     // to have to cast them.
-    for u64_block {
-        *_it = bit_cast _iters;
-    };
+    // for u64_block {
+        // *_it = bit_cast _iters;
+    // };
     // bit_cast is a cast that just reinterprets the bits. It requires the types it's casting
     // between to be the same type, but other than that there is no restriction.
 
     // Also, just in case you're worried, the ``_iters`` variable is only created if you use it.
 
     // If you want, you can also name the ``_it`` variable to something different, like this;
-    for number in u64_block {
-        *number = bit_cast _iters;
-    };
+    // for number in u64_block {
+        // *number = bit_cast _iters;
+    // };
 
     // Time to go on a bit of a different journey; blocks!
     {
