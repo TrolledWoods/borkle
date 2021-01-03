@@ -9,8 +9,6 @@
     clippy::single_match_else,
     clippy::match_same_arms,
     clippy::too_many_lines,
-    // Closures are not supposed to have side effects!!!! Yet clippy still recommends this for
-    // imperative style code with side effects. Garbage!
     clippy::option_if_let_else,
     clippy::map_err_ignore,
     // TODO: We should remove this eventually, because it is in fact kinda ugly to cast from *const

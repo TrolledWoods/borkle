@@ -208,8 +208,8 @@ fn parse_file(
             file_name_str
         ));
 
-        if let Some((loc, dependant)) = meta_data {
-            let _ = program.add_scope_dependency(errors, loc, dependant, scope);
+        if let Some((loc, imported_from)) = meta_data {
+            let _ = program.insert_wildcard_export(errors, loc, scope, imported_from);
         }
     } else {
         match std::fs::read_to_string(&file) {
@@ -224,8 +224,8 @@ fn parse_file(
 
                 program.insert_file(file_name_str, string);
 
-                if let Some((loc, dependant)) = meta_data {
-                    let _ = program.add_scope_dependency(errors, loc, dependant, scope);
+                if let Some((loc, imported_from)) = meta_data {
+                    let _ = program.insert_wildcard_export(errors, loc, scope, imported_from);
                 }
             }
             Err(_) => {

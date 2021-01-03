@@ -187,27 +187,27 @@ impl Program {
 
     /// # Fails
     /// When the scopes have conflicting members.
-    pub fn add_scope_dependency(
+    pub fn insert_wildcard_export(
         &self,
         errors: &mut ErrorCtx,
         loc: Location,
-        dependant: ScopeId,
-        depending_on: ScopeId,
+        from: ScopeId,
+        to: ScopeId,
     ) -> Result<(), ()> {
         let scopes = self.scopes.read();
-        let mut dependants = scopes[depending_on].dependants.write();
+        let mut wildcards = scopes[from].wildcard_exports.write();
 
-        if dependants.contains(&dependant) {
+        if wildcards.contains(&to) {
             errors.error(loc, "This is imported twice".to_string());
             return Err(());
         }
 
-        dependants.push(dependant);
-        drop(dependants);
+        wildcards.push(to);
+        drop(wildcards);
 
-        let depending_publics = scopes[depending_on].public_members.read();
-        for (&name, &member_id) in depending_publics.iter() {
-            self.bind_member_to_name(errors, dependant, name, loc, member_id, false)?;
+        let public_members = scopes[from].public_members.read();
+        for (&name, &member_id) in public_members.iter() {
+            self.bind_member_to_name(errors, to, name, loc, member_id, false)?;
         }
 
         Ok(())
@@ -460,7 +460,7 @@ impl Program {
         drop(private_members);
 
         if is_public {
-            for dependant in scopes[scope_id].dependants.read().iter() {
+            for dependant in scopes[scope_id].wildcard_exports.read().iter() {
                 self.bind_member_to_name(errors, *dependant, name, loc, member_id, false)?;
             }
         }
@@ -582,7 +582,7 @@ struct Scope {
     public_members: RwLock<UstrMap<MemberId>>,
     private_members: RwLock<UstrMap<MemberId>>,
     wanted_names: RwLock<UstrMap<Vec<(DependencyKind, Location, MemberId)>>>,
-    dependants: RwLock<Vec<ScopeId>>,
+    wildcard_exports: RwLock<Vec<ScopeId>>,
 }
 
 impl Scope {
