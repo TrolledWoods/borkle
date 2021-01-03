@@ -40,6 +40,20 @@ impl Into<usize> for MemberId {
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ScopeId(usize);
 
+impl Id for ScopeId {}
+
+impl From<usize> for ScopeId {
+    fn from(other: usize) -> Self {
+        Self(other)
+    }
+}
+
+impl Into<usize> for ScopeId {
+    fn into(self) -> usize {
+        self.0
+    }
+}
+
 impl fmt::Debug for MemberId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.0)
@@ -62,7 +76,7 @@ pub struct Program {
 
     pub logger: Logger,
     members: RwLock<IdVec<MemberId, Member>>,
-    scopes: RwLock<Vec<Scope>>,
+    scopes: RwLock<IdVec<ScopeId, Scope>>,
 
     pub constant_data: Mutex<Vec<Constant>>,
 
@@ -156,15 +170,7 @@ impl Program {
     }
 
     pub fn create_scope(&self) -> ScopeId {
-        let mut scopes = self.scopes.write();
-        let id = ScopeId(scopes.len());
-        scopes.push(Scope {
-            public_members: default(),
-            private_members: default(),
-            wanted_names: default(),
-            dependants: default(),
-        });
-        id
+        self.scopes.write().push(default())
     }
 
     /// # Fails
@@ -177,7 +183,7 @@ impl Program {
         depending_on: ScopeId,
     ) -> Result<(), ()> {
         let scopes = self.scopes.read();
-        let mut dependants = scopes[depending_on.0].dependants.write();
+        let mut dependants = scopes[depending_on].dependants.write();
 
         if dependants.contains(&dependant) {
             errors.error(loc, "This is imported twice".to_string());
@@ -187,7 +193,7 @@ impl Program {
         dependants.push(dependant);
         drop(dependants);
 
-        let depending_publics = scopes[depending_on.0].public_members.read();
+        let depending_publics = scopes[depending_on].public_members.read();
         for (&name, &member_id) in depending_publics.iter() {
             self.bind_member_to_name(errors, dependant, name, loc, member_id, false)?;
         }
@@ -197,8 +203,8 @@ impl Program {
 
     pub fn get_member_id(&self, scope: ScopeId, name: Ustr) -> Option<MemberId> {
         let scopes = self.scopes.read();
-        let public = scopes[scope.0].public_members.read().get(&name).copied();
-        public.or_else(|| scopes[scope.0].private_members.read().get(&name).copied())
+        let public = scopes[scope].public_members.read().get(&name).copied();
+        public.or_else(|| scopes[scope].private_members.read().get(&name).copied())
     }
 
     pub fn member_name(&self, id: MemberId) -> Ustr {
@@ -418,8 +424,8 @@ impl Program {
     ) -> Result<(), ()> {
         let scopes = self.scopes.read();
 
-        let mut public_members = scopes[scope_id.0].public_members.write();
-        let mut private_members = scopes[scope_id.0].private_members.write();
+        let mut public_members = scopes[scope_id].public_members.write();
+        let mut private_members = scopes[scope_id].private_members.write();
 
         if public_members.contains_key(&name) | private_members.contains_key(&name) {
             errors.error(loc, format!("'{}' is already defined", name));
@@ -438,12 +444,12 @@ impl Program {
         drop(private_members);
 
         if is_public {
-            for dependant in scopes[scope_id.0].dependants.read().iter() {
+            for dependant in scopes[scope_id].dependants.read().iter() {
                 self.bind_member_to_name(errors, *dependant, name, loc, member_id, false)?;
             }
         }
 
-        let mut wanted_names = scopes[scope_id.0].wanted_names.write();
+        let mut wanted_names = scopes[scope_id].wanted_names.write();
         if let Some(dependants) = wanted_names.remove(&name) {
             drop(wanted_names);
             drop(scopes);
@@ -497,7 +503,7 @@ impl Program {
         debug_assert_eq!(members[id].dependencies_left.load(Ordering::SeqCst), 0);
 
         for (dep_name, (scope_id, loc)) in deps.types {
-            let scope = &scopes[scope_id.0];
+            let scope = &scopes[scope_id];
             let mut scope_wanted_names = scope.wanted_names.write();
 
             if let Some(dep_id) = scope.get(dep_name) {
@@ -517,7 +523,7 @@ impl Program {
         }
 
         for (dep_name, (scope_id, loc)) in deps.values {
-            let scope = &scopes[scope_id.0];
+            let scope = &scopes[scope_id];
             let mut scope_wanted_names = scope.wanted_names.write();
 
             if let Some(dep_id) = scope.get(dep_name) {
@@ -552,6 +558,7 @@ impl Program {
     }
 }
 
+#[derive(Default)]
 struct Scope {
     // FIXME: Have these store the location where the thing was bound to a name as well.
     // At least in the public_members, since those are usually not imported but bound in the scope?
