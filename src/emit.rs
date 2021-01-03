@@ -80,12 +80,7 @@ pub fn emit_function_declaration<'a>(
 
     let id = sub_ctx.program.insert_function(routine);
     if sub_ctx.program.arguments.release {
-        if let TypeKind::Function {
-            args,
-            returns,
-            is_extern: false,
-        } = type_.kind()
-        {
+        if let TypeKind::Function { args, returns } = type_.kind() {
             crate::c_backend::function_declaration(
                 &mut sub_ctx.thread_context.c_headers,
                 crate::c_backend::c_format_global(id),
@@ -697,19 +692,7 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, node: &'a Node) -> Value {
             }
 
             match typed_calling.type_().kind() {
-                TypeKind::Function {
-                    is_extern: true, ..
-                } => {
-                    ctx.emit_call_extern(
-                        to,
-                        calling,
-                        args,
-                        ctx.program.ffi_calling_convention(typed_calling.type_()),
-                    );
-                }
-                TypeKind::Function {
-                    is_extern: false, ..
-                } => {
+                TypeKind::Function { .. } => {
                     ctx.emit_call(to, calling, args);
                 }
                 TypeKind::Intrinsic(intrinsic) => {

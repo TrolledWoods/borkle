@@ -372,16 +372,9 @@ fn type_(
                 Ok(inner)
             }
         }
-        TokenKind::Keyword(Keyword::Extern) => {
-            global.tokens.next();
-            global
-                .tokens
-                .expect_next_is(global.errors, &TokenKind::Keyword(Keyword::Function))?;
-            function_type(global, imperative, loc, buffer, true)
-        }
         TokenKind::Keyword(Keyword::Function) => {
             global.tokens.next();
-            function_type(global, imperative, loc, buffer, false)
+            function_type(global, imperative, loc, buffer)
         }
         TokenKind::Keyword(Keyword::Bool) => {
             global.tokens.next();
@@ -655,36 +648,6 @@ fn value(
                 },
             )
         }
-        TokenKind::Keyword(Keyword::Extern) => {
-            let loc = token.loc;
-            let token = global.tokens.expect_next(global.errors)?;
-            if let TokenKind::Literal(Literal::String(library_name)) = token.kind {
-                let token = global.tokens.expect_next(global.errors)?;
-                if let TokenKind::Literal(Literal::String(symbol_name)) = token.kind {
-                    let mut library_path = std::path::PathBuf::new();
-                    library_path.push(&library_name);
-                    Node::new(
-                        loc,
-                        NodeKind::Extern {
-                            library_name: library_path,
-                            symbol_name,
-                        },
-                    )
-                } else {
-                    global.error(
-                        token.loc,
-                        "Expected string literal containing the library name".to_string(),
-                    );
-                    return Err(());
-                }
-            } else {
-                global.error(
-                    token.loc,
-                    "Expected string literal containing the library name".to_string(),
-                );
-                return Err(());
-            }
-        }
         TokenKind::Open(Bracket::Square) => {
             let mut args = Vec::new();
             loop {
@@ -882,7 +845,6 @@ fn function_type(
     imperative: &mut ImperativeContext<'_>,
     loc: Location,
     buffer: &mut SelfBuffer,
-    is_extern: bool,
 ) -> Result<Node, ()> {
     // We start with a list of arguments.
     global
@@ -918,7 +880,6 @@ fn function_type(
     Ok(Node::new(
         loc,
         NodeKind::FunctionType {
-            is_extern,
             args,
             returns: buffer.insert(returns),
         },

@@ -207,14 +207,7 @@ impl Display for TypeKind {
             Self::Reference(internal) => write!(fmt, "&{}", internal),
             Self::Buffer(internal) => write!(fmt, "[] {}", internal),
             Self::Array(internal, length) => write!(fmt, "[{}] {}", length, internal),
-            Self::Function {
-                args,
-                returns,
-                is_extern,
-            } => {
-                if *is_extern {
-                    write!(fmt, "extern ")?;
-                }
+            Self::Function { args, returns } => {
                 write!(fmt, "fn(")?;
                 for (i, arg) in args.iter().enumerate() {
                     if i > 0 {
@@ -266,11 +259,7 @@ pub enum TypeKind {
     Array(Type, usize),
     Reference(Type),
     Buffer(Type),
-    Function {
-        args: Vec<Type>,
-        returns: Type,
-        is_extern: bool,
-    },
+    Function { args: Vec<Type>, returns: Type },
     Struct(Vec<(Ustr, Type)>),
 }
 
@@ -410,17 +399,12 @@ impl TypeKind {
                     }
                 }
             }
-            Self::Function {
-                args,
-                returns,
-                is_extern,
-            } => {
+            Self::Function { args, returns } => {
                 pointers.push((
                     0,
                     PointerInType::Function {
                         args: args.clone(),
                         returns: *returns,
-                        is_extern: *is_extern,
                     },
                 ));
             }
@@ -451,11 +435,7 @@ pub enum PointerInType {
     Pointer(Type),
     Buffer(Type),
     // FIXME: This 'Vec' here is fairly inefficient
-    Function {
-        args: Vec<Type>,
-        returns: Type,
-        is_extern: bool,
-    },
+    Function { args: Vec<Type>, returns: Type },
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]

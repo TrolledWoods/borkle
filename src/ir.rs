@@ -1,6 +1,5 @@
 use crate::operators::{BinaryOp, UnaryOp};
 use crate::program::constant::ConstantRef;
-use crate::program::ffi;
 use crate::types::{to_align, Type, TypeKind};
 use std::fmt;
 use ustr::Ustr;
@@ -8,14 +7,6 @@ use ustr::Ustr;
 #[derive(Clone)]
 #[allow(non_camel_case_types)]
 pub enum Instr {
-    // to = pointer(args)
-    CallExtern {
-        to: Value,
-        pointer: Value,
-        // FIXME: We don't really want a vector here, we want a more efficient datastructure
-        args: Vec<Value>,
-        convention: ffi::CallingConvention,
-    },
     // to = pointer(args)
     Call {
         to: Value,
@@ -129,13 +120,7 @@ pub enum Instr {
 impl fmt::Debug for Instr {
     fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::CallExtern {
-                to,
-                pointer,
-                args,
-                convention: _,
-            }
-            | Self::Call { to, pointer, args } => {
+            Self::Call { to, pointer, args } => {
                 write!(fmt, "{} = {}(", to, pointer)?;
                 for (i, arg) in args.iter().enumerate() {
                     if i > 0 {

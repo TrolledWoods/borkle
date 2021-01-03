@@ -5,7 +5,6 @@ use crate::ir::Routine;
 use crate::location::Location;
 use crate::logging::Logger;
 use crate::types::{IntTypeKind, PointerInType, Type, TypeKind};
-use bumpalo::Bump;
 use constant::{Constant, ConstantRef};
 use parking_lot::{Mutex, RwLock};
 use std::alloc;
@@ -18,7 +17,6 @@ use std::sync::Arc;
 use ustr::{Ustr, UstrMap};
 
 pub mod constant;
-pub mod ffi;
 pub mod thread_pool;
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
@@ -55,12 +53,7 @@ pub struct Program {
 
     pub constant_data: Mutex<Vec<Constant>>,
 
-    pub libraries: Mutex<ffi::Libraries>,
-    pub external_symbols: Mutex<HashMap<*const u8, (Type, Ustr)>>,
-
     functions: Mutex<HashSet<*const Routine>>,
-    calling_conventions_alloc: Mutex<Bump>,
-    extern_fn_calling_conventions: RwLock<HashMap<Type, ffi::CallingConvention>>,
 
     work: thread_pool::WorkPile,
 
@@ -78,15 +71,11 @@ impl Program {
     pub fn new(logger: Logger, arguments: Arguments) -> Self {
         Self {
             arguments,
-            external_symbols: default(),
             logger,
             members: default(),
             scopes: default(),
             files: default(),
-            extern_fn_calling_conventions: RwLock::default(),
-            calling_conventions_alloc: Mutex::default(),
             functions: default(),
-            libraries: Mutex::new(ffi::Libraries::new()),
             constant_data: default(),
             work: thread_pool::WorkPile::new(),
             loaded_files: default(),
@@ -125,20 +114,6 @@ impl Program {
         leaked as usize
     }
 
-    pub fn ffi_calling_convention(&self, function_type: Type) -> ffi::CallingConvention {
-        let guard = self.extern_fn_calling_conventions.read();
-        if let Some(convention) = guard.get(&function_type).copied() {
-            convention
-        } else {
-            drop(guard);
-            let mut guard = self.extern_fn_calling_conventions.write();
-            let alloc = self.calling_conventions_alloc.lock();
-            let convention = ffi::CallingConvention::new(&alloc, function_type);
-            guard.insert(function_type, convention);
-            convention
-        }
-    }
-
     pub fn get_entry_point(&self) -> Option<*const u8> {
         let members = self.members.read();
         let member_id = (*self.entry_point.lock())?;
@@ -146,12 +121,7 @@ impl Program {
 
         let type_ = member.type_.to_option()?.0;
 
-        if let TypeKind::Function {
-            args,
-            returns,
-            is_extern: false,
-        } = type_.kind()
-        {
+        if let TypeKind::Function { args, returns } = type_.kind() {
             if args.is_empty() && matches!(returns.kind(), TypeKind::Int(IntTypeKind::U64)) {
                 Some(unsafe { *member.value.to_option()?.as_ptr().cast::<*const u8>() })
             } else {
@@ -236,19 +206,6 @@ impl Program {
     pub fn get_type_of_member(&self, id: MemberId) -> Type {
         let members = self.members.read();
         members.get(&id).unwrap().type_.unwrap().0
-    }
-
-    pub fn load_extern_library(
-        &self,
-        library_name: &Path,
-        symbol_name: Ustr,
-        type_: Type,
-    ) -> Result<unsafe extern "C" fn(), libloading::Error> {
-        let mut libraries = self.libraries.lock();
-        let mut external_symbols = self.external_symbols.lock();
-        let func = libraries.load_symbol(library_name, symbol_name.as_str().into())?;
-        external_symbols.insert(func as *const u8, (type_, symbol_name));
-        Ok(func)
     }
 
     fn insert_sub_buffers(&self, type_: Type, data: *mut u8) {

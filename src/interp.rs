@@ -48,25 +48,6 @@ fn interp_internal(program: &Program, stack: &mut StackFrame<'_>, routine: &Rout
             Instr::Jump { to } => {
                 instr_pointer = routine.label_locations[to.0];
             }
-            Instr::CallExtern {
-                to,
-                pointer,
-                ref args,
-                convention,
-            } => {
-                let function_ptr = unsafe { stack.get(pointer).read() };
-
-                let mut arg_pointers = Vec::new();
-                for &arg in args {
-                    arg_pointers.push(stack.get_mut(arg).as_mut_ptr().cast());
-                }
-
-                let to_ptr: *mut _ = stack.get_mut(to).as_mut_ptr().cast();
-
-                unsafe {
-                    convention.call(function_ptr, arg_pointers.as_mut_ptr(), to_ptr);
-                }
-            }
             Instr::Call {
                 to,
                 pointer,

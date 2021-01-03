@@ -70,15 +70,14 @@ fn c_format_value(value: &Value) -> impl fmt::Display + '_ {
     Formatter(move |f| match value {
         Value::Register(id, _) => write!(f, "reg_{}", id),
         Value::Global(ptr, type_) => {
-            if let TypeKind::Function {
-                is_extern: false, ..
-            } = type_.kind()
-            {
+            if let TypeKind::Function { .. } = type_.kind() {
                 write!(f, "global_{}", unsafe { *ptr.as_ptr().cast::<*const u8>() }
                     as usize)?;
             } else {
                 debug_assert!(type_.size() != 0);
 
+                // FIXME: Check if this can just be a normal cast and not this kind of pointer
+                // cast.
                 write!(
                     f,
                     "(*({}*)&global_{})",
@@ -94,16 +93,6 @@ fn c_format_value(value: &Value) -> impl fmt::Display + '_ {
 
 pub fn declare_constants(output: &mut String, program: &Program) {
     let constant_data = program.constant_data.lock();
-    let external_symbols = program.external_symbols.lock();
-    for &(type_, name) in external_symbols.values() {
-        if let TypeKind::Function { args, returns, .. } = type_.kind() {
-            output.push_str("extern ");
-            function_declaration(output, name, args, *returns);
-            output.push_str(";\n");
-        } else {
-            unreachable!();
-        }
-    }
     for constant in constant_data
         .iter()
         .filter(|constant| !constant.type_.pointers().is_empty())
@@ -148,7 +137,6 @@ pub fn declare_constants(output: &mut String, program: &Program) {
 
 pub fn instantiate_constants(output: &mut String, program: &Program) {
     let constant_data = program.constant_data.lock();
-    let external_symbols = program.external_symbols.lock();
     for constant in &*constant_data {
         let ptr = constant.ptr.as_ptr();
         if constant.type_.pointers().is_empty() {
@@ -172,28 +160,12 @@ pub fn instantiate_constants(output: &mut String, program: &Program) {
         let mut pointers = constant.type_.pointers().iter().peekable();
         for i in (0..constant.size).step_by(8) {
             match pointers.peek() {
-                Some(&(offset, ptr_kind)) if *offset == i => {
-                    match ptr_kind {
-                        PointerInType::Function {
-                            is_extern: true, ..
-                        } => {
-                            output.push('&');
-                            output.push_str(
-                                external_symbols
-                                    .get(&unsafe { *constant.ptr.as_ptr().cast::<*const u8>() })
-                                    .unwrap()
-                                    .1
-                                    .as_str(),
-                            );
-                        }
-                        _ => {
-                            let ptr_num = unsafe { *ptr.add(i).cast::<usize>() };
-                            if ptr_num == 0 {
-                                output.push_str("NULL");
-                            } else {
-                                write!(output, "&{}", c_format_global(ptr_num)).unwrap();
-                            }
-                        }
+                Some(&(offset, _)) if *offset == i => {
+                    let ptr_num = unsafe { *ptr.add(i).cast::<usize>() };
+                    if ptr_num == 0 {
+                        output.push_str("NULL");
+                    } else {
+                        write!(output, "&{}", c_format_global(ptr_num)).unwrap();
                     }
                     pointers.next();
                 }
@@ -227,10 +199,7 @@ pub fn routine_to_c(output: &mut String, routine: &Routine, num_args: usize) {
         write!(output, "    // {:?}\n", instr).unwrap();
         output.push_str("    ");
         match instr {
-            Instr::Call { to, pointer, args }
-            | Instr::CallExtern {
-                to, pointer, args, ..
-            } => {
+            Instr::Call { to, pointer, args } => {
                 if to.size() != 0 {
                     write!(
                         output,
@@ -556,11 +525,7 @@ pub fn append_c_type_headers(output: &mut String) {
                 .unwrap();
             }
 
-            TypeKind::Function {
-                args,
-                returns,
-                is_extern: _,
-            } => {
+            TypeKind::Function { args, returns } => {
                 write!(
                     output,
                     "{} (*t_{}) ",

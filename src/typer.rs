@@ -539,7 +539,6 @@ fn type_ast<'a>(
                 Type::new(TypeKind::Function {
                     args: arg_types,
                     returns: return_type,
-                    is_extern: false,
                 }),
             )
         }
@@ -685,49 +684,6 @@ fn type_ast<'a>(
                         "Can only call function on function pointer, found type '{}'",
                         calling.type_(),
                     ),
-                );
-                return Err(());
-            }
-        }
-        ParsedNodeKind::Extern {
-            ref library_name,
-            ref symbol_name,
-        } => {
-            let wanted_type = wanted_type.get_specific().ok_or_else(|| {
-                ctx.errors.error(parsed.loc, "The type has to be known at this point. You can specify the type of the item to import by adding a type bound, ': [type]' after it".to_string())
-            })?;
-            if let TypeKind::Function {
-                args: _,
-                returns: _,
-                is_extern: true,
-            } = wanted_type.kind()
-            {
-                match ctx.program.load_extern_library(
-                    library_name,
-                    symbol_name.as_str().into(),
-                    wanted_type,
-                ) {
-                    Ok(func) => Node::new(
-                        parsed.loc,
-                        NodeKind::Constant(ctx.program.insert_buffer(
-                            wanted_type,
-                            &(func as usize) as *const usize as *const _,
-                        )),
-                        wanted_type,
-                    ),
-                    Err(err) => {
-                        ctx.errors.error(
-                            parsed.loc,
-                            format!("Failed to load extern symbol\n{:?}", err),
-                        );
-                        return Err(());
-                    }
-                }
-            } else {
-                ctx.errors.error(
-                    parsed.loc,
-                    "Only extern function pointer types can be imported from external sources"
-                        .to_string(),
                 );
                 return Err(());
             }
@@ -1219,7 +1175,6 @@ fn const_fold_type_expr<'a>(
             Ok(TypeKind::Reference(pointee).into())
         }
         ParsedNodeKind::FunctionType {
-            is_extern,
             ref args,
             ref returns,
         } => {
@@ -1233,7 +1188,6 @@ fn const_fold_type_expr<'a>(
             Ok(TypeKind::Function {
                 args: arg_types,
                 returns,
-                is_extern,
             }
             .into())
         }

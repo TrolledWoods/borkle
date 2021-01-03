@@ -6,7 +6,6 @@ use crate::program::ScopeId;
 use crate::self_buffer::SelfBox;
 use crate::types::Type;
 use std::fmt;
-use std::path::PathBuf;
 use ustr::Ustr;
 
 pub struct Node {
@@ -51,10 +50,6 @@ pub enum NodeKind {
 
     Global(ScopeId, Ustr, Vec<SelfBox<Node>>),
     GlobalForTyping(ScopeId, Ustr, Vec<SelfBox<Node>>),
-    Extern {
-        library_name: PathBuf,
-        symbol_name: String,
-    },
 
     For {
         iterator: LocalId,
@@ -100,7 +95,6 @@ pub enum NodeKind {
         members: SelfBox<Node>,
     },
     FunctionType {
-        is_extern: bool,
         args: Vec<SelfBox<Node>>,
         returns: SelfBox<Node>,
     },

@@ -109,21 +109,6 @@ impl Context<'_, '_> {
         }
     }
 
-    pub fn emit_call_extern(
-        &mut self,
-        to: Value,
-        pointer: Value,
-        args: Vec<Value>,
-        convention: crate::program::ffi::CallingConvention,
-    ) {
-        self.instr.push(Instr::CallExtern {
-            to,
-            pointer,
-            args,
-            convention,
-        });
-    }
-
     pub fn emit_call(&mut self, to: Value, pointer: Value, args: Vec<Value>) {
         self.instr.push(Instr::Call { to, pointer, args });
     }
