@@ -1,4 +1,5 @@
 # Version 0.0.3
+* [ ] Make the program multithreading simpler by essentially; reducing recursion and locking in those recursive contexts.
 * [ ] Make a global setup file for the compiler!
 * [ ] Add a way to run all the borkle sub-programs in a markdown file
 * [ ] Have a way for named function parameter meta data to be created for extern functions.

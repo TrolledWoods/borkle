@@ -195,20 +195,24 @@ fn parse_file(
     file: &Path,
     meta_data: Option<(Location, ScopeId)>,
 ) {
-    match std::fs::read_to_string(&file) {
-        Ok(string) => {
-            let file_name_str = file.to_str().expect("File path is not a valid string, this should not happen since all paths are constructed from strings originally").into();
+    let file_name_str = file.to_str().expect("File path is not a valid string, this should not happen since all paths are constructed from strings originally").into();
 
-            // If the file has already been parsed, do not parse it again!
-            let mut loaded_files = program.loaded_files.lock();
-            let scope = if let Some(&old) = loaded_files.get(&file_name_str) {
-                drop(loaded_files);
-                program.logger.log(format_args!(
-                    "File {} was already loaded, so didn't parse it again",
-                    file_name_str
-                ));
-                old
-            } else {
+    // If the file has already been parsed, do not parse it again!
+    let mut loaded_files = program.loaded_files.lock();
+    if let Some(&scope) = loaded_files.get(&file_name_str) {
+        drop(loaded_files);
+
+        program.logger.log(format_args!(
+            "File {} was already loaded, so didn't parse it again",
+            file_name_str
+        ));
+
+        if let Some((loc, dependant)) = meta_data {
+            let _ = program.add_scope_dependency(errors, loc, dependant, scope);
+        }
+    } else {
+        match std::fs::read_to_string(&file) {
+            Ok(string) => {
                 let scope = program.create_scope();
 
                 loaded_files.insert(file_name_str, scope);
@@ -218,18 +222,17 @@ fn parse_file(
                     crate::parser::process_string(errors, program, file_name_str, &string, scope);
 
                 program.files.lock().insert(file_name_str, string);
-                scope
-            };
 
-            if let Some((loc, dependant)) = meta_data {
-                let _ = program.add_scope_dependency(errors, loc, dependant, scope);
+                if let Some((loc, dependant)) = meta_data {
+                    let _ = program.add_scope_dependency(errors, loc, dependant, scope);
+                }
             }
-        }
-        Err(_) => {
-            if let Some((loc, _)) = meta_data {
-                errors.error(loc, format!("File {:?} cannot be loaded", file));
-            } else {
-                errors.global_error(format!("File {:?} cannot be loaded", file));
+            Err(_) => {
+                if let Some((loc, _)) = meta_data {
+                    errors.error(loc, format!("File {:?} cannot be loaded", file));
+                } else {
+                    errors.global_error(format!("File {:?} cannot be loaded", file));
+                }
             }
         }
     }

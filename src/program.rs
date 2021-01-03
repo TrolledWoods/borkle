@@ -1,6 +1,7 @@
 use crate::command_line_arguments::Arguments;
 use crate::dependencies::{DependencyKind, DependencyList};
 use crate::errors::ErrorCtx;
+use crate::id::{Id, IdVec};
 use crate::ir::Routine;
 use crate::location::Location;
 use crate::logging::Logger;
@@ -8,7 +9,7 @@ use crate::types::{IntTypeKind, PointerInType, Type, TypeKind};
 use constant::{Constant, ConstantRef};
 use parking_lot::{Mutex, RwLock};
 use std::alloc;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::fmt;
 use std::path::{Path, PathBuf};
 use std::ptr::NonNull;
@@ -21,6 +22,20 @@ pub mod thread_pool;
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub struct MemberId(usize);
+
+impl Id for MemberId {}
+
+impl From<usize> for MemberId {
+    fn from(other: usize) -> Self {
+        Self(other)
+    }
+}
+
+impl Into<usize> for MemberId {
+    fn into(self) -> usize {
+        self.0
+    }
+}
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ScopeId(usize);
@@ -46,9 +61,7 @@ pub struct Program {
     pub files: Mutex<UstrMap<String>>,
 
     pub logger: Logger,
-    // FIXME: Make this a vector, not a hashmap you dummy, hashmaps aren't as fast as vectors in
-    // this case!?!?!??!?!?!
-    members: RwLock<HashMap<MemberId, Member>>,
+    members: RwLock<IdVec<MemberId, Member>>,
     scopes: RwLock<Vec<Scope>>,
 
     pub constant_data: Mutex<Vec<Constant>>,
@@ -97,7 +110,7 @@ impl Program {
 
             let public_members = scope.public_members.read();
             for (&name, &member_id) in public_members.iter() {
-                let member = members.get(&member_id).unwrap();
+                let member = &members[member_id];
                 if member.type_.to_option().is_none() {
                     errors.global_error(format!("'{}' cannot be computed", name));
                 } else if member.value.to_option().is_none() {
@@ -117,7 +130,7 @@ impl Program {
     pub fn get_entry_point(&self) -> Option<*const u8> {
         let members = self.members.read();
         let member_id = (*self.entry_point.lock())?;
-        let member = members.get(&member_id).unwrap();
+        let member = &members[member_id];
 
         let type_ = member.type_.to_option()?.0;
 
@@ -134,7 +147,7 @@ impl Program {
 
     pub fn get_constant_as_value(&self, id: MemberId) -> crate::ir::Value {
         let members = self.members.read();
-        let member = members.get(&id).unwrap();
+        let member = &members[id];
 
         let type_ = member.type_.to_option().unwrap().0;
         let value_ptr = *member.value.to_option().unwrap();
@@ -190,22 +203,22 @@ impl Program {
 
     pub fn member_name(&self, id: MemberId) -> Ustr {
         let members = self.members.read();
-        members.get(&id).unwrap().name
+        members[id].name
     }
 
     pub fn get_value_of_member(&self, id: MemberId) -> ConstantRef {
         let members = self.members.read();
-        *members.get(&id).unwrap().value.unwrap()
+        *members[id].value.unwrap()
     }
 
     pub fn get_member_meta_data(&self, id: MemberId) -> (Type, Arc<MemberMetaData>) {
         let members = self.members.read();
-        members.get(&id).unwrap().type_.unwrap().clone()
+        members[id].type_.unwrap().clone()
     }
 
     pub fn get_type_of_member(&self, id: MemberId) -> Type {
         let members = self.members.read();
-        members.get(&id).unwrap().type_.unwrap().0
+        members[id].type_.unwrap().0
     }
 
     fn insert_sub_buffers(&self, type_: Type, data: *mut u8) {
@@ -305,7 +318,7 @@ impl Program {
 
     pub fn set_value_of_member(&self, id: MemberId, data: *const u8) {
         let mut members = self.members.write();
-        let member = members.get_mut(&id).unwrap();
+        let member = &mut members[id];
 
         let value = self.insert_buffer(member.type_.unwrap().0, data);
         let old = std::mem::replace(&mut member.value, DependableOption::Some(value));
@@ -324,7 +337,7 @@ impl Program {
 
     pub fn set_type_of_member(&self, id: MemberId, type_: Type, meta_data: MemberMetaData) {
         let mut members = self.members.write();
-        let member_type = &mut members.get_mut(&id).unwrap().type_;
+        let member_type = &mut members[id].type_;
         let old = std::mem::replace(
             member_type,
             DependableOption::Some((type_, Arc::new(meta_data))),
@@ -341,13 +354,9 @@ impl Program {
     }
 
     fn resolve_dependency(&self, id: MemberId) {
-        let name = self.member_name(id);
         let members = self.members.read();
-        let dependencies_left = members
-            .get(&id)
-            .unwrap()
-            .dependencies_left
-            .fetch_sub(1, Ordering::SeqCst);
+        let name = members[id].name;
+        let dependencies_left = members[id].dependencies_left.fetch_sub(1, Ordering::SeqCst);
 
         self.logger.log(format_args!(
             "resolved dependency of '{}', had {} deps",
@@ -375,7 +384,7 @@ impl Program {
             // FIXME: Make more granular locks, don't lock the whole members here.
             drop(members);
             let mut members = self.members.write();
-            if let Some(task) = members.get_mut(&id).unwrap().task.take() {
+            if let Some(task) = members[id].task.take() {
                 self.work.enqueue(task);
             } else {
                 // There was no task? This shouldn't happen; if there are dependencies,
@@ -392,10 +401,7 @@ impl Program {
         scope_id: ScopeId,
         name: Ustr,
     ) -> Result<MemberId, ()> {
-        let mut members = self.members.write();
-        let id = MemberId(members.len());
-        members.insert(id, Member::new(name));
-        drop(members);
+        let id = self.members.write().push(Member::new(name));
 
         self.bind_member_to_name(errors, scope_id, name, loc, id, true)?;
         Ok(id)
@@ -443,9 +449,9 @@ impl Program {
             drop(scopes);
             // FIXME: Check if this is congesting it or not.
             for &(kind, _, dependant) in &dependants {
-                let dependant_name = self.member_name(dependant);
                 let mut members = self.members.write();
-                let member = members.get_mut(&member_id).unwrap();
+                let dependant_name = members[dependant].name;
+                let member = &mut members[member_id];
                 match kind {
                     DependencyKind::Type => {
                         self.logger.log(format_args!(
@@ -488,21 +494,14 @@ impl Program {
 
         // We want to make sure that there are no left over dependencies from the previous task
         // associated with this member.
-        debug_assert_eq!(
-            members
-                .get(&id)
-                .unwrap()
-                .dependencies_left
-                .load(Ordering::SeqCst),
-            0
-        );
+        debug_assert_eq!(members[id].dependencies_left.load(Ordering::SeqCst), 0);
 
         for (dep_name, (scope_id, loc)) in deps.types {
             let scope = &scopes[scope_id.0];
             let mut scope_wanted_names = scope.wanted_names.write();
 
             if let Some(dep_id) = scope.get(dep_name) {
-                let dependency = members.get_mut(&dep_id).unwrap();
+                let dependency = &mut members[dep_id];
                 if dependency.type_.add_dependant(loc, id) {
                     num_deps += 1;
                 }
@@ -522,7 +521,7 @@ impl Program {
             let mut scope_wanted_names = scope.wanted_names.write();
 
             if let Some(dep_id) = scope.get(dep_name) {
-                let dependency = members.get_mut(&dep_id).unwrap();
+                let dependency = &mut members[dep_id];
                 if dependency.value.add_dependant(loc, id) {
                     num_deps += 1;
                 }
@@ -537,7 +536,7 @@ impl Program {
             }
         }
 
-        let num_dependencies = members.get_mut(&id).unwrap().dependencies_left.get_mut();
+        let num_dependencies = members[id].dependencies_left.get_mut();
 
         *num_dependencies += num_deps;
 
@@ -548,8 +547,7 @@ impl Program {
         } else {
             // We are not done with our dependencies. We have to wait a bit,
             // so we have to put the task into the lock.
-            let entry = members.get_mut(&id).unwrap();
-            entry.task = Some(task);
+            members[id].task = Some(task);
         }
     }
 }

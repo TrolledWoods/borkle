@@ -24,6 +24,7 @@ mod command_line_arguments;
 mod dependencies;
 mod emit;
 mod errors;
+mod id;
 mod interp;
 mod intrinsic;
 mod ir;
