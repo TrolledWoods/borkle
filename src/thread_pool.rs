@@ -95,7 +95,7 @@ pub struct ThreadContext<'a> {
 
 fn worker<'a>(alloc: &'a mut Bump, program: &'a Program) -> (ThreadContext<'a>, ErrorCtx) {
     let mut errors = ErrorCtx::new();
-    let work = &program.work;
+    let work = program.work();
 
     let mut thread_context = ThreadContext {
         alloc,

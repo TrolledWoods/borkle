@@ -9,7 +9,7 @@ mod stack;
 pub use stack::{Stack, StackFrame, StackValue, StackValueMut};
 
 pub fn emit_and_run<'a>(
-    thread_context: &mut crate::program::thread_pool::ThreadContext<'a>,
+    thread_context: &mut crate::thread_pool::ThreadContext<'a>,
     program: &'a Program,
     locals: crate::locals::LocalVariables,
     expr: &crate::typer::Node,

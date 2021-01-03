@@ -2,8 +2,8 @@ use crate::ir::{Instr, LabelId, Member, Registers, Value};
 use crate::locals::LocalVariables;
 use crate::operators::{BinaryOp, UnaryOp};
 use crate::program::constant::ConstantRef;
-use crate::program::thread_pool::ThreadContext;
 use crate::program::Program;
+use crate::thread_pool::ThreadContext;
 use crate::typer::ast::Node;
 
 pub struct Context<'a, 'b> {

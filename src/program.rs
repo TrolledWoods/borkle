@@ -5,6 +5,7 @@ use crate::id::{Id, IdVec};
 use crate::ir::Routine;
 use crate::location::Location;
 use crate::logging::Logger;
+use crate::thread_pool::WorkPile;
 use crate::types::{IntTypeKind, PointerInType, Type, TypeKind};
 use constant::{Constant, ConstantRef};
 use parking_lot::{Mutex, RwLock};
@@ -18,7 +19,6 @@ use std::sync::Arc;
 use ustr::{Ustr, UstrMap};
 
 pub mod constant;
-pub mod thread_pool;
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub struct MemberId(usize);
@@ -82,7 +82,7 @@ pub struct Program {
 
     functions: Mutex<HashSet<*const Routine>>,
 
-    work: thread_pool::WorkPile,
+    work: WorkPile,
 
     pub loaded_files: Mutex<UstrMap<ScopeId>>,
     pub entry_point: Mutex<Option<MemberId>>,
@@ -104,10 +104,14 @@ impl Program {
             files: default(),
             functions: default(),
             constant_data: default(),
-            work: thread_pool::WorkPile::new(),
+            work: WorkPile::new(),
             loaded_files: default(),
             entry_point: default(),
         }
+    }
+
+    pub fn work(&self) -> &WorkPile {
+        &self.work
     }
 
     pub fn check_for_completion(&self, errors: &mut ErrorCtx) {

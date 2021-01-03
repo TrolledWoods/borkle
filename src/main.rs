@@ -36,6 +36,7 @@ mod operators;
 mod parser;
 mod program;
 mod self_buffer;
+mod thread_pool;
 mod typer;
 mod types;
 
@@ -59,7 +60,7 @@ fn main() {
                 .expect("The main source file couldn't be canonicalized"),
         );
 
-        let (mut c_output, errors) = program::thread_pool::run(&program, options.num_threads);
+        let (mut c_output, errors) = thread_pool::run(&program, options.num_threads);
 
         let files = program.files.lock();
         if !errors.print(&files) {
