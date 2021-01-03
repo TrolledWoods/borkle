@@ -60,7 +60,7 @@ fn main() {
 
         let (mut c_output, errors) = thread_pool::run(&mut program, options.num_threads);
 
-        let files = program.files();
+        let files = program.file_contents();
         if !errors.print(&files) {
             // There were errors!
             return;

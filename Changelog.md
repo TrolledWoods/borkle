@@ -51,6 +51,7 @@
 * [X] BUG! Indirect members do not handle ZST:s yet.
 * [X] Cleaned up some stuff in the Program
 * [X] Look into reducing the amount of recursion, the stack can overflow quite easily at the moment!
+* [X] Allow loading files in a parent directory easily with "../file.bo" syntax.
 
 # Version 0.0.1
 * [X] Simple control flow, if, while.

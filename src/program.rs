@@ -72,9 +72,8 @@ impl fmt::Debug for ScopeId {
 /// e.g. data scopes, and the dependency system.
 pub struct Program {
     pub arguments: Arguments,
-    files: Mutex<UstrMap<String>>,
-
     pub logger: Logger,
+
     members: RwLock<IdVec<MemberId, Member>>,
     scopes: RwLock<IdVec<ScopeId, Scope>>,
 
@@ -84,8 +83,11 @@ pub struct Program {
 
     work: WorkPile,
 
+    // FIXME: This shouldn't be public, but is for now so that the thread pool can do things with
+    // it.
     pub loaded_files: Mutex<UstrMap<ScopeId>>,
     pub entry_point: Mutex<Option<MemberId>>,
+    file_contents: Mutex<UstrMap<String>>,
 }
 
 // FIXME: Make a wrapper type for *const _ and have Send and Sync for that.
@@ -101,7 +103,7 @@ impl Program {
             logger,
             members: default(),
             scopes: default(),
-            files: default(),
+            file_contents: default(),
             functions: default(),
             constant_data: default(),
             work: WorkPile::new(),
@@ -110,8 +112,8 @@ impl Program {
         }
     }
 
-    pub fn files(&mut self) -> &mut UstrMap<String> {
-        self.files.get_mut()
+    pub fn file_contents(&mut self) -> &mut UstrMap<String> {
+        self.file_contents.get_mut()
     }
 
     pub fn constant_data(&mut self) -> &mut Vec<Constant> {
@@ -210,6 +212,8 @@ impl Program {
         }
 
         wildcards.push(to);
+        // FIXME: I don't really know how to fix this performance wise without messing up the
+        // locks.
         let public_members = scopes[from].public_members.clone();
         drop(wildcards);
         drop(scopes);
@@ -293,8 +297,8 @@ impl Program {
 
     /// Locks
     /// * ``files`` write
-    pub fn insert_file(&self, name: Ustr, path: String) {
-        self.files.lock().insert(name, path);
+    pub fn insert_file_contents(&self, name: Ustr, path: String) {
+        self.file_contents.lock().insert(name, path);
     }
 
     pub fn add_file_from_import(
@@ -492,6 +496,8 @@ impl Program {
             scopes[scope_id].private_members.insert(name, member_id);
         };
 
+        // FIXME: Performance problems here!! I don't really know how to fix this without messing
+        // up the locks again.
         let wildcard_exports = scopes[scope_id].wildcard_exports.get_mut().clone();
         drop(scopes);
 
@@ -670,9 +676,6 @@ pub enum MemberMetaData {
         default_values: Vec<ConstantRef>,
     },
 }
-
-unsafe impl Send for Member {}
-unsafe impl Sync for Member {}
 
 impl Member {
     const fn new(name: Ustr) -> Self {

@@ -222,7 +222,7 @@ fn parse_file(
                 let _ =
                     crate::parser::process_string(errors, program, file_name_str, &string, scope);
 
-                program.insert_file(file_name_str, string);
+                program.insert_file_contents(file_name_str, string);
 
                 if let Some((loc, imported_from)) = meta_data {
                     let _ = program.insert_wildcard_export(errors, loc, scope, imported_from);
