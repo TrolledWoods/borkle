@@ -91,8 +91,8 @@ fn c_format_value(value: &Value) -> impl fmt::Display + '_ {
     })
 }
 
-pub fn declare_constants(output: &mut String, program: &Program) {
-    let constant_data = program.constant_data.lock();
+pub fn declare_constants(output: &mut String, program: &mut Program) {
+    let constant_data = program.constant_data();
     for constant in constant_data
         .iter()
         .filter(|constant| !constant.type_.pointers().is_empty())
@@ -135,9 +135,8 @@ pub fn declare_constants(output: &mut String, program: &Program) {
     }
 }
 
-pub fn instantiate_constants(output: &mut String, program: &Program) {
-    let constant_data = program.constant_data.lock();
-    for constant in &*constant_data {
+pub fn instantiate_constants(output: &mut String, program: &mut Program) {
+    for constant in program.constant_data() {
         let ptr = constant.ptr.as_ptr();
         if constant.type_.pointers().is_empty() {
             write!(

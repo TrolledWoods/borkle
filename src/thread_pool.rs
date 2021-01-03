@@ -26,16 +26,17 @@ impl WorkPile {
 }
 
 /// Tries to evaluate everything in the program
-pub fn run(program: &Program, num_threads: usize) -> (String, ErrorCtx) {
+pub fn run(program: &mut Program, num_threads: usize) -> (String, ErrorCtx) {
     let mut allocators: Vec<_> = std::iter::repeat_with(Bump::new)
         .take(num_threads)
         .collect();
     let mut allocators = allocators.iter_mut();
 
+    let borrow_program = &*program;
     let mut threads = Vec::new();
     for (_, allocator) in (1..num_threads).zip(&mut allocators) {
         let allocator_static = unsafe { std::mem::transmute::<_, &'static mut Bump>(allocator) };
-        let program_static = unsafe { std::mem::transmute::<_, &'static Program>(program) };
+        let program_static = unsafe { std::mem::transmute::<_, &'static Program>(borrow_program) };
         threads.push(std::thread::spawn(move || {
             let allocator = unsafe { std::mem::transmute::<_, &mut Bump>(allocator_static) };
             let program_static = unsafe { std::mem::transmute::<_, &Program>(program_static) };
@@ -43,7 +44,7 @@ pub fn run(program: &Program, num_threads: usize) -> (String, ErrorCtx) {
         }));
     }
 
-    let (thread_context, mut errors) = worker(allocators.next().unwrap(), program);
+    let (thread_context, mut errors) = worker(allocators.next().unwrap(), borrow_program);
 
     let mut c_headers = String::new();
     c_headers.push_str("#include <stdint.h>\n");
@@ -221,7 +222,7 @@ fn parse_file(
                 let _ =
                     crate::parser::process_string(errors, program, file_name_str, &string, scope);
 
-                program.files.lock().insert(file_name_str, string);
+                program.insert_file(file_name_str, string);
 
                 if let Some((loc, dependant)) = meta_data {
                     let _ = program.add_scope_dependency(errors, loc, dependant, scope);

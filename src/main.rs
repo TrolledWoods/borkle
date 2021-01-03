@@ -52,7 +52,7 @@ fn main() {
             return;
         }
 
-        let program = program::Program::new(logger, options.clone());
+        let mut program = program::Program::new(logger, options.clone());
         program.add_file(
             &options
                 .file
@@ -60,14 +60,13 @@ fn main() {
                 .expect("The main source file couldn't be canonicalized"),
         );
 
-        let (mut c_output, errors) = thread_pool::run(&program, options.num_threads);
+        let (mut c_output, errors) = thread_pool::run(&mut program, options.num_threads);
 
-        let files = program.files.lock();
+        let files = program.files();
         if !errors.print(&files) {
             // There were errors!
             return;
         }
-        drop(files);
 
         if !options.check {
             let entry_point = match program.get_entry_point() {

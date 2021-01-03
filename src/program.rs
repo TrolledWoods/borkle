@@ -72,13 +72,13 @@ impl fmt::Debug for ScopeId {
 /// e.g. data scopes, and the dependency system.
 pub struct Program {
     pub arguments: Arguments,
-    pub files: Mutex<UstrMap<String>>,
+    files: Mutex<UstrMap<String>>,
 
     pub logger: Logger,
     members: RwLock<IdVec<MemberId, Member>>,
     scopes: RwLock<IdVec<ScopeId, Scope>>,
 
-    pub constant_data: Mutex<Vec<Constant>>,
+    constant_data: Mutex<Vec<Constant>>,
 
     functions: Mutex<HashSet<*const Routine>>,
 
@@ -108,6 +108,14 @@ impl Program {
             loaded_files: default(),
             entry_point: default(),
         }
+    }
+
+    pub fn files(&mut self) -> &mut UstrMap<String> {
+        self.files.get_mut()
+    }
+
+    pub fn constant_data(&mut self) -> &mut Vec<Constant> {
+        self.constant_data.get_mut()
     }
 
     pub fn work(&self) -> &WorkPile {
@@ -261,6 +269,10 @@ impl Program {
     pub fn add_file(&self, path: impl AsRef<Path>) {
         self.work
             .enqueue(Task::Parse(None, path.as_ref().to_path_buf()));
+    }
+
+    pub fn insert_file(&self, name: Ustr, path: String) {
+        self.files.lock().insert(name, path);
     }
 
     pub fn add_file_from_import(
