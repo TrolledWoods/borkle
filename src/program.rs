@@ -545,18 +545,31 @@ impl Program {
     /// * ``scopes`` read
     /// * ``members`` write
     pub fn queue_task(&self, id: MemberId, deps: DependencyList, task: Task) {
-        let members = self.members.read();
-        let name = members[id].name;
-        let mut num_deps = 0;
-        self.logger
-            .log(format_args!("queued '{}' {:?}", name, deps));
-        debug_assert_eq!(
-            members[id].dependencies_left.load(Ordering::SeqCst),
-            0,
-            "The task was not ready"
-        );
-        drop(members);
+        // Just log some stuff, no race conditions possible
+        {
+            let members = self.members.read();
+            self.logger
+                .log(format_args!("queued '{}' {:?}", members[id].name, deps));
+            debug_assert_eq!(
+                members[id].dependencies_left.load(Ordering::SeqCst),
+                0,
+                "The task was not ready"
+            );
 
+            // The dependencies left is at 0 at this point, so adding this is fine.
+            // We do this because we add dependencies here, and so they may be resolved while we
+            // are adding them. If this reaches zero while that happens, we run into problems; we
+            // will deploy the task but all the dependencies are not all defined!
+            //
+            // Therefore, we increase the dependency count here to an unreachable amount, so that
+            // even if it's decreased it doesn't ever reach zero. Then once we are done preparing
+            // all the dependencies, we can move it back down to the real number.
+            members[id]
+                .dependencies_left
+                .fetch_add(i32::MAX, Ordering::SeqCst);
+        }
+
+        let mut num_deps = 0;
         for (dep_name, (scope_id, loc)) in deps.types {
             let scopes = self.scopes.read();
             let scope = &scopes[scope_id];
@@ -608,6 +621,7 @@ impl Program {
         let mut members = self.members.write();
         let num_dependencies = members[id].dependencies_left.get_mut();
 
+        *num_dependencies -= i32::MAX;
         *num_dependencies += num_deps;
 
         if *num_dependencies == 0 {
