@@ -122,11 +122,11 @@ impl Program {
         &self.work
     }
 
-    pub fn check_for_completion(&self, errors: &mut ErrorCtx) {
-        let scopes = self.scopes.read();
-        let members = self.members.read();
-        for scope in scopes.iter() {
-            let wanted_names = scope.wanted_names.read();
+    pub fn check_for_completion(&mut self, errors: &mut ErrorCtx) {
+        let scopes = self.scopes.get_mut();
+        let members = self.members.get_mut();
+        for scope in scopes.iter_mut() {
+            let wanted_names = scope.wanted_names.get_mut();
             for (&name, dependants) in wanted_names.iter() {
                 for &(_, loc, _) in dependants {
                     errors.info(loc, "Dependant here".to_string());
@@ -134,8 +134,7 @@ impl Program {
                 errors.global_error(format!("'{}' is not defined", name));
             }
 
-            let public_members = scope.public_members.read();
-            for (&name, &member_id) in public_members.iter() {
+            for (&name, &member_id) in &scope.public_members {
                 let member = &members[member_id];
                 if member.type_.to_option().is_none() {
                     errors.global_error(format!("'{}' cannot be computed", name));
@@ -153,9 +152,13 @@ impl Program {
         leaked as usize
     }
 
+    /// Locks
+    /// * ``entry_point`` write
+    /// * ``members`` read
     pub fn get_entry_point(&self) -> Option<*const u8> {
-        let members = self.members.read();
         let member_id = (*self.entry_point.lock())?;
+
+        let members = self.members.read();
         let member = &members[member_id];
 
         let type_ = member.type_.to_option()?.0;
@@ -171,6 +174,8 @@ impl Program {
         }
     }
 
+    /// # Locks
+    /// * ``members`` read
     pub fn get_constant_as_value(&self, id: MemberId) -> crate::ir::Value {
         let members = self.members.read();
         let member = &members[id];
@@ -181,6 +186,8 @@ impl Program {
         crate::ir::Value::Global(value_ptr, type_)
     }
 
+    /// # Locks
+    /// * ``scopes`` write
     pub fn create_scope(&self) -> ScopeId {
         self.scopes.write().push(default())
     }
@@ -203,42 +210,55 @@ impl Program {
         }
 
         wildcards.push(to);
+        let public_members = scopes[from].public_members.clone();
         drop(wildcards);
+        drop(scopes);
 
-        let public_members = scopes[from].public_members.read();
-        for (&name, &member_id) in public_members.iter() {
+        for (name, member_id) in public_members {
             self.bind_member_to_name(errors, to, name, loc, member_id, false)?;
         }
 
         Ok(())
     }
 
+    /// Locks
+    /// * ``scopes`` read
     pub fn get_member_id(&self, scope: ScopeId, name: Ustr) -> Option<MemberId> {
         let scopes = self.scopes.read();
-        let public = scopes[scope].public_members.read().get(&name).copied();
-        public.or_else(|| scopes[scope].private_members.read().get(&name).copied())
+        let public = scopes[scope].public_members.get(&name).copied();
+        public.or_else(|| scopes[scope].private_members.get(&name).copied())
     }
 
+    /// Locks
+    /// * ``members`` read
     pub fn member_name(&self, id: MemberId) -> Ustr {
         let members = self.members.read();
         members[id].name
     }
 
+    /// Locks
+    /// * ``members`` read
     pub fn get_value_of_member(&self, id: MemberId) -> ConstantRef {
         let members = self.members.read();
         *members[id].value.unwrap()
     }
 
+    /// Locks
+    /// * ``members`` read
     pub fn get_member_meta_data(&self, id: MemberId) -> (Type, Arc<MemberMetaData>) {
         let members = self.members.read();
         members[id].type_.unwrap().clone()
     }
 
+    /// Locks
+    /// * ``members`` read
     pub fn get_type_of_member(&self, id: MemberId) -> Type {
         let members = self.members.read();
         members[id].type_.unwrap().0
     }
 
+    /// Locks
+    /// * ``constant_data`` write
     fn insert_sub_buffers(&self, type_: Type, data: *mut u8) {
         for (offset, ptr) in type_.pointers() {
             match ptr {
@@ -271,6 +291,8 @@ impl Program {
             .enqueue(Task::Parse(None, path.as_ref().to_path_buf()));
     }
 
+    /// Locks
+    /// * ``files`` write
     pub fn insert_file(&self, name: Ustr, path: String) {
         self.files.lock().insert(name, path);
     }
@@ -287,6 +309,8 @@ impl Program {
         ));
     }
 
+    /// Locks
+    /// * ``constant_data`` write
     pub fn insert_buffer_from_operation(
         &self,
         type_: Type,
@@ -328,25 +352,32 @@ impl Program {
         const_ref
     }
 
+    /// # Locks
+    /// * ``constant_data`` write
     pub fn insert_zeroed_buffer(&self, type_: Type) -> ConstantRef {
         self.insert_buffer_from_operation(type_, |buf| unsafe { buf.write_bytes(0, type_.size()) })
     }
 
+    /// # Locks
+    /// * ``constant_data`` write
     pub fn insert_buffer(&self, type_: Type, data: *const u8) -> ConstantRef {
         self.insert_buffer_from_operation(type_, |buf| unsafe {
             std::ptr::copy(data, buf, type_.size())
         })
     }
 
+    /// # Locks
+    /// * ``constant_data`` write
+    /// * ``members`` write
     pub fn set_value_of_member(&self, id: MemberId, data: *const u8) {
-        let mut members = self.members.write();
-        let member = &mut members[id];
+        let type_ = self.members.write()[id].type_.unwrap().0;
 
-        let value = self.insert_buffer(member.type_.unwrap().0, data);
-        let old = std::mem::replace(&mut member.value, DependableOption::Some(value));
+        let value = self.insert_buffer(type_, data);
 
-        // This is a zst, we don't need a value.
-        drop(members);
+        let old = std::mem::replace(
+            &mut self.members.write()[id].value,
+            DependableOption::Some(value),
+        );
 
         if let DependableOption::None(dependencies) = old {
             for (_, dependency) in dependencies {
@@ -357,6 +388,8 @@ impl Program {
         }
     }
 
+    /// # Locks
+    /// * ``members`` write
     pub fn set_type_of_member(&self, id: MemberId, type_: Type, meta_data: MemberMetaData) {
         let mut members = self.members.write();
         let member_type = &mut members[id].type_;
@@ -375,6 +408,8 @@ impl Program {
         }
     }
 
+    /// # Locks
+    /// Locks ``members`` with write.
     fn resolve_dependency(&self, id: MemberId) {
         let members = self.members.read();
         let name = members[id].name;
@@ -416,6 +451,8 @@ impl Program {
         }
     }
 
+    /// # Locks
+    /// Locks ``members`` write, and ``scopes`` write
     pub fn define_member(
         &self,
         errors: &mut ErrorCtx,
@@ -429,6 +466,8 @@ impl Program {
         Ok(id)
     }
 
+    /// # Locks
+    /// Locks ``scopes`` with write, and ``members`` with write.
     fn bind_member_to_name(
         &self,
         errors: &mut ErrorCtx,
@@ -438,38 +477,36 @@ impl Program {
         member_id: MemberId,
         is_public: bool,
     ) -> Result<(), ()> {
-        let scopes = self.scopes.read();
+        let mut scopes = self.scopes.write();
 
-        let mut public_members = scopes[scope_id].public_members.write();
-        let mut private_members = scopes[scope_id].private_members.write();
-
-        if public_members.contains_key(&name) | private_members.contains_key(&name) {
+        if scopes[scope_id].public_members.contains_key(&name)
+            | scopes[scope_id].private_members.contains_key(&name)
+        {
             errors.error(loc, format!("'{}' is already defined", name));
             return Err(());
         }
 
-        let used_list = if is_public {
-            &mut public_members
+        if is_public {
+            scopes[scope_id].public_members.insert(name, member_id);
         } else {
-            &mut private_members
+            scopes[scope_id].private_members.insert(name, member_id);
         };
 
-        used_list.insert(name, member_id);
-
-        drop(public_members);
-        drop(private_members);
+        let wildcard_exports = scopes[scope_id].wildcard_exports.get_mut().clone();
+        drop(scopes);
 
         if is_public {
-            for dependant in scopes[scope_id].wildcard_exports.read().iter() {
-                self.bind_member_to_name(errors, *dependant, name, loc, member_id, false)?;
+            for dependant in wildcard_exports {
+                self.bind_member_to_name(errors, dependant, name, loc, member_id, false)?;
             }
         }
 
+        let scopes = self.scopes.read();
         let mut wanted_names = scopes[scope_id].wanted_names.write();
         if let Some(dependants) = wanted_names.remove(&name) {
             drop(wanted_names);
             drop(scopes);
-            // FIXME: Check if this is congesting it or not.
+
             for &(kind, _, dependant) in &dependants {
                 let mut members = self.members.write();
                 let dependant_name = members[dependant].name;
@@ -504,25 +541,31 @@ impl Program {
         Ok(())
     }
 
+    /// # Locks
+    /// * ``scopes`` read
+    /// * ``members`` write
     pub fn queue_task(&self, id: MemberId, deps: DependencyList, task: Task) {
-        let name = self.member_name(id);
-
-        let scopes = self.scopes.read();
-        let mut members = self.members.write();
+        let members = self.members.read();
+        let name = members[id].name;
         let mut num_deps = 0;
-
         self.logger
             .log(format_args!("queued '{}' {:?}", name, deps));
-
-        // We want to make sure that there are no left over dependencies from the previous task
-        // associated with this member.
-        debug_assert_eq!(members[id].dependencies_left.load(Ordering::SeqCst), 0);
+        debug_assert_eq!(
+            members[id].dependencies_left.load(Ordering::SeqCst),
+            0,
+            "The task was not ready"
+        );
+        drop(members);
 
         for (dep_name, (scope_id, loc)) in deps.types {
+            let scopes = self.scopes.read();
             let scope = &scopes[scope_id];
             let mut scope_wanted_names = scope.wanted_names.write();
 
             if let Some(dep_id) = scope.get(dep_name) {
+                drop(scope_wanted_names);
+                drop(scopes);
+                let mut members = self.members.write();
                 let dependency = &mut members[dep_id];
                 if dependency.type_.add_dependant(loc, id) {
                     num_deps += 1;
@@ -539,10 +582,14 @@ impl Program {
         }
 
         for (dep_name, (scope_id, loc)) in deps.values {
+            let scopes = self.scopes.read();
             let scope = &scopes[scope_id];
             let mut scope_wanted_names = scope.wanted_names.write();
 
             if let Some(dep_id) = scope.get(dep_name) {
+                drop(scope_wanted_names);
+                drop(scopes);
+                let mut members = self.members.write();
                 let dependency = &mut members[dep_id];
                 if dependency.value.add_dependant(loc, id) {
                     num_deps += 1;
@@ -558,6 +605,7 @@ impl Program {
             }
         }
 
+        let mut members = self.members.write();
         let num_dependencies = members[id].dependencies_left.get_mut();
 
         *num_dependencies += num_deps;
@@ -579,16 +627,16 @@ struct Scope {
     // FIXME: Have these store the location where the thing was bound to a name as well.
     // At least in the public_members, since those are usually not imported but bound in the scope?
     // However, even private_members would have a use for the location of the import/library
-    public_members: RwLock<UstrMap<MemberId>>,
-    private_members: RwLock<UstrMap<MemberId>>,
+    public_members: UstrMap<MemberId>,
+    private_members: UstrMap<MemberId>,
     wanted_names: RwLock<UstrMap<Vec<(DependencyKind, Location, MemberId)>>>,
     wildcard_exports: RwLock<Vec<ScopeId>>,
 }
 
 impl Scope {
     fn get(&self, name: Ustr) -> Option<MemberId> {
-        let public = self.public_members.read().get(&name).copied();
-        public.or_else(|| self.private_members.read().get(&name).copied())
+        let public = self.public_members.get(&name).copied();
+        public.or_else(|| self.private_members.get(&name).copied())
     }
 }
 
