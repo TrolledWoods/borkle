@@ -346,7 +346,6 @@ impl Program {
 
         let constant = Constant {
             ptr: NonNull::new(owned_data).unwrap(),
-            size: type_.size(),
             type_,
         };
 

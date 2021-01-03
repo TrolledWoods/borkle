@@ -157,7 +157,7 @@ pub fn instantiate_constants(output: &mut String, program: &mut Program) {
         }
 
         let mut pointers = constant.type_.pointers().iter().peekable();
-        for i in (0..constant.size).step_by(8) {
+        for i in (0..constant.type_.size()).step_by(8) {
             match pointers.peek() {
                 Some(&(offset, _)) if *offset == i => {
                     let ptr_num = unsafe { *ptr.add(i).cast::<usize>() };

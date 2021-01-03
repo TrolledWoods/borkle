@@ -1,15 +1,19 @@
 use crate::types::Type;
+use std::alloc;
 use std::fmt;
 use std::ptr::NonNull;
 
 pub struct Constant {
     pub ptr: NonNull<u8>,
-    pub size: usize,
     pub type_: Type,
 }
 
-// FIXME: Implement drop for Constant since that is like the whole point of having it in the first
-// place bro
+impl Drop for Constant {
+    fn drop(&mut self) {
+        let layout = alloc::Layout::from_size_align(self.type_.size(), self.type_.align()).unwrap();
+        unsafe { alloc::dealloc(self.ptr.as_ptr(), layout) };
+    }
+}
 
 // Safety: Since there is no interior mutability or weirdness, in fact, no mutability in this type,
 // there is no reason why it's not thread safe.
@@ -26,7 +30,7 @@ impl Constant {
     }
 
     pub fn as_slice(&self) -> &'_ [u8] {
-        unsafe { std::slice::from_raw_parts(self.as_ptr(), self.size) }
+        unsafe { std::slice::from_raw_parts(self.as_ptr(), self.type_.size()) }
     }
 }
 
