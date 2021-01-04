@@ -1,5 +1,5 @@
 use crate::operators::{BinaryOp, UnaryOp};
-use crate::program::constant::ConstantRef;
+use crate::program::{constant::ConstantRef, BuiltinFunction};
 use crate::types::{to_align, Type, TypeKind};
 use std::fmt;
 
@@ -122,7 +122,12 @@ pub struct Member {
 unsafe impl Send for Instr {}
 unsafe impl Sync for Instr {}
 
-pub struct Routine {
+pub enum Routine {
+    Builtin(BuiltinFunction),
+    UserDefined(UserDefinedRoutine),
+}
+
+pub struct UserDefinedRoutine {
     pub label_locations: Vec<usize>,
     pub instr: Vec<Instr>,
     pub registers: Registers,

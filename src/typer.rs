@@ -60,6 +60,57 @@ fn type_ast<'a>(
 ) -> Result<Node, ()> {
     let node = match parsed.kind {
         ParsedNodeKind::Parenthesis(ref inner) => type_ast(ctx, wanted_type, inner, buffer)?,
+        ParsedNodeKind::BuiltinFunction(kind) => {
+            let specific = wanted_type.get_specific().ok_or_else(|| ctx.errors.error(parsed.loc, "A builtin function definition needs a type bound to work(why are you even messing with these, these are supposed to be defined withing the standard librarys 'intrinsics.bo' file! XD p.s: giving a bad type definition could segfault the compiler right now)".to_string()))?;
+
+            let id = ctx
+                .program
+                .insert_function(crate::ir::Routine::Builtin(kind));
+
+            if let TypeKind::Function { args, returns } = specific.kind() {
+                // FIXME: This is duplicated in emit, could there be a nice way to deduplicate them?
+                if ctx.program.arguments.release {
+                    crate::c_backend::function_declaration(
+                        &mut ctx.thread_context.c_headers,
+                        crate::c_backend::c_format_global(id),
+                        args,
+                        *returns,
+                    );
+
+                    ctx.thread_context.c_headers.push_str(";\n");
+
+                    crate::c_backend::function_declaration(
+                        &mut ctx.thread_context.c_declarations,
+                        crate::c_backend::c_format_global(id),
+                        args,
+                        *returns,
+                    );
+                    ctx.thread_context.c_declarations.push_str(" {\n");
+                    crate::c_backend::routine_to_c(
+                        &mut ctx.thread_context.c_declarations,
+                        unsafe { &*(id as *const crate::ir::Routine) },
+                        args,
+                        *returns,
+                    );
+                    ctx.thread_context.c_declarations.push_str("}\n");
+                }
+
+                Node::new(
+                    parsed.loc,
+                    NodeKind::Constant(
+                        ctx.program
+                            .insert_buffer(specific, id.to_le_bytes().as_ptr()),
+                    ),
+                    specific,
+                )
+            } else {
+                ctx.errors.error(
+                    parsed.loc,
+                    "The type of a built in function has to be a function".to_string(),
+                );
+                return Err(());
+            }
+        }
         ParsedNodeKind::ConstAtEvaluation {
             ref locals,
             ref inner,

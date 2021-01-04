@@ -1,5 +1,5 @@
 use crate::intrinsic::Intrinsic;
-use crate::ir::{Member, Registers, Routine, Value};
+use crate::ir::{Member, Registers, Routine, UserDefinedRoutine, Value};
 use crate::locals::LocalVariables;
 use crate::operators::{BinaryOp, UnaryOp};
 use crate::program::constant::ConstantRef;
@@ -18,7 +18,7 @@ pub fn emit<'a>(
     program: &'a Program,
     locals: LocalVariables,
     ast: &Node,
-) -> Routine {
+) -> UserDefinedRoutine {
     let mut ctx = Context {
         thread_context,
         instr: Vec::new(),
@@ -38,7 +38,7 @@ pub fn emit<'a>(
 
     let result = emit_node(&mut ctx, ast);
 
-    Routine {
+    UserDefinedRoutine {
         instr: ctx.instr,
         registers: ctx.registers,
         result,
@@ -71,14 +71,16 @@ pub fn emit_function_declaration<'a>(
 
     let result = emit_node(&mut sub_ctx, body);
 
-    let routine = Routine {
+    let routine = UserDefinedRoutine {
         label_locations: sub_ctx.label_locations,
         instr: sub_ctx.instr,
         registers: sub_ctx.registers,
         result,
     };
 
-    let id = sub_ctx.program.insert_function(routine);
+    let id = sub_ctx
+        .program
+        .insert_function(Routine::UserDefined(routine));
     if sub_ctx.program.arguments.release {
         if let TypeKind::Function { args, returns } = type_.kind() {
             crate::c_backend::function_declaration(
@@ -87,20 +89,21 @@ pub fn emit_function_declaration<'a>(
                 args,
                 *returns,
             );
+
+            sub_ctx.thread_context.c_headers.push_str(";\n");
+
             crate::c_backend::function_declaration(
                 &mut sub_ctx.thread_context.c_declarations,
                 crate::c_backend::c_format_global(id),
                 args,
                 *returns,
             );
-
-            sub_ctx.thread_context.c_headers.push_str(";\n");
-
             sub_ctx.thread_context.c_declarations.push_str(" {\n");
             crate::c_backend::routine_to_c(
                 &mut sub_ctx.thread_context.c_declarations,
                 unsafe { &*(id as *const Routine) },
-                args.len(),
+                args,
+                *returns,
             );
             sub_ctx.thread_context.c_declarations.push_str("}\n");
         } else {

@@ -117,12 +117,16 @@ fn main() {
                     elapsed.as_secs_f32()
                 );
 
-                let mut stack = interp::Stack::new(1 << 16);
-                let result = interp::interp(&program, &mut stack, unsafe {
-                    &*entry_point.cast::<ir::Routine>()
-                });
+                let routine = unsafe { &*entry_point.cast::<ir::Routine>() };
+                if let ir::Routine::UserDefined(routine) = routine {
+                    let mut stack = interp::Stack::new(1 << 16);
 
-                println!("[main returned: {}]", unsafe { result.read::<u64>() });
+                    let result = interp::interp(&program, &mut stack, routine);
+
+                    println!("[main returned: {}]", unsafe { result.read::<u64>() });
+                } else {
+                    println!("ERROR: For now, the entry point cannot be a built in function");
+                }
             }
         } else {
             let elapsed = time.elapsed();

@@ -4,7 +4,7 @@
 
 use crate::ir::{Instr, Routine, Value};
 use crate::operators::{BinaryOp, UnaryOp};
-use crate::program::Program;
+use crate::program::{BuiltinFunction, Program};
 use crate::types::{IntTypeKind, PointerInType, Type, TypeKind, TYPES};
 use std::fmt;
 use std::fmt::Write;
@@ -26,7 +26,7 @@ pub fn function_declaration(
             output.push_str(", ");
         }
 
-        write!(output, "{} arg_{}", c_format_type(*arg), i).unwrap();
+        write!(output, "{} reg_{}", c_format_type(*arg), i).unwrap();
         has_emitted = true;
     }
     output.push(')');
@@ -179,263 +179,370 @@ pub fn instantiate_constants(output: &mut String, program: &mut Program) {
     }
 }
 
-pub fn routine_to_c(output: &mut String, routine: &Routine, num_args: usize) {
-    write!(output, "    // Declare registers\n").unwrap();
-    for (i, register) in routine.registers.locals.iter().enumerate() {
-        if register.type_.size() != 0 {
-            write!(output, "    {} reg_{}", c_format_type(register.type_), i,).unwrap();
+pub fn routine_to_c(output: &mut String, routine: &Routine, arg_types: &[Type], return_type: Type) {
+    match routine {
+        &Routine::Builtin(kind) => {
+            output.push_str("    // Builtin function!\n");
 
-            if i < num_args {
-                write!(output, " = arg_{}", i).unwrap();
+            let values: Vec<_> = arg_types
+                .iter()
+                .copied()
+                .enumerate()
+                .map(|(i, type_)| Value::Register(i, type_))
+                .collect();
+
+            let returns = Value::Register(arg_types.len(), return_type);
+            if return_type.size() != 0 {
+                write!(
+                    output,
+                    "    {} {};",
+                    c_format_type(return_type),
+                    c_format_value(&returns)
+                )
+                .unwrap();
             }
 
-            write!(output, "; // {}\n", register.type_).unwrap();
-        }
-    }
+            builtin_function(output, kind, &values, returns);
 
-    write!(output, "    // Code\n").unwrap();
-    for instr in &routine.instr {
-        write!(output, "    // {:?}\n", instr).unwrap();
-        output.push_str("    ");
-        match instr {
-            Instr::Call { to, pointer, args } => {
-                if to.size() != 0 {
+            if return_type.size() != 0 {
+                write!(output, "    return {};\n", c_format_value(&returns)).unwrap();
+            }
+        }
+        Routine::UserDefined(routine) => {
+            write!(output, "    // Declare registers\n").unwrap();
+            for (i, register) in routine
+                .registers
+                .locals
+                .iter()
+                .enumerate()
+                .skip(arg_types.len())
+            {
+                if register.type_.size() != 0 {
                     write!(
                         output,
-                        "{} = {}(",
-                        c_format_value(to),
-                        c_format_value(pointer),
+                        "    {} reg_{}; // {}\n",
+                        c_format_type(register.type_),
+                        i,
+                        register.type_
                     )
                     .unwrap();
-                } else {
-                    write!(output, "{}(", c_format_value(pointer),).unwrap();
                 }
-                let mut has_emitted = false;
-                for arg in args {
-                    if arg.size() == 0 {
-                        continue;
+            }
+
+            write!(output, "    // Code\n").unwrap();
+            for instr in &routine.instr {
+                write!(output, "    // {:?}\n", instr).unwrap();
+                output.push_str("    ");
+                match instr {
+                    Instr::Call { to, pointer, args } => {
+                        if to.size() != 0 {
+                            write!(
+                                output,
+                                "{} = {}(",
+                                c_format_value(to),
+                                c_format_value(pointer),
+                            )
+                            .unwrap();
+                        } else {
+                            write!(output, "{}(", c_format_value(pointer),).unwrap();
+                        }
+                        let mut has_emitted = false;
+                        for arg in args {
+                            if arg.size() == 0 {
+                                continue;
+                            }
+
+                            if has_emitted {
+                                output.push_str(", ");
+                            }
+                            write!(output, "{}", c_format_value(arg)).unwrap();
+                            has_emitted = true;
+                        }
+                        output.push_str(");\n");
+                    }
+                    Instr::Increment { value } => {
+                        write!(output, "{0} = {0} + 1;\n", c_format_value(value)).unwrap();
+                    }
+                    Instr::Binary {
+                        op: BinaryOp::Range,
+                        to,
+                        a,
+                        b,
+                    } => {
+                        write!(
+                            output,
+                            "{}.start = {};\n",
+                            c_format_value(to),
+                            c_format_value(a),
+                        )
+                        .unwrap();
+                        write!(
+                            output,
+                            "{}.end = {};\n",
+                            c_format_value(to),
+                            c_format_value(b),
+                        )
+                        .unwrap();
+                    }
+                    Instr::Binary { op, to, a, b } => {
+                        let op_name = match op {
+                            BinaryOp::And => "&&",
+                            BinaryOp::Or => "||",
+                            BinaryOp::Equals => "==",
+                            BinaryOp::NotEquals => "!=",
+                            BinaryOp::LargerThanEquals => ">",
+                            BinaryOp::LargerThan => ">",
+                            BinaryOp::LessThanEquals => "<=",
+                            BinaryOp::LessThan => "<",
+                            BinaryOp::Add => "+",
+                            BinaryOp::Sub => "-",
+                            BinaryOp::Mult => "*",
+                            BinaryOp::Div => "/",
+                            BinaryOp::BitAnd => "&",
+                            BinaryOp::BitOr => "|",
+                            BinaryOp::Range => unreachable!("Special case operator"),
+                        };
+
+                        write!(
+                            output,
+                            "{} = {} {} {};\n",
+                            c_format_value(to),
+                            c_format_value(a),
+                            op_name,
+                            c_format_value(b)
+                        )
+                        .unwrap();
+                    }
+                    Instr::Unary { op, to, from } => {
+                        let op_name = match op {
+                            UnaryOp::Negate => "-",
+                            UnaryOp::Not => "!",
+                            UnaryOp::AutoCast | UnaryOp::Dereference | UnaryOp::Reference => {
+                                unreachable!()
+                            }
+                        };
+
+                        write!(
+                            output,
+                            "{} = {}{};",
+                            c_format_value(to),
+                            op_name,
+                            c_format_value(from)
+                        )
+                        .unwrap();
+                    }
+                    Instr::Member { to, of, member } => {
+                        write!(output, "{} = {}", c_format_value(to), c_format_value(of)).unwrap();
+
+                        of.type_().fmt_members(output, *member);
+
+                        write!(output, ";\n").unwrap();
+                    }
+                    Instr::PointerToMemberOfPointer { to, of, member } => {
+                        write!(
+                            output,
+                            "{} = &(*{})",
+                            c_format_value(to),
+                            c_format_value(of)
+                        )
+                        .unwrap();
+
+                        of.type_().fmt_members(output, *member);
+
+                        output.push_str(";\n");
+                    }
+                    Instr::Dereference { to, from } => {
+                        write!(
+                            output,
+                            "{} = *{};\n",
+                            c_format_value(to),
+                            c_format_value(from)
+                        )
+                        .unwrap();
+                    }
+                    Instr::PointerToMemberOfValue { to, from, offset } => {
+                        write!(output, "{} = &{}", c_format_value(to), c_format_value(from))
+                            .unwrap();
+
+                        from.type_().fmt_members(output, *offset);
+
+                        output.push_str(";\n");
+                    }
+                    Instr::MoveToMemberOfValue {
+                        to,
+                        from,
+                        size: _,
+                        member,
+                    } => {
+                        write!(output, "{}", c_format_value(to)).unwrap();
+
+                        to.type_().fmt_members(output, *member);
+
+                        write!(output, " = {};\n", c_format_value(from)).unwrap();
+                    }
+                    Instr::MoveToMemberOfPointer {
+                        to,
+                        from,
+                        size: _,
+                        member,
+                    } => {
+                        write!(output, "(*{})", c_format_value(to)).unwrap();
+
+                        to.type_()
+                            .pointing_to()
+                            .unwrap()
+                            .fmt_members(output, *member);
+
+                        write!(output, " = {};\n", c_format_value(from)).unwrap();
+                    }
+                    Instr::JumpIfZero { condition, to } => {
+                        write!(
+                            output,
+                            "if ({} == 0) goto label_{};\n",
+                            c_format_value(condition),
+                            to.0
+                        )
+                        .unwrap();
+                    }
+                    Instr::Jump { to } => {
+                        write!(output, "goto label_{};\n", to.0).unwrap();
+                    }
+                    Instr::LabelDefinition(id) => {
+                        write!(output, "label_{}:;\n", id.0).unwrap();
                     }
 
-                    if has_emitted {
-                        output.push_str(", ");
+                    Instr::i_stdout_write { to, buffer } => {
+                        write!(
+                            output,
+                            "{} = fwrite({}.ptr, 1, {}.len, stdout);\n",
+                            c_format_value(to),
+                            c_format_value(buffer),
+                            c_format_value(buffer),
+                        )
+                        .unwrap();
                     }
-                    write!(output, "{}", c_format_value(arg)).unwrap();
-                    has_emitted = true;
-                }
-                output.push_str(");\n");
-            }
-            Instr::Increment { value } => {
-                write!(output, "{0} = {0} + 1;\n", c_format_value(value)).unwrap();
-            }
-            Instr::Binary {
-                op: BinaryOp::Range,
-                to,
-                a,
-                b,
-            } => {
-                write!(
-                    output,
-                    "{}.start = {};\n",
-                    c_format_value(to),
-                    c_format_value(a),
-                )
-                .unwrap();
-                write!(
-                    output,
-                    "{}.end = {};\n",
-                    c_format_value(to),
-                    c_format_value(b),
-                )
-                .unwrap();
-            }
-            Instr::Binary { op, to, a, b } => {
-                let op_name = match op {
-                    BinaryOp::And => "&&",
-                    BinaryOp::Or => "||",
-                    BinaryOp::Equals => "==",
-                    BinaryOp::NotEquals => "!=",
-                    BinaryOp::LargerThanEquals => ">",
-                    BinaryOp::LargerThan => ">",
-                    BinaryOp::LessThanEquals => "<=",
-                    BinaryOp::LessThan => "<",
-                    BinaryOp::Add => "+",
-                    BinaryOp::Sub => "-",
-                    BinaryOp::Mult => "*",
-                    BinaryOp::Div => "/",
-                    BinaryOp::BitAnd => "&",
-                    BinaryOp::BitOr => "|",
-                    BinaryOp::Range => unreachable!("Special case operator"),
-                };
-
-                write!(
-                    output,
-                    "{} = {} {} {};\n",
-                    c_format_value(to),
-                    c_format_value(a),
-                    op_name,
-                    c_format_value(b)
-                )
-                .unwrap();
-            }
-            Instr::Unary { op, to, from } => {
-                let op_name = match op {
-                    UnaryOp::Negate => "-",
-                    UnaryOp::Not => "!",
-                    UnaryOp::AutoCast | UnaryOp::Dereference | UnaryOp::Reference => unreachable!(),
-                };
-
-                write!(
-                    output,
-                    "{} = {}{};",
-                    c_format_value(to),
-                    op_name,
-                    c_format_value(from)
-                )
-                .unwrap();
-            }
-            Instr::Member { to, of, member } => {
-                write!(output, "{} = {}", c_format_value(to), c_format_value(of)).unwrap();
-
-                of.type_().fmt_members(output, *member);
-
-                write!(output, ";\n").unwrap();
-            }
-            Instr::PointerToMemberOfPointer { to, of, member } => {
-                write!(
-                    output,
-                    "{} = &(*{})",
-                    c_format_value(to),
-                    c_format_value(of)
-                )
-                .unwrap();
-
-                of.type_().fmt_members(output, *member);
-
-                output.push_str(";\n");
-            }
-            Instr::Dereference { to, from } => {
-                write!(
-                    output,
-                    "{} = *{};\n",
-                    c_format_value(to),
-                    c_format_value(from)
-                )
-                .unwrap();
-            }
-            Instr::PointerToMemberOfValue { to, from, offset } => {
-                write!(output, "{} = &{}", c_format_value(to), c_format_value(from)).unwrap();
-
-                from.type_().fmt_members(output, *offset);
-
-                output.push_str(";\n");
-            }
-            Instr::MoveToMemberOfValue {
-                to,
-                from,
-                size: _,
-                member,
-            } => {
-                write!(output, "{}", c_format_value(to)).unwrap();
-
-                to.type_().fmt_members(output, *member);
-
-                write!(output, " = {};\n", c_format_value(from)).unwrap();
-            }
-            Instr::MoveToMemberOfPointer {
-                to,
-                from,
-                size: _,
-                member,
-            } => {
-                write!(output, "(*{})", c_format_value(to)).unwrap();
-
-                to.type_()
-                    .pointing_to()
-                    .unwrap()
-                    .fmt_members(output, *member);
-
-                write!(output, " = {};\n", c_format_value(from)).unwrap();
-            }
-            Instr::JumpIfZero { condition, to } => {
-                write!(
-                    output,
-                    "if ({} == 0) goto label_{};\n",
-                    c_format_value(condition),
-                    to.0
-                )
-                .unwrap();
-            }
-            Instr::Jump { to } => {
-                write!(output, "goto label_{};\n", to.0).unwrap();
-            }
-            Instr::LabelDefinition(id) => {
-                write!(output, "label_{}:;\n", id.0).unwrap();
-            }
-
-            Instr::i_stdout_write { to, buffer } => {
-                write!(
-                    output,
-                    "{} = fwrite({}.ptr, 1, {}.len, stdout);\n",
-                    c_format_value(to),
-                    c_format_value(buffer),
-                    c_format_value(buffer),
-                )
-                .unwrap();
-            }
-            Instr::i_stdout_flush => {
-                output.push_str("fflush(stdout);\n");
-            }
-            Instr::i_stdin_getline { to } => {
-                write!(
-                    output,
-                    "{{
+                    Instr::i_stdout_flush => {
+                        output.push_str("fflush(stdout);\n");
+                    }
+                    Instr::i_stdin_getline { to } => {
+                        write!(
+                            output,
+                            "{{
                         char temp_data[512];
                         gets(temp_data);\n
                         {0}.len = strlen(temp_data);
                         {0}.ptr = malloc({0}.len);
                         memcpy({0}.ptr, temp_data, {0}.len);
                     }}\n",
-                    c_format_value(to),
-                )
-                .unwrap();
+                            c_format_value(to),
+                        )
+                        .unwrap();
+                    }
+                    Instr::i_alloc { to, size } => {
+                        write!(
+                            output,
+                            "{} = malloc({});\n",
+                            c_format_value(to),
+                            c_format_value(size),
+                        )
+                        .unwrap();
+                    }
+                    Instr::i_dealloc { buffer } => {
+                        write!(output, "free({}.ptr);\n", c_format_value(buffer)).unwrap();
+                    }
+                    Instr::i_copy { from, to, size } => {
+                        write!(
+                            output,
+                            "memmove({}, {}, {});\n",
+                            c_format_value(to),
+                            c_format_value(from),
+                            c_format_value(size)
+                        )
+                        .unwrap();
+                    }
+                    Instr::i_copy_nonoverlapping { from, to, size } => {
+                        write!(
+                            output,
+                            "memcpy({}, {}, {});\n",
+                            c_format_value(to),
+                            c_format_value(from),
+                            c_format_value(size)
+                        )
+                        .unwrap();
+                    }
+                }
             }
-            Instr::i_alloc { to, size } => {
-                write!(
-                    output,
-                    "{} = malloc({});\n",
-                    c_format_value(to),
-                    c_format_value(size),
-                )
-                .unwrap();
-            }
-            Instr::i_dealloc { buffer } => {
-                write!(output, "free({}.ptr);\n", c_format_value(buffer)).unwrap();
-            }
-            Instr::i_copy { from, to, size } => {
-                write!(
-                    output,
-                    "memmove({}, {}, {});\n",
-                    c_format_value(to),
-                    c_format_value(from),
-                    c_format_value(size)
-                )
-                .unwrap();
-            }
-            Instr::i_copy_nonoverlapping { from, to, size } => {
-                write!(
-                    output,
-                    "memcpy({}, {}, {});\n",
-                    c_format_value(to),
-                    c_format_value(from),
-                    c_format_value(size)
-                )
-                .unwrap();
+
+            if routine.result.size() != 0 {
+                write!(output, "    return {};\n", c_format_value(&routine.result)).unwrap();
             }
         }
     }
+}
 
-    if routine.result.size() != 0 {
-        write!(output, "    return {};\n", c_format_value(&routine.result)).unwrap();
+fn builtin_function(output: &mut String, builtin: BuiltinFunction, args: &[Value], to: Value) {
+    output.push_str("    ");
+
+    match builtin {
+        BuiltinFunction::StdoutWrite => {
+            write!(
+                output,
+                "{} = fwrite({}.ptr, 1, {}.len, stdout);\n",
+                c_format_value(&to),
+                c_format_value(&args[0]),
+                c_format_value(&args[0]),
+            )
+            .unwrap();
+        }
+        BuiltinFunction::StdoutFlush => {
+            output.push_str("fflush(stdout);\n");
+        }
+        BuiltinFunction::StdinGetLine => {
+            write!(
+                output,
+                "{{
+                        char temp_data[512];
+                        gets(temp_data);\n
+                        {0}.len = strlen(temp_data);
+                        {0}.ptr = malloc({0}.len);
+                        memcpy({0}.ptr, temp_data, {0}.len);
+                    }}\n",
+                c_format_value(&to),
+            )
+            .unwrap();
+        }
+        BuiltinFunction::Alloc => {
+            write!(
+                output,
+                "{} = malloc({});\n",
+                c_format_value(&to),
+                c_format_value(&args[0]),
+            )
+            .unwrap();
+        }
+        BuiltinFunction::Dealloc => {
+            write!(output, "free({}.ptr);\n", c_format_value(&args[0])).unwrap();
+        }
+        BuiltinFunction::MemCopy => {
+            write!(
+                output,
+                "memmove({}, {}, {});\n",
+                c_format_value(&args[1]),
+                c_format_value(&args[0]),
+                c_format_value(&args[2])
+            )
+            .unwrap();
+        }
+        BuiltinFunction::MemCopyNonOverlapping => {
+            write!(
+                output,
+                "memcpy({}, {}, {});\n",
+                c_format_value(&args[1]),
+                c_format_value(&args[0]),
+                c_format_value(&args[2])
+            )
+            .unwrap();
+        }
     }
 }
 

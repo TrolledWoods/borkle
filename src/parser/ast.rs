@@ -2,7 +2,7 @@ use crate::literal::Literal;
 use crate::locals::{LabelId, LocalId, LocalVariables};
 use crate::location::Location;
 use crate::operators::{BinaryOp, UnaryOp};
-use crate::program::ScopeId;
+use crate::program::{BuiltinFunction, ScopeId};
 use crate::self_buffer::SelfBox;
 use crate::types::Type;
 use std::fmt;
@@ -38,6 +38,7 @@ impl Node {
 pub enum NodeKind {
     Literal(Literal),
     ArrayLiteral(Vec<SelfBox<Node>>),
+    BuiltinFunction(BuiltinFunction),
 
     ConstAtTyping {
         locals: LocalVariables,

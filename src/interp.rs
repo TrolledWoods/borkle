@@ -1,7 +1,7 @@
-use crate::ir::{Instr, Routine};
+use crate::ir::{Instr, Routine, UserDefinedRoutine};
 use crate::operators::UnaryOp;
 use crate::program::constant::ConstantRef;
-use crate::program::Program;
+use crate::program::{BuiltinFunction, Program};
 use crate::types::{BufferRepr, TypeKind};
 
 mod stack;
@@ -23,7 +23,7 @@ pub fn emit_and_run<'a>(
 pub fn interp<'a>(
     program: &Program,
     stack: &'a mut Stack,
-    routine: &'a Routine,
+    routine: &'a UserDefinedRoutine,
 ) -> StackValueMut<'a> {
     let mut stack_frame = stack.stack_frame(&routine.registers);
     interp_internal(program, &mut stack_frame, routine);
@@ -33,7 +33,7 @@ pub fn interp<'a>(
 
 // The stack frame has to be set up ahead of time here. That is necessary; because
 // we need some way to access the result afterwards as well.
-fn interp_internal(program: &Program, stack: &mut StackFrame<'_>, routine: &Routine) {
+fn interp_internal(program: &Program, stack: &mut StackFrame<'_>, routine: &UserDefinedRoutine) {
     let mut instr_pointer = 0;
     while instr_pointer < routine.instr.len() {
         let instr = &routine.instr[instr_pointer];
@@ -55,28 +55,88 @@ fn interp_internal(program: &Program, stack: &mut StackFrame<'_>, routine: &Rout
             } => {
                 let calling: &Routine = unsafe { stack.get(pointer).read() };
 
-                let (mut old_stack, mut new_stack) = stack.split(&calling.registers);
+                match calling {
+                    Routine::Builtin(BuiltinFunction::StdoutWrite) => unsafe {
+                        use std::io::Write;
+                        let buffer = stack.get(args[0]).read::<BufferRepr>();
 
-                // Put the arguments on top of the new stack frame
-                for (old, new) in args.iter().zip(&calling.registers.locals) {
-                    let size = old.type_().size();
-                    unsafe {
-                        std::ptr::copy_nonoverlapping(
-                            old_stack.get(*old).as_ptr(),
-                            new_stack.get_mut_from_reg(new).as_mut_ptr(),
-                            size,
-                        );
+                        let output = std::io::stdout()
+                            .write(std::slice::from_raw_parts(buffer.ptr, buffer.length))
+                            .unwrap_or(0);
+
+                        stack.get_mut(to).write::<usize>(output);
+                    },
+                    Routine::Builtin(BuiltinFunction::StdoutFlush) => {
+                        use std::io::Write;
+                        let _ = std::io::stdout().lock().flush();
                     }
-                }
+                    Routine::Builtin(BuiltinFunction::StdinGetLine) => unsafe {
+                        let mut string = String::new();
+                        let _ = std::io::stdin().read_line(&mut string);
 
-                interp_internal(program, &mut new_stack, calling);
+                        let string_bytes = string.into_bytes().into_boxed_slice();
 
-                unsafe {
-                    std::ptr::copy_nonoverlapping(
-                        new_stack.get(calling.result).as_ptr(),
-                        old_stack.get_mut(to).as_mut_ptr(),
-                        calling.result.size(),
-                    );
+                        let repr = BufferRepr {
+                            length: string_bytes.len(),
+                            ptr: Box::into_raw(string_bytes).cast(),
+                        };
+                        stack.get_mut(to).write(repr);
+                    },
+                    Routine::Builtin(BuiltinFunction::Alloc) => unsafe {
+                        use std::alloc::{alloc, Layout};
+                        let ptr = alloc(Layout::from_size_align_unchecked(
+                            stack.get(args[0]).read::<usize>(),
+                            8,
+                        ));
+                        stack.get_mut(to).write(ptr);
+                    },
+                    Routine::Builtin(BuiltinFunction::Dealloc) => unsafe {
+                        use std::alloc::{dealloc, Layout};
+                        let buffer = stack.get(args[0]).read::<BufferRepr>();
+                        dealloc(
+                            buffer.ptr,
+                            Layout::from_size_align_unchecked(buffer.length, 8),
+                        );
+                    },
+                    Routine::Builtin(BuiltinFunction::MemCopy) => unsafe {
+                        std::ptr::copy(
+                            stack.get(args[0]).read::<*const u8>(),
+                            stack.get_mut(args[1]).read::<*mut u8>(),
+                            stack.get(args[2]).read::<usize>(),
+                        );
+                    },
+                    Routine::Builtin(BuiltinFunction::MemCopyNonOverlapping) => unsafe {
+                        std::ptr::copy_nonoverlapping(
+                            stack.get(args[0]).read::<*const u8>(),
+                            stack.get_mut(args[1]).read::<*mut u8>(),
+                            stack.get(args[2]).read::<usize>(),
+                        );
+                    },
+                    Routine::UserDefined(calling) => {
+                        let (mut old_stack, mut new_stack) = stack.split(&calling.registers);
+
+                        // Put the arguments on top of the new stack frame
+                        for (old, new) in args.iter().zip(&calling.registers.locals) {
+                            let size = old.type_().size();
+                            unsafe {
+                                std::ptr::copy_nonoverlapping(
+                                    old_stack.get(*old).as_ptr(),
+                                    new_stack.get_mut_from_reg(new).as_mut_ptr(),
+                                    size,
+                                );
+                            }
+                        }
+
+                        interp_internal(program, &mut new_stack, calling);
+
+                        unsafe {
+                            std::ptr::copy_nonoverlapping(
+                                new_stack.get(calling.result).as_ptr(),
+                                old_stack.get_mut(to).as_mut_ptr(),
+                                calling.result.size(),
+                            );
+                        }
+                    }
                 }
             }
             Instr::Increment { value } => {

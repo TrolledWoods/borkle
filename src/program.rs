@@ -716,6 +716,19 @@ impl<T> DependableOption<T> {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum BuiltinFunction {
+    StdoutWrite,
+    StdoutFlush,
+    StdinGetLine,
+
+    MemCopy,
+    MemCopyNonOverlapping,
+
+    Alloc,
+    Dealloc,
+}
+
 pub enum Task {
     Parse(Option<(Location, ScopeId)>, PathBuf),
     Type(MemberId, crate::locals::LocalVariables, crate::parser::Ast),

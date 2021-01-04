@@ -523,6 +523,30 @@ fn value(
             }
         }
         TokenKind::Literal(literal) => Node::new(token.loc, NodeKind::Literal(literal)),
+        TokenKind::Keyword(Keyword::BuiltinFunction) => {
+            use crate::program::BuiltinFunction;
+
+            let (name_loc, name) = global.tokens.expect_identifier(global.errors)?;
+
+            let builtin_kind = match name.as_str() {
+                "mem_copy" => BuiltinFunction::MemCopy,
+                "mem_copy_nonoverlapping" => BuiltinFunction::MemCopyNonOverlapping,
+                "alloc" => BuiltinFunction::Alloc,
+                "dealloc" => BuiltinFunction::Dealloc,
+                "stdout_write" => BuiltinFunction::StdoutWrite,
+                "stdout_flush" => BuiltinFunction::StdoutFlush,
+                "stdin_get_line" => BuiltinFunction::StdinGetLine,
+                _ => {
+                    global.error(
+                        name_loc,
+                        format!("'{}' doesn't correspond to any built in function", name),
+                    );
+                    return Err(());
+                }
+            };
+
+            Node::new(token.loc, NodeKind::BuiltinFunction(builtin_kind))
+        }
         TokenKind::Keyword(Keyword::Const) => {
             let mut sub_ctx =
                 ImperativeContext::new(imperative.dependencies, imperative.evaluate_at_typing);

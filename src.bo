@@ -1,4 +1,5 @@
-// library "fmt.bo";
+library "fmt.bo";
+library "mem.bo";
 // library "intrinsics.bo";
 
 const VecU8 = type VecU8 {
@@ -10,8 +11,13 @@ const VecU8 = type VecU8 {
 };
 
 #entry fn() -> u64 {
-    let vector = #0 : VecU8;
-    let len = &vector.len;
-    *len = 5;
-    bit_cast vector.buf.len
+    print("Hello, world!\n");
+
+    let buffer = alloc(8);
+
+    dealloc(buffer);
+
+    print("Got past allocation\n");
+
+    0
 };
