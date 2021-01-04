@@ -519,12 +519,14 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, node: &'a Node) -> Value {
         NodeKind::Member { name, of } => {
             let to = ctx.registers.create(node.type_());
             let of = emit_node(ctx, of);
+
+            let member = of.type_().member(*name).unwrap();
             ctx.emit_member(
                 to,
                 of,
                 Member {
-                    offset: of.type_().member(*name).unwrap().byte_offset,
-                    amount: 1,
+                    offset: member.byte_offset,
+                    amount: member.indirections,
                 },
             );
             to
@@ -716,12 +718,12 @@ fn emit_lvalue<'a>(
             match parent_value {
                 LValue::Reference(value, mut ref_member) => {
                     ref_member.offset += member.byte_offset;
-                    ref_member.amount += 1;
+                    ref_member.amount += member.indirections;
                     LValue::Reference(value, ref_member)
                 }
                 LValue::Value(value, mut ref_member) => {
                     ref_member.offset += member.byte_offset;
-                    ref_member.amount += 1;
+                    ref_member.amount += member.indirections;
                     LValue::Value(value, ref_member)
                 }
             }

@@ -1,22 +1,21 @@
 library "fmt.bo";
 library "mem.bo";
-
-const VecU8 = type VecU8 {
-    capacity : usize;
-    buf : [] u8;
-
-    #alias len = buf.len;
-    #alias ptr = buf.ptr;
-};
+library "vec_u8.bo";
 
 #entry fn() -> u64 {
-    print("Hello, world!\n");
+    let v = #0 : VecU8;
+    defer vec_u8_free(v);
 
-    let buffer = alloc(8);
-
-    dealloc(buffer);
-
-    print("Got past allocation\n");
+    vec_u8_push(&v, "a");
+    vec_u8_push(&v, "b");
+    vec_u8_push(&v, "c");
+    print(v.buf);
+    vec_u8_push(&v, "\n");
+    print(v.buf);
+    vec_u8_pop(&v);
+    print(v.buf);
+    vec_u8_push(&v, "\n");
+    print(v.buf);
 
     0
 };

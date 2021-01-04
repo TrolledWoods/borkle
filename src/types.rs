@@ -67,12 +67,7 @@ impl Type {
         }
     }
 
-    pub fn new_named(
-        loc: Location,
-        name: Ustr,
-        kind: TypeKind,
-        aliases: Vec<(Ustr, usize, Type)>,
-    ) -> Self {
+    pub fn new_named(loc: Location, name: Ustr, kind: TypeKind, aliases: Vec<Alias>) -> Self {
         let mut types = TYPES.lock();
         Self::new_unique(&mut *types, kind, Some((loc, name)), aliases, true)
     }
@@ -81,7 +76,7 @@ impl Type {
         types: &mut Vec<&'static TypeData>,
         kind: TypeKind,
         name: Option<(Location, Ustr)>,
-        aliases: Vec<(Ustr, usize, Type)>,
+        aliases: Vec<Alias>,
         is_unique: bool,
     ) -> Type {
         let (size, align) = kind.calculate_size_align();
@@ -189,15 +184,23 @@ impl Type {
             if name == member_name {
                 return Some(Member {
                     byte_offset: offset,
+                    indirections: 1,
                     type_,
                 });
             }
         }
 
-        for &(name, offset, type_) in &self.0.aliases {
+        for &Alias {
+            name,
+            offset,
+            indirections,
+            type_,
+        } in &self.0.aliases
+        {
             if name == member_name {
                 return Some(Member {
                     byte_offset: offset,
+                    indirections,
                     type_,
                 });
             }
@@ -211,7 +214,7 @@ pub struct TypeData {
     pub kind: TypeKind,
     is_unique: bool,
     pub members: Vec<(Ustr, usize, Type)>,
-    pub aliases: Vec<(Ustr, usize, Type)>,
+    pub aliases: Vec<Alias>,
 
     pub name: Option<(Location, Ustr)>,
 
@@ -590,8 +593,16 @@ pub struct BufferRepr {
     pub length: usize,
 }
 
+pub struct Alias {
+    pub name: Ustr,
+    pub offset: usize,
+    pub indirections: usize,
+    pub type_: Type,
+}
+
 pub struct Member {
     pub byte_offset: usize,
+    pub indirections: usize,
     pub type_: Type,
 }
 

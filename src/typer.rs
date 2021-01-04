@@ -10,7 +10,7 @@ use crate::program::constant::ConstantRef;
 use crate::program::{MemberMetaData, Program};
 use crate::self_buffer::{SelfBuffer, SelfTree};
 use crate::thread_pool::ThreadContext;
-use crate::types::{IntTypeKind, Type, TypeData, TypeKind};
+use crate::types::{Alias, IntTypeKind, Type, TypeData, TypeKind};
 pub use ast::{Node, NodeKind};
 use infer::WantedType;
 
@@ -1156,6 +1156,8 @@ fn type_ast<'a>(
 
             let mut resolved_aliases = Vec::with_capacity(aliases.len());
             for &(alias_name, ref path) in aliases {
+                let indirections = path.len();
+
                 // Since the first element of the path refers to the current struct,
                 // and the current struct is not created yet, we have to manually find
                 // that member.
@@ -1187,7 +1189,12 @@ fn type_ast<'a>(
                     type_ = member.type_;
                 }
 
-                resolved_aliases.push((alias_name, offset, type_));
+                resolved_aliases.push(Alias {
+                    name: alias_name,
+                    offset,
+                    indirections,
+                    type_,
+                });
             }
 
             let type_ = Type::new_named(
