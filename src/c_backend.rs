@@ -410,66 +410,6 @@ pub fn routine_to_c(output: &mut String, routine: &Routine, arg_types: &[Type], 
                     Instr::LabelDefinition(id) => {
                         write!(output, "label_{}:;\n", id.0).unwrap();
                     }
-
-                    Instr::i_stdout_write { to, buffer } => {
-                        write!(
-                            output,
-                            "{} = fwrite({}.ptr, 1, {}.len, stdout);\n",
-                            c_format_value(to),
-                            c_format_value(buffer),
-                            c_format_value(buffer),
-                        )
-                        .unwrap();
-                    }
-                    Instr::i_stdout_flush => {
-                        output.push_str("fflush(stdout);\n");
-                    }
-                    Instr::i_stdin_getline { to } => {
-                        write!(
-                            output,
-                            "{{
-                        char temp_data[512];
-                        gets(temp_data);\n
-                        {0}.len = strlen(temp_data);
-                        {0}.ptr = malloc({0}.len);
-                        memcpy({0}.ptr, temp_data, {0}.len);
-                    }}\n",
-                            c_format_value(to),
-                        )
-                        .unwrap();
-                    }
-                    Instr::i_alloc { to, size } => {
-                        write!(
-                            output,
-                            "{} = malloc({});\n",
-                            c_format_value(to),
-                            c_format_value(size),
-                        )
-                        .unwrap();
-                    }
-                    Instr::i_dealloc { buffer } => {
-                        write!(output, "free({}.ptr);\n", c_format_value(buffer)).unwrap();
-                    }
-                    Instr::i_copy { from, to, size } => {
-                        write!(
-                            output,
-                            "memmove({}, {}, {});\n",
-                            c_format_value(to),
-                            c_format_value(from),
-                            c_format_value(size)
-                        )
-                        .unwrap();
-                    }
-                    Instr::i_copy_nonoverlapping { from, to, size } => {
-                        write!(
-                            output,
-                            "memcpy({}, {}, {});\n",
-                            c_format_value(to),
-                            c_format_value(from),
-                            c_format_value(size)
-                        )
-                        .unwrap();
-                    }
                 }
             }
 
@@ -557,7 +497,7 @@ pub fn append_c_type_headers(output: &mut String) {
         let mut name_is_needed = true;
         match &type_.kind {
             TypeKind::Type => output.push_str("uint64_t "),
-            TypeKind::Intrinsic(_) | TypeKind::Never | TypeKind::Empty => unreachable!(),
+            TypeKind::Never | TypeKind::Empty => unreachable!(),
             TypeKind::Range(internal) => {
                 write!(
                     output,

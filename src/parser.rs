@@ -5,14 +5,13 @@ mod token_stream;
 
 use crate::dependencies::{DependencyKind, DependencyList};
 use crate::errors::ErrorCtx;
-use crate::intrinsic::Intrinsic;
 use crate::literal::Literal;
 use crate::locals::Local;
 use crate::location::Location;
 use crate::operators::BinaryOp;
-use crate::program::{MemberMetaData, Program, ScopeId, Task};
+use crate::program::{Program, ScopeId, Task};
 use crate::self_buffer::{SelfBox, SelfBuffer, SelfTree};
-use crate::types::{Type, TypeKind};
+use crate::types::TypeKind;
 pub use ast::{Node, NodeKind};
 use context::{DataContext, ImperativeContext};
 use lexer::{Bracket, Keyword, Token, TokenKind};
@@ -87,30 +86,6 @@ pub fn process_string(
                     return Err(());
                 }
                 *entry_point = Some(id);
-            }
-            TokenKind::Keyword(Keyword::Intrinsic) => {
-                let (name_loc, name) = context.tokens.expect_identifier(context.errors)?;
-                context
-                    .tokens
-                    .expect_next_is(context.errors, &TokenKind::SemiColon)?;
-
-                if let Some(intrinsic) = Intrinsic::from_string(&name) {
-                    let id = context.program.define_member(
-                        context.errors,
-                        token.loc,
-                        context.scope,
-                        name,
-                    )?;
-                    context.program.set_type_of_member(
-                        id,
-                        Type::new(TypeKind::Intrinsic(intrinsic)),
-                        MemberMetaData::None,
-                    );
-                    // This is a zst, we don't need a value.
-                    context.program.set_value_of_member(id, std::ptr::null());
-                } else {
-                    context.error(name_loc, format!("'{}' is not an intrinsic", name));
-                }
             }
             TokenKind::Keyword(Keyword::Import) => {
                 let name = context.tokens.expect_next(context.errors)?;

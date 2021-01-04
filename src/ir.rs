@@ -77,38 +77,6 @@ pub enum Instr {
         to: LabelId,
     },
     LabelDefinition(LabelId),
-    //
-    // ##################################
-    // ##                              ##
-    // ## Intrinsic-esque instructions ##
-    // ##                              ##
-    // ##################################
-    //
-    i_stdout_write {
-        to: Value,
-        buffer: Value,
-    },
-    i_stdout_flush,
-    i_stdin_getline {
-        to: Value,
-    },
-    i_alloc {
-        to: Value,
-        size: Value,
-    },
-    i_dealloc {
-        buffer: Value,
-    },
-    i_copy {
-        from: Value,
-        to: Value,
-        size: Value,
-    },
-    i_copy_nonoverlapping {
-        from: Value,
-        to: Value,
-        size: Value,
-    },
 }
 
 #[derive(Default, Debug, Clone, Copy)]

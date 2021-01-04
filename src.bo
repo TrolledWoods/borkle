@@ -1,6 +1,5 @@
 library "fmt.bo";
 library "mem.bo";
-// library "intrinsics.bo";
 
 const VecU8 = type VecU8 {
     capacity : usize;
