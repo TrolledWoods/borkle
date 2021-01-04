@@ -181,8 +181,9 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, node: &'a Node) -> Value {
                             start,
                             iterating_value,
                             Member {
+                                // 'start' member
                                 offset: 0,
-                                name_list: vec!["start".into()],
+                                amount: 1,
                             },
                         );
                         ctx.emit_member(
@@ -190,7 +191,7 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, node: &'a Node) -> Value {
                             iterating_value,
                             Member {
                                 offset: inner.size(),
-                                name_list: vec!["end".into()],
+                                amount: 1,
                             },
                         );
                     }
@@ -202,7 +203,7 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, node: &'a Node) -> Value {
                         iterating_value,
                         Member {
                             offset: 0,
-                            name_list: vec!["ptr".into()],
+                            amount: 1,
                         },
                     );
 
@@ -214,7 +215,7 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, node: &'a Node) -> Value {
                         iterating_value,
                         Member {
                             offset: 8,
-                            name_list: vec!["len".into()],
+                            amount: 1,
                         },
                     );
 
@@ -391,7 +392,7 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, node: &'a Node) -> Value {
                 from,
                 Member {
                     offset: 0,
-                    name_list: vec!["ptr".into()],
+                    amount: 1,
                 },
             );
 
@@ -402,7 +403,7 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, node: &'a Node) -> Value {
                 from,
                 Member {
                     offset: 8,
-                    name_list: vec!["len".into()],
+                    amount: 1,
                 },
             );
 
@@ -422,7 +423,7 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, node: &'a Node) -> Value {
                 len,
                 Member {
                     offset: 8,
-                    name_list: vec!["len".into()],
+                    amount: 1,
                 },
             );
             ctx.emit_move_to_member_of_value(
@@ -430,7 +431,7 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, node: &'a Node) -> Value {
                 ptr,
                 Member {
                     offset: 0,
-                    name_list: vec!["ptr".into()],
+                    amount: 1,
                 },
             );
 
@@ -445,7 +446,7 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, node: &'a Node) -> Value {
                 from,
                 Member {
                     offset: 0,
-                    name_list: vec!["ptr".into()],
+                    amount: 1,
                 },
             );
 
@@ -456,7 +457,7 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, node: &'a Node) -> Value {
                 from,
                 Member {
                     offset: 8,
-                    name_list: vec!["len".into()],
+                    amount: 1,
                 },
             );
 
@@ -471,7 +472,7 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, node: &'a Node) -> Value {
                 len,
                 Member {
                     offset: 8,
-                    name_list: vec!["len".into()],
+                    amount: 1,
                 },
             );
             ctx.emit_move_to_member_of_value(
@@ -479,7 +480,7 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, node: &'a Node) -> Value {
                 ptr,
                 Member {
                     offset: 0,
-                    name_list: vec!["ptr".into()],
+                    amount: 1,
                 },
             );
 
@@ -499,7 +500,7 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, node: &'a Node) -> Value {
                 from,
                 Member {
                     offset: 0,
-                    name_list: vec!["ptr".into()],
+                    amount: 1,
                 },
             );
             ctx.emit_move_to_member_of_value(
@@ -507,7 +508,7 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, node: &'a Node) -> Value {
                 len_reg,
                 Member {
                     offset: 8,
-                    name_list: vec!["len".into()],
+                    amount: 1,
                 },
             );
             to
@@ -521,7 +522,7 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, node: &'a Node) -> Value {
                 of,
                 Member {
                     offset: of.type_().member(*name).unwrap().byte_offset,
-                    name_list: vec![*name],
+                    amount: 1,
                 },
             );
             to
@@ -739,13 +740,13 @@ fn emit_lvalue<'a>(
 
             match parent_value {
                 LValue::Reference(value, mut ref_member) => {
-                    ref_member.name_list.push(*name);
                     ref_member.offset += member.byte_offset;
+                    ref_member.amount += 1;
                     LValue::Reference(value, ref_member)
                 }
                 LValue::Value(value, mut ref_member) => {
-                    ref_member.name_list.push(*name);
                     ref_member.offset += member.byte_offset;
+                    ref_member.amount += 1;
                     LValue::Value(value, ref_member)
                 }
             }
@@ -753,36 +754,14 @@ fn emit_lvalue<'a>(
         NodeKind::Unary {
             op: UnaryOp::Dereference,
             operand,
-        } => LValue::Reference(
-            emit_node(ctx, operand),
-            Member {
-                offset: 0,
-                name_list: Vec::new(),
-            },
-        ),
-        NodeKind::Local(id) => LValue::Value(
-            ctx.locals.get(*id).value.unwrap(),
-            Member {
-                offset: 0,
-                name_list: Vec::new(),
-            },
-        ),
-        NodeKind::Global(id, _) => LValue::Value(
-            ctx.program.get_constant_as_value(*id),
-            Member {
-                offset: 0,
-                name_list: Vec::new(),
-            },
-        ),
+        } => LValue::Reference(emit_node(ctx, operand), Member::default()),
+        NodeKind::Local(id) => LValue::Value(ctx.locals.get(*id).value.unwrap(), Member::default()),
+        NodeKind::Global(id, _) => {
+            LValue::Value(ctx.program.get_constant_as_value(*id), Member::default())
+        }
         kind => {
             if can_reference_temporaries {
-                LValue::Value(
-                    emit_node(ctx, node),
-                    Member {
-                        offset: 0,
-                        name_list: Vec::new(),
-                    },
-                )
+                LValue::Value(emit_node(ctx, node), Member::default())
             } else {
                 unreachable!(
                     "{:?} is not an lvalue. This is just something I haven't implemented checking for in the compiler yet",

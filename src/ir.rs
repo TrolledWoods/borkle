@@ -2,9 +2,8 @@ use crate::operators::{BinaryOp, UnaryOp};
 use crate::program::constant::ConstantRef;
 use crate::types::{to_align, Type, TypeKind};
 use std::fmt;
-use ustr::Ustr;
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 #[allow(non_camel_case_types)]
 pub enum Instr {
     // to = pointer(args)
@@ -112,97 +111,10 @@ pub enum Instr {
     },
 }
 
-impl fmt::Debug for Instr {
-    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Call { to, pointer, args } => {
-                write!(fmt, "{} = {}(", to, pointer)?;
-                for (i, arg) in args.iter().enumerate() {
-                    if i > 0 {
-                        write!(fmt, ", ")?;
-                    }
-
-                    write!(fmt, "{}", arg)?;
-                }
-                write!(fmt, ")")?;
-                Ok(())
-            }
-            Self::Increment { value } => write!(fmt, "{} += 1", value),
-            Self::Binary { op, to, a, b } => write!(fmt, "{} = {} {:?} {}", to, a, op, b),
-            Self::Unary { op, to, from } => write!(fmt, "{} = {:?} {}", to, op, from),
-            Self::PointerToMemberOfPointer { to, of, member } => {
-                write!(fmt, "{} = &(*{})", to, of)?;
-                for name in &member.name_list {
-                    write!(fmt, ".{}", name)?;
-                }
-                Ok(())
-            }
-            Self::Member { to, of, member } => {
-                write!(fmt, "{} = {}", to, of)?;
-                for name in &member.name_list {
-                    write!(fmt, ".{}", name)?;
-                }
-                Ok(())
-            }
-            Self::Dereference { to, from } => write!(fmt, "{} = *{}", to, from),
-            Self::PointerToMemberOfValue { to, from, offset } => {
-                write!(fmt, "{}", to)?;
-                for name in &offset.name_list {
-                    write!(fmt, ".{}", name)?;
-                }
-                write!(fmt, "= &{}", from)
-            }
-            Self::MoveToMemberOfValue {
-                to,
-                from,
-                size: _,
-                member,
-            } => {
-                write!(fmt, "{}", to)?;
-                for name in &member.name_list {
-                    write!(fmt, ".{}", name)?;
-                }
-                write!(fmt, "= {}", from)
-            }
-            Self::MoveToMemberOfPointer {
-                to,
-                from,
-                size: _,
-                member,
-            } => {
-                write!(fmt, "*{}", to)?;
-                for name in &member.name_list {
-                    write!(fmt, ".{}", name)?;
-                }
-                write!(fmt, "= {}", from)
-            }
-            Self::JumpIfZero { condition, to } => {
-                write!(fmt, "jump to {} if {} == 0", to.0, condition)
-            }
-            Self::Jump { to } => write!(fmt, "jump to {}", to.0),
-            Self::LabelDefinition(id) => write!(fmt, "-- label {}", id.0),
-            Self::i_stdout_write { to, buffer } => {
-                write!(fmt, "{} = i_stdout_write({})", to, buffer)
-            }
-            Self::i_stdout_flush => write!(fmt, "i_stdout_flush()"),
-            Self::i_stdin_getline { to } => {
-                write!(fmt, "{} = i_stdin_getline()", to)
-            }
-            Self::i_alloc { to, size } => write!(fmt, "{} = i_alloc({})", to, size),
-            Self::i_dealloc { buffer } => write!(fmt, "i_dealloc({})", buffer),
-            Self::i_copy { from, to, size } => write!(fmt, "i_copy({}, {}, {})", from, to, size),
-            Self::i_copy_nonoverlapping { from, to, size } => {
-                write!(fmt, "i_copy_nonoverlapping({}, {}, {})", from, to, size)
-            }
-        }
-    }
-}
-
-#[derive(Default, Debug, Clone)]
+#[derive(Default, Debug, Clone, Copy)]
 pub struct Member {
     pub offset: usize,
-    // FIXME: This is inefficient af!!!!
-    pub name_list: Vec<Ustr>,
+    pub amount: usize,
 }
 
 // Why is this safe? Well, because we do not have interior mutability anywhere, so the raw pointers

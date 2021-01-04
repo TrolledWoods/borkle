@@ -296,10 +296,7 @@ pub fn routine_to_c(output: &mut String, routine: &Routine, num_args: usize) {
             Instr::Member { to, of, member } => {
                 write!(output, "{} = {}", c_format_value(to), c_format_value(of)).unwrap();
 
-                for name in &member.name_list {
-                    output.push('.');
-                    output.push_str(name);
-                }
+                of.type_().fmt_members(output, *member);
 
                 write!(output, ";\n").unwrap();
             }
@@ -312,12 +309,9 @@ pub fn routine_to_c(output: &mut String, routine: &Routine, num_args: usize) {
                 )
                 .unwrap();
 
-                for name in &member.name_list {
-                    output.push('.');
-                    output.push_str(name);
-                }
+                of.type_().fmt_members(output, *member);
 
-                write!(output, ";\n").unwrap();
+                output.push_str(";\n");
             }
             Instr::Dereference { to, from } => {
                 write!(
@@ -331,10 +325,7 @@ pub fn routine_to_c(output: &mut String, routine: &Routine, num_args: usize) {
             Instr::PointerToMemberOfValue { to, from, offset } => {
                 write!(output, "{} = &{}", c_format_value(to), c_format_value(from)).unwrap();
 
-                for name in &offset.name_list {
-                    output.push('.');
-                    output.push_str(name.as_str());
-                }
+                from.type_().fmt_members(output, *offset);
 
                 output.push_str(";\n");
             }
@@ -346,10 +337,7 @@ pub fn routine_to_c(output: &mut String, routine: &Routine, num_args: usize) {
             } => {
                 write!(output, "{}", c_format_value(to)).unwrap();
 
-                for name in &member.name_list {
-                    output.push('.');
-                    output.push_str(name);
-                }
+                to.type_().fmt_members(output, *member);
 
                 write!(output, " = {};\n", c_format_value(from)).unwrap();
             }
@@ -361,10 +349,10 @@ pub fn routine_to_c(output: &mut String, routine: &Routine, num_args: usize) {
             } => {
                 write!(output, "(*{})", c_format_value(to)).unwrap();
 
-                for name in &member.name_list {
-                    output.push('.');
-                    output.push_str(name);
-                }
+                to.type_()
+                    .pointing_to()
+                    .unwrap()
+                    .fmt_members(output, *member);
 
                 write!(output, " = {};\n", c_format_value(from)).unwrap();
             }

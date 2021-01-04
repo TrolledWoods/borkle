@@ -60,6 +60,7 @@ impl Type {
         kind.get_pointers(&mut pointers);
 
         let data = TypeData {
+            members: kind.get_members(),
             is_pointer_to_zst: matches!(kind, TypeKind::Reference(inner) | TypeKind::Buffer(inner) if inner.size() == 0),
             call_scheme: kind.call_scheme(),
             is_never_type,
@@ -76,6 +77,34 @@ impl Type {
             let leaked = Box::leak(Box::new(data));
             types.push(leaked);
             Self(leaked)
+        }
+    }
+
+    pub fn fmt_members(self, output: &mut String, member: crate::ir::Member) {
+        let mut type_ = self;
+        let mut offset = member.offset;
+        'outer_loop: for _ in 0..member.amount {
+            // Find the correct member
+            for &(name, member_offset, member_type) in type_.0.members.iter().rev() {
+                if offset >= member_offset {
+                    offset -= member_offset;
+                    type_ = member_type;
+
+                    output.push('.');
+                    output.push_str(name.as_str());
+                    continue 'outer_loop;
+                }
+            }
+
+            unreachable!("No member found, this shouldn't happen");
+        }
+    }
+
+    pub fn pointing_to(self) -> Option<Type> {
+        if let TypeKind::Reference(inner) = *self.kind() {
+            Some(inner)
+        } else {
+            None
         }
     }
 
@@ -120,72 +149,31 @@ impl Type {
     }
 
     pub fn member(self, member_name: Ustr) -> Option<Member> {
-        match self.kind() {
-            TypeKind::Struct(members) => {
-                for (name, offset, type_) in struct_field_offsets(members) {
-                    if name == member_name {
-                        return Some(Member {
-                            parent_type: self,
-                            byte_offset: offset,
-                            type_,
-                        });
-                    }
-                }
-
-                None
+        for &(name, offset, type_) in &self.0.members {
+            if name == member_name {
+                return Some(Member {
+                    byte_offset: offset,
+                    type_,
+                });
             }
-            TypeKind::Range(internal) => match member_name.as_str() {
-                "start" => Some(Member {
-                    parent_type: self,
-                    byte_offset: 0,
-                    type_: *internal,
-                }),
-                "end" => Some(Member {
-                    parent_type: self,
-                    byte_offset: to_align(internal.size(), internal.align()),
-                    type_: *internal,
-                }),
-                _ => None,
-            },
-            TypeKind::Buffer(internal) => match member_name.as_str() {
-                "ptr" => Some(Member {
-                    parent_type: self,
-                    byte_offset: 0,
-                    type_: Type::new(TypeKind::Reference(*internal)),
-                }),
-                "len" => Some(Member {
-                    parent_type: self,
-                    byte_offset: 8,
-                    type_: Type::new(TypeKind::Int(IntTypeKind::Usize)),
-                }),
-                _ => None,
-            },
-            TypeKind::AnyBuffer => match member_name.as_str() {
-                "ptr" => Some(Member {
-                    parent_type: self,
-                    byte_offset: 0,
-                    type_: Type::new(TypeKind::Any),
-                }),
-                "len" => Some(Member {
-                    parent_type: self,
-                    byte_offset: 8,
-                    type_: Type::new(TypeKind::Int(IntTypeKind::Usize)),
-                }),
-                _ => None,
-            },
-            _ => None,
         }
+
+        None
     }
 }
 
 #[derive(Hash, PartialEq, Eq)]
 pub struct TypeData {
-    is_never_type: bool,
+    pub kind: TypeKind,
+    pub members: Vec<(Ustr, usize, Type)>,
+
     pub size: usize,
     align: usize,
-    pub kind: TypeKind,
+
     call_scheme: Option<(Vec<Type>, Type)>,
     pointers: Vec<(usize, PointerInType)>,
+
+    is_never_type: bool,
     can_be_stored_in_constant: bool,
     pub is_pointer_to_zst: bool,
 }
@@ -292,6 +280,39 @@ impl TypeKind {
                     on_inner(*member);
                 }
             }
+        }
+    }
+
+    fn get_members(&self) -> Vec<(Ustr, usize, Type)> {
+        match *self {
+            TypeKind::Buffer(inner) => {
+                let ptr_type = Type::new(TypeKind::Reference(inner));
+                let usize_type = Type::new(TypeKind::Int(IntTypeKind::Usize));
+                vec![("ptr".into(), 0, ptr_type), ("len".into(), 8, usize_type)]
+            }
+            TypeKind::AnyBuffer => {
+                let ptr_type = Type::new(TypeKind::Any);
+                let usize_type = Type::new(TypeKind::Int(IntTypeKind::Usize));
+                vec![("ptr".into(), 0, ptr_type), ("len".into(), 8, usize_type)]
+            }
+            TypeKind::Struct(ref members) => {
+                let mut new_members = Vec::new();
+                for (name, offset, type_) in struct_field_offsets(&*members) {
+                    new_members.push((name, offset, type_));
+                }
+                new_members
+            }
+            TypeKind::Range(internal) => {
+                vec![
+                    ("start".into(), 0, internal),
+                    (
+                        "end".into(),
+                        to_align(internal.size(), internal.align()),
+                        internal,
+                    ),
+                ]
+            }
+            _ => Vec::new(),
         }
     }
 
@@ -509,7 +530,6 @@ pub struct BufferRepr {
 }
 
 pub struct Member {
-    pub parent_type: Type,
     pub byte_offset: usize,
     pub type_: Type,
 }
