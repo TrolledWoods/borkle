@@ -303,10 +303,15 @@ fn named_type(
                 }
 
                 let type_ = type_(global, imperative, buffer)?;
+                global
+                    .tokens
+                    .expect_next_is(global.errors, &TokenKind::SemiColon)?;
+
                 fields.push((name, buffer.insert(type_)));
             }
             _ => {
                 global.error(token.loc, "Expected field or alias".to_string());
+                return Err(());
             }
         }
     }

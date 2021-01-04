@@ -1,3 +1,4 @@
+use crate::location::Location;
 use lazy_static::lazy_static;
 use parking_lot::Mutex;
 use std::fmt::{self, Debug, Display};
@@ -34,6 +35,10 @@ impl Debug for Type {
 
 impl Display for Type {
     fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if let Some((_, name)) = self.0.name {
+            return write!(fmt, "{}", name);
+        }
+
         self.0.kind.fmt(fmt)
     }
 }
@@ -46,6 +51,39 @@ impl From<TypeKind> for Type {
 
 impl Type {
     pub fn new(kind: TypeKind) -> Self {
+        let mut types = TYPES.lock();
+        Self::new_without_lock(&mut *types, kind)
+    }
+
+    fn new_without_lock(types: &mut Vec<&'static TypeData>, kind: TypeKind) -> Self {
+        if let Some(content) = types
+            .iter()
+            .filter(|c| !c.is_unique)
+            .find(|&&c| c.kind == kind)
+        {
+            Self(content)
+        } else {
+            Self::new_unique(types, kind, None, Vec::new(), false)
+        }
+    }
+
+    pub fn new_named(
+        loc: Location,
+        name: Ustr,
+        kind: TypeKind,
+        aliases: Vec<(Ustr, usize, Type)>,
+    ) -> Self {
+        let mut types = TYPES.lock();
+        Self::new_unique(&mut *types, kind, Some((loc, name)), aliases, true)
+    }
+
+    fn new_unique(
+        types: &mut Vec<&'static TypeData>,
+        kind: TypeKind,
+        name: Option<(Location, Ustr)>,
+        aliases: Vec<(Ustr, usize, Type)>,
+        is_unique: bool,
+    ) -> Type {
         let (size, align) = kind.calculate_size_align();
         let can_be_stored_in_constant = kind.can_be_stored_in_constant();
 
@@ -57,10 +95,13 @@ impl Type {
         });
 
         let mut pointers = Vec::new();
-        kind.get_pointers(&mut pointers);
+        kind.get_pointers(types, &mut pointers);
 
         let data = TypeData {
-            members: kind.get_members(),
+            name,
+            is_unique,
+            aliases,
+            members: kind.get_members(types),
             is_pointer_to_zst: matches!(kind, TypeKind::Reference(inner) | TypeKind::Buffer(inner) if inner.size() == 0),
             call_scheme: kind.call_scheme(),
             is_never_type,
@@ -70,14 +111,9 @@ impl Type {
             pointers,
             can_be_stored_in_constant,
         };
-        let mut types = TYPES.lock();
-        if let Some(content) = types.iter().find(|&&c| c == &data) {
-            Self(content)
-        } else {
-            let leaked = Box::leak(Box::new(data));
-            types.push(leaked);
-            Self(leaked)
-        }
+        let leaked = Box::leak(Box::new(data));
+        types.push(leaked);
+        Self(leaked)
     }
 
     pub fn fmt_members(self, output: &mut String, member: crate::ir::Member) {
@@ -158,14 +194,26 @@ impl Type {
             }
         }
 
+        for &(name, offset, type_) in &self.0.aliases {
+            if name == member_name {
+                return Some(Member {
+                    byte_offset: offset,
+                    type_,
+                });
+            }
+        }
+
         None
     }
 }
 
-#[derive(Hash, PartialEq, Eq)]
 pub struct TypeData {
     pub kind: TypeKind,
+    is_unique: bool,
     pub members: Vec<(Ustr, usize, Type)>,
+    pub aliases: Vec<(Ustr, usize, Type)>,
+
+    pub name: Option<(Location, Ustr)>,
 
     pub size: usize,
     align: usize,
@@ -283,16 +331,16 @@ impl TypeKind {
         }
     }
 
-    fn get_members(&self) -> Vec<(Ustr, usize, Type)> {
+    fn get_members(&self, types: &mut Vec<&'static TypeData>) -> Vec<(Ustr, usize, Type)> {
         match *self {
             TypeKind::Buffer(inner) => {
-                let ptr_type = Type::new(TypeKind::Reference(inner));
-                let usize_type = Type::new(TypeKind::Int(IntTypeKind::Usize));
+                let ptr_type = Type::new_without_lock(types, TypeKind::Reference(inner));
+                let usize_type = Type::new_without_lock(types, TypeKind::Int(IntTypeKind::Usize));
                 vec![("ptr".into(), 0, ptr_type), ("len".into(), 8, usize_type)]
             }
             TypeKind::AnyBuffer => {
-                let ptr_type = Type::new(TypeKind::Any);
-                let usize_type = Type::new(TypeKind::Int(IntTypeKind::Usize));
+                let ptr_type = Type::new_without_lock(types, TypeKind::Any);
+                let usize_type = Type::new_without_lock(types, TypeKind::Int(IntTypeKind::Usize));
                 vec![("ptr".into(), 0, ptr_type), ("len".into(), 8, usize_type)]
             }
             TypeKind::Struct(ref members) => {
@@ -354,7 +402,8 @@ impl TypeKind {
                 (size, inner.align())
             }
             Self::Array(internal, length) => {
-                let (member_size, align) = internal.kind().calculate_size_align();
+                let member_size = internal.size();
+                let align = internal.align();
                 let size = array_size(member_size, align, *length);
                 (size, align)
             }
@@ -377,7 +426,11 @@ impl TypeKind {
 
     /// Appends all the pointers in this type to a vector, with the offset offsetted by the offset. Does not include indirect
     /// pointers(i.e. pointers behind other pointers).
-    fn get_pointers(&self, pointers: &mut Vec<(usize, PointerInType)>) {
+    fn get_pointers(
+        &self,
+        types: &mut Vec<&'static TypeData>,
+        pointers: &mut Vec<(usize, PointerInType)>,
+    ) {
         match self {
             Self::Never
             | Self::Type
@@ -401,7 +454,10 @@ impl TypeKind {
             Self::AnyBuffer => {
                 pointers.push((
                     0,
-                    PointerInType::Buffer(Type::new(TypeKind::Int(IntTypeKind::U8))),
+                    PointerInType::Buffer(Type::new_without_lock(
+                        types,
+                        TypeKind::Int(IntTypeKind::U8),
+                    )),
                 ));
             }
             Self::Range(internal) => {
@@ -438,6 +494,16 @@ impl TypeKind {
             }
         }
     }
+}
+
+pub fn get_struct_field(fields: &[(Ustr, Type)], field: Ustr) -> Option<(usize, Type)> {
+    for (name, offset, type_) in struct_field_offsets(fields) {
+        if name == field {
+            return Some((offset, type_));
+        }
+    }
+
+    None
 }
 
 pub fn struct_field_offsets(

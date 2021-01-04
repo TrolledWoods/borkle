@@ -1092,8 +1092,69 @@ fn type_ast<'a>(
                 Type::new(TypeKind::Type),
             )
         }
-        ParsedNodeKind::NamedType { .. } => {
-            todo!("Type named type");
+        ParsedNodeKind::NamedType {
+            name,
+            ref fields,
+            ref aliases,
+        } => {
+            let mut typed_fields = Vec::with_capacity(fields.len());
+            for (field_name, field_type) in fields {
+                let type_ = const_fold_type_expr(ctx, field_type, buffer)?;
+                typed_fields.push((*field_name, type_));
+            }
+
+            let mut resolved_aliases = Vec::with_capacity(aliases.len());
+            for &(alias_name, ref path) in aliases {
+                // Since the first element of the path refers to the current struct,
+                // and the current struct is not created yet, we have to manually find
+                // that member.
+                let (&(first_loc, first), path) =
+                    path.split_first().expect("Slice here should not be empty");
+
+                let (mut offset, mut type_) = crate::types::get_struct_field(&typed_fields, first)
+                    .ok_or_else(|| {
+                        ctx.errors.error(
+                            first_loc,
+                            format!("Cannot alias '{}', it's not a field", first),
+                        )
+                    })?;
+
+                // The rest of the types are already defined, so those we do not have to worry
+                // about.
+                for &(element_loc, element) in path {
+                    let member = type_.member(element).ok_or_else(|| {
+                        ctx.errors.error(
+                            element_loc,
+                            format!(
+                                "'{}' is not a field of '{}'(aliases do not allow dereferencing currently)",
+                                element, type_
+                            ),
+                        )
+                    })?;
+
+                    offset += member.byte_offset;
+                    type_ = member.type_;
+                }
+
+                resolved_aliases.push((alias_name, offset, type_));
+            }
+
+            let type_ = Type::new_named(
+                parsed.loc,
+                name,
+                TypeKind::Struct(typed_fields),
+                resolved_aliases,
+            );
+            let type_type = Type::new(TypeKind::Type);
+
+            Node::new(
+                parsed.loc,
+                NodeKind::Constant(ctx.program.insert_buffer(
+                    type_type,
+                    &(type_.as_ptr() as usize).to_le_bytes() as *const _,
+                )),
+                type_type,
+            )
         }
         ParsedNodeKind::LiteralType(_)
         | ParsedNodeKind::ArrayType { .. }
@@ -1149,7 +1210,7 @@ fn const_fold_type_expr<'a>(
         }
         ParsedNodeKind::BufferType(ref internal) => {
             let pointee = const_fold_type_expr(ctx, internal, buffer)?;
-            Ok(TypeKind::Buffer(pointee).into())
+            Ok(Type::new(TypeKind::Buffer(pointee)))
         }
         ParsedNodeKind::ArrayType {
             ref len,
@@ -1166,7 +1227,7 @@ fn const_fold_type_expr<'a>(
                 let length = unsafe { *len.as_ptr().cast::<usize>() };
 
                 let member = const_fold_type_expr(ctx, members, buffer)?;
-                Ok(TypeKind::Array(member, length).into())
+                Ok(Type::new(TypeKind::Array(member, length)))
             } else {
                 ctx.errors
                     .error(len.loc, "Expected constant expression".to_string());
@@ -1175,7 +1236,7 @@ fn const_fold_type_expr<'a>(
         }
         ParsedNodeKind::ReferenceType(ref internal) => {
             let pointee = const_fold_type_expr(ctx, internal, buffer)?;
-            Ok(TypeKind::Reference(pointee).into())
+            Ok(Type::new(TypeKind::Reference(pointee)))
         }
         ParsedNodeKind::FunctionType {
             ref args,

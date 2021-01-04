@@ -3,6 +3,7 @@
 * [X] BUG! The compiler locks up sometimes.
 * [ ] IDEA: Make aliases in structs, so you can alias a name as a more complex path
 
+* [ ] Redo intrinsics, they also do not work with the current type model, so since I want to change them anyway I'll do that.
 * [ ] Inconsistancy; Named type uses ';' while unnamed struct uses ',', this is inconsistant!
 * [ ] BUG! Status access violation when the compiler crashes.
 * [ ] BUG! Doesn't exit "gracefully" when a thread panics.

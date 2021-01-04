@@ -1,12 +1,17 @@
+// library "fmt.bo";
+// library "intrinsics.bo";
+
 const VecU8 = type VecU8 {
-    buf : [] u8;
     capacity : usize;
+    buf : [] u8;
 
     #alias len = buf.len;
     #alias ptr = buf.ptr;
 };
 
 #entry fn() -> u64 {
-
-    0
+    let vector = #0 : VecU8;
+    let len = &vector.len;
+    *len = 5;
+    bit_cast vector.buf.len
 };
