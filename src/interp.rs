@@ -143,7 +143,7 @@ fn interp_internal(program: &Program, stack: &mut StackFrame<'_>, routine: &Rout
                 let to: *mut u8 = stack.get_mut(to).as_mut_ptr();
                 std::ptr::copy_nonoverlapping(from, to, size);
             },
-            Instr::MemberIndirect { to, of, ref member } => unsafe {
+            Instr::PointerToMemberOfPointer { to, of, ref member } => unsafe {
                 let from: *const u8 =
                     (*stack.get(of).as_ptr().cast::<*const u8>()).add(member.offset);
                 let to: *mut u8 = stack.get_mut(to).as_mut_ptr();
@@ -157,7 +157,7 @@ fn interp_internal(program: &Program, stack: &mut StackFrame<'_>, routine: &Rout
                     std::ptr::copy(ptr, to_ptr, to.size());
                 }
             }
-            Instr::Reference {
+            Instr::PointerToMemberOfValue {
                 to,
                 from,
                 ref offset,
@@ -167,7 +167,7 @@ fn interp_internal(program: &Program, stack: &mut StackFrame<'_>, routine: &Rout
                     stack.get_mut(to).write(ptr as usize + offset.offset);
                 }
             }
-            Instr::Move {
+            Instr::MoveToMemberOfValue {
                 to,
                 from,
                 size,
@@ -177,7 +177,7 @@ fn interp_internal(program: &Program, stack: &mut StackFrame<'_>, routine: &Rout
                 let to: *mut u8 = stack.get_mut(to).as_mut_ptr().add(member.offset);
                 std::ptr::copy_nonoverlapping(from, to, size);
             },
-            Instr::MoveIndirect {
+            Instr::MoveToMemberOfPointer {
                 to,
                 from,
                 size,

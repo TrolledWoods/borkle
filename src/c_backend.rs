@@ -303,7 +303,7 @@ pub fn routine_to_c(output: &mut String, routine: &Routine, num_args: usize) {
 
                 write!(output, ";\n").unwrap();
             }
-            Instr::MemberIndirect { to, of, member } => {
+            Instr::PointerToMemberOfPointer { to, of, member } => {
                 write!(
                     output,
                     "{} = &(*{})",
@@ -328,7 +328,7 @@ pub fn routine_to_c(output: &mut String, routine: &Routine, num_args: usize) {
                 )
                 .unwrap();
             }
-            Instr::Reference { to, from, offset } => {
+            Instr::PointerToMemberOfValue { to, from, offset } => {
                 write!(output, "{} = &{}", c_format_value(to), c_format_value(from)).unwrap();
 
                 for name in &offset.name_list {
@@ -338,7 +338,7 @@ pub fn routine_to_c(output: &mut String, routine: &Routine, num_args: usize) {
 
                 output.push_str(";\n");
             }
-            Instr::Move {
+            Instr::MoveToMemberOfValue {
                 to,
                 from,
                 size: _,
@@ -353,7 +353,7 @@ pub fn routine_to_c(output: &mut String, routine: &Routine, num_args: usize) {
 
                 write!(output, " = {};\n", c_format_value(from)).unwrap();
             }
-            Instr::MoveIndirect {
+            Instr::MoveToMemberOfPointer {
                 to,
                 from,
                 size: _,

@@ -37,32 +37,32 @@ pub enum Instr {
         of: Value,
         member: Member,
     },
-    // to = &(*of).member
-    MemberIndirect {
-        to: Value,
-        of: Value,
-        member: Member,
-    },
     // to = *from
     Dereference {
         to: Value,
         from: Value,
     },
     // to = &from.offset
-    Reference {
+    PointerToMemberOfValue {
         to: Value,
         from: Value,
         offset: Member,
     },
+    // to = &(*of).member
+    PointerToMemberOfPointer {
+        to: Value,
+        of: Value,
+        member: Member,
+    },
     // to.member = from
-    Move {
+    MoveToMemberOfValue {
         to: Value,
         from: Value,
         size: usize,
         member: Member,
     },
-    // &(*to).member = from
-    MoveIndirect {
+    // (*to).member = from
+    MoveToMemberOfPointer {
         to: Value,
         from: Value,
         size: usize,
@@ -130,7 +130,7 @@ impl fmt::Debug for Instr {
             Self::Increment { value } => write!(fmt, "{} += 1", value),
             Self::Binary { op, to, a, b } => write!(fmt, "{} = {} {:?} {}", to, a, op, b),
             Self::Unary { op, to, from } => write!(fmt, "{} = {:?} {}", to, op, from),
-            Self::MemberIndirect { to, of, member } => {
+            Self::PointerToMemberOfPointer { to, of, member } => {
                 write!(fmt, "{} = &(*{})", to, of)?;
                 for name in &member.name_list {
                     write!(fmt, ".{}", name)?;
@@ -145,14 +145,14 @@ impl fmt::Debug for Instr {
                 Ok(())
             }
             Self::Dereference { to, from } => write!(fmt, "{} = *{}", to, from),
-            Self::Reference { to, from, offset } => {
+            Self::PointerToMemberOfValue { to, from, offset } => {
                 write!(fmt, "{}", to)?;
                 for name in &offset.name_list {
                     write!(fmt, ".{}", name)?;
                 }
                 write!(fmt, "= &{}", from)
             }
-            Self::Move {
+            Self::MoveToMemberOfValue {
                 to,
                 from,
                 size: _,
@@ -164,7 +164,7 @@ impl fmt::Debug for Instr {
                 }
                 write!(fmt, "= {}", from)
             }
-            Self::MoveIndirect {
+            Self::MoveToMemberOfPointer {
                 to,
                 from,
                 size: _,
