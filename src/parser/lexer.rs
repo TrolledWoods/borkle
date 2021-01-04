@@ -60,6 +60,7 @@ pub enum Keyword {
     Bool,
     Import,
     Library,
+    Alias,
 }
 
 pub fn process_string(errors: &mut ErrorCtx, file: Ustr, string: &str) -> Result<TokenStream, ()> {
@@ -116,6 +117,7 @@ pub fn process_string(errors: &mut ErrorCtx, file: Ustr, string: &str) -> Result
                     "uninit" => TokenKind::Keyword(Keyword::Uninit),
                     "0" => TokenKind::Keyword(Keyword::Zeroed),
                     "import_intrinsic_from_compiler" => TokenKind::Keyword(Keyword::Intrinsic),
+                    "alias" => TokenKind::Keyword(Keyword::Alias),
                     _ => TokenKind::Tag(tag_name.into()),
                 }
             }

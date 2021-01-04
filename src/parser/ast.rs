@@ -86,6 +86,11 @@ pub enum NodeKind {
     },
 
     TypeAsValue(SelfBox<Node>),
+    NamedType {
+        name: Ustr,
+        fields: Vec<(Ustr, SelfBox<Node>)>,
+        aliases: Vec<(Ustr, Vec<(Location, Ustr)>)>,
+    },
     StructType {
         fields: Vec<(Ustr, SelfBox<Node>)>,
     },

@@ -1092,6 +1092,9 @@ fn type_ast<'a>(
                 Type::new(TypeKind::Type),
             )
         }
+        ParsedNodeKind::NamedType { .. } => {
+            todo!("Type named type");
+        }
         ParsedNodeKind::LiteralType(_)
         | ParsedNodeKind::ArrayType { .. }
         | ParsedNodeKind::StructType { .. }

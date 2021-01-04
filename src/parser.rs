@@ -259,6 +259,68 @@ fn expression(
     }
 }
 
+fn named_type(
+    global: &mut DataContext<'_>,
+    imperative: &mut ImperativeContext<'_>,
+    buffer: &mut SelfBuffer,
+    loc: Location,
+    name: Ustr,
+) -> Result<Node, ()> {
+    global
+        .tokens
+        .expect_next_is(global.errors, &TokenKind::Open(Bracket::Curly))?;
+
+    let mut fields = Vec::new();
+    let mut aliases = Vec::new();
+    while !global.tokens.try_consume(&TokenKind::Close(Bracket::Curly)) {
+        let token = global.tokens.expect_next(global.errors)?;
+        match token.kind {
+            TokenKind::Keyword(Keyword::Alias) => {
+                let (_, name) = global.tokens.expect_identifier(global.errors)?;
+                if global.tokens.try_consume_operator_string("=").is_none() {
+                    global.error(global.tokens.loc(), "Expected '=' for alias".to_string());
+                    return Err(());
+                }
+
+                let first = global.tokens.expect_identifier(global.errors)?;
+                let mut fields = vec![first];
+                while global.tokens.try_consume_operator_string(".").is_some() {
+                    fields.push(global.tokens.expect_identifier(global.errors)?);
+                }
+
+                global
+                    .tokens
+                    .expect_next_is(global.errors, &TokenKind::SemiColon)?;
+                aliases.push((name, fields));
+            }
+            TokenKind::Identifier(name) => {
+                if global.tokens.try_consume_operator_string(":").is_none() {
+                    global.error(
+                        global.tokens.loc(),
+                        "Expected ':' for field type".to_string(),
+                    );
+                    return Err(());
+                }
+
+                let type_ = type_(global, imperative, buffer)?;
+                fields.push((name, buffer.insert(type_)));
+            }
+            _ => {
+                global.error(token.loc, "Expected field or alias".to_string());
+            }
+        }
+    }
+
+    Ok(Node::new(
+        loc,
+        NodeKind::NamedType {
+            name,
+            fields,
+            aliases,
+        },
+    ))
+}
+
 fn type_(
     global: &mut DataContext<'_>,
     imperative: &mut ImperativeContext<'_>,
@@ -481,8 +543,28 @@ fn value(
             }
         }
         TokenKind::Keyword(Keyword::Type) => {
-            let t = type_(global, imperative, buffer)?;
-            Node::new(token.loc, NodeKind::TypeAsValue(buffer.insert(t)))
+            match (global.tokens.peek(), global.tokens.peek_nth(1)) {
+                (
+                    Some(&Token {
+                        kind: TokenKind::Identifier(name),
+                        loc,
+                    }),
+                    Some(&Token {
+                        kind: TokenKind::Open(Bracket::Curly),
+                        ..
+                    }),
+                ) => {
+                    global.tokens.next();
+                    let old = std::mem::replace(&mut imperative.evaluate_at_typing, true);
+                    let node = named_type(global, imperative, buffer, loc, name)?;
+                    imperative.evaluate_at_typing = old;
+                    node
+                }
+                _ => {
+                    let t = type_(global, imperative, buffer)?;
+                    Node::new(token.loc, NodeKind::TypeAsValue(buffer.insert(t)))
+                }
+            }
         }
         TokenKind::Keyword(Keyword::Break) => {
             let id = if global.tokens.try_consume(&TokenKind::SingleQuote) {

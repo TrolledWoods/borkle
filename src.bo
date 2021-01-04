@@ -1,50 +1,12 @@
-library "fmt.bo";
-library "mem.bo";
-library "string.bo";
-library "vec_u8.bo";
+const VecU8 = type VecU8 {
+    buf : [] u8;
+    capacity : usize;
 
-const ARGUMENTS = "
-a = 1
-b = 2
-c = 3
-";
+    #alias len = buf.len;
+    #alias ptr = buf.ptr;
+};
 
 #entry fn() -> u64 {
-    print(const {
-        let string = vec_u8_create();
-
-        vec_u8_push(&string, "a");
-        vec_u8_push(&string, "b");
-        vec_u8_push(&string, "c");
-
-        print("This is a growable string: '%'\n", &[fmt_str(string.buf)]);
-
-        for 0 .. 100 {
-            vec_u8_push(&string, "a");
-            vec_u8_push(&string, "b");
-            vec_u8_push(&string, "c");
-        };
-
-        vec_u8_push(&string, "\n");
-
-        print("This is later: '%'\n", &[fmt_str(string.buf)]);
-
-        vec_u8_pop(&string);
-
-        string.buf
-    });
-
-    let arguments = ARGUMENTS;
-    while !string_empty(arguments) { 'loop_body
-        let line = string_consume_at(&arguments, "\n");
-
-        let name = string_trim(string_consume_at(&line, "="));
-        let value = string_trim(line);
-
-        if string_empty(name) && string_empty(value) break 'loop_body;
-
-        print("'%' = '%'\n", &[fmt_str(name), fmt_str(value)]);
-    };
 
     0
 };
