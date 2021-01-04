@@ -1,6 +1,7 @@
 library "fmt.bo";
-library "intrinsics.bo";
+library "mem.bo";
 library "string.bo";
+library "vec_u8.bo";
 
 const ARGUMENTS = "
 a = 1
@@ -9,6 +10,30 @@ c = 3
 ";
 
 #entry fn() -> u64 {
+    print(const {
+        let string = vec_u8_create();
+
+        vec_u8_push(&string, "a");
+        vec_u8_push(&string, "b");
+        vec_u8_push(&string, "c");
+
+        print("This is a growable string: '%'\n", &[fmt_str(string.buf)]);
+
+        for 0 .. 100 {
+            vec_u8_push(&string, "a");
+            vec_u8_push(&string, "b");
+            vec_u8_push(&string, "c");
+        };
+
+        vec_u8_push(&string, "\n");
+
+        print("This is later: '%'\n", &[fmt_str(string.buf)]);
+
+        vec_u8_pop(&string);
+
+        string.buf
+    });
+
     let arguments = ARGUMENTS;
     while !string_empty(arguments) { 'loop_body
         let line = string_consume_at(&arguments, "\n");

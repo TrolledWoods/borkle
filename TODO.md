@@ -1,6 +1,7 @@
 # Version 0.0.3
 * [X] Made all the locks in Program private, and manage them by documenting what locks a function takes, and never take two non recursive locks at the same time. Might not be completely robust, but it is certainly a lot better than it was before!
 
+* [ ] IDEA: Make aliases in structs, so you can alias a name as a more complex path
 * [ ] Make a global setup file for the compiler!
 * [ ] Add a way to run all the borkle sub-programs in a markdown file
 * [ ] Have a way for named function parameter meta data to be created for extern functions.

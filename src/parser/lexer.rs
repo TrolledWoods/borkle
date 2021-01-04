@@ -256,8 +256,6 @@ fn lex_number(
                 ))))
             }
             '.' => {
-                chars.next();
-
                 let mut digits = 0;
                 let fractal_part = lex_basic_number(chars, 10, &mut digits);
 

@@ -38,3 +38,7 @@ const mem_set = fn (to: &u8, value: u8, size: usize) {
 const mem_copy = fn (to: &any, from: &any, size: usize) {
     i_copy(from, to, size);
 };
+
+const mem_copy_nonoverlapping = fn (to: &any, from: &any, size: usize) {
+    i_copy_nonoverlapping(from, to, size);
+};

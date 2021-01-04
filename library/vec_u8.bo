@@ -1,0 +1,53 @@
+library "mem.bo";
+
+const VecU8 = type {
+    buf : [] u8,
+    capacity : usize,
+};
+
+const INITIAL_SIZE = 16 : usize;
+
+const vec_u8_create = fn() -> VecU8  #0;
+
+const vec_u8_ptr = fn(vec: &VecU8) -> &u8  vec.buf.ptr;
+const vec_u8_capacity = fn(vec: &VecU8) -> usize  vec.capacity;
+const vec_u8_len = fn(vec: &VecU8) -> usize  vec.buf.len;
+
+const vec_u8_reserve = fn(vec: &VecU8, requested: usize) {
+    if requested > vec.capacity {
+        if vec.capacity == 0 {
+            let new = alloc(INITIAL_SIZE);
+            vec.buf.ptr = << new.ptr;
+            vec.capacity = new.len;
+        } else {
+            let old_buf = #uninit : [] u8;
+            old_buf.ptr = vec.buf.ptr;
+            old_buf.len = vec.capacity;
+
+            let new = alloc(vec.capacity * 2);
+            vec.buf.ptr = << new.ptr;
+            vec.capacity = new.len;
+            mem_copy_nonoverlapping(<< vec.buf.ptr, << old_buf.ptr, vec_u8_len(vec));
+
+            dealloc(<< old_buf);
+        };
+    };
+};
+
+const vec_u8_get = fn(vec: &VecU8, index: usize) -> &u8 {
+    vec.buf.ptr + index
+};
+
+const vec_u8_push = fn(vec: &VecU8, character: u8) {
+    let len = vec_u8_len(vec);
+    vec_u8_reserve(vec, len + 1);
+    *vec_u8_get(vec, len) = character;
+    vec.buf.len = len + 1;
+};
+
+const vec_u8_pop = fn(vec: &VecU8) -> u8 {
+    let num = *vec.buf.ptr;
+    vec.buf.len = vec.buf.len - 1;
+    num
+};
+
