@@ -14,11 +14,6 @@ pub enum Instr {
         // FIXME: We don't really want a vector here, we want a more efficient datastructure
         args: Vec<Value>,
     },
-    // to = from
-    Constant {
-        to: Value,
-        from: ConstantRef,
-    },
     // value ++
     Increment {
         value: Value,
@@ -132,7 +127,6 @@ impl fmt::Debug for Instr {
                 write!(fmt, ")")?;
                 Ok(())
             }
-            Self::Constant { to, from: _ } => write!(fmt, "{} = const", to),
             Self::Increment { value } => write!(fmt, "{} += 1", value),
             Self::Binary { op, to, a, b } => write!(fmt, "{} = {} {:?} {}", to, a, op, b),
             Self::Unary { op, to, from } => write!(fmt, "{} = {:?} {}", to, op, from),

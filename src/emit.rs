@@ -165,7 +165,7 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, node: &'a Node) -> Value {
                     .registers
                     .create(Type::new(TypeKind::Int(IntTypeKind::Usize)));
                 ctx.locals.get_mut(*iteration_var).value = Some(reg);
-                ctx.emit_constant_from_buffer(reg, &0_usize.to_le_bytes());
+                ctx.emit_move_from_constant(reg, &0_usize.to_le_bytes());
                 Some(reg)
             } else {
                 None
@@ -274,7 +274,7 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, node: &'a Node) -> Value {
                     .registers
                     .create(Type::new(TypeKind::Int(IntTypeKind::Usize)));
                 iteration_var_mut.value = Some(reg);
-                ctx.emit_constant_from_buffer(reg, &0_usize.to_le_bytes());
+                ctx.emit_move_from_constant(reg, &0_usize.to_le_bytes());
                 Some(reg)
             } else {
                 None
@@ -374,9 +374,7 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, node: &'a Node) -> Value {
                 node.type_(),
             );
 
-            let to = ctx.registers.create(node.type_());
-            ctx.emit_constant_from_constant_buffer(to, function);
-            to
+            Value::Global(function, node.type_())
         }
         NodeKind::BitCast { value } => {
             let from = emit_node(ctx, value);
@@ -494,7 +492,7 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, node: &'a Node) -> Value {
             let len_reg = ctx
                 .registers
                 .create(Type::new(TypeKind::Int(IntTypeKind::Usize)));
-            ctx.emit_constant_from_buffer(len_reg, &length.to_le_bytes());
+            ctx.emit_move_from_constant(len_reg, &length.to_le_bytes());
 
             ctx.emit_move(
                 to,
@@ -514,11 +512,7 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, node: &'a Node) -> Value {
             );
             to
         }
-        NodeKind::Constant(bytes) => {
-            let to = ctx.registers.create(node.type_());
-            ctx.emit_constant_from_constant_buffer(to, *bytes);
-            to
-        }
+        NodeKind::Constant(bytes) => Value::Global(*bytes, node.type_()),
         NodeKind::Member { name, of } => {
             let to = ctx.registers.create(node.type_());
             let of = emit_node(ctx, of);

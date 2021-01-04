@@ -79,12 +79,6 @@ fn interp_internal(program: &Program, stack: &mut StackFrame<'_>, routine: &Rout
                     );
                 }
             }
-            Instr::Constant { to, ref from } => {
-                let mut to_ptr = stack.get_mut(to);
-                unsafe {
-                    std::ptr::copy(from.as_ptr(), to_ptr.as_mut_ptr(), to.size());
-                }
-            }
             Instr::Increment { value } => {
                 let incr_amount = match value.type_().kind() {
                     TypeKind::Int(_) => 1,

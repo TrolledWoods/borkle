@@ -224,18 +224,6 @@ pub fn routine_to_c(output: &mut String, routine: &Routine, num_args: usize) {
                 }
                 output.push_str(");\n");
             }
-            Instr::Constant { to, from } => {
-                let type_ = to.type_();
-
-                write!(
-                    output,
-                    "{} = *({}*)&global_{};\n",
-                    c_format_value(to),
-                    c_format_type(type_),
-                    from.as_ptr() as usize
-                )
-                .unwrap();
-            }
             Instr::Increment { value } => {
                 write!(output, "{0} = {0} + 1;\n", c_format_value(value)).unwrap();
             }

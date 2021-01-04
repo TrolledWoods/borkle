@@ -1,7 +1,6 @@
 use crate::ir::{Instr, LabelId, Member, Registers, Value};
 use crate::locals::LocalVariables;
 use crate::operators::{BinaryOp, UnaryOp};
-use crate::program::constant::ConstantRef;
 use crate::program::Program;
 use crate::thread_pool::ThreadContext;
 use crate::typer::ast::Node;
@@ -66,22 +65,16 @@ impl Context<'_, '_> {
         }
     }
 
-    pub fn emit_constant_from_constant_buffer(&mut self, to: Value, from: ConstantRef) {
-        if to.size() != 0 {
-            self.instr.push(Instr::Constant { to, from });
-        }
-    }
-
-    pub fn emit_constant_from_buffer(&mut self, to: Value, buffer: &[u8]) {
-        if to.size() != 0 {
-            let from = self.program.insert_buffer(to.type_(), buffer.as_ptr());
-            self.instr.push(Instr::Constant { to, from });
-        }
-    }
-
     pub fn emit_increment(&mut self, value: Value) {
         if value.size() != 0 {
             self.instr.push(Instr::Increment { value });
+        }
+    }
+
+    pub fn emit_move_from_constant(&mut self, to: Value, from: &[u8]) {
+        if to.size() != 0 {
+            let buffer = self.program.insert_buffer(to.type_(), from.as_ptr());
+            self.emit_move(to, Value::Global(buffer, to.type_()), Member::default());
         }
     }
 
