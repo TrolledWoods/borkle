@@ -14,62 +14,21 @@ use std::collections::HashSet;
 use std::fmt;
 use std::path::{Path, PathBuf};
 use std::ptr::NonNull;
-use std::sync::atomic::{AtomicI32, Ordering};
 use std::sync::Arc;
 use ustr::{Ustr, UstrMap};
 
 pub mod constant;
 
-#[derive(Clone, Copy, PartialEq, Eq, Hash)]
-pub struct MemberId(usize);
-
-impl Id for MemberId {}
-
-impl From<usize> for MemberId {
-    fn from(other: usize) -> Self {
-        Self(other)
-    }
-}
-
-impl Into<usize> for MemberId {
-    fn into(self) -> usize {
-        self.0
-    }
-}
-
-#[derive(Clone, Copy, PartialEq, Eq, Hash)]
-pub struct ScopeId(usize);
-
-impl Id for ScopeId {}
-
-impl From<usize> for ScopeId {
-    fn from(other: usize) -> Self {
-        Self(other)
-    }
-}
-
-impl Into<usize> for ScopeId {
-    fn into(self) -> usize {
-        self.0
-    }
-}
-
-impl fmt::Debug for MemberId {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.0)
-    }
-}
-
-impl fmt::Debug for ScopeId {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.0)
-    }
-}
-
 /// This is the main hub of the program that is being compiled.
 ///
 /// We deal with constants(and possibly in the future globals too),
 /// e.g. data scopes, and the dependency system.
+///
+/// This struct also makes sure that locking happens correctly and doesn't jam or cause race
+/// conditions; calling any function on this program at any time should be fine from the rest
+/// of the program(from a threading perspective, not from a correctness perspective, i.e. if you
+/// pass it garbage it doesn't expect naturally that would cause problems, like passing an invalid
+/// pointer to ``insert_buffer`` while the type isn't a zst for example)!
 pub struct Program {
     pub arguments: Arguments,
     pub logger: Logger,
@@ -80,6 +39,7 @@ pub struct Program {
     constant_data: Mutex<Vec<Constant>>,
 
     functions: Mutex<HashSet<*const Routine>>,
+    non_ready_tasks: Mutex<IdVec<TaskId, Option<NonReadyTask>>>,
 
     work: WorkPile,
 
@@ -103,6 +63,7 @@ impl Program {
             logger,
             members: default(),
             scopes: default(),
+            non_ready_tasks: default(),
             file_contents: default(),
             functions: default(),
             constant_data: default(),
@@ -412,45 +373,22 @@ impl Program {
     }
 
     /// # Locks
-    /// Locks ``members`` with write.
-    fn resolve_dependency(&self, id: MemberId) {
-        let members = self.members.read();
-        let name = members[id].name;
-        let dependencies_left = members[id].dependencies_left.fetch_sub(1, Ordering::SeqCst);
+    /// Locks ``non_ready_tasks`` with write.
+    fn resolve_dependency(&self, id: TaskId) {
+        let mut tasks = self.non_ready_tasks.lock();
+        let mut task = tasks[id].as_mut().unwrap();
+
+        task.dependencies_left -= 1;
+        let dependencies_left = task.dependencies_left;
 
         self.logger.log(format_args!(
             "resolved dependency of '{}', had {} deps",
-            name, dependencies_left,
+            task.name, dependencies_left,
         ));
 
-        // This is not a data race. The reason why is a little complicated.
-        // So, when dependencies are added, they are added first, and only afterwards
-        // is the counter increased all at once.
-        //
-        // We only add more dependencies once all the previous dependencies have resolved;
-        // i.e, while we are adding more dependencies, the dependency count is at 0. That means
-        // that if dependencies added are resolved before all of them have finished being added,
-        // they will reduce the counter to something negative; which means it will not be 1.
-        //
-        // If the counter is indeed one(i.e. it was decremented to zero), here is the ONLY case
-        // where that would happen; this is the only dependency left, and, there is no dependency
-        // currently being added(because the dependencies_left was larger than zero). Therefore,
-        // there is going to be no contending over the lock here.
-        //
-        // This is currently not being done at all though; because we are doing some unnecessarily
-        // libral locking. But in the future, we can reduce the amount of locking being done and
-        // therefore all of this will become relevant and important.
-        if dependencies_left == 1 {
-            // FIXME: Make more granular locks, don't lock the whole members here.
-            drop(members);
-            let mut members = self.members.write();
-            if let Some(task) = members[id].task.take() {
-                self.work.enqueue(task);
-            } else {
-                // There was no task? This shouldn't happen; if there are dependencies,
-                // there should be a task.
-                unreachable!("Expected there to be a task.");
-            }
+        if dependencies_left == 0 {
+            let task = tasks[id].take().unwrap();
+            self.work.enqueue(task.task);
         }
     }
 
@@ -470,7 +408,9 @@ impl Program {
     }
 
     /// # Locks
-    /// Locks ``scopes`` with write, and ``members`` with write.
+    /// * ``scopes`` write
+    /// * ``members`` write
+    /// * ``non_ready_tasks`` write
     fn bind_member_to_name(
         &self,
         errors: &mut ErrorCtx,
@@ -512,15 +452,14 @@ impl Program {
             drop(wanted_names);
             drop(scopes);
 
-            for &(kind, _, dependant) in &dependants {
+            for &(kind, loc, dependant) in &dependants {
                 let mut members = self.members.write();
-                let dependant_name = members[dependant].name;
                 let member = &mut members[member_id];
                 match kind {
                     DependencyKind::Type => {
                         self.logger.log(format_args!(
-                            "'{}' found definition of '{}', now searches for the type of it",
-                            dependant_name, member.name,
+                            "Dependant at '{:?}' found definition of '{}', now searches for the type of it",
+                            loc, member.name,
                         ));
 
                         if !member.type_.add_dependant(loc, dependant) {
@@ -530,8 +469,8 @@ impl Program {
                     }
                     DependencyKind::Value => {
                         self.logger.log(format_args!(
-                            "'{}' found definition of '{}', now searches for the value of it",
-                            dependant_name, member.name,
+                            "Dependant at '{:?}' found definition of '{}', now searches for the type of it",
+                            loc, member.name,
                         ));
 
                         if !member.type_.add_dependant(loc, dependant) {
@@ -549,30 +488,33 @@ impl Program {
     /// # Locks
     /// * ``scopes`` read
     /// * ``members`` write
-    pub fn queue_task(&self, id: MemberId, deps: DependencyList, task: Task) {
-        // Just log some stuff, no race conditions possible
-        {
-            let members = self.members.read();
-            self.logger
-                .log(format_args!("queued '{}' {:?}", members[id].name, deps));
-            debug_assert_eq!(
-                members[id].dependencies_left.load(Ordering::SeqCst),
-                0,
-                "The task was not ready"
-            );
+    /// * ``non_ready_tasks`` write
+    pub fn queue_task(&self, deps: DependencyList, name: Ustr, task: Task) {
+        let mut non_ready_tasks = self.non_ready_tasks.lock();
 
-            // The dependencies left is at 0 at this point, so adding this is fine.
-            // We do this because we add dependencies here, and so they may be resolved while we
-            // are adding them. If this reaches zero while that happens, we run into problems; we
-            // will deploy the task but all the dependencies are not all defined!
-            //
-            // Therefore, we increase the dependency count here to an unreachable amount, so that
-            // even if it's decreased it doesn't ever reach zero. Then once we are done preparing
-            // all the dependencies, we can move it back down to the real number.
-            members[id]
-                .dependencies_left
-                .fetch_add(i32::MAX, Ordering::SeqCst);
-        }
+        // Find or create a slot for the task to be in.
+        let id;
+        if let Some(index) = non_ready_tasks.iter().position(Option::is_none) {
+            id = TaskId(index);
+            // We start at i32::MAX so that even if some dependencies are resolved before we've
+            // added all of them, it doesn't deploy the task before it's ready
+            non_ready_tasks[id] = Some(NonReadyTask {
+                name,
+                dependencies_left: i32::MAX,
+                task,
+            });
+        } else {
+            id = TaskId(non_ready_tasks.len());
+            // We start at i32::MAX so that even if some dependencies are resolved before we've
+            // added all of them, it doesn't deploy the task before it's ready
+            non_ready_tasks.push(Some(NonReadyTask {
+                name,
+                dependencies_left: i32::MAX,
+                task,
+            }));
+        };
+
+        drop(non_ready_tasks);
 
         let mut num_deps = 0;
         for (dep_name, (scope_id, loc)) in deps.types {
@@ -623,20 +565,16 @@ impl Program {
             }
         }
 
-        let mut members = self.members.write();
-        let num_dependencies = members[id].dependencies_left.get_mut();
+        let mut non_ready_tasks = self.non_ready_tasks.lock();
+        let num_dependencies = &mut non_ready_tasks[id].as_mut().unwrap().dependencies_left;
 
         *num_dependencies -= i32::MAX;
         *num_dependencies += num_deps;
 
         if *num_dependencies == 0 {
-            // We are already done! We can emit the task without
-            // doing dependency stuff
-            self.work.enqueue(task);
-        } else {
-            // We are not done with our dependencies. We have to wait a bit,
-            // so we have to put the task into the lock.
-            members[id].task = Some(task);
+            // If we are already done, well, we can just take the thing.
+            let task = non_ready_tasks[id].take().unwrap();
+            self.work.enqueue(task.task);
         }
     }
 }
@@ -648,7 +586,7 @@ struct Scope {
     // However, even private_members would have a use for the location of the import/library
     public_members: UstrMap<MemberId>,
     private_members: UstrMap<MemberId>,
-    wanted_names: RwLock<UstrMap<Vec<(DependencyKind, Location, MemberId)>>>,
+    wanted_names: RwLock<UstrMap<Vec<(DependencyKind, Location, TaskId)>>>,
     wildcard_exports: RwLock<Vec<ScopeId>>,
 }
 
@@ -663,8 +601,6 @@ struct Member {
     name: Ustr,
     type_: DependableOption<(Type, Arc<MemberMetaData>)>,
     value: DependableOption<ConstantRef>,
-    dependencies_left: AtomicI32,
-    task: Option<Task>,
 }
 
 #[derive(Debug, Clone)]
@@ -682,19 +618,17 @@ impl Member {
             name,
             type_: DependableOption::None(Vec::new()),
             value: DependableOption::None(Vec::new()),
-            dependencies_left: AtomicI32::new(0),
-            task: None,
         }
     }
 }
 
 pub enum DependableOption<T> {
     Some(T),
-    None(Vec<(Location, MemberId)>),
+    None(Vec<(Location, TaskId)>),
 }
 
 impl<T> DependableOption<T> {
-    fn add_dependant(&mut self, loc: Location, dependant: MemberId) -> bool {
+    fn add_dependant(&mut self, loc: Location, dependant: TaskId) -> bool {
         match self {
             Self::Some(_) => false,
             Self::None(dependants) => {
@@ -729,6 +663,12 @@ pub enum BuiltinFunction {
     Dealloc,
 }
 
+struct NonReadyTask {
+    name: Ustr,
+    dependencies_left: i32,
+    task: Task,
+}
+
 pub enum Task {
     Parse(Option<(Location, ScopeId)>, PathBuf),
     Type(MemberId, crate::locals::LocalVariables, crate::parser::Ast),
@@ -747,4 +687,73 @@ impl fmt::Debug for Task {
 
 fn default<T: Default>() -> T {
     T::default()
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+pub struct MemberId(usize);
+
+impl Id for MemberId {}
+
+impl From<usize> for MemberId {
+    fn from(other: usize) -> Self {
+        Self(other)
+    }
+}
+
+impl Into<usize> for MemberId {
+    fn into(self) -> usize {
+        self.0
+    }
+}
+
+impl fmt::Debug for MemberId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+pub struct ScopeId(usize);
+
+impl Id for ScopeId {}
+
+impl From<usize> for ScopeId {
+    fn from(other: usize) -> Self {
+        Self(other)
+    }
+}
+
+impl Into<usize> for ScopeId {
+    fn into(self) -> usize {
+        self.0
+    }
+}
+
+impl fmt::Debug for ScopeId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+pub struct TaskId(usize);
+
+impl Id for TaskId {}
+
+impl From<usize> for TaskId {
+    fn from(other: usize) -> Self {
+        Self(other)
+    }
+}
+
+impl Into<usize> for TaskId {
+    fn into(self) -> usize {
+        self.0
+    }
+}
+
+impl fmt::Debug for TaskId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.0)
+    }
 }

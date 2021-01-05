@@ -3,11 +3,12 @@
 * [X] BUG! The compiler locks up sometimes.
 * [X] IDEA: Make aliases in structs, so you can alias a name as a more complex path
 * [X] Redid built in functions/intrinsics
+* [X] Inconsistancy; Named type uses ';' while unnamed struct uses ',', this is inconsistant!
+* [X] Dependency system now doesn't associate tasks with members, but rather tasks are their own standalone thing
+* [ ] Feature; Allow for recursive functions.
 
 * [ ] BUG! Collision checks on field names and aliases, and collisions between aliases.
 * [ ] Add an instruction for calling a built in function, so built in function calls are cheaper?
-* [ ] Redo intrinsics, they also do not work with the current type model, so since I want to change them anyway I'll do that.
-* [ ] Inconsistancy; Named type uses ';' while unnamed struct uses ',', this is inconsistant!
 * [ ] BUG! Status access violation when the compiler crashes.
 * [ ] BUG! Doesn't exit "gracefully" when a thread panics.
 * [ ] Make a global setup file for the compiler!

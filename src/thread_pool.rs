@@ -143,8 +143,8 @@ fn worker<'a>(alloc: &'a mut Bump, program: &'a Program) -> (ThreadContext<'a>, 
 
                                 program.set_type_of_member(member_id, type_, meta_data);
                                 program.queue_task(
-                                    member_id,
                                     dependencies,
+                                    program.member_name(member_id),
                                     Task::Value(member_id, locals, ast),
                                 );
                             } else {
