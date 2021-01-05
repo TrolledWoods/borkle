@@ -1,6 +1,6 @@
 library "mem.bo";
 
-const VecU8 = type VecU8 {
+type VecU8 {
     buf : [] u8;
     capacity : usize;
 

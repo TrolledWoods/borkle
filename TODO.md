@@ -4,6 +4,7 @@
 * [X] IDEA: Make aliases in structs, so you can alias a name as a more complex path
 * [X] Redid built in functions/intrinsics
 
+* [ ] BUG! Collision checks on field names and aliases, and collisions between aliases.
 * [ ] Add an instruction for calling a built in function, so built in function calls are cheaper?
 * [ ] Redo intrinsics, they also do not work with the current type model, so since I want to change them anyway I'll do that.
 * [ ] Inconsistancy; Named type uses ';' while unnamed struct uses ',', this is inconsistant!

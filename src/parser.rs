@@ -36,6 +36,34 @@ pub fn process_string(
     while let Some(token) = context.tokens.next() {
         match token.kind {
             TokenKind::Keyword(Keyword::Const) => constant(&mut context)?,
+            TokenKind::Keyword(Keyword::Type) => {
+                // This is a named type!
+
+                let (loc, name) = context.tokens.expect_identifier(context.errors)?;
+
+                let mut buffer = SelfBuffer::new();
+                let mut dependencies = DependencyList::new();
+                let mut imperative = ImperativeContext::new(&mut dependencies, false);
+                imperative.evaluate_at_typing = true;
+                let node = named_type(&mut context, &mut imperative, &mut buffer, loc, name)?;
+                let tree = buffer.insert_root(node);
+
+                let locals = imperative.locals;
+
+                context
+                    .tokens
+                    .expect_next_is(context.errors, &TokenKind::SemiColon)?;
+
+                let id = context.program.define_member(
+                    context.errors,
+                    token.loc,
+                    context.scope,
+                    name,
+                )?;
+                context
+                    .program
+                    .queue_task(id, dependencies, Task::Type(id, locals, tree));
+            }
             TokenKind::Keyword(Keyword::Library) => {
                 let name = context.tokens.expect_next(context.errors)?;
                 if let TokenKind::Literal(Literal::String(name)) = name.kind {
@@ -353,9 +381,9 @@ fn type_(
                 let token = global.tokens.expect_next(global.errors)?;
                 match token.kind {
                     TokenKind::Close(Bracket::Curly) => break,
-                    TokenKind::Comma => {}
+                    TokenKind::SemiColon => {}
                     _ => {
-                        global.error(token.loc, "Expected ',' or ')'".to_string());
+                        global.error(token.loc, "Expected ';' or ')'".to_string());
                         return Err(());
                     }
                 }
@@ -547,28 +575,8 @@ fn value(
             }
         }
         TokenKind::Keyword(Keyword::Type) => {
-            match (global.tokens.peek(), global.tokens.peek_nth(1)) {
-                (
-                    Some(&Token {
-                        kind: TokenKind::Identifier(name),
-                        loc,
-                    }),
-                    Some(&Token {
-                        kind: TokenKind::Open(Bracket::Curly),
-                        ..
-                    }),
-                ) => {
-                    global.tokens.next();
-                    let old = std::mem::replace(&mut imperative.evaluate_at_typing, true);
-                    let node = named_type(global, imperative, buffer, loc, name)?;
-                    imperative.evaluate_at_typing = old;
-                    node
-                }
-                _ => {
-                    let t = type_(global, imperative, buffer)?;
-                    Node::new(token.loc, NodeKind::TypeAsValue(buffer.insert(t)))
-                }
-            }
+            let t = type_(global, imperative, buffer)?;
+            Node::new(token.loc, NodeKind::TypeAsValue(buffer.insert(t)))
         }
         TokenKind::Keyword(Keyword::Break) => {
             let id = if global.tokens.try_consume(&TokenKind::SingleQuote) {

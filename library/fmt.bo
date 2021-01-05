@@ -1,46 +1,40 @@
 library "io.bo";
 library "slice.bo";
 
-const FormatSpec = type [16] u64;
+const FormatSpec = type [15] u64;
 
-const Format = type {
-    data: FormatSpec,
-    print_it: fn(FormatSpec),
+type Format {
+    data: FormatSpec;
+    print_it: fn(FormatSpec);
 };
-
-const ARGUMENT_SPECIFIER = *"%".ptr;
 
 const print = fn(
     fmt_string: [] u8,
     fmt_args = const &[] : [] Format,
 ) {
     let prev_section = 0 : usize;
-    let i = 0 : usize;
     let arg_i = 0 : usize;
-    while i < fmt_string.len {
-        if *(fmt_string.ptr + i) == ARGUMENT_SPECIFIER {
-            put_string(slice_u8(fmt_string, prev_section, i));
- 
-            if arg_i >= fmt_args.len {
-                put_string("\n\n ---- printf formatting error! There are not enough given formatting arguments!!! ---- \n");
-            };
- 
-            let format = *(fmt_args.ptr + arg_i);
-            (format.print_it)(format.data);
- 
-            arg_i = arg_i + 1;
- 
-            prev_section = i + 1;
+
+    for fmt_string  if *_it == "%" {
+        put_string(slice_u8(fmt_string, prev_section, _iters));
+
+        if arg_i >= fmt_args.len {
+            put_string("\n\n ---- printf formatting error! There are not enough given formatting arguments!!! ---- \n");
+            break;
         };
-        
-        i = i + 1;
+
+        let format = *(fmt_args.ptr + arg_i);
+        format.print_it(format.data);
+
+        arg_i = arg_i + 1;
+        prev_section = _iters + 1;
     };
  
     if arg_i != fmt_args.len {
         put_string("\n\n ---- printf formatting error! There number of formatting arguments does not match the number in the string\n");
     };
  
-    put_string(slice_u8(fmt_string, prev_section, i));
+    put_string(slice_u8(fmt_string, prev_section, fmt_string.len));
 };
 
 const fmt_str = fn(string: [] u8) -> Format {
@@ -59,12 +53,12 @@ const dbg_str = fn(string: [] u8) -> Format {
     format
 };
 
-const FormatNumber = type {
-    number: u64,
-    width: usize,
-    pad: u8,
-    pad_char: u8,
-    is_negative: bool,
+type FormatNumber {
+    number: u64;
+    width: usize;
+    pad: u8;
+    pad_char: u8;
+    is_negative: bool;
 };
 
 const internal_fmt_number = fn(data: FormatNumber) -> Format {
