@@ -1,6 +1,5 @@
 use crate::location::Location;
 use crate::program::{FunctionId, ScopeId};
-use std::collections::HashMap;
 use std::fmt;
 use ustr::{Ustr, UstrMap};
 

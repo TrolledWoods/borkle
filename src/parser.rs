@@ -63,7 +63,7 @@ pub fn process_string(
                 )?;
                 context
                     .program
-                    .queue_task(dependencies, name, Task::TypeMember(id, locals, tree));
+                    .queue_task(dependencies, Task::TypeMember(id, locals, tree));
             }
             TokenKind::Keyword(Keyword::Library) => {
                 let name = context.tokens.expect_next(context.errors)?;
@@ -102,11 +102,9 @@ pub fn process_string(
                     context.scope,
                     "__entry_point".into(),
                 )?;
-                context.program.queue_task(
-                    dependencies,
-                    "#entry".into(),
-                    Task::TypeMember(id, locals, tree),
-                );
+                context
+                    .program
+                    .queue_task(dependencies, Task::TypeMember(id, locals, tree));
 
                 let mut entry_point = context.program.entry_point.lock();
                 if entry_point.is_some() {
@@ -173,7 +171,7 @@ fn constant(global: &mut DataContext<'_>) -> Result<(), ()> {
                 .define_member(global.errors, token.loc, global.scope, name)?;
             global
                 .program
-                .queue_task(dependencies, name, Task::TypeMember(id, locals, tree));
+                .queue_task(dependencies, Task::TypeMember(id, locals, tree));
         } else {
             // global.program.insert_polymorphic(
             //     global.errors,

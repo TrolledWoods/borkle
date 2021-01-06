@@ -138,7 +138,6 @@ fn worker<'a>(alloc: &'a mut Bump, program: &'a Program) -> (ThreadContext<'a>, 
                                 program.set_type_of_member(member_id, type_, meta_data);
                                 program.queue_task(
                                     dependencies,
-                                    program.member_name(member_id),
                                     Task::EmitMember(member_id, locals, ast),
                                 );
                             } else {
@@ -184,11 +183,8 @@ fn worker<'a>(alloc: &'a mut Bump, program: &'a Program) -> (ThreadContext<'a>, 
 
                             let mut dependencies = DependencyList::new();
                             dependencies.calling = calling;
-                            program.queue_task(
-                                dependencies,
-                                program.member_name(member_id),
-                                Task::EvaluateMember(member_id, routine),
-                            );
+                            program
+                                .queue_task(dependencies, Task::EvaluateMember(member_id, routine));
                         }
                     }
                 }
@@ -204,8 +200,6 @@ fn worker<'a>(alloc: &'a mut Bump, program: &'a Program) -> (ThreadContext<'a>, 
                     program.set_value_of_member(member_id, result.as_ptr());
                 }
                 Task::TypeFunction(function_id, locals, ast, return_type, type_) => {
-                    use crate::typer::ast::NodeKind;
-
                     program
                         .logger
                         .log(format_args!("typing function '{:?}'", function_id));
@@ -221,7 +215,6 @@ fn worker<'a>(alloc: &'a mut Bump, program: &'a Program) -> (ThreadContext<'a>, 
                         Ok((dependencies, locals, ast)) => {
                             program.queue_task(
                                 dependencies,
-                                "Hello function!".into(),
                                 Task::EmitFunction(function_id, locals, ast, type_),
                             );
                         }
@@ -232,8 +225,6 @@ fn worker<'a>(alloc: &'a mut Bump, program: &'a Program) -> (ThreadContext<'a>, 
                     }
                 }
                 Task::EmitFunction(function_id, locals, ast, type_) => {
-                    use crate::typer::ast::NodeKind;
-
                     program
                         .logger
                         .log(format_args!("emitting function '{:?}'", function_id));

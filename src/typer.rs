@@ -582,7 +582,6 @@ fn type_ast<'a>(
             let function_id = ctx.program.insert_function(parsed.loc);
             ctx.program.queue_task(
                 body_deps.clone(),
-                "function blah blah names are hard".into(),
                 Task::TypeFunction(function_id, locals, Arc::clone(&body), return_type, type_),
             );
 

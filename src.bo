@@ -6,8 +6,6 @@ library "fmt.bo";
     0
 };
 
-const factorial = fn(num: u64) -> u64 { 'function
-    if num == 0 break 'function 1;
-
-    factorial(num - 1) * num
-};
+const factorial = fn(num: u64) -> u64
+    if num == 0  1
+    else factorial(num - 1) * num;

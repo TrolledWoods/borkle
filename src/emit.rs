@@ -1,7 +1,6 @@
 use crate::ir::{Member, Registers, Routine, UserDefinedRoutine, Value};
 use crate::locals::LocalVariables;
 use crate::operators::{BinaryOp, UnaryOp};
-use crate::program::constant::ConstantRef;
 use crate::program::{FunctionId, Program};
 use crate::thread_pool::ThreadContext;
 use crate::typer::ast::NodeKind;

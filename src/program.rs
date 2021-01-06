@@ -295,13 +295,6 @@ impl Program {
     }
 
     /// Locks
-    /// * ``members`` read
-    pub fn get_type_of_member(&self, id: MemberId) -> Type {
-        let members = self.members.read();
-        members[id].type_.unwrap().0
-    }
-
-    /// Locks
     /// * ``constant_data`` write
     fn insert_sub_buffers(&self, type_: Type, data: *mut u8) {
         for (offset, ptr) in type_.pointers() {
@@ -587,7 +580,7 @@ impl Program {
     /// * ``members`` write
     /// * ``non_ready_tasks`` write
     /// * ``functions`` write
-    pub fn queue_task(&self, deps: DependencyList, name: Ustr, task: Task) {
+    pub fn queue_task(&self, deps: DependencyList, task: Task) {
         const DEPENDENCY_COUNT_OFFSET: i32 = i32::MAX / 2;
 
         let mut non_ready_tasks = self.non_ready_tasks.lock();
@@ -602,7 +595,6 @@ impl Program {
             non_ready_tasks[id.index] = (
                 generation,
                 Some(NonReadyTask {
-                    name,
                     dependencies_left: DEPENDENCY_COUNT_OFFSET,
                     task,
                 }),
@@ -617,7 +609,6 @@ impl Program {
             non_ready_tasks.push((
                 0,
                 Some(NonReadyTask {
-                    name,
                     dependencies_left: DEPENDENCY_COUNT_OFFSET,
                     task,
                 }),
@@ -749,6 +740,9 @@ impl Scope {
 }
 
 struct Function {
+    // FIXME: We should use this location later to generate diagnostics. Though can you even have
+    // recursion errors?
+    #[allow(unused)]
     loc: Location,
 
     /// This is a little strange; depending on this does not mean depending on the definition of
@@ -843,7 +837,6 @@ pub enum BuiltinFunction {
 }
 
 struct NonReadyTask {
-    name: Ustr,
     dependencies_left: i32,
     task: Task,
 }
