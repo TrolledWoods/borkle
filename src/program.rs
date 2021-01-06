@@ -393,10 +393,13 @@ impl Program {
     /// Locks ``non_ready_tasks`` with write.
     fn resolve_dependency(&self, id: TaskId) {
         let mut tasks = self.non_ready_tasks.lock();
-        let (gen, task_option) = &mut tasks[id.index];
-        debug_assert_eq!(*gen, id.generation);
 
-        let mut task = task_option.as_mut().unwrap();
+        let mut task = {
+            let (gen, task_option) = &mut tasks[id.index];
+            debug_assert_eq!(*gen, id.generation);
+
+            task_option.as_mut().unwrap()
+        };
 
         task.dependencies_left -= 1;
         let dependencies_left = task.dependencies_left;
@@ -407,10 +410,10 @@ impl Program {
         ));
 
         if dependencies_left == 0 {
-            let (gen, task) = &mut tasks[id.index];
+            let (gen, task2) = &mut tasks[id.index];
             debug_assert_eq!(*gen, id.generation);
-            let task = task.take().unwrap();
-            self.work.enqueue(task.task);
+            let task2 = task2.take().unwrap();
+            self.work.enqueue(task2.task);
         }
     }
 
@@ -774,16 +777,23 @@ struct NonReadyTask {
 
 pub enum Task {
     Parse(Option<(Location, ScopeId)>, PathBuf),
-    Type(MemberId, crate::locals::LocalVariables, crate::parser::Ast),
-    Value(MemberId, crate::locals::LocalVariables, crate::typer::Ast),
+    TypeMember(MemberId, crate::locals::LocalVariables, crate::parser::Ast),
+    EmitMember(MemberId, crate::locals::LocalVariables, crate::typer::Ast),
+    EvaluateMember(MemberId, crate::ir::UserDefinedRoutine),
+    // EmitFunction(
+    //     FunctionId,
+    //     crate::locals::LocalVariables,
+    //     crate::parser::Ast,
+    // ),
 }
 
 impl fmt::Debug for Task {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Task::Parse(_, buf) => write!(f, "parse({:?})", buf),
-            Task::Type(id, _, _) => write!(f, "type({:?})", id),
-            Task::Value(id, _, _) => write!(f, "value({:?})", id),
+            Task::TypeMember(id, _, _) => write!(f, "type_member({:?})", id),
+            Task::EmitMember(id, _, _) => write!(f, "emit_member({:?})", id),
+            Task::EvaluateMember(id, _) => write!(f, "evaluate_member({:?})", id),
         }
     }
 }

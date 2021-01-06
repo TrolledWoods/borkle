@@ -108,7 +108,7 @@ fn worker<'a>(alloc: &'a mut Bump, program: &'a Program) -> (ThreadContext<'a>, 
         if let Some(task) = work.queue.pop() {
             match task {
                 Task::Parse(meta_data, file) => parse_file(&mut errors, program, &file, meta_data),
-                Task::Type(member_id, locals, ast) => {
+                Task::TypeMember(member_id, locals, ast) => {
                     use crate::typer::ast::NodeKind;
 
                     match crate::typer::process_ast(
@@ -145,7 +145,7 @@ fn worker<'a>(alloc: &'a mut Bump, program: &'a Program) -> (ThreadContext<'a>, 
                                 program.queue_task(
                                     dependencies,
                                     program.member_name(member_id),
-                                    Task::Value(member_id, locals, ast),
+                                    Task::EmitMember(member_id, locals, ast),
                                 );
                             } else {
                                 errors.error(ast.loc, format!("'{}' cannot be stored in a constant, because it contains types that the compiler cannot reason about properly, such as '&any', '[] any', or similar", type_));
@@ -157,7 +157,7 @@ fn worker<'a>(alloc: &'a mut Bump, program: &'a Program) -> (ThreadContext<'a>, 
                         }
                     }
                 }
-                Task::Value(member_id, locals, ast) => {
+                Task::EmitMember(member_id, locals, ast) => {
                     use crate::typer::NodeKind;
 
                     match ast.kind() {
@@ -167,17 +167,24 @@ fn worker<'a>(alloc: &'a mut Bump, program: &'a Program) -> (ThreadContext<'a>, 
                         _ => {
                             let routine =
                                 crate::emit::emit(&mut thread_context, program, locals, &ast);
-                            let mut stack = crate::interp::Stack::new(2048);
-
-                            let result = crate::interp::interp(program, &mut stack, &routine);
-
-                            program
-                                .logger
-                                .log(format_args!("value '{}'", program.member_name(member_id),));
-
-                            program.set_value_of_member(member_id, result.as_ptr());
+                            program.queue_task(
+                                crate::dependencies::DependencyList::new(),
+                                program.member_name(member_id),
+                                Task::EvaluateMember(member_id, routine),
+                            );
                         }
                     }
+                }
+                Task::EvaluateMember(member_id, routine) => {
+                    let mut stack = crate::interp::Stack::new(2048);
+
+                    let result = crate::interp::interp(program, &mut stack, &routine);
+
+                    program
+                        .logger
+                        .log(format_args!("value '{}'", program.member_name(member_id),));
+
+                    program.set_value_of_member(member_id, result.as_ptr());
                 }
             }
 
