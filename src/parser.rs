@@ -1,8 +1,3 @@
-pub mod ast;
-mod context;
-mod lexer;
-mod token_stream;
-
 use crate::dependencies::{DependencyKind, DependencyList};
 use crate::errors::ErrorCtx;
 use crate::literal::Literal;
@@ -16,7 +11,13 @@ pub use ast::{Node, NodeKind};
 use context::{DataContext, ImperativeContext};
 use lexer::{Bracket, Keyword, Token, TokenKind};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use ustr::Ustr;
+
+pub mod ast;
+mod context;
+mod lexer;
+mod token_stream;
 
 pub type Ast = SelfTree<Node>;
 type NodeList = Vec<SelfBox<Node>>;
@@ -733,7 +734,7 @@ fn value(
         TokenKind::Keyword(Keyword::Uninit) => Node::new(token.loc, NodeKind::Uninit),
         TokenKind::Keyword(Keyword::Zeroed) => Node::new(token.loc, NodeKind::Zeroed),
         TokenKind::Keyword(Keyword::Function) => {
-            function_declaration(global, imperative.dependencies, buffer, token.loc)?
+            function_declaration(global, imperative, buffer, token.loc)?
         }
         TokenKind::Keyword(Keyword::BitCast) => {
             let value = value(global, imperative, buffer)?;
@@ -1042,7 +1043,7 @@ fn function_arguments(
 /// that keyword was what triggered this function to be called in the first place.
 fn function_declaration(
     global: &mut DataContext<'_>,
-    dependencies: &mut DependencyList,
+    imperative: &mut ImperativeContext<'_>,
     buffer: &mut SelfBuffer,
     loc: Location,
 ) -> Result<Node, ()> {
@@ -1050,7 +1051,9 @@ fn function_declaration(
         .tokens
         .expect_next_is(global.errors, &TokenKind::Open(Bracket::Round))?;
 
-    let mut imperative = ImperativeContext::new(dependencies, false);
+    let mut body_deps = DependencyList::new();
+    let mut sub_imperative = ImperativeContext::new(&mut body_deps, false);
+
     let mut args = Vec::new();
     let mut default_args = Vec::new();
     loop {
@@ -1064,7 +1067,7 @@ fn function_declaration(
             ..
         }) = global.tokens.next()
         {
-            imperative.insert_local(Local::new(loc, name));
+            sub_imperative.insert_local(Local::new(loc, name));
 
             if global.tokens.try_consume_operator_string(":").is_some() {
                 if !default_args.is_empty() {
@@ -1076,12 +1079,12 @@ fn function_declaration(
                     return Err(());
                 }
 
-                let arg_type = type_(global, &mut imperative, buffer)?;
+                let arg_type = type_(global, imperative, buffer)?;
                 args.push((name, buffer.insert(arg_type)));
             } else if global.tokens.try_consume_operator_string("=").is_some() {
                 let old = imperative.evaluate_at_typing;
                 imperative.evaluate_at_typing = true;
-                let arg_value = expression(global, &mut imperative, buffer)?;
+                let arg_value = expression(global, imperative, buffer)?;
                 default_args.push((name, buffer.insert(arg_value)));
                 imperative.evaluate_at_typing = old;
             } else {
@@ -1111,7 +1114,7 @@ fn function_declaration(
     }
 
     let returns = if global.tokens.try_consume_operator_string("->").is_some() {
-        type_(global, &mut imperative, buffer)?
+        type_(global, imperative, buffer)?
     } else {
         Node::new(
             global.tokens.loc(),
@@ -1119,16 +1122,19 @@ fn function_declaration(
         )
     };
 
-    let body = expression(global, &mut imperative, buffer)?;
+    let mut body_buffer = SelfBuffer::new();
+    let body = expression(global, &mut sub_imperative, &mut body_buffer)?;
+    let body = Arc::new(body_buffer.insert_root(body));
 
     Ok(Node::new(
         loc,
         NodeKind::FunctionDeclaration {
-            locals: imperative.locals,
+            locals: sub_imperative.locals,
             args,
             default_args,
             returns: buffer.insert(returns),
-            body: buffer.insert(body),
+            body_deps,
+            body,
         },
     ))
 }

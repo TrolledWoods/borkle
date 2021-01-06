@@ -7,6 +7,7 @@
 * [X] Dependency system now doesn't associate tasks with members, but rather tasks are their own standalone thing
 * [ ] Feature; Allow for recursive functions.
 
+* [ ] Show where bad loops of recursion happen
 * [ ] BUG! Collision checks on field names and aliases, and collisions between aliases.
 * [ ] Add an instruction for calling a built in function, so built in function calls are cheaper?
 * [ ] BUG! Status access violation when the compiler crashes.

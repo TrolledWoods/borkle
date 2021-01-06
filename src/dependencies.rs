@@ -4,10 +4,11 @@ use std::collections::HashMap;
 use std::fmt;
 use ustr::{Ustr, UstrMap};
 
+#[derive(Clone)]
 pub struct DependencyList {
     pub values: UstrMap<(ScopeId, Location)>,
     pub types: UstrMap<(ScopeId, Location)>,
-    pub callables: HashMap<FunctionId, Location>,
+    pub calling: Vec<FunctionId>,
 }
 
 impl DependencyList {
@@ -15,7 +16,7 @@ impl DependencyList {
         Self {
             values: UstrMap::default(),
             types: UstrMap::default(),
-            callables: HashMap::default(),
+            calling: Vec::new(),
         }
     }
 
@@ -24,10 +25,6 @@ impl DependencyList {
             DependencyKind::Value => self.values.insert(name, (scope_id, loc)),
             DependencyKind::Type => self.types.insert(name, (scope_id, loc)),
         };
-    }
-
-    pub fn add_function(&mut self, loc: Location, function_id: FunctionId) {
-        self.callables.insert(function_id, loc);
     }
 }
 
@@ -46,6 +43,10 @@ impl fmt::Debug for DependencyList {
         write!(f, " values: ")?;
         for value in self.values.keys() {
             write!(f, "{}, ", value)?;
+        }
+        write!(f, " calling: ")?;
+        for calling in &self.calling {
+            write!(f, "{:?}", calling)?;
         }
         Ok(())
     }

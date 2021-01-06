@@ -82,6 +82,15 @@ impl<T> Drop for SelfBox<T> {
     }
 }
 
+impl<T> fmt::Debug for SelfTree<T>
+where
+    T: fmt::Debug,
+{
+    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
+        (&**self).fmt(fmt)
+    }
+}
+
 impl<T> fmt::Debug for SelfBox<T>
 where
     T: fmt::Debug,

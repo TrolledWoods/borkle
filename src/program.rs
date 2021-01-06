@@ -110,13 +110,68 @@ impl Program {
 
     /// Locks
     /// * ``functions`` write
-    pub fn insert_function(&self, loc: Location, routine: Routine) -> FunctionId {
+    pub fn insert_defined_function(
+        &self,
+        loc: Location,
+        calls: Vec<FunctionId>,
+        routine: Routine,
+    ) -> FunctionId {
         let mut functions = self.functions.write();
         functions.push(Function {
             loc,
-            routine: DependableOption::Some((Vec::new(), Arc::new(routine))),
+            routine: DependableOption::Some((calls, Arc::new(routine))),
             dependants: Some(default()),
         })
+    }
+
+    /// Locks
+    /// * ``functions`` write
+    pub fn insert_function(&self, loc: Location) -> FunctionId {
+        let mut functions = self.functions.write();
+        functions.push(Function {
+            loc,
+            routine: DependableOption::None(default()),
+            dependants: Some(default()),
+        })
+    }
+
+    /// Locks
+    /// * ``functions`` write
+    /// * ``non_ready_tasks`` write
+    pub fn set_routine_of_function(
+        &self,
+        function_id: FunctionId,
+        calling: Vec<FunctionId>,
+        routine: Routine,
+    ) {
+        let mut functions = self.functions.write();
+        let old = std::mem::replace(
+            &mut functions[function_id].routine,
+            DependableOption::Some((calling, Arc::new(routine))),
+        );
+        drop(functions);
+
+        if let DependableOption::None(dependants) = old {
+            for (loc, dependant) in dependants.into_inner() {
+                let functions = self.functions.write();
+                let mut num_deps = -1;
+
+                for &calling in &functions[function_id].routine.unwrap().0 {
+                    insert_callable_dependency_recursive(
+                        &functions,
+                        calling,
+                        loc,
+                        dependant,
+                        &mut num_deps,
+                    );
+                }
+                drop(functions);
+
+                self.modify_dependency_count(dependant, num_deps);
+            }
+        } else {
+            unreachable!("This should not happen bro");
+        }
     }
 
     /// Locks
@@ -157,13 +212,20 @@ impl Program {
     /// # Locks
     /// * ``members`` read
     pub fn get_constant_as_value(&self, id: MemberId) -> crate::ir::Value {
+        let (ptr, type_) = self.get_member_value(id);
+        crate::ir::Value::Global(ptr, type_)
+    }
+
+    /// # Locks
+    /// * ``members`` read
+    pub fn get_member_value(&self, id: MemberId) -> (ConstantRef, Type) {
         let members = self.members.read();
         let member = &members[id];
 
         let type_ = member.type_.to_option().unwrap().0;
         let value_ptr = *member.value.to_option().unwrap();
 
-        crate::ir::Value::Global(value_ptr, type_)
+        (value_ptr, type_)
     }
 
     /// # Locks
@@ -391,7 +453,11 @@ impl Program {
 
     /// # Locks
     /// Locks ``non_ready_tasks`` with write.
-    fn resolve_dependency(&self, id: TaskId) {
+    fn modify_dependency_count(&self, id: TaskId, offset: i32) {
+        if offset == 0 {
+            return;
+        }
+
         let mut tasks = self.non_ready_tasks.lock();
 
         let mut task = {
@@ -401,13 +467,13 @@ impl Program {
             task_option.as_mut().unwrap()
         };
 
-        task.dependencies_left -= 1;
+        task.dependencies_left += offset;
         let dependencies_left = task.dependencies_left;
 
-        self.logger.log(format_args!(
-            "resolved dependency of '{}', had {} deps",
-            task.name, dependencies_left,
-        ));
+        debug_assert!(
+            dependencies_left >= 0,
+            "Dependencies left can never be less than 0"
+        );
 
         if dependencies_left == 0 {
             let (gen, task2) = &mut tasks[id.index];
@@ -415,6 +481,12 @@ impl Program {
             let task2 = task2.take().unwrap();
             self.work.enqueue(task2.task);
         }
+    }
+
+    /// # Locks
+    /// Locks ``non_ready_tasks`` with write.
+    fn resolve_dependency(&self, id: TaskId) {
+        self.modify_dependency_count(id, -1);
     }
 
     /// # Locks
@@ -609,7 +681,8 @@ impl Program {
         //
         // FIXME: Performance, this could potentially just be functions.read()
         let functions = self.functions.write();
-        for (function_id, loc) in deps.callables {
+        for function_id in deps.calling {
+            let loc = Location::start("Temporary location placeholder because I'm lazy bum".into());
             insert_callable_dependency_recursive(&*functions, function_id, loc, id, &mut num_deps);
         }
         drop(functions);
@@ -780,11 +853,20 @@ pub enum Task {
     TypeMember(MemberId, crate::locals::LocalVariables, crate::parser::Ast),
     EmitMember(MemberId, crate::locals::LocalVariables, crate::typer::Ast),
     EvaluateMember(MemberId, crate::ir::UserDefinedRoutine),
-    // EmitFunction(
-    //     FunctionId,
-    //     crate::locals::LocalVariables,
-    //     crate::parser::Ast,
-    // ),
+
+    TypeFunction(
+        FunctionId,
+        crate::locals::LocalVariables,
+        Arc<crate::parser::Ast>,
+        Type,
+        Type,
+    ),
+    EmitFunction(
+        FunctionId,
+        crate::locals::LocalVariables,
+        crate::typer::Ast,
+        Type,
+    ),
 }
 
 impl fmt::Debug for Task {
@@ -794,6 +876,8 @@ impl fmt::Debug for Task {
             Task::TypeMember(id, _, _) => write!(f, "type_member({:?})", id),
             Task::EmitMember(id, _, _) => write!(f, "emit_member({:?})", id),
             Task::EvaluateMember(id, _) => write!(f, "evaluate_member({:?})", id),
+            Task::TypeFunction(id, _, _, _, _) => write!(f, "type_function({:?})", id),
+            Task::EmitFunction(id, _, _, _) => write!(f, "emit_function({:?})", id),
         }
     }
 }

@@ -1,8 +1,13 @@
-library "io.bo";
 library "fmt.bo";
-library "string.bo";
-library "vec_u8.bo";
 
 #entry fn() -> u64 {
-    5
+    print("%\n", &[fmt_u64(factorial(3))]);
+
+    0
+};
+
+const factorial = fn(num: u64) -> u64 { 'function
+    if num == 0 break 'function 1;
+
+    factorial(num - 1) * num
 };

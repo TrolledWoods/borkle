@@ -1,3 +1,4 @@
+use crate::dependencies::DependencyList;
 use crate::errors::ErrorCtx;
 use crate::location::Location;
 use crate::program::{MemberMetaData, Program, ScopeId, Task};
@@ -117,18 +118,10 @@ fn worker<'a>(alloc: &'a mut Bump, program: &'a Program) -> (ThreadContext<'a>, 
                         program,
                         locals,
                         &ast,
+                        None,
                     ) {
                         Ok((dependencies, locals, ast)) => {
                             let meta_data = match ast.kind() {
-                                NodeKind::FunctionDeclaration {
-                                    locals: _,
-                                    body: _,
-                                    arg_names,
-                                    default_values,
-                                } => MemberMetaData::Function {
-                                    arg_names: arg_names.clone(),
-                                    default_values: default_values.clone(),
-                                },
                                 NodeKind::Global(_, meta_data) => (&**meta_data).clone(),
                                 _ => MemberMetaData::None,
                             };
@@ -160,15 +153,38 @@ fn worker<'a>(alloc: &'a mut Bump, program: &'a Program) -> (ThreadContext<'a>, 
                 Task::EmitMember(member_id, locals, ast) => {
                     use crate::typer::NodeKind;
 
+                    program.logger.log(format_args!(
+                        "emitting member '{}' {:?}",
+                        program.member_name(member_id),
+                        ast.type_(),
+                    ));
+
                     match ast.kind() {
-                        NodeKind::Constant(constant) => {
-                            program.set_value_of_member(member_id, constant.as_ptr());
+                        NodeKind::Constant(result) => {
+                            program.logger.log(format_args!(
+                                "value(at emitting step, through shortcut) '{}'",
+                                program.member_name(member_id),
+                            ));
+
+                            program.set_value_of_member(member_id, result.as_ptr());
+                        }
+                        NodeKind::Global(aliasing, _) => {
+                            program.logger.log(format_args!(
+                                "value(at emitting step, through shortcut) '{}'",
+                                program.member_name(member_id),
+                            ));
+
+                            let result = program.get_value_of_member(*aliasing);
+                            program.set_value_of_member(member_id, result.as_ptr());
                         }
                         _ => {
-                            let routine =
+                            let (calling, routine) =
                                 crate::emit::emit(&mut thread_context, program, locals, &ast);
+
+                            let mut dependencies = DependencyList::new();
+                            dependencies.calling = calling;
                             program.queue_task(
-                                crate::dependencies::DependencyList::new(),
+                                dependencies,
                                 program.member_name(member_id),
                                 Task::EvaluateMember(member_id, routine),
                             );
@@ -185,6 +201,50 @@ fn worker<'a>(alloc: &'a mut Bump, program: &'a Program) -> (ThreadContext<'a>, 
                         .log(format_args!("value '{}'", program.member_name(member_id),));
 
                     program.set_value_of_member(member_id, result.as_ptr());
+                }
+                Task::TypeFunction(function_id, locals, ast, return_type, type_) => {
+                    use crate::typer::ast::NodeKind;
+
+                    program
+                        .logger
+                        .log(format_args!("typing function '{:?}'", function_id));
+
+                    match crate::typer::process_ast(
+                        &mut errors,
+                        &mut thread_context,
+                        program,
+                        locals,
+                        &ast,
+                        Some(return_type),
+                    ) {
+                        Ok((dependencies, locals, ast)) => {
+                            program.queue_task(
+                                dependencies,
+                                "Hello function!".into(),
+                                Task::EmitFunction(function_id, locals, ast, type_),
+                            );
+                        }
+                        Err(()) => {
+                            // TODO: Here we want to poison the Value parameter of the thing this
+                            // Task is associated with.
+                        }
+                    }
+                }
+                Task::EmitFunction(function_id, locals, ast, type_) => {
+                    use crate::typer::ast::NodeKind;
+
+                    program
+                        .logger
+                        .log(format_args!("emitting function '{:?}'", function_id));
+
+                    crate::emit::emit_function_declaration(
+                        &mut thread_context,
+                        program,
+                        locals,
+                        &ast,
+                        type_,
+                        function_id,
+                    );
                 }
             }
 

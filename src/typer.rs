@@ -7,12 +7,13 @@ use crate::operators::UnaryOp;
 use crate::parser::ast::Node as ParsedNode;
 use crate::parser::{ast::NodeKind as ParsedNodeKind, Ast as ParsedAst};
 use crate::program::constant::ConstantRef;
-use crate::program::{MemberMetaData, Program};
+use crate::program::{MemberMetaData, Program, Task};
 use crate::self_buffer::{SelfBuffer, SelfTree};
 use crate::thread_pool::ThreadContext;
 use crate::types::{Alias, IntTypeKind, Type, TypeData, TypeKind};
 pub use ast::{Node, NodeKind};
 use infer::WantedType;
+use std::sync::Arc;
 
 pub type Ast = SelfTree<Node>;
 
@@ -33,6 +34,7 @@ pub fn process_ast<'a>(
     program: &'a Program,
     locals: LocalVariables,
     parsed: &ParsedAst,
+    wanted_type: Option<Type>,
 ) -> Result<(DependencyList, LocalVariables, Ast), ()> {
     let mut deps = DependencyList::new();
     let mut ctx = Context {
@@ -43,7 +45,7 @@ pub fn process_ast<'a>(
         deps: &mut deps,
     };
     let mut buffer = SelfBuffer::new();
-    let root = type_ast(&mut ctx, WantedType::none(), parsed, &mut buffer)?;
+    let root = type_ast(&mut ctx, wanted_type.into(), parsed, &mut buffer)?;
     let tree = buffer.insert_root(root);
     let locals = ctx.locals;
     Ok((deps, locals, tree))
@@ -63,9 +65,11 @@ fn type_ast<'a>(
         ParsedNodeKind::BuiltinFunction(kind) => {
             let specific = wanted_type.get_specific().ok_or_else(|| ctx.errors.error(parsed.loc, "A builtin function definition needs a type bound to work(why are you even messing with these, these are supposed to be defined withing the standard librarys 'intrinsics.bo' file! XD p.s: giving a bad type definition could segfault the compiler right now)".to_string()))?;
 
-            let id = ctx
-                .program
-                .insert_function(parsed.loc, crate::ir::Routine::Builtin(kind));
+            let id = ctx.program.insert_defined_function(
+                parsed.loc,
+                Vec::new(),
+                crate::ir::Routine::Builtin(kind),
+            );
 
             if let TypeKind::Function { args, returns } = specific.kind() {
                 // FIXME: This is duplicated in emit, could there be a nice way to deduplicate them?
@@ -532,6 +536,7 @@ fn type_ast<'a>(
             ref default_args,
             ref returns,
             ref body,
+            ref body_deps,
         } => {
             let mut locals = locals.clone();
 
@@ -564,36 +569,23 @@ fn type_ast<'a>(
 
             let return_type = const_fold_type_expr(ctx, returns, buffer)?;
 
-            let mut sub_ctx = Context {
-                thread_context: ctx.thread_context,
-                errors: ctx.errors,
-                program: ctx.program,
-                // FIXME: Remove the clone here; This should be doable by recursing over an owned
-                // version of the tree in the future.
-                locals,
-                deps: ctx.deps,
-            };
+            let type_ = Type::new(TypeKind::Function {
+                args: arg_types,
+                returns: return_type,
+            });
 
-            let body = type_ast(
-                &mut sub_ctx,
-                WantedType::specific(Some(returns.loc), return_type),
-                body,
-                buffer,
-            )?;
+            let function_id = ctx.program.insert_function(parsed.loc);
+            ctx.program.queue_task(
+                body_deps.clone(),
+                "function blah blah names are hard".into(),
+                Task::TypeFunction(function_id, locals, Arc::clone(&body), return_type, type_),
+            );
 
-            Node::new(
-                parsed.loc,
-                NodeKind::FunctionDeclaration {
-                    locals: sub_ctx.locals,
-                    body: buffer.insert(body),
-                    arg_names,
-                    default_values,
-                },
-                Type::new(TypeKind::Function {
-                    args: arg_types,
-                    returns: return_type,
-                }),
-            )
+            let function_id_buffer = ctx
+                .program
+                .insert_buffer(type_, &function_id as *const _ as *const u8);
+
+            Node::new(parsed.loc, NodeKind::Constant(function_id_buffer), type_)
         }
         ParsedNodeKind::BitCast { ref value } => {
             let casting_to = wanted_type.get_specific().ok_or_else(|| {

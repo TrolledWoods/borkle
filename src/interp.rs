@@ -15,7 +15,8 @@ pub fn emit_and_run<'a>(
     expr: &crate::typer::Node,
 ) -> ConstantRef {
     let mut stack = Stack::new(2048);
-    let routine = crate::emit::emit(thread_context, program, locals, expr);
+    // FIXME: This does not take into account calling dependencies
+    let (_, routine) = crate::emit::emit(thread_context, program, locals, expr);
     let result = interp(program, &mut stack, &routine);
     program.insert_buffer(expr.type_(), result.as_ptr())
 }

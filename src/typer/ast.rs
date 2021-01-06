@@ -53,12 +53,6 @@ pub enum NodeKind {
         calling: SelfBox<Node>,
         args: Vec<(usize, SelfBox<Node>)>,
     },
-    FunctionDeclaration {
-        locals: LocalVariables,
-        arg_names: Vec<Ustr>,
-        body: SelfBox<Node>,
-        default_values: Vec<ConstantRef>,
-    },
     Break {
         label: crate::locals::LabelId,
         num_defer_deduplications: usize,

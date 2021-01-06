@@ -2,7 +2,7 @@ use crate::ir::{Member, Registers, Routine, UserDefinedRoutine, Value};
 use crate::locals::LocalVariables;
 use crate::operators::{BinaryOp, UnaryOp};
 use crate::program::constant::ConstantRef;
-use crate::program::Program;
+use crate::program::{FunctionId, Program};
 use crate::thread_pool::ThreadContext;
 use crate::typer::ast::NodeKind;
 use crate::typer::Node;
@@ -17,7 +17,7 @@ pub fn emit<'a>(
     program: &'a Program,
     locals: LocalVariables,
     ast: &Node,
-) -> UserDefinedRoutine {
+) -> (Vec<FunctionId>, UserDefinedRoutine) {
     let mut ctx = Context {
         thread_context,
         instr: Vec::new(),
@@ -25,6 +25,7 @@ pub fn emit<'a>(
         locals,
         program,
         label_locations: Vec::new(),
+        calling: Vec::new(),
 
         defers: Vec::new(),
     };
@@ -37,12 +38,15 @@ pub fn emit<'a>(
 
     let result = emit_node(&mut ctx, ast);
 
-    UserDefinedRoutine {
-        instr: ctx.instr,
-        registers: ctx.registers,
-        result,
-        label_locations: ctx.label_locations,
-    }
+    (
+        ctx.calling,
+        UserDefinedRoutine {
+            instr: ctx.instr,
+            registers: ctx.registers,
+            result,
+            label_locations: ctx.label_locations,
+        },
+    )
 }
 
 pub fn emit_function_declaration<'a>(
@@ -51,7 +55,8 @@ pub fn emit_function_declaration<'a>(
     locals: LocalVariables,
     body: &Node,
     type_: Type,
-) -> ConstantRef {
+    function_id: FunctionId,
+) {
     let mut sub_ctx = Context {
         thread_context,
         instr: Vec::new(),
@@ -60,6 +65,7 @@ pub fn emit_function_declaration<'a>(
         program,
         label_locations: Vec::new(),
         defers: Vec::new(),
+        calling: Vec::new(),
     };
 
     // Allocate registers for all the locals
@@ -70,21 +76,18 @@ pub fn emit_function_declaration<'a>(
 
     let result = emit_node(&mut sub_ctx, body);
 
-    let routine = UserDefinedRoutine {
+    let routine = Routine::UserDefined(UserDefinedRoutine {
         label_locations: sub_ctx.label_locations,
         instr: sub_ctx.instr,
         registers: sub_ctx.registers,
         result,
-    };
+    });
 
-    let id = sub_ctx
-        .program
-        .insert_function(body.loc, Routine::UserDefined(routine));
     if sub_ctx.program.arguments.release {
         if let TypeKind::Function { args, returns } = type_.kind() {
             crate::c_backend::function_declaration(
                 &mut sub_ctx.thread_context.c_headers,
-                crate::c_backend::c_format_function(id),
+                crate::c_backend::c_format_function(function_id),
                 args,
                 *returns,
             );
@@ -93,13 +96,12 @@ pub fn emit_function_declaration<'a>(
 
             crate::c_backend::function_declaration(
                 &mut sub_ctx.thread_context.c_declarations,
-                crate::c_backend::c_format_function(id),
+                crate::c_backend::c_format_function(function_id),
                 args,
                 *returns,
             );
             sub_ctx.thread_context.c_declarations.push_str(" {\n");
 
-            let routine = sub_ctx.program.get_routine(id).unwrap();
             crate::c_backend::routine_to_c(
                 &mut sub_ctx.thread_context.c_declarations,
                 &routine,
@@ -114,7 +116,7 @@ pub fn emit_function_declaration<'a>(
 
     sub_ctx
         .program
-        .insert_buffer(type_, &id as *const _ as *const u8)
+        .set_routine_of_function(function_id, sub_ctx.calling, routine);
 }
 
 fn emit_node<'a>(ctx: &mut Context<'a, '_>, node: &'a Node) -> Value {
@@ -365,22 +367,6 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, node: &'a Node) -> Value {
             // We don't need an instruction to initialize the memory, because it's uninit!
             ctx.registers.create(node.type_())
         }
-        NodeKind::FunctionDeclaration {
-            locals,
-            body,
-            arg_names: _,
-            default_values: _,
-        } => {
-            let function = emit_function_declaration(
-                ctx.thread_context,
-                ctx.program,
-                locals.clone(),
-                body,
-                node.type_(),
-            );
-
-            Value::Global(function, node.type_())
-        }
         NodeKind::BitCast { value } => {
             let from = emit_node(ctx, value);
             let to = ctx.registers.create(node.type_());
@@ -517,7 +503,16 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, node: &'a Node) -> Value {
             );
             to
         }
-        NodeKind::Constant(bytes) => Value::Global(*bytes, node.type_()),
+        NodeKind::Constant(bytes) => {
+            if let TypeKind::Function { .. } = node.type_().kind() {
+                let function_id = unsafe { *(bytes.as_ptr() as *const FunctionId) };
+                if !ctx.calling.contains(&function_id) {
+                    ctx.calling.push(function_id);
+                }
+            }
+
+            Value::Global(*bytes, node.type_())
+        }
         NodeKind::Member { name, of } => {
             let to = ctx.registers.create(node.type_());
             let of = emit_node(ctx, of);
@@ -679,7 +674,18 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, node: &'a Node) -> Value {
             ctx.registers.set_head(head);
             to
         }
-        NodeKind::Global(id, _) => ctx.program.get_constant_as_value(*id),
+        NodeKind::Global(id, _) => {
+            let (ptr, type_) = ctx.program.get_member_value(*id);
+
+            if let TypeKind::Function { .. } = type_.kind() {
+                let function_id = unsafe { *(ptr.as_ptr() as *const FunctionId) };
+                if !ctx.calling.contains(&function_id) {
+                    ctx.calling.push(function_id);
+                }
+            }
+
+            Value::Global(ptr, type_)
+        }
         NodeKind::FunctionCall {
             calling: typed_calling,
             args: typed_args,

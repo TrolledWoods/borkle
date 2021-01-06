@@ -1,11 +1,13 @@
+use crate::dependencies::DependencyList;
 use crate::literal::Literal;
 use crate::locals::{LabelId, LocalId, LocalVariables};
 use crate::location::Location;
 use crate::operators::{BinaryOp, UnaryOp};
 use crate::program::{BuiltinFunction, ScopeId};
-use crate::self_buffer::SelfBox;
+use crate::self_buffer::{SelfBox, SelfTree};
 use crate::types::Type;
 use std::fmt;
+use std::sync::Arc;
 use ustr::Ustr;
 
 pub struct Node {
@@ -83,7 +85,8 @@ pub enum NodeKind {
         args: Vec<(Ustr, SelfBox<Node>)>,
         default_args: Vec<(Ustr, SelfBox<Node>)>,
         returns: SelfBox<Node>,
-        body: SelfBox<Node>,
+        body_deps: DependencyList,
+        body: Arc<SelfTree<Node>>,
     },
 
     TypeAsValue(SelfBox<Node>),
