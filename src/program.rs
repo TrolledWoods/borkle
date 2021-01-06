@@ -10,7 +10,6 @@ use crate::types::{IntTypeKind, PointerInType, Type, TypeKind};
 use constant::{Constant, ConstantRef};
 use parking_lot::{Mutex, RwLock};
 use std::alloc;
-use std::collections::HashSet;
 use std::fmt;
 use std::path::{Path, PathBuf};
 use std::ptr::NonNull;
@@ -38,7 +37,7 @@ pub struct Program {
 
     constant_data: Mutex<Vec<Constant>>,
 
-    functions: Mutex<HashSet<*const Routine>>,
+    functions: RwLock<IdVec<FunctionId, Function>>,
     non_ready_tasks: Mutex<IdVec<TaskId, Option<NonReadyTask>>>,
 
     work: WorkPile,
@@ -108,17 +107,33 @@ impl Program {
         }
     }
 
-    pub fn insert_function(&self, routine: Routine) -> usize {
-        let mut functions = self.functions.lock();
-        let leaked = Box::leak(Box::new(routine)) as *const Routine;
-        functions.insert(leaked);
-        leaked as usize
+    /// Locks
+    /// * ``functions`` write
+    pub fn insert_function(&self, loc: Location, routine: Routine) -> FunctionId {
+        let mut functions = self.functions.write();
+        functions.push(Function {
+            loc,
+            routine: RwLock::new(DependableOption::Some(Arc::new(routine))),
+            callable: RwLock::new(DependableOption::Some(())),
+        })
+    }
+
+    /// Locks
+    /// * ``functions`` read
+    pub fn get_routine(&self, id: FunctionId) -> Option<Arc<Routine>> {
+        let functions = self.functions.read();
+
+        let routine = functions[id].routine.read();
+
+        // FIXME: This is not very good for performance, we want to avoid cloning arcs. Could we
+        // have an unsafe version of get_routine that makes assumptions?
+        routine.to_option().cloned()
     }
 
     /// Locks
     /// * ``entry_point`` write
     /// * ``members`` read
-    pub fn get_entry_point(&self) -> Option<*const u8> {
+    pub fn get_entry_point(&self) -> Option<FunctionId> {
         let member_id = (*self.entry_point.lock())?;
 
         let members = self.members.read();
@@ -128,7 +143,7 @@ impl Program {
 
         if let TypeKind::Function { args, returns } = type_.kind() {
             if args.is_empty() && matches!(returns.kind(), TypeKind::Int(IntTypeKind::U64)) {
-                Some(unsafe { *member.value.to_option()?.as_ptr().cast::<*const u8>() })
+                Some(unsafe { *member.value.to_option()?.as_ptr().cast::<FunctionId>() })
             } else {
                 None
             }
@@ -597,6 +612,14 @@ impl Scope {
     }
 }
 
+struct Function {
+    loc: Location,
+    // INVARIANT: This never goes from some to none, it is defined once and then
+    // never modified.
+    routine: RwLock<DependableOption<Arc<Routine>>>,
+    callable: RwLock<DependableOption<()>>,
+}
+
 struct Member {
     name: Ustr,
     type_: DependableOption<(Type, Arc<MemberMetaData>)>,
@@ -690,6 +713,30 @@ fn default<T: Default>() -> T {
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
+#[repr(transparent)]
+pub struct FunctionId(usize);
+
+impl Id for FunctionId {}
+
+impl From<usize> for FunctionId {
+    fn from(other: usize) -> Self {
+        Self(other)
+    }
+}
+
+impl Into<usize> for FunctionId {
+    fn into(self) -> usize {
+        self.0
+    }
+}
+
+impl fmt::Debug for FunctionId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+#[repr(transparent)]
 pub struct MemberId(usize);
 
 impl Id for MemberId {}
@@ -713,6 +760,7 @@ impl fmt::Debug for MemberId {
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
+#[repr(transparent)]
 pub struct ScopeId(usize);
 
 impl Id for ScopeId {}

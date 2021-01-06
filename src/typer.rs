@@ -65,14 +65,14 @@ fn type_ast<'a>(
 
             let id = ctx
                 .program
-                .insert_function(crate::ir::Routine::Builtin(kind));
+                .insert_function(parsed.loc, crate::ir::Routine::Builtin(kind));
 
             if let TypeKind::Function { args, returns } = specific.kind() {
                 // FIXME: This is duplicated in emit, could there be a nice way to deduplicate them?
                 if ctx.program.arguments.release {
                     crate::c_backend::function_declaration(
                         &mut ctx.thread_context.c_headers,
-                        crate::c_backend::c_format_global(id),
+                        crate::c_backend::c_format_function(id),
                         args,
                         *returns,
                     );
@@ -81,14 +81,16 @@ fn type_ast<'a>(
 
                     crate::c_backend::function_declaration(
                         &mut ctx.thread_context.c_declarations,
-                        crate::c_backend::c_format_global(id),
+                        crate::c_backend::c_format_function(id),
                         args,
                         *returns,
                     );
                     ctx.thread_context.c_declarations.push_str(" {\n");
+
+                    let routine = ctx.program.get_routine(id).unwrap();
                     crate::c_backend::routine_to_c(
                         &mut ctx.thread_context.c_declarations,
-                        unsafe { &*(id as *const crate::ir::Routine) },
+                        &routine,
                         args,
                         *returns,
                     );
@@ -99,7 +101,7 @@ fn type_ast<'a>(
                     parsed.loc,
                     NodeKind::Constant(
                         ctx.program
-                            .insert_buffer(specific, id.to_le_bytes().as_ptr()),
+                            .insert_buffer(specific, &id as *const _ as *const u8),
                     ),
                     specific,
                 )

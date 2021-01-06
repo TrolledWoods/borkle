@@ -18,7 +18,7 @@ const debug_string = fn(buffer: [] u8) {
 const print_usize = fn (num: usize)  print_u64(bit_cast num);
 const print_isize = fn (num: isize)  print_i64(bit_cast num);
 
-const read_input = fn () -> [] u8 {
+const get_line = fn () -> [] u8 {
     i_stdin_getline()
 };
 

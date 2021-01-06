@@ -4,7 +4,7 @@
 
 use crate::ir::{Instr, Routine, Value};
 use crate::operators::{BinaryOp, UnaryOp};
-use crate::program::{BuiltinFunction, Program};
+use crate::program::{BuiltinFunction, FunctionId, Program};
 use crate::types::{IntTypeKind, PointerInType, Type, TypeKind, TYPES};
 use std::fmt;
 use std::fmt::Write;
@@ -55,14 +55,9 @@ pub fn function_pointer_type(
     output.push(')');
 }
 
-pub fn entry_point(output: &mut String, entry: *const u8) {
+pub fn entry_point(output: &mut String, entry: FunctionId) {
     output.push_str("int main() {\n");
-    write!(
-        output,
-        "    return {}();\n",
-        c_format_global(entry as usize)
-    )
-    .unwrap();
+    write!(output, "    return {}();\n", c_format_function(entry)).unwrap();
     output.push_str("}\n");
 }
 
@@ -603,6 +598,11 @@ pub fn c_format_global_temp_type(global: usize) -> impl fmt::Display {
 
 pub fn c_format_global(global: usize) -> impl fmt::Display {
     Formatter(move |f| write!(f, "global_{}", global))
+}
+
+pub fn c_format_function(function: FunctionId) -> impl fmt::Display {
+    let num: usize = function.into();
+    Formatter(move |f| write!(f, "function_{}", num))
 }
 
 /// Formats a pointer type(the given type being the inner type)

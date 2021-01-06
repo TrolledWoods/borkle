@@ -79,12 +79,12 @@ pub fn emit_function_declaration<'a>(
 
     let id = sub_ctx
         .program
-        .insert_function(Routine::UserDefined(routine));
+        .insert_function(body.loc, Routine::UserDefined(routine));
     if sub_ctx.program.arguments.release {
         if let TypeKind::Function { args, returns } = type_.kind() {
             crate::c_backend::function_declaration(
                 &mut sub_ctx.thread_context.c_headers,
-                crate::c_backend::c_format_global(id),
+                crate::c_backend::c_format_function(id),
                 args,
                 *returns,
             );
@@ -93,14 +93,16 @@ pub fn emit_function_declaration<'a>(
 
             crate::c_backend::function_declaration(
                 &mut sub_ctx.thread_context.c_declarations,
-                crate::c_backend::c_format_global(id),
+                crate::c_backend::c_format_function(id),
                 args,
                 *returns,
             );
             sub_ctx.thread_context.c_declarations.push_str(" {\n");
+
+            let routine = sub_ctx.program.get_routine(id).unwrap();
             crate::c_backend::routine_to_c(
                 &mut sub_ctx.thread_context.c_declarations,
-                unsafe { &*(id as *const Routine) },
+                &routine,
                 args,
                 *returns,
             );
@@ -112,7 +114,7 @@ pub fn emit_function_declaration<'a>(
 
     sub_ctx
         .program
-        .insert_buffer(type_, id.to_le_bytes().as_ptr())
+        .insert_buffer(type_, &id as *const _ as *const u8)
 }
 
 fn emit_node<'a>(ctx: &mut Context<'a, '_>, node: &'a Node) -> Value {

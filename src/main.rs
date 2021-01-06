@@ -116,8 +116,8 @@ fn main() {
                     elapsed.as_secs_f32()
                 );
 
-                let routine = unsafe { &*entry_point.cast::<ir::Routine>() };
-                if let ir::Routine::UserDefined(routine) = routine {
+                let routine = program.get_routine(entry_point).unwrap();
+                if let ir::Routine::UserDefined(routine) = &*routine {
                     let mut stack = interp::Stack::new(1 << 16);
 
                     let result = interp::interp(&program, &mut stack, routine);

@@ -53,9 +53,11 @@ fn interp_internal(program: &Program, stack: &mut StackFrame<'_>, routine: &User
                 pointer,
                 ref args,
             } => {
-                let calling: &Routine = unsafe { stack.get(pointer).read() };
+                let calling = program
+                    .get_routine(unsafe { stack.get(pointer).read() })
+                    .unwrap();
 
-                match calling {
+                match &*calling {
                     Routine::Builtin(BuiltinFunction::StdoutWrite) => unsafe {
                         use std::io::Write;
                         let buffer = stack.get(args[0]).read::<BufferRepr>();
