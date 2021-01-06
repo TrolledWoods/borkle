@@ -318,7 +318,7 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, node: &'a Node) -> Value {
             true_body,
             false_body: None,
         } => {
-            if let NodeKind::Constant(data) = condition.kind() {
+            if let NodeKind::Constant(data, _) = condition.kind() {
                 if unsafe { *data.as_ptr() } != 0 {
                     emit_node(ctx, true_body);
                 }
@@ -503,7 +503,7 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, node: &'a Node) -> Value {
             );
             to
         }
-        NodeKind::Constant(bytes) => {
+        NodeKind::Constant(bytes, _) => {
             if let TypeKind::Function { .. } = node.type_().kind() {
                 let function_id = unsafe { *(bytes.as_ptr() as *const FunctionId) };
                 if !ctx.calling.contains(&function_id) {

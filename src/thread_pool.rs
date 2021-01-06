@@ -122,6 +122,7 @@ fn worker<'a>(alloc: &'a mut Bump, program: &'a Program) -> (ThreadContext<'a>, 
                     ) {
                         Ok((dependencies, locals, ast)) => {
                             let meta_data = match ast.kind() {
+                                NodeKind::Constant(_, Some(meta_data)) => (&**meta_data).clone(),
                                 NodeKind::Global(_, meta_data) => (&**meta_data).clone(),
                                 _ => MemberMetaData::None,
                             };
@@ -160,7 +161,7 @@ fn worker<'a>(alloc: &'a mut Bump, program: &'a Program) -> (ThreadContext<'a>, 
                     ));
 
                     match ast.kind() {
-                        NodeKind::Constant(result) => {
+                        NodeKind::Constant(result, _) => {
                             program.logger.log(format_args!(
                                 "value(at emitting step, through shortcut) '{}'",
                                 program.member_name(member_id),

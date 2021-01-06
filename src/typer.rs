@@ -106,6 +106,7 @@ fn type_ast<'a>(
                     NodeKind::Constant(
                         ctx.program
                             .insert_buffer(specific, &id as *const _ as *const u8),
+                        None,
                     ),
                     specific,
                 )
@@ -131,7 +132,7 @@ fn type_ast<'a>(
 
             locals = std::mem::replace(&mut ctx.locals, locals);
 
-            if let NodeKind::Constant(_)
+            if let NodeKind::Constant(_, _)
             | NodeKind::Global(_, _)
             | NodeKind::ConstAtEvaluation { .. } = inner.kind()
             {
@@ -165,7 +166,7 @@ fn type_ast<'a>(
 
             locals = std::mem::replace(&mut ctx.locals, locals);
 
-            if let NodeKind::Constant(_) = inner.kind() {
+            if let NodeKind::Constant(_, _) = inner.kind() {
                 ctx.errors.warning(
                     parsed.loc,
                     "Unnecessary 'const', the expression is already constant".to_string(),
@@ -175,12 +176,16 @@ fn type_ast<'a>(
             let constant =
                 crate::interp::emit_and_run(ctx.thread_context, ctx.program, locals, &inner);
 
-            Node::new(parsed.loc, NodeKind::Constant(constant), inner.type_())
+            Node::new(
+                parsed.loc,
+                NodeKind::Constant(constant, None),
+                inner.type_(),
+            )
         }
         ParsedNodeKind::Defer { ref deferring } => {
             let typed = type_ast(ctx, WantedType::none(), deferring, buffer)?;
 
-            if let NodeKind::Constant(_) | NodeKind::ConstAtEvaluation { .. } = typed.kind() {
+            if let NodeKind::Constant(_, _) | NodeKind::ConstAtEvaluation { .. } = typed.kind() {
                 ctx.errors.warning(parsed.loc, "Useless defer".to_string());
             }
 
@@ -202,7 +207,7 @@ fn type_ast<'a>(
 
                     Node::new(
                         parsed.loc,
-                        NodeKind::Constant(ctx.program.insert_buffer(type_, bytes.as_ptr())),
+                        NodeKind::Constant(ctx.program.insert_buffer(type_, bytes.as_ptr()), None),
                         type_,
                     )
                 }
@@ -212,7 +217,7 @@ fn type_ast<'a>(
 
                     Node::new(
                         parsed.loc,
-                        NodeKind::Constant(ctx.program.insert_buffer(type_, bytes.as_ptr())),
+                        NodeKind::Constant(ctx.program.insert_buffer(type_, bytes.as_ptr()), None),
                         type_,
                     )
                 }
@@ -242,7 +247,7 @@ fn type_ast<'a>(
                 }
 
                 let ptr = ctx.program.insert_buffer(u8_type, bytes.as_ptr());
-                Node::new(parsed.loc, NodeKind::Constant(ptr), u8_type)
+                Node::new(parsed.loc, NodeKind::Constant(ptr, None), u8_type)
             } else {
                 let type_ = Type::new(TypeKind::Buffer(u8_type));
                 let ptr = ctx.program.insert_buffer(
@@ -252,7 +257,7 @@ fn type_ast<'a>(
                         length: data.len(),
                     } as *const _ as *const _,
                 );
-                Node::new(parsed.loc, NodeKind::Constant(ptr), type_)
+                Node::new(parsed.loc, NodeKind::Constant(ptr, None), type_)
             }
         }
         ParsedNodeKind::ArrayLiteral(ref parsed_elements) => {
@@ -517,7 +522,7 @@ fn type_ast<'a>(
 
             Node::new(
                 parsed.loc,
-                NodeKind::Constant(ctx.program.insert_zeroed_buffer(wanted)),
+                NodeKind::Constant(ctx.program.insert_zeroed_buffer(wanted), None),
                 wanted,
             )
         }
@@ -554,7 +559,7 @@ fn type_ast<'a>(
             for (local, &(name, ref node)) in locals.iter_mut().skip(args.len()).zip(default_args) {
                 let arg_value = type_ast(ctx, WantedType::none(), node, buffer)?;
 
-                if let NodeKind::Constant(constant) = *arg_value.kind() {
+                if let NodeKind::Constant(constant, _) = *arg_value.kind() {
                     default_values.push(constant);
                 } else {
                     ctx.errors
@@ -585,7 +590,17 @@ fn type_ast<'a>(
                 .program
                 .insert_buffer(type_, &function_id as *const _ as *const u8);
 
-            Node::new(parsed.loc, NodeKind::Constant(function_id_buffer), type_)
+            Node::new(
+                parsed.loc,
+                NodeKind::Constant(
+                    function_id_buffer,
+                    Some(Arc::new(MemberMetaData::Function {
+                        arg_names,
+                        default_values,
+                    })),
+                ),
+                type_,
+            )
         }
         ParsedNodeKind::BitCast { ref value } => {
             let casting_to = wanted_type.get_specific().ok_or_else(|| {
@@ -680,7 +695,7 @@ fn type_ast<'a>(
                                     i,
                                     buffer.insert(Node::new(
                                         calling.loc,
-                                        NodeKind::Constant(*default_value),
+                                        NodeKind::Constant(*default_value, None),
                                         arg_types[i],
                                     )),
                                 ));
@@ -754,7 +769,7 @@ fn type_ast<'a>(
                     let type_ = (*int).into();
                     Node::new(
                         parsed.loc,
-                        NodeKind::Constant(ctx.program.insert_buffer(type_, bytes.as_ptr())),
+                        NodeKind::Constant(ctx.program.insert_buffer(type_, bytes.as_ptr()), None),
                         type_,
                     )
                 }
@@ -824,7 +839,7 @@ fn type_ast<'a>(
                 }
             };
 
-            if let (NodeKind::Constant(left_val), NodeKind::Constant(right_val)) =
+            if let (NodeKind::Constant(left_val, _), NodeKind::Constant(right_val, _)) =
                 (left.kind(), right.kind())
             {
                 let constant_ref = ctx
@@ -838,7 +853,7 @@ fn type_ast<'a>(
                             out,
                         )
                     });
-                Node::new(parsed.loc, NodeKind::Constant(constant_ref), type_)
+                Node::new(parsed.loc, NodeKind::Constant(constant_ref, None), type_)
             } else {
                 Node::new(
                     parsed.loc,
@@ -883,13 +898,13 @@ fn type_ast<'a>(
                         | None => {
                             let type_ = Type::new(TypeKind::Reference(operand.type_()));
 
-                            if let NodeKind::Constant(constant) = operand.kind() {
+                            if let NodeKind::Constant(constant, _) = operand.kind() {
                                 let constant = ctx.program.insert_buffer(
                                     type_,
                                     &(constant.as_ptr() as usize).to_le_bytes() as *const _
                                         as *const _,
                                 );
-                                Node::new(parsed.loc, NodeKind::Constant(constant), type_)
+                                Node::new(parsed.loc, NodeKind::Constant(constant, None), type_)
                             } else {
                                 Node::new(
                                     parsed.loc,
@@ -934,11 +949,11 @@ fn type_ast<'a>(
                         return Err(());
                     };
 
-                    if let NodeKind::Constant(constant) = operand.kind() {
+                    if let NodeKind::Constant(constant, _) = operand.kind() {
                         let constant = ctx.program.insert_buffer(type_, unsafe {
                             *constant.as_ptr().cast::<*const u8>()
                         });
-                        Node::new(parsed.loc, NodeKind::Constant(constant), type_)
+                        Node::new(parsed.loc, NodeKind::Constant(constant, None), type_)
                     } else {
                         Node::new(
                             parsed.loc,
@@ -967,7 +982,7 @@ fn type_ast<'a>(
         }
         ParsedNodeKind::Empty => Node::new(
             parsed.loc,
-            NodeKind::Constant(ConstantRef::dangling()),
+            NodeKind::Constant(ConstantRef::dangling(), None),
             Type::new(TypeKind::Empty),
         ),
         ParsedNodeKind::Break {
@@ -1010,7 +1025,9 @@ fn type_ast<'a>(
             for parsed_content in parsed_contents.iter().take(parsed_contents.len() - 1) {
                 let content = type_ast(ctx, WantedType::none(), parsed_content, buffer)?;
 
-                if let NodeKind::Constant(_) | NodeKind::ConstAtEvaluation { .. } = content.kind() {
+                if let NodeKind::Constant(_, _) | NodeKind::ConstAtEvaluation { .. } =
+                    content.kind()
+                {
                     ctx.errors.warning(
                         parsed_content.loc,
                         "Useless expression, this is a constant!".to_string(),
@@ -1087,11 +1104,11 @@ fn type_ast<'a>(
         }
         ParsedNodeKind::GlobalForTyping(scope, name, _) => {
             let id = ctx.program.get_member_id(scope, name).unwrap();
-            // FIXME: We should store the metadata for this global somewhere
+            let (type_, meta_data) = ctx.program.get_member_meta_data(id);
             Node::new(
                 parsed.loc,
-                NodeKind::Constant(ctx.program.get_value_of_member(id)),
-                ctx.program.get_type_of_member(id),
+                NodeKind::Constant(ctx.program.get_value_of_member(id), Some(meta_data)),
+                type_,
             )
         }
         ParsedNodeKind::Global(scope, name, _) => {
@@ -1130,10 +1147,13 @@ fn type_ast<'a>(
             let inner_type = const_fold_type_expr(ctx, inner, buffer)?;
             Node::new(
                 parsed.loc,
-                NodeKind::Constant(ctx.program.insert_buffer(
-                    Type::new(TypeKind::Type),
-                    &(inner_type.as_ptr() as usize).to_le_bytes() as *const _,
-                )),
+                NodeKind::Constant(
+                    ctx.program.insert_buffer(
+                        Type::new(TypeKind::Type),
+                        &(inner_type.as_ptr() as usize).to_le_bytes() as *const _,
+                    ),
+                    None,
+                ),
                 Type::new(TypeKind::Type),
             )
         }
@@ -1201,10 +1221,13 @@ fn type_ast<'a>(
 
             Node::new(
                 parsed.loc,
-                NodeKind::Constant(ctx.program.insert_buffer(
-                    type_type,
-                    &(type_.as_ptr() as usize).to_le_bytes() as *const _,
-                )),
+                NodeKind::Constant(
+                    ctx.program.insert_buffer(
+                        type_type,
+                        &(type_.as_ptr() as usize).to_le_bytes() as *const _,
+                    ),
+                    None,
+                ),
                 type_type,
             )
         }
@@ -1275,7 +1298,7 @@ fn const_fold_type_expr<'a>(
                 buffer,
             )?;
 
-            if let NodeKind::Constant(len) = len.kind() {
+            if let NodeKind::Constant(len, _) = len.kind() {
                 let length = unsafe { *len.as_ptr().cast::<usize>() };
 
                 let member = const_fold_type_expr(ctx, members, buffer)?;

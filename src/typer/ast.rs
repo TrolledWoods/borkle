@@ -42,7 +42,7 @@ pub enum NodeKind {
         locals: LocalVariables,
         inner: SelfBox<Node>,
     },
-    Constant(ConstantRef),
+    Constant(ConstantRef, Option<Arc<MemberMetaData>>),
     Global(MemberId, Arc<MemberMetaData>),
     // FIXME: This should be the 'Member' struct from the types, not a string.
     Member {

@@ -66,8 +66,11 @@ fn c_format_value(value: &Value) -> impl fmt::Display + '_ {
         Value::Register(id, _) => write!(f, "reg_{}", id),
         Value::Global(ptr, type_) => {
             if let TypeKind::Function { .. } = type_.kind() {
-                write!(f, "global_{}", unsafe { *ptr.as_ptr().cast::<*const u8>() }
-                    as usize)?;
+                write!(
+                    f,
+                    "{}",
+                    c_format_function(unsafe { *ptr.as_ptr().cast::<FunctionId>() })
+                )?;
             } else {
                 debug_assert!(type_.size() != 0);
 
@@ -154,10 +157,12 @@ pub fn instantiate_constants(output: &mut String, program: &mut Program) {
         let mut pointers = constant.type_.pointers().iter().peekable();
         for i in (0..constant.type_.size()).step_by(8) {
             match pointers.peek() {
-                Some(&(offset, _)) if *offset == i => {
+                Some(&(offset, pointer_kind)) if *offset == i => {
                     let ptr_num = unsafe { *ptr.add(i).cast::<usize>() };
                     if ptr_num == 0 {
                         output.push_str("NULL");
+                    } else if let PointerInType::Function { .. } = pointer_kind {
+                        write!(output, "&{}", c_format_function(ptr_num.into())).unwrap();
                     } else {
                         write!(output, "&{}", c_format_global(ptr_num)).unwrap();
                     }
