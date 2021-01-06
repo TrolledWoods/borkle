@@ -1,6 +1,26 @@
 library "fmt.bo";
 library "vec_u8.bo";
 
+const the_type1 = type [const factorial(3)] u32;
+const the_type2 = type [const factorial(3)] u32;
+const the_type3 = type [const factorial(3)] u32;
+const the_type4 = type [const factorial(3)] u32;
+const the_type5 = type [const factorial(3)] u32;
+
+const my_type = const factorial(3);
+const my_type2 = const factorial(3);
+const my_type3 = const factorial(3);
+const my_type4 = const factorial(3);
+const the_type = type [const factorial(3)] u32;
+
+const factorial = fn(num: usize) -> usize
+    if num > 0  factorial(num - 1) * num
+    else 1;
+
+const factorial = {
+    fn(num: usize) -> usize  if num > 0  factorial(num - 1) * num else 1
+};
+
 #entry fn() -> u64 {
     let vec = #0 : VecU8;
     recurse(&vec, 9);

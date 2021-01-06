@@ -7,6 +7,7 @@ use ustr::{Ustr, UstrMap};
 pub struct DependencyList {
     pub values: UstrMap<(ScopeId, Location)>,
     pub types: UstrMap<(ScopeId, Location)>,
+    pub calling_named: UstrMap<(ScopeId, Location)>,
     pub calling: Vec<FunctionId>,
 }
 
@@ -15,6 +16,7 @@ impl DependencyList {
         Self {
             values: UstrMap::default(),
             types: UstrMap::default(),
+            calling_named: UstrMap::default(),
             calling: Vec::new(),
         }
     }
@@ -23,6 +25,7 @@ impl DependencyList {
         match kind {
             DependencyKind::Value => self.values.insert(name, (scope_id, loc)),
             DependencyKind::Type => self.types.insert(name, (scope_id, loc)),
+            DependencyKind::CallingNamed => self.calling_named.insert(name, (scope_id, loc)),
         };
     }
 }
@@ -31,6 +34,7 @@ impl DependencyList {
 pub enum DependencyKind {
     Type,
     Value,
+    CallingNamed,
 }
 
 impl fmt::Debug for DependencyList {
@@ -42,6 +46,10 @@ impl fmt::Debug for DependencyList {
         write!(f, " values: ")?;
         for value in self.values.keys() {
             write!(f, "{}, ", value)?;
+        }
+        write!(f, " calling_named: ")?;
+        for calling in self.calling_named.keys() {
+            write!(f, "{}, ", calling)?;
         }
         write!(f, " calling: ")?;
         for calling in &self.calling {

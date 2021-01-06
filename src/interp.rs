@@ -56,7 +56,7 @@ fn interp_internal(program: &Program, stack: &mut StackFrame<'_>, routine: &User
             } => {
                 let calling = program
                     .get_routine(unsafe { stack.get(pointer).read() })
-                    .unwrap();
+                    .expect("Invalid function pointer. There are two reasons this could happen; you bit_casted some number into a function pointer, or there is a bug in the compilers dependency system.");
 
                 match &*calling {
                     Routine::Builtin(BuiltinFunction::StdoutWrite) => unsafe {

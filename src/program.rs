@@ -405,19 +405,47 @@ impl Program {
     /// # Locks
     /// * ``constant_data`` write
     /// * ``members`` write
+    /// * ``functions`` write
     pub fn set_value_of_member(&self, id: MemberId, data: *const u8) {
         let type_ = self.members.write()[id].type_.unwrap().0;
 
         let value = self.insert_buffer(type_, data);
 
-        let old = std::mem::replace(
-            &mut self.members.write()[id].value,
-            DependableOption::Some(value),
-        );
+        let mut members = self.members.write();
+        let old = std::mem::replace(&mut members[id].value, DependableOption::Some(value));
+        let old_callable = std::mem::replace(&mut members[id].callable, DependableOption::Some(()));
+        drop(members);
 
-        if let DependableOption::None(dependencies) = old {
+        if let (DependableOption::None(dependencies), DependableOption::None(old_callable)) =
+            (old, old_callable)
+        {
             for (_, dependency) in dependencies.into_inner() {
                 self.resolve_dependency(dependency);
+            }
+
+            if let TypeKind::Function { .. } = type_.kind() {
+                // Being callable matters, we have to wait on that
+                let function_id = unsafe { *data.cast::<FunctionId>() };
+
+                for (loc, dependency) in old_callable.into_inner() {
+                    let functions = self.functions.write();
+                    let mut num_deps = -1;
+                    insert_callable_dependency_recursive(
+                        &*functions,
+                        function_id,
+                        loc,
+                        dependency,
+                        &mut num_deps,
+                    );
+                    drop(functions);
+
+                    self.modify_dependency_count(dependency, num_deps);
+                }
+            } else {
+                // Being callable does not really matter, since we are not a function
+                for (_, dependency) in old_callable.into_inner() {
+                    self.resolve_dependency(dependency);
+                }
             }
         } else {
             unreachable!("You can only set the value of a member once!");
@@ -568,6 +596,17 @@ impl Program {
                             self.resolve_dependency(dependant);
                         }
                     }
+                    DependencyKind::CallingNamed => {
+                        self.logger.log(format_args!(
+                            "Dependant at '{:?}' found definition of '{}', now searches for the type of it",
+                            loc, member.name,
+                        ));
+
+                        if !member.callable.add_dependant(loc, dependant) {
+                            drop(members);
+                            self.resolve_dependency(dependant);
+                        }
+                    }
                 }
             }
         }
@@ -580,7 +619,7 @@ impl Program {
     /// * ``members`` write
     /// * ``non_ready_tasks`` write
     /// * ``functions`` write
-    pub fn queue_task(&self, deps: DependencyList, task: Task) {
+    pub fn queue_task(&self, mut deps: DependencyList, task: Task) {
         const DEPENDENCY_COUNT_OFFSET: i32 = i32::MAX / 2;
 
         let mut non_ready_tasks = self.non_ready_tasks.lock();
@@ -663,6 +702,38 @@ impl Program {
                 ));
                 let wanted = scope_wanted_names.entry(dep_name).or_insert_with(Vec::new);
                 wanted.push((DependencyKind::Value, loc, id));
+            }
+        }
+
+        for (dep_name, (scope_id, loc)) in deps.calling_named {
+            let scopes = self.scopes.write();
+            let scope = &scopes[scope_id];
+            let mut scope_wanted_names = scope.wanted_names.write();
+
+            if let Some(dep_id) = scope.get(dep_name) {
+                drop(scope_wanted_names);
+                drop(scopes);
+                let mut members = self.members.write();
+                let dependency = &mut members[dep_id];
+                if dependency.callable.add_dependant(loc, id) {
+                    num_deps += 1;
+                } else {
+                    if let TypeKind::Function { .. } = dependency.type_.unwrap().0.kind() {
+                        // If we know the value of it already, just push it to the list of functions we
+                        // depend on being able to call.
+                        let function_id =
+                            unsafe { *dependency.value.unwrap().as_ptr().cast::<FunctionId>() };
+                        deps.calling.push(function_id);
+                    }
+                }
+            } else {
+                num_deps += 1;
+                self.logger.log(format_args!(
+                    "Undefined identifier '{}' in scope {}, wants value of it",
+                    dep_name, scope_id.0
+                ));
+                let wanted = scope_wanted_names.entry(dep_name).or_insert_with(Vec::new);
+                wanted.push((DependencyKind::CallingNamed, loc, id));
             }
         }
 
@@ -774,6 +845,7 @@ struct Member {
     name: Ustr,
     type_: DependableOption<(Type, Arc<MemberMetaData>)>,
     value: DependableOption<ConstantRef>,
+    callable: DependableOption<()>,
 }
 
 #[derive(Debug, Clone)]
@@ -791,6 +863,7 @@ impl Member {
             name,
             type_: DependableOption::None(default()),
             value: DependableOption::None(default()),
+            callable: DependableOption::None(default()),
         }
     }
 }

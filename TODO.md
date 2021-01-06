@@ -7,10 +7,12 @@
 * [X] Dependency system now doesn't associate tasks with members, but rather tasks are their own standalone thing
 * [X] Feature; Allow for recursive functions.
 
-* [ ] Show where bad loops of recursion happen
+* [ ] Cache callable functions, so that when a function is callable it doesn't have to be recalculated whether it is callable or not.
+* [ ] Right now functions in type expressions are not properly handled in the dependency system, and might crash the compiler!
+* [ ] Show where bad loops of recursion happen(can they even happen?)
 * [ ] BUG! Collision checks on field names and aliases, and collisions between aliases.
 * [ ] Add an instruction for calling a built in function, so built in function calls are cheaper?
-* [ ] BUG! Status access violation when the compiler crashes.
+* [ ] BUG! Status access violation when the compiler crashes(probably a thread trying to still do things)
 * [ ] BUG! Doesn't exit "gracefully" when a thread panics.
 * [ ] Make a global setup file for the compiler!
 * [ ] Add a way to run all the borkle sub-programs in a markdown file

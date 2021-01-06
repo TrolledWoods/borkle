@@ -21,6 +21,7 @@ pub mod ast;
 mod infer;
 
 struct Context<'a, 'b> {
+    is_const: bool,
     thread_context: &'a mut ThreadContext<'b>,
     errors: &'a mut ErrorCtx,
     program: &'b Program,
@@ -38,6 +39,7 @@ pub fn process_ast<'a>(
 ) -> Result<(DependencyList, LocalVariables, Ast), ()> {
     let mut deps = DependencyList::new();
     let mut ctx = Context {
+        is_const: false,
         thread_context,
         errors,
         program,
@@ -123,7 +125,11 @@ fn type_ast<'a>(
             ref inner,
         } => {
             let mut locals = std::mem::replace(&mut ctx.locals, locals.clone());
+
+            let old_const = ctx.is_const;
+            ctx.is_const = true;
             let inner = type_ast(ctx, wanted_type, inner, buffer)?;
+            ctx.is_const = old_const;
 
             if !inner.type_().can_be_stored_in_constant() {
                 ctx.errors.error(parsed.loc, format!("'{}' cannot be stored in a constant, because it contains types that the compiler cannot reason about properly, such as '&any', '[] any', or similar", inner.type_()));
@@ -1112,7 +1118,13 @@ fn type_ast<'a>(
         }
         ParsedNodeKind::Global(scope, name, _) => {
             let id = ctx.program.get_member_id(scope, name).unwrap();
-            ctx.deps.add(parsed.loc, scope, name, DependencyKind::Value);
+
+            if ctx.is_const {
+                ctx.deps
+                    .add(parsed.loc, scope, name, DependencyKind::CallingNamed);
+            } else {
+                ctx.deps.add(parsed.loc, scope, name, DependencyKind::Value);
+            }
 
             let (type_, meta_data) = ctx.program.get_member_meta_data(id);
             Node::new(parsed.loc, NodeKind::Global(id, meta_data), type_)

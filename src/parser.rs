@@ -346,7 +346,7 @@ fn type_(
 
             imperative
                 .dependencies
-                .add(loc, global.scope, name, DependencyKind::Value);
+                .add(loc, global.scope, name, DependencyKind::CallingNamed);
             Ok(Node::new(
                 loc,
                 NodeKind::GlobalForTyping(global.scope, name, polymorphic_arguments),
@@ -509,9 +509,12 @@ fn value(
                 imperative.locals.get_mut(local_id).num_uses += 1;
                 Node::new(token.loc, NodeKind::Local(local_id))
             } else if imperative.evaluate_at_typing {
-                imperative
-                    .dependencies
-                    .add(token.loc, global.scope, name, DependencyKind::Value);
+                imperative.dependencies.add(
+                    token.loc,
+                    global.scope,
+                    name,
+                    DependencyKind::CallingNamed,
+                );
                 Node::new(
                     token.loc,
                     NodeKind::GlobalForTyping(global.scope, name, polymorphic_arguments),
