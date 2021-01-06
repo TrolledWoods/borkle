@@ -1,11 +1,13 @@
 use crate::location::Location;
-use crate::program::ScopeId;
+use crate::program::{FunctionId, ScopeId};
+use std::collections::HashMap;
 use std::fmt;
 use ustr::{Ustr, UstrMap};
 
 pub struct DependencyList {
     pub values: UstrMap<(ScopeId, Location)>,
     pub types: UstrMap<(ScopeId, Location)>,
+    pub callables: HashMap<FunctionId, Location>,
 }
 
 impl DependencyList {
@@ -13,6 +15,7 @@ impl DependencyList {
         Self {
             values: UstrMap::default(),
             types: UstrMap::default(),
+            callables: HashMap::default(),
         }
     }
 
@@ -21,6 +24,10 @@ impl DependencyList {
             DependencyKind::Value => self.values.insert(name, (scope_id, loc)),
             DependencyKind::Type => self.types.insert(name, (scope_id, loc)),
         };
+    }
+
+    pub fn add_function(&mut self, loc: Location, function_id: FunctionId) {
+        self.callables.insert(function_id, loc);
     }
 }
 

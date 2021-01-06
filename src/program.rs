@@ -10,6 +10,7 @@ use crate::types::{IntTypeKind, PointerInType, Type, TypeKind};
 use constant::{Constant, ConstantRef};
 use parking_lot::{Mutex, RwLock};
 use std::alloc;
+use std::collections::HashSet;
 use std::fmt;
 use std::path::{Path, PathBuf};
 use std::ptr::NonNull;
@@ -38,7 +39,7 @@ pub struct Program {
     constant_data: Mutex<Vec<Constant>>,
 
     functions: RwLock<IdVec<FunctionId, Function>>,
-    non_ready_tasks: Mutex<IdVec<TaskId, Option<NonReadyTask>>>,
+    non_ready_tasks: Mutex<Vec<(u32, Option<NonReadyTask>)>>,
 
     work: WorkPile,
 
@@ -113,8 +114,8 @@ impl Program {
         let mut functions = self.functions.write();
         functions.push(Function {
             loc,
-            routine: RwLock::new(DependableOption::Some(Arc::new(routine))),
-            callable: RwLock::new(DependableOption::Some(())),
+            routine: DependableOption::Some((Vec::new(), Arc::new(routine))),
+            dependants: Some(default()),
         })
     }
 
@@ -123,11 +124,12 @@ impl Program {
     pub fn get_routine(&self, id: FunctionId) -> Option<Arc<Routine>> {
         let functions = self.functions.read();
 
-        let routine = functions[id].routine.read();
-
         // FIXME: This is not very good for performance, we want to avoid cloning arcs. Could we
         // have an unsafe version of get_routine that makes assumptions?
-        routine.to_option().cloned()
+        functions[id]
+            .routine
+            .to_option()
+            .map(|(_, x)| Arc::clone(x))
     }
 
     /// Locks
@@ -359,7 +361,7 @@ impl Program {
         );
 
         if let DependableOption::None(dependencies) = old {
-            for (_, dependency) in dependencies {
+            for (_, dependency) in dependencies.into_inner() {
                 self.resolve_dependency(dependency);
             }
         } else {
@@ -379,7 +381,7 @@ impl Program {
         drop(members);
 
         if let DependableOption::None(dependencies) = old {
-            for (_, dependency) in dependencies {
+            for (_, dependency) in dependencies.into_inner() {
                 self.resolve_dependency(dependency);
             }
         } else {
@@ -391,7 +393,10 @@ impl Program {
     /// Locks ``non_ready_tasks`` with write.
     fn resolve_dependency(&self, id: TaskId) {
         let mut tasks = self.non_ready_tasks.lock();
-        let mut task = tasks[id].as_mut().unwrap();
+        let (gen, task_option) = &mut tasks[id.index];
+        debug_assert_eq!(*gen, id.generation);
+
+        let mut task = task_option.as_mut().unwrap();
 
         task.dependencies_left -= 1;
         let dependencies_left = task.dependencies_left;
@@ -402,7 +407,9 @@ impl Program {
         ));
 
         if dependencies_left == 0 {
-            let task = tasks[id].take().unwrap();
+            let (gen, task) = &mut tasks[id.index];
+            debug_assert_eq!(*gen, id.generation);
+            let task = task.take().unwrap();
             self.work.enqueue(task.task);
         }
     }
@@ -504,29 +511,42 @@ impl Program {
     /// * ``scopes`` read
     /// * ``members`` write
     /// * ``non_ready_tasks`` write
+    /// * ``functions`` write
     pub fn queue_task(&self, deps: DependencyList, name: Ustr, task: Task) {
+        const DEPENDENCY_COUNT_OFFSET: i32 = i32::MAX / 2;
+
         let mut non_ready_tasks = self.non_ready_tasks.lock();
 
         // Find or create a slot for the task to be in.
         let id;
-        if let Some(index) = non_ready_tasks.iter().position(Option::is_none) {
-            id = TaskId(index);
+        if let Some(index) = non_ready_tasks.iter().position(|(_gen, val)| val.is_none()) {
+            let generation = non_ready_tasks[index].0 + 1;
+            id = TaskId { generation, index };
             // We start at i32::MAX so that even if some dependencies are resolved before we've
             // added all of them, it doesn't deploy the task before it's ready
-            non_ready_tasks[id] = Some(NonReadyTask {
-                name,
-                dependencies_left: i32::MAX,
-                task,
-            });
+            non_ready_tasks[id.index] = (
+                generation,
+                Some(NonReadyTask {
+                    name,
+                    dependencies_left: DEPENDENCY_COUNT_OFFSET,
+                    task,
+                }),
+            );
         } else {
-            id = TaskId(non_ready_tasks.len());
+            id = TaskId {
+                generation: 0,
+                index: non_ready_tasks.len(),
+            };
             // We start at i32::MAX so that even if some dependencies are resolved before we've
             // added all of them, it doesn't deploy the task before it's ready
-            non_ready_tasks.push(Some(NonReadyTask {
-                name,
-                dependencies_left: i32::MAX,
-                task,
-            }));
+            non_ready_tasks.push((
+                0,
+                Some(NonReadyTask {
+                    name,
+                    dependencies_left: DEPENDENCY_COUNT_OFFSET,
+                    task,
+                }),
+            ));
         };
 
         drop(non_ready_tasks);
@@ -557,7 +577,7 @@ impl Program {
         }
 
         for (dep_name, (scope_id, loc)) in deps.values {
-            let scopes = self.scopes.read();
+            let scopes = self.scopes.write();
             let scope = &scopes[scope_id];
             let mut scope_wanted_names = scope.wanted_names.write();
 
@@ -580,16 +600,56 @@ impl Program {
             }
         }
 
-        let mut non_ready_tasks = self.non_ready_tasks.lock();
-        let num_dependencies = &mut non_ready_tasks[id].as_mut().unwrap().dependencies_left;
+        //
+        // Recursively depend on 'callable' functions, essentially we have to add more functions
+        // that haven't been added yet.
+        //
+        // FIXME: Performance, this could potentially just be functions.read()
+        let functions = self.functions.write();
+        for (function_id, loc) in deps.callables {
+            insert_callable_dependency_recursive(&*functions, function_id, loc, id, &mut num_deps);
+        }
+        drop(functions);
 
-        *num_dependencies -= i32::MAX;
+        let mut non_ready_tasks = self.non_ready_tasks.lock();
+        let num_dependencies = &mut non_ready_tasks[id.index]
+            .1
+            .as_mut()
+            .unwrap()
+            .dependencies_left;
+
+        *num_dependencies -= DEPENDENCY_COUNT_OFFSET;
         *num_dependencies += num_deps;
 
         if *num_dependencies == 0 {
             // If we are already done, well, we can just take the thing.
-            let task = non_ready_tasks[id].take().unwrap();
+            let task = non_ready_tasks[id.index].1.take().unwrap();
             self.work.enqueue(task.task);
+        }
+    }
+}
+
+fn insert_callable_dependency_recursive(
+    functions: &IdVec<FunctionId, Function>,
+    function_id: FunctionId,
+    loc: Location,
+    task_id: TaskId,
+    num_deps: &mut i32,
+) {
+    if functions[function_id].insert_dependant(task_id) {
+        // It is not already defined and we do not depend on it already.
+
+        match &functions[function_id].routine {
+            DependableOption::Some((calling, _routine)) => {
+                // It is defined, but not sure it's callable currently, so we have to recurse.
+                for &it in calling.iter() {
+                    insert_callable_dependency_recursive(functions, it, loc, task_id, num_deps);
+                }
+            }
+            DependableOption::None(dependants) => {
+                *num_deps += 1;
+                dependants.lock().push((loc, task_id));
+            }
         }
     }
 }
@@ -614,10 +674,30 @@ impl Scope {
 
 struct Function {
     loc: Location,
-    // INVARIANT: This never goes from some to none, it is defined once and then
-    // never modified.
-    routine: RwLock<DependableOption<Arc<Routine>>>,
-    callable: RwLock<DependableOption<()>>,
+
+    /// This is a little strange; depending on this does not mean depending on the definition of
+    /// the routine, it means to depend on the routine being callable. What this means in practice,
+    /// is that once this is defined, it will add all of the things this function calls to your
+    /// dependency list as well(unless they are already called). Once a function has been
+    /// determined to be callable, it will set its dependants to None so that we can avoid useless
+    /// overhead.
+    routine: DependableOption<(Vec<FunctionId>, Arc<Routine>)>,
+
+    /// This is a list of all the tasks that are depending on this to be callable, to avoid
+    /// infinite recursion when figuring out the dependency tree of this.
+    /// Once it's determined that this function can be called safely, this can be set to none.
+    dependants: Option<Mutex<HashSet<TaskId>>>,
+}
+
+impl Function {
+    /// Tries to insert a dependant. Returns true if it could insert it, returns false if either
+    /// dependants is None or the given id is already in the list of dependants.
+    fn insert_dependant(&self, id: TaskId) -> bool {
+        match &self.dependants {
+            Some(dependants) => dependants.lock().insert(id),
+            None => false,
+        }
+    }
 }
 
 struct Member {
@@ -636,26 +716,26 @@ pub enum MemberMetaData {
 }
 
 impl Member {
-    const fn new(name: Ustr) -> Self {
+    fn new(name: Ustr) -> Self {
         Self {
             name,
-            type_: DependableOption::None(Vec::new()),
-            value: DependableOption::None(Vec::new()),
+            type_: DependableOption::None(default()),
+            value: DependableOption::None(default()),
         }
     }
 }
 
 pub enum DependableOption<T> {
     Some(T),
-    None(Vec<(Location, TaskId)>),
+    None(Mutex<Vec<(Location, TaskId)>>),
 }
 
 impl<T> DependableOption<T> {
-    fn add_dependant(&mut self, loc: Location, dependant: TaskId) -> bool {
+    fn add_dependant(&self, loc: Location, dependant: TaskId) -> bool {
         match self {
             Self::Some(_) => false,
             Self::None(dependants) => {
-                dependants.push((loc, dependant));
+                dependants.lock().push((loc, dependant));
                 true
             }
         }
@@ -784,24 +864,13 @@ impl fmt::Debug for ScopeId {
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
-pub struct TaskId(usize);
-
-impl Id for TaskId {}
-
-impl From<usize> for TaskId {
-    fn from(other: usize) -> Self {
-        Self(other)
-    }
-}
-
-impl Into<usize> for TaskId {
-    fn into(self) -> usize {
-        self.0
-    }
+pub struct TaskId {
+    generation: u32,
+    index: usize,
 }
 
 impl fmt::Debug for TaskId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.0)
+        write!(f, "(gen: {}, {})", self.generation, self.index)
     }
 }

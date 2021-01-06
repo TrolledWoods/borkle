@@ -1,38 +1,8 @@
+library "io.bo";
 library "fmt.bo";
-library "mem.bo";
 library "string.bo";
 library "vec_u8.bo";
 
-type Vec2 {
-    x: f32;
-    y: f32;
-};
-
-type Entity {
-    pos: Vec2;
-    vel: Vec2;
-
-    #alias x = pos.x;
-    #alias y = pos.y;
-
-    #alias vx = vel.x;
-    #alias vy = vel.y;
-};
-
 #entry fn() -> u64 {
-    let v = #0 : VecU8;
-    defer vec_u8_free(v);
-
-    vec_u8_push(&v, "a");
-    vec_u8_push(&v, "b");
-    vec_u8_push(&v, "c");
-    print(v.buf);
-    vec_u8_push(&v, "\n");
-    print(v.buf);
-    vec_u8_pop(&v);
-    print(v.buf);
-    vec_u8_push(&v, "\n");
-    print(v.buf);
-
-    0
+    5
 };
