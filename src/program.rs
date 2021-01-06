@@ -563,7 +563,7 @@ impl Program {
                             loc, member.name,
                         ));
 
-                        if !member.type_.add_dependant(loc, dependant) {
+                        if !member.value.add_dependant(loc, dependant) {
                             drop(members);
                             self.resolve_dependency(dependant);
                         }

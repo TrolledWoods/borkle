@@ -1,11 +1,23 @@
 library "fmt.bo";
+library "vec_u8.bo";
 
 #entry fn() -> u64 {
-    print("%\n", &[fmt_u64(factorial(3))]);
+    let vec = #0 : VecU8;
+    recurse(&vec, 9);
+    print(vec.buf);
+    print("\n");
 
     0
 };
 
-const factorial = fn(num: u64) -> u64
-    if num == 0  1
-    else factorial(num - 1) * num;
+const recurse = fn(string: &VecU8, layer: u64) {
+    if layer == 0 {
+        vec_u8_push(string, ".");
+        vec_u8_push(string, "\n");
+    } else {
+        recurse(string, layer - 1);
+        for (0 : u64) .. layer  vec_u8_push(string, "-");
+        vec_u8_push(string, "\n");
+        recurse(string, layer - 1);
+    };
+};

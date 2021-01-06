@@ -1054,6 +1054,9 @@ fn function_declaration(
 
     let mut args = Vec::new();
     let mut default_args = Vec::new();
+
+    let old = imperative.evaluate_at_typing;
+    imperative.evaluate_at_typing = true;
     loop {
         if global.tokens.try_consume(&TokenKind::Close(Bracket::Round)) {
             break;
@@ -1080,11 +1083,8 @@ fn function_declaration(
                 let arg_type = type_(global, imperative, buffer)?;
                 args.push((name, buffer.insert(arg_type)));
             } else if global.tokens.try_consume_operator_string("=").is_some() {
-                let old = imperative.evaluate_at_typing;
-                imperative.evaluate_at_typing = true;
                 let arg_value = expression(global, imperative, buffer)?;
                 default_args.push((name, buffer.insert(arg_value)));
-                imperative.evaluate_at_typing = old;
             } else {
                 global.error(
                     global.tokens.loc(),
@@ -1110,6 +1110,8 @@ fn function_declaration(
             }
         }
     }
+
+    imperative.evaluate_at_typing = old;
 
     let returns = if global.tokens.try_consume_operator_string("->").is_some() {
         type_(global, imperative, buffer)?

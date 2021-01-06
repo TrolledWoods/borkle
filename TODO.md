@@ -5,7 +5,7 @@
 * [X] Redid built in functions/intrinsics
 * [X] Inconsistancy; Named type uses ';' while unnamed struct uses ',', this is inconsistant!
 * [X] Dependency system now doesn't associate tasks with members, but rather tasks are their own standalone thing
-* [ ] Feature; Allow for recursive functions.
+* [X] Feature; Allow for recursive functions.
 
 * [ ] Show where bad loops of recursion happen
 * [ ] BUG! Collision checks on field names and aliases, and collisions between aliases.
