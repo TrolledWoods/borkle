@@ -10,13 +10,14 @@ const the_type5 = type [const factorial(3)] u32;
 
 const my_type = const factorial(3);
 const my_type2 = const factorial(3);
-const my_type3 = const factorial(3);
-const my_type4 = const factorial(3);
 const the_type = type [const factorial(3)] u32;
 
 const factorial = fn(num: usize) -> usize
     if num > 0  factorial(num - 1) * num
     else 1;
+
+const my_type3 = const factorial(3);
+const my_type4 = const factorial(3);
 
 // const factorial = {
 //     fn(num: usize) -> usize  if num > 0  factorial(num - 1) * num else 1

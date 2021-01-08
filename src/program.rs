@@ -601,7 +601,7 @@ impl Program {
     /// * ``members`` write
     /// * ``non_ready_tasks`` write
     /// * ``functions`` write
-    pub fn queue_task(&self, mut deps: DependencyList, task: Task) {
+    pub fn queue_task(&self, deps: DependencyList, task: Task) {
         // We start at this instead of zero so that even if some dependencies are resolved while we
         // are adding them, the count doesn't ever reach zero again. This is important, so that the
         // task isn't deployed before it's ready.
@@ -618,48 +618,10 @@ impl Program {
                 drop(scope_wanted_names);
                 drop(scopes);
 
-                match dep_kind {
-                    MemberDep::Type => {
-                        let mut members = self.members.write();
-                        let dependency = &mut members[dep_id];
-                        if dependency.type_.add_dependant(loc, id) {
-                            num_deps += 1;
-                        }
-                    }
-                    MemberDep::Value => {
-                        let mut members = self.members.write();
-                        let dependency = &mut members[dep_id];
-                        if dependency.value.add_dependant(loc, id) {
-                            num_deps += 1;
-                        }
-                    }
-
-                    MemberDep::ValueAndCallableIfFunction => {
-                        let mut members = self.members.write();
-                        let dependency = &mut members[dep_id];
-                        if dependency.callable.add_dependant(loc, id) {
-                            num_deps += 1;
-                        } else if let TypeKind::Function { .. } = dependency.type_.unwrap().0.kind()
-                        {
-                            // If we know the value of it already, just push it to the list of functions we
-                            // depend on being able to call.
-                            let function_id =
-                                unsafe { *dependency.value.unwrap().as_ptr().cast::<FunctionId>() };
-
-                            drop(members);
-                            let functions = self.functions.write();
-                            let loc = Location::start(
-                                "Temporary location placeholder because I'm lazy bum".into(),
-                            );
-                            insert_callable_dependency_recursive(
-                                &*functions,
-                                function_id,
-                                loc,
-                                id,
-                                &mut num_deps,
-                            );
-                        }
-                    }
+                let mut members = self.members.write();
+                let dependency = &mut members[dep_id];
+                if dependency.add_dependant(loc, dep_kind, id) {
+                    num_deps += 1;
                 }
             } else {
                 num_deps += 1;
