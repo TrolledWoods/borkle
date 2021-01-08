@@ -402,6 +402,18 @@ impl Program {
         })
     }
 
+    pub fn flag_member_callable(&self, id: MemberId) {
+        let mut members = self.members.write();
+        let old = std::mem::replace(&mut members[id].callable, DependableOption::Some(()));
+        drop(members);
+
+        if let DependableOption::None(dependencies) = old {
+            for (_, dependency) in dependencies.into_inner() {
+                self.resolve_dependency(dependency);
+            }
+        }
+    }
+
     /// # Locks
     /// * ``constant_data`` write
     /// * ``members`` write
@@ -413,39 +425,11 @@ impl Program {
 
         let mut members = self.members.write();
         let old = std::mem::replace(&mut members[id].value, DependableOption::Some(value));
-        let old_callable = std::mem::replace(&mut members[id].callable, DependableOption::Some(()));
         drop(members);
 
-        if let (DependableOption::None(dependencies), DependableOption::None(old_callable)) =
-            (old, old_callable)
-        {
+        if let DependableOption::None(dependencies) = old {
             for (_, dependency) in dependencies.into_inner() {
                 self.resolve_dependency(dependency);
-            }
-
-            if let TypeKind::Function { .. } = type_.kind() {
-                // Being callable matters, we have to wait on that
-                let function_id = unsafe { *data.cast::<FunctionId>() };
-
-                for (loc, dependency) in old_callable.into_inner() {
-                    let functions = self.functions.write();
-                    let mut num_deps = -1;
-                    insert_callable_dependency_recursive(
-                        &*functions,
-                        function_id,
-                        loc,
-                        dependency,
-                        &mut num_deps,
-                    );
-                    drop(functions);
-
-                    self.modify_dependency_count(dependency, num_deps);
-                }
-            } else {
-                // Being callable does not really matter, since we are not a function
-                for (_, dependency) in old_callable.into_inner() {
-                    self.resolve_dependency(dependency);
-                }
             }
         } else {
             unreachable!("You can only set the value of a member once!");
@@ -614,50 +598,42 @@ impl Program {
         Ok(())
     }
 
+    /// Locks
+    /// * ``non_ready_tasks`` write
+    fn insert_task_into_task_list(&self, task: Task, dependencies_left: i32) -> TaskId {
+        let task = NonReadyTask {
+            dependencies_left,
+            task,
+        };
+
+        let mut non_ready_tasks = self.non_ready_tasks.lock();
+        if let Some(index) = non_ready_tasks.iter().position(|(_gen, val)| val.is_none()) {
+            let generation = non_ready_tasks[index].0 + 1;
+            non_ready_tasks[index] = (generation, Some(task));
+            TaskId { generation, index }
+        } else {
+            let index = non_ready_tasks.len();
+            non_ready_tasks.push((0, Some(task)));
+            TaskId {
+                generation: 0,
+                index,
+            }
+        }
+    }
+
     /// # Locks
     /// * ``scopes`` read
     /// * ``members`` write
     /// * ``non_ready_tasks`` write
     /// * ``functions`` write
     pub fn queue_task(&self, mut deps: DependencyList, task: Task) {
+        // We start at this instead of zero so that even if some dependencies are resolved while we
+        // are adding them, the count doesn't ever reach zero again. This is important, so that the
+        // task isn't deployed before it's ready.
         const DEPENDENCY_COUNT_OFFSET: i32 = i32::MAX / 2;
-
-        let mut non_ready_tasks = self.non_ready_tasks.lock();
-
-        // Find or create a slot for the task to be in.
-        let id;
-        if let Some(index) = non_ready_tasks.iter().position(|(_gen, val)| val.is_none()) {
-            let generation = non_ready_tasks[index].0 + 1;
-            id = TaskId { generation, index };
-            // We start at i32::MAX so that even if some dependencies are resolved before we've
-            // added all of them, it doesn't deploy the task before it's ready
-            non_ready_tasks[id.index] = (
-                generation,
-                Some(NonReadyTask {
-                    dependencies_left: DEPENDENCY_COUNT_OFFSET,
-                    task,
-                }),
-            );
-        } else {
-            id = TaskId {
-                generation: 0,
-                index: non_ready_tasks.len(),
-            };
-            // We start at i32::MAX so that even if some dependencies are resolved before we've
-            // added all of them, it doesn't deploy the task before it's ready
-            non_ready_tasks.push((
-                0,
-                Some(NonReadyTask {
-                    dependencies_left: DEPENDENCY_COUNT_OFFSET,
-                    task,
-                }),
-            ));
-        };
-
-        drop(non_ready_tasks);
+        let id = self.insert_task_into_task_list(task, DEPENDENCY_COUNT_OFFSET);
 
         let mut num_deps = 0;
-
         for (scope_id, dep_name, loc, dep_kind) in deps.members {
             let scopes = self.scopes.read();
             let scope = &scopes[scope_id];
@@ -694,7 +670,19 @@ impl Program {
                             // depend on being able to call.
                             let function_id =
                                 unsafe { *dependency.value.unwrap().as_ptr().cast::<FunctionId>() };
-                            deps.calling.push(function_id);
+
+                            drop(members);
+                            let functions = self.functions.write();
+                            let loc = Location::start(
+                                "Temporary location placeholder because I'm lazy bum".into(),
+                            );
+                            insert_callable_dependency_recursive(
+                                &*functions,
+                                function_id,
+                                loc,
+                                id,
+                                &mut num_deps,
+                            );
                         }
                     }
                 }
@@ -817,6 +805,25 @@ struct Member {
     name: Ustr,
     type_: DependableOption<(Type, Arc<MemberMetaData>)>,
     value: DependableOption<ConstantRef>,
+
+    /// So this is pretty confusing, and needs some writing up to both help me now and in the
+    /// future.
+    ///
+    /// 'callable' means we can definitely call any function inside of a member. However,
+    /// not all function calls need this to work, in fact, most shouldn't. If you just have a
+    /// normal function call, it will instead look at the value of a member, see that it's a
+    /// function, and then depend on that function being callable. The reason this still exists is
+    /// for edge cases; what if you have an anonymous constant calling a function? What if you have
+    /// a struct with function pointers inside? In those cases, this is only set once all the
+    /// functions inside are callable. You could see it as if this is very conservative, and very
+    /// secure, while the normal way to do it is less conservative, which means more complexity,
+    /// but it's also more versatile, allowing for things like recursion.
+    ///
+    /// The point is this; for a Member which is just a function, this flag doesn't matter much,
+    /// except if it's used in type expressions or constant expressions. The functions callability
+    /// will be checked through the function part of the dependency system. However, this flag is
+    /// always used for more complex types, but that on the other hand does not allow for
+    /// recursion.
     callable: DependableOption<()>,
 }
 
@@ -891,7 +898,7 @@ pub enum Task {
     TypeMember(MemberId, crate::locals::LocalVariables, crate::parser::Ast),
     EmitMember(MemberId, crate::locals::LocalVariables, crate::typer::Ast),
     EvaluateMember(MemberId, crate::ir::UserDefinedRoutine),
-
+    FlagMemberCallable(MemberId),
     TypeFunction(
         FunctionId,
         crate::locals::LocalVariables,
@@ -914,6 +921,7 @@ impl fmt::Debug for Task {
             Task::TypeMember(id, _, _) => write!(f, "type_member({:?})", id),
             Task::EmitMember(id, _, _) => write!(f, "emit_member({:?})", id),
             Task::EvaluateMember(id, _) => write!(f, "evaluate_member({:?})", id),
+            Task::FlagMemberCallable(id) => write!(f, "flag_member_callable({:?}", id),
             Task::TypeFunction(id, _, _, _, _) => write!(f, "type_function({:?})", id),
             Task::EmitFunction(id, _, _, _) => write!(f, "emit_function({:?})", id),
         }

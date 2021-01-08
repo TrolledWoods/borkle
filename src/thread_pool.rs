@@ -185,6 +185,18 @@ fn worker<'a>(alloc: &'a mut Bump, program: &'a Program) -> (ThreadContext<'a>, 
                             ));
 
                             program.set_value_of_member(member_id, result.as_ptr());
+
+                            // Flag the member as callable once all the function pointers inside
+                            // the type are also callable. FIXME: This doesn't work for function
+                            // pointers behind other pointers yet!
+                            let mut dependencies = DependencyList::new();
+                            for function_id in
+                                unsafe { ast.type_().get_function_ids(result.as_ptr()) }
+                            {
+                                dependencies.calling.push(function_id);
+                            }
+
+                            program.queue_task(dependencies, Task::FlagMemberCallable(member_id));
                         }
                         NodeKind::Global(aliasing, _) => {
                             program.logger.log(format_args!(
@@ -194,6 +206,18 @@ fn worker<'a>(alloc: &'a mut Bump, program: &'a Program) -> (ThreadContext<'a>, 
 
                             let result = program.get_value_of_member(*aliasing);
                             program.set_value_of_member(member_id, result.as_ptr());
+
+                            // Flag the member as callable once all the function pointers inside
+                            // the type are also callable. FIXME: This doesn't work for function
+                            // pointers behind other pointers yet!
+                            let mut dependencies = DependencyList::new();
+                            for function_id in
+                                unsafe { ast.type_().get_function_ids(result.as_ptr()) }
+                            {
+                                dependencies.calling.push(function_id);
+                            }
+
+                            program.queue_task(dependencies, Task::FlagMemberCallable(member_id));
                         }
                         _ => {
                             let (calling, routine) =
@@ -216,6 +240,10 @@ fn worker<'a>(alloc: &'a mut Bump, program: &'a Program) -> (ThreadContext<'a>, 
                         .log(format_args!("value '{}'", program.member_name(member_id),));
 
                     program.set_value_of_member(member_id, result.as_ptr());
+                    program.flag_member_callable(member_id);
+                }
+                Task::FlagMemberCallable(member_id) => {
+                    program.flag_member_callable(member_id);
                 }
                 Task::TypeFunction(function_id, locals, ast, return_type, type_) => {
                     program

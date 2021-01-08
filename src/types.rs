@@ -1,4 +1,5 @@
 use crate::location::Location;
+use crate::program::FunctionId;
 use lazy_static::lazy_static;
 use parking_lot::Mutex;
 use std::fmt::{self, Debug, Display};
@@ -153,6 +154,18 @@ impl Type {
 
     pub fn is_never_type(self) -> bool {
         self.0.is_never_type
+    }
+
+    pub unsafe fn get_function_ids(
+        self,
+        value: *const u8,
+    ) -> impl Iterator<Item = FunctionId> + 'static {
+        self.pointers()
+            .iter()
+            .filter_map(move |(offset, kind)| match kind {
+                PointerInType::Function { .. } => Some(*value.add(*offset).cast::<FunctionId>()),
+                _ => None,
+            })
     }
 
     pub fn pointers(self) -> &'static [(usize, PointerInType)] {
