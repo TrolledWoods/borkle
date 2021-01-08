@@ -620,7 +620,7 @@ impl Program {
                         drop(scope_wanted_names);
                         drop(scopes);
 
-                        let members = self.members.write();
+                        let members = self.members.read();
                         if members[dep_id].add_dependant(loc, dep_kind, id) {
                             num_deps += 1;
                         }
