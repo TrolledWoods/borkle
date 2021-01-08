@@ -153,7 +153,7 @@ impl Program {
 
         if let DependableOption::None(dependants) = old {
             for (loc, dependant) in dependants.into_inner() {
-                let functions = self.functions.write();
+                let functions = self.functions.read();
                 let mut num_deps = -1;
 
                 for &calling in &functions[function_id].routine.unwrap().0 {
@@ -639,7 +639,7 @@ impl Program {
         // that haven't been added yet.
         //
         // FIXME: Performance, this could potentially just be functions.read()
-        let functions = self.functions.write();
+        let functions = self.functions.read();
         for function_id in deps.calling {
             let loc = Location::start("Temporary location placeholder because I'm lazy bum".into());
             insert_callable_dependency_recursive(&*functions, function_id, loc, id, &mut num_deps);
