@@ -557,40 +557,15 @@ impl Program {
             for &(kind, loc, dependant) in &dependants {
                 let mut members = self.members.write();
                 let member = &mut members[member_id];
-                match kind {
-                    MemberDep::Type => {
-                        self.logger.log(format_args!(
-                            "Dependant at '{:?}' found definition of '{}', now searches for the type of it",
-                            loc, member.name,
-                        ));
 
-                        if !member.type_.add_dependant(loc, dependant) {
-                            drop(members);
-                            self.resolve_dependency(dependant);
-                        }
-                    }
-                    MemberDep::Value => {
-                        self.logger.log(format_args!(
-                            "Dependant at '{:?}' found definition of '{}', now searches for the value of it",
-                            loc, member.name,
-                        ));
+                self.logger.log(format_args!(
+                    "Dependant at '{:?}' found definition of '{}', now searches for the {:?} of it",
+                    loc, member.name, kind,
+                ));
 
-                        if !member.value.add_dependant(loc, dependant) {
-                            drop(members);
-                            self.resolve_dependency(dependant);
-                        }
-                    }
-                    MemberDep::ValueAndCallableIfFunction => {
-                        self.logger.log(format_args!(
-                            "Dependant at '{:?}' found definition of '{}', now searches for the value and callablility of it",
-                            loc, member.name,
-                        ));
-
-                        if !member.callable.add_dependant(loc, dependant) {
-                            drop(members);
-                            self.resolve_dependency(dependant);
-                        }
-                    }
+                if !member.add_dependant(loc, kind, dependant) {
+                    drop(members);
+                    self.resolve_dependency(dependant);
                 }
             }
         }
@@ -825,6 +800,16 @@ struct Member {
     /// always used for more complex types, but that on the other hand does not allow for
     /// recursion.
     callable: DependableOption<()>,
+}
+
+impl Member {
+    fn add_dependant(&self, loc: Location, dep: MemberDep, dependant: TaskId) -> bool {
+        match dep {
+            MemberDep::Type => self.type_.add_dependant(loc, dependant),
+            MemberDep::Value => self.value.add_dependant(loc, dependant),
+            MemberDep::ValueAndCallableIfFunction => self.callable.add_dependant(loc, dependant),
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
