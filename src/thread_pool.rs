@@ -3,26 +3,41 @@ use crate::errors::ErrorCtx;
 use crate::location::Location;
 use crate::program::{MemberMetaData, Program, ScopeId, Task};
 use bumpalo::Bump;
-use crossbeam::queue::SegQueue;
+// use crossbeam::queue::SegQueue;
+use parking_lot::Mutex;
 use std::path::Path;
 use std::sync::atomic::{AtomicU32, Ordering};
+use std::time::Instant;
 
 pub struct WorkPile {
-    queue: SegQueue<Task>,
+    queue: Mutex<Vec<Task>>,
+    start: Instant,
     tasks_left: AtomicU32,
 }
 
 impl WorkPile {
     pub fn new() -> Self {
         Self {
-            queue: SegQueue::new(),
+            queue: Mutex::new(Vec::new()),
+            start: Instant::now(),
             tasks_left: AtomicU32::new(0),
         }
     }
 
     pub fn enqueue(&self, task: Task) {
         self.tasks_left.fetch_add(1, Ordering::SeqCst);
-        self.queue.push(task);
+        self.queue.lock().insert(0, task);
+    }
+
+    pub fn dequeue(&self) -> Option<Task> {
+        let mut queue = self.queue.lock();
+        if queue.len() > 0 {
+            let seed = self.start.elapsed().as_nanos() as usize;
+            let i = seed % queue.len();
+            Some(queue.remove(i))
+        } else {
+            None
+        }
     }
 }
 
@@ -106,7 +121,7 @@ fn worker<'a>(alloc: &'a mut Bump, program: &'a Program) -> (ThreadContext<'a>, 
     };
 
     loop {
-        if let Some(task) = work.queue.pop() {
+        if let Some(task) = work.dequeue() {
             match task {
                 Task::Parse(meta_data, file) => parse_file(&mut errors, program, &file, meta_data),
                 Task::TypeMember(member_id, locals, ast) => {

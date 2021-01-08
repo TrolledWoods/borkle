@@ -17,15 +17,15 @@ const factorial = fn(num: usize) -> usize
     if num > 0  factorial(num - 1) * num
     else 1;
 
-const factorial = {
-    fn(num: usize) -> usize  if num > 0  factorial(num - 1) * num else 1
-};
+// const factorial = {
+//     fn(num: usize) -> usize  if num > 0  factorial(num - 1) * num else 1
+// };
 
 #entry fn() -> u64 {
     let vec = #0 : VecU8;
     recurse(&vec, 9);
-    print(vec.buf);
-    print("\n");
+    // print(vec.buf);
+    // print("\n");
 
     0
 };

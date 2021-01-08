@@ -717,14 +717,12 @@ impl Program {
                 let dependency = &mut members[dep_id];
                 if dependency.callable.add_dependant(loc, id) {
                     num_deps += 1;
-                } else {
-                    if let TypeKind::Function { .. } = dependency.type_.unwrap().0.kind() {
-                        // If we know the value of it already, just push it to the list of functions we
-                        // depend on being able to call.
-                        let function_id =
-                            unsafe { *dependency.value.unwrap().as_ptr().cast::<FunctionId>() };
-                        deps.calling.push(function_id);
-                    }
+                } else if let TypeKind::Function { .. } = dependency.type_.unwrap().0.kind() {
+                    // If we know the value of it already, just push it to the list of functions we
+                    // depend on being able to call.
+                    let function_id =
+                        unsafe { *dependency.value.unwrap().as_ptr().cast::<FunctionId>() };
+                    deps.calling.push(function_id);
                 }
             } else {
                 num_deps += 1;
