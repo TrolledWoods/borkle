@@ -14,6 +14,7 @@
 * [ ] Add an instruction for calling a built in function, so built in function calls are cheaper?
 * [ ] BUG! Status access violation when the compiler crashes(probably a thread trying to still do things)
 * [ ] BUG! Doesn't exit "gracefully" when a thread panics.
+* [ ] BUG! Sometimes we try to modify a dependency when it's not supposed to be modified? Very elusive bug it looks like :(
 * [ ] Make a global setup file for the compiler!
 * [ ] Add a way to run all the borkle sub-programs in a markdown file
 * [ ] Have a way for named function parameter meta data to be created for extern functions.

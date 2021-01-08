@@ -120,8 +120,13 @@ impl Program {
         functions.push(Function {
             loc,
             routine: DependableOption::Some((calls, Arc::new(routine))),
-            dependants: Some(default()),
+            dependants: Mutex::new(Some(default())),
         })
+    }
+
+    pub fn flag_function_callable(&self, function: FunctionId) {
+        let functions = self.functions.read();
+        set_callable_recursive(&*functions, function);
     }
 
     /// Locks
@@ -131,7 +136,7 @@ impl Program {
         functions.push(Function {
             loc,
             routine: DependableOption::None(default()),
-            dependants: Some(default()),
+            dependants: Mutex::new(Some(default())),
         })
     }
 
@@ -289,6 +294,13 @@ impl Program {
 
     /// Locks
     /// * ``members`` read
+    pub fn get_member_type(&self, id: MemberId) -> Type {
+        let members = self.members.read();
+        members[id].type_.unwrap().0
+    }
+
+    /// Locks
+    /// * ``members`` read
     pub fn get_member_meta_data(&self, id: MemberId) -> (Type, Arc<MemberMetaData>) {
         let members = self.members.read();
         members[id].type_.unwrap().clone()
@@ -418,11 +430,7 @@ impl Program {
     /// * ``constant_data`` write
     /// * ``members`` write
     /// * ``functions`` write
-    pub fn set_value_of_member(&self, id: MemberId, data: *const u8) {
-        let type_ = self.members.write()[id].type_.unwrap().0;
-
-        let value = self.insert_buffer(type_, data);
-
+    pub fn set_value_of_member(&self, id: MemberId, value: ConstantRef) {
         let mut members = self.members.write();
         let old = std::mem::replace(&mut members[id].value, DependableOption::Some(value));
         drop(members);
@@ -635,6 +643,12 @@ impl Program {
                         wanted.push((dep_kind, loc, id));
                     }
                 }
+                DepKind::Member(dep_id, dep_kind) => {
+                    let members = self.members.read();
+                    if members[dep_id].add_dependant(loc, dep_kind, id) {
+                        num_deps += 1;
+                    }
+                }
                 DepKind::Callable(function_id) => {
                     //
                     // Recursively depend on 'callable' functions, essentially we have to add more functions
@@ -670,6 +684,22 @@ impl Program {
             // If we are already done, well, we can just take the thing.
             let task = non_ready_tasks[id.index].1.take().unwrap();
             self.work.enqueue(task.task);
+        }
+    }
+}
+
+fn set_callable_recursive(functions: &IdVec<FunctionId, Function>, function_id: FunctionId) {
+    let mut dependants = functions[function_id].dependants.lock();
+    let old = std::mem::replace(&mut *dependants, None);
+    drop(dependants);
+
+    // If it's None, someone has already set this to callable recursively so we don't have to
+    // bother with doing it again.
+    if old.is_some() {
+        let (calling, _routine) = functions[function_id].routine.unwrap();
+
+        for &it in calling.iter() {
+            set_callable_recursive(functions, it);
         }
     }
 }
@@ -734,15 +764,16 @@ struct Function {
     /// This is a list of all the tasks that are depending on this to be callable, to avoid
     /// infinite recursion when figuring out the dependency tree of this.
     /// Once it's determined that this function can be called safely, this can be set to none.
-    dependants: Option<Mutex<HashSet<TaskId>>>,
+    dependants: Mutex<Option<HashSet<TaskId>>>,
 }
 
 impl Function {
     /// Tries to insert a dependant. Returns true if it could insert it, returns false if either
     /// dependants is None or the given id is already in the list of dependants.
     fn insert_dependant(&self, id: TaskId) -> bool {
-        match &self.dependants {
-            Some(dependants) => dependants.lock().insert(id),
+        let mut dependants = self.dependants.lock();
+        match &mut *dependants {
+            Some(dependants) => dependants.insert(id),
             None => false,
         }
     }

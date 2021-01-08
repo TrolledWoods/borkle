@@ -184,7 +184,7 @@ fn worker<'a>(alloc: &'a mut Bump, program: &'a Program) -> (ThreadContext<'a>, 
                                 program.member_name(member_id),
                             ));
 
-                            program.set_value_of_member(member_id, result.as_ptr());
+                            program.set_value_of_member(member_id, *result);
 
                             // Flag the member as callable once all the function pointers inside
                             // the type are also callable. FIXME: This doesn't work for function
@@ -205,7 +205,7 @@ fn worker<'a>(alloc: &'a mut Bump, program: &'a Program) -> (ThreadContext<'a>, 
                             ));
 
                             let result = program.get_value_of_member(*aliasing);
-                            program.set_value_of_member(member_id, result.as_ptr());
+                            program.set_value_of_member(member_id, result);
 
                             // Flag the member as callable once all the function pointers inside
                             // the type are also callable. FIXME: This doesn't work for function
@@ -242,11 +242,24 @@ fn worker<'a>(alloc: &'a mut Bump, program: &'a Program) -> (ThreadContext<'a>, 
                         .logger
                         .log(format_args!("value '{}'", program.member_name(member_id),));
 
-                    program.set_value_of_member(member_id, result.as_ptr());
+                    let type_ = program.get_member_type(member_id);
+                    let value = program.insert_buffer(type_, result.as_ptr());
+
+                    program.set_value_of_member(member_id, value);
                     program.flag_member_callable(member_id);
+
+                    for function_id in unsafe { type_.get_function_ids(value.as_ptr()) } {
+                        program.flag_function_callable(function_id);
+                    }
                 }
                 Task::FlagMemberCallable(member_id) => {
                     program.flag_member_callable(member_id);
+
+                    let (value, type_) = program.get_member_value(member_id);
+
+                    for function_id in unsafe { type_.get_function_ids(value.as_ptr()) } {
+                        program.flag_function_callable(function_id);
+                    }
                 }
                 Task::TypeFunction(function_id, locals, ast, return_type, type_) => {
                     program

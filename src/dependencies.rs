@@ -1,5 +1,5 @@
 use crate::location::Location;
-use crate::program::{FunctionId, ScopeId};
+use crate::program::{FunctionId, MemberId, ScopeId};
 use std::cmp::Ordering;
 use ustr::Ustr;
 
@@ -32,6 +32,7 @@ impl DependencyList {
 #[derive(Debug, Clone, Copy)]
 pub enum DepKind {
     MemberByName(ScopeId, Ustr, MemberDep),
+    Member(MemberId, MemberDep),
     Callable(FunctionId),
 }
 
@@ -42,6 +43,11 @@ impl DepKind {
                 DepKind::MemberByName(old_scope, old_name, old_dep),
                 DepKind::MemberByName(new_scope, new_name, new_dep),
             ) if old_scope == new_scope && old_name == new_name => old_dep.combine(new_dep),
+            (DepKind::Member(old_id, old_dep), DepKind::Member(new_id, new_dep))
+                if old_id == new_id =>
+            {
+                old_dep.combine(new_dep)
+            }
             (DepKind::Callable(old_id), DepKind::Callable(new_id)) if old_id == new_id => {
                 Combination::Identical
             }
