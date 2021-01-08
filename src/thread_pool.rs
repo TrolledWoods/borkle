@@ -30,6 +30,9 @@ impl WorkPile {
     }
 
     pub fn dequeue(&self) -> Option<Task> {
+        // FIXME: This is only for finding bugs early purposes; it's not for actualy real use, in
+        // the future we want to make a proper scheduler that picks tasks appropriately depending
+        // on the circumstances.
         let mut queue = self.queue.lock();
         if queue.len() > 0 {
             let seed = self.start.elapsed().as_nanos() as usize;

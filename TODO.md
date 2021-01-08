@@ -35,3 +35,4 @@
 * [ ] Use the never type to find dead code, and allow casting from it to anything.
 * [ ] Indexing operations
 * [ ] In the Instr it's unclear what thing members are for. Make this more general. Also, probably remove some members as there are a lot of instructions that have them and it's probably unnecessary, or make that information part of Values?
+* [ ] Task scheduler
