@@ -1,5 +1,6 @@
 library "fmt.bo";
 library "vec_u8.bo";
+library "string.bo";
 
 const the_type1 = type [const factorial(3)] u32;
 const the_type2 = type [const factorial(3)] u32;
