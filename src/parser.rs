@@ -1,4 +1,4 @@
-use crate::dependencies::{DependencyList, MemberDep};
+use crate::dependencies::{DepKind, DependencyList, MemberDep};
 use crate::errors::ErrorCtx;
 use crate::literal::Literal;
 use crate::locals::Local;
@@ -346,9 +346,7 @@ fn type_(
 
             imperative.dependencies.add(
                 loc,
-                global.scope,
-                name,
-                MemberDep::ValueAndCallableIfFunction,
+                DepKind::MemberByName(global.scope, name, MemberDep::ValueAndCallableIfFunction),
             );
             Ok(Node::new(
                 loc,
@@ -514,18 +512,21 @@ fn value(
             } else if imperative.evaluate_at_typing {
                 imperative.dependencies.add(
                     token.loc,
-                    global.scope,
-                    name,
-                    MemberDep::ValueAndCallableIfFunction,
+                    DepKind::MemberByName(
+                        global.scope,
+                        name,
+                        MemberDep::ValueAndCallableIfFunction,
+                    ),
                 );
                 Node::new(
                     token.loc,
                     NodeKind::GlobalForTyping(global.scope, name, polymorphic_arguments),
                 )
             } else {
-                imperative
-                    .dependencies
-                    .add(token.loc, global.scope, name, MemberDep::Type);
+                imperative.dependencies.add(
+                    token.loc,
+                    DepKind::MemberByName(global.scope, name, MemberDep::Type),
+                );
                 Node::new(
                     token.loc,
                     NodeKind::Global(global.scope, name, polymorphic_arguments),

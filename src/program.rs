@@ -1,5 +1,5 @@
 use crate::command_line_arguments::Arguments;
-use crate::dependencies::{DependencyList, MemberDep};
+use crate::dependencies::{DepKind, DependencyList, MemberDep};
 use crate::errors::ErrorCtx;
 use crate::id::{Id, IdVec};
 use crate::ir::Routine;
@@ -609,42 +609,52 @@ impl Program {
         let id = self.insert_task_into_task_list(task, DEPENDENCY_COUNT_OFFSET);
 
         let mut num_deps = 0;
-        for (scope_id, dep_name, loc, dep_kind) in deps.members {
-            let scopes = self.scopes.read();
-            let scope = &scopes[scope_id];
-            let mut scope_wanted_names = scope.wanted_names.write();
+        for (loc, dep_kind) in deps.deps {
+            match dep_kind {
+                DepKind::MemberByName(scope_id, dep_name, dep_kind) => {
+                    let scopes = self.scopes.read();
+                    let scope = &scopes[scope_id];
+                    let mut scope_wanted_names = scope.wanted_names.write();
 
-            if let Some(dep_id) = scope.get(dep_name) {
-                drop(scope_wanted_names);
-                drop(scopes);
+                    if let Some(dep_id) = scope.get(dep_name) {
+                        drop(scope_wanted_names);
+                        drop(scopes);
 
-                let mut members = self.members.write();
-                let dependency = &mut members[dep_id];
-                if dependency.add_dependant(loc, dep_kind, id) {
-                    num_deps += 1;
+                        let members = self.members.write();
+                        if members[dep_id].add_dependant(loc, dep_kind, id) {
+                            num_deps += 1;
+                        }
+                    } else {
+                        num_deps += 1;
+                        self.logger.log(format_args!(
+                            "Undefined identifier '{}' in scope {}, wants {:?} of it",
+                            dep_name, scope_id.0, dep_kind
+                        ));
+
+                        let wanted = scope_wanted_names.entry(dep_name).or_insert_with(Vec::new);
+                        wanted.push((dep_kind, loc, id));
+                    }
                 }
-            } else {
-                num_deps += 1;
-                self.logger.log(format_args!(
-                    "Undefined identifier '{}' in scope {}, wants {:?} of it",
-                    dep_name, scope_id.0, dep_kind
-                ));
-                let wanted = scope_wanted_names.entry(dep_name).or_insert_with(Vec::new);
-                wanted.push((dep_kind, loc, id));
+                DepKind::Callable(function_id) => {
+                    //
+                    // Recursively depend on 'callable' functions, essentially we have to add more functions
+                    // that haven't been added yet.
+                    //
+                    let functions = self.functions.read();
+                    let loc = Location::start(
+                        "Temporary location placeholder because I'm lazy bum".into(),
+                    );
+                    insert_callable_dependency_recursive(
+                        &*functions,
+                        function_id,
+                        loc,
+                        id,
+                        &mut num_deps,
+                    );
+                    drop(functions);
+                }
             }
         }
-
-        //
-        // Recursively depend on 'callable' functions, essentially we have to add more functions
-        // that haven't been added yet.
-        //
-        // FIXME: Performance, this could potentially just be functions.read()
-        let functions = self.functions.read();
-        for function_id in deps.calling {
-            let loc = Location::start("Temporary location placeholder because I'm lazy bum".into());
-            insert_callable_dependency_recursive(&*functions, function_id, loc, id, &mut num_deps);
-        }
-        drop(functions);
 
         let mut non_ready_tasks = self.non_ready_tasks.lock();
         let num_dependencies = &mut non_ready_tasks[id.index]

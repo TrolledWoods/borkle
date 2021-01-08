@@ -1,65 +1,79 @@
 use crate::location::Location;
 use crate::program::{FunctionId, ScopeId};
-use std::fmt;
+use std::cmp::Ordering;
 use ustr::Ustr;
 
-#[derive(PartialEq, Eq, PartialOrd, Ord, Debug, Clone, Copy)]
+#[derive(Clone, Debug)]
+pub struct DependencyList {
+    pub deps: Vec<(Location, DepKind)>,
+}
+
+impl DependencyList {
+    pub fn new() -> Self {
+        Self { deps: Vec::new() }
+    }
+
+    pub fn add(&mut self, loc: Location, new: DepKind) {
+        for (_, old) in &mut self.deps {
+            match old.combine(new) {
+                Combination::None => {}
+                Combination::NewIsSuper => {
+                    *old = new;
+                    return;
+                }
+                Combination::Identical | Combination::OldIsSuper => return,
+            }
+        }
+
+        self.deps.push((loc, new));
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum DepKind {
+    MemberByName(ScopeId, Ustr, MemberDep),
+    Callable(FunctionId),
+}
+
+impl DepKind {
+    fn combine(self, new: Self) -> Combination {
+        match (self, new) {
+            (
+                DepKind::MemberByName(old_scope, old_name, old_dep),
+                DepKind::MemberByName(new_scope, new_name, new_dep),
+            ) if old_scope == new_scope && old_name == new_name => old_dep.combine(new_dep),
+            (DepKind::Callable(old_id), DepKind::Callable(new_id)) if old_id == new_id => {
+                Combination::Identical
+            }
+            _ => Combination::None,
+        }
+    }
+}
+
+#[derive(PartialOrd, Ord, PartialEq, Eq, Debug, Clone, Copy)]
 pub enum MemberDep {
     Type,
     Value,
     ValueAndCallableIfFunction,
 }
 
-#[derive(Clone)]
-pub struct DependencyList {
-    pub members: Vec<(ScopeId, Ustr, Location, MemberDep)>,
-    pub calling: Vec<FunctionId>,
-}
-
-impl DependencyList {
-    pub fn new() -> Self {
-        Self {
-            members: Vec::new(),
-            calling: Vec::new(),
-        }
-    }
-
-    pub fn add(&mut self, loc: Location, scope_id: ScopeId, name: Ustr, dep: MemberDep) {
-        let entry = self
-            .members
-            .iter_mut()
-            .find(|(s, n, _, _)| *s == scope_id && *n == name);
-
-        if let Some((_, _, _, old_dep)) = entry {
-            // If there was already an entry for this identifier, we want to look if the new
-            // dependency is more general than the one before, and if it is, we want to replace the
-            // old one with the new one.
-            if *old_dep < dep {
-                *old_dep = dep;
-            }
-        } else {
-            self.members.push((scope_id, name, loc, dep));
+impl MemberDep {
+    fn combine(self, new: Self) -> Combination {
+        match self.cmp(&new) {
+            Ordering::Less => Combination::NewIsSuper,
+            Ordering::Greater => Combination::OldIsSuper,
+            Ordering::Equal => Combination::Identical,
         }
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Hash)]
-pub enum DependencyKind {
-    Type,
-    Value,
-    CallingNamed,
-}
-
-impl fmt::Debug for DependencyList {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, " members: ")?;
-        for (_, key, _, dep) in &self.members {
-            write!(f, "{}: {:?}, ", key, dep)?;
-        }
-        write!(f, " calling: ")?;
-        for calling in &self.calling {
-            write!(f, "{:?}", calling)?;
-        }
-        Ok(())
-    }
+enum Combination {
+    /// They can't be combined
+    None,
+    /// The current one is a superset of the new one
+    OldIsSuper,
+    /// The new one is a superset of the old one
+    NewIsSuper,
+    /// They are the same
+    Identical,
 }

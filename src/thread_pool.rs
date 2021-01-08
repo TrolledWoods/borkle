@@ -1,4 +1,4 @@
-use crate::dependencies::DependencyList;
+use crate::dependencies::{DepKind, DependencyList};
 use crate::errors::ErrorCtx;
 use crate::location::Location;
 use crate::program::{MemberMetaData, Program, ScopeId, Task};
@@ -193,7 +193,7 @@ fn worker<'a>(alloc: &'a mut Bump, program: &'a Program) -> (ThreadContext<'a>, 
                             for function_id in
                                 unsafe { ast.type_().get_function_ids(result.as_ptr()) }
                             {
-                                dependencies.calling.push(function_id);
+                                dependencies.add(ast.loc, DepKind::Callable(function_id));
                             }
 
                             program.queue_task(dependencies, Task::FlagMemberCallable(member_id));
@@ -214,7 +214,7 @@ fn worker<'a>(alloc: &'a mut Bump, program: &'a Program) -> (ThreadContext<'a>, 
                             for function_id in
                                 unsafe { ast.type_().get_function_ids(result.as_ptr()) }
                             {
-                                dependencies.calling.push(function_id);
+                                dependencies.add(ast.loc, DepKind::Callable(function_id));
                             }
 
                             program.queue_task(dependencies, Task::FlagMemberCallable(member_id));
@@ -224,7 +224,10 @@ fn worker<'a>(alloc: &'a mut Bump, program: &'a Program) -> (ThreadContext<'a>, 
                                 crate::emit::emit(&mut thread_context, program, locals, &ast);
 
                             let mut dependencies = DependencyList::new();
-                            dependencies.calling = calling;
+                            for call in calling {
+                                // FIXME: This should include the location of the call
+                                dependencies.add(ast.loc, DepKind::Callable(call));
+                            }
                             program
                                 .queue_task(dependencies, Task::EvaluateMember(member_id, routine));
                         }
