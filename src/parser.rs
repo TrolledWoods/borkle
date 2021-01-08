@@ -1,4 +1,4 @@
-use crate::dependencies::{DependencyKind, DependencyList};
+use crate::dependencies::{DependencyList, MemberDep};
 use crate::errors::ErrorCtx;
 use crate::literal::Literal;
 use crate::locals::Local;
@@ -344,9 +344,12 @@ fn type_(
             let polymorphic_arguments =
                 parse_passed_polymorphic_arguments(global, imperative, buffer)?;
 
-            imperative
-                .dependencies
-                .add(loc, global.scope, name, DependencyKind::CallingNamed);
+            imperative.dependencies.add(
+                loc,
+                global.scope,
+                name,
+                MemberDep::ValueAndCallableIfFunction,
+            );
             Ok(Node::new(
                 loc,
                 NodeKind::GlobalForTyping(global.scope, name, polymorphic_arguments),
@@ -513,7 +516,7 @@ fn value(
                     token.loc,
                     global.scope,
                     name,
-                    DependencyKind::CallingNamed,
+                    MemberDep::ValueAndCallableIfFunction,
                 );
                 Node::new(
                     token.loc,
@@ -522,7 +525,7 @@ fn value(
             } else {
                 imperative
                     .dependencies
-                    .add(token.loc, global.scope, name, DependencyKind::Type);
+                    .add(token.loc, global.scope, name, MemberDep::Type);
                 Node::new(
                     token.loc,
                     NodeKind::Global(global.scope, name, polymorphic_arguments),

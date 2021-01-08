@@ -1,4 +1,4 @@
-use crate::dependencies::{DependencyKind, DependencyList};
+use crate::dependencies::{DependencyList, MemberDep};
 use crate::errors::ErrorCtx;
 use crate::literal::Literal;
 use crate::locals::LocalVariables;
@@ -1120,10 +1120,14 @@ fn type_ast<'a>(
             let id = ctx.program.get_member_id(scope, name).unwrap();
 
             if ctx.is_const {
-                ctx.deps
-                    .add(parsed.loc, scope, name, DependencyKind::CallingNamed);
+                ctx.deps.add(
+                    parsed.loc,
+                    scope,
+                    name,
+                    MemberDep::ValueAndCallableIfFunction,
+                );
             } else {
-                ctx.deps.add(parsed.loc, scope, name, DependencyKind::Value);
+                ctx.deps.add(parsed.loc, scope, name, MemberDep::Value);
             }
 
             let (type_, meta_data) = ctx.program.get_member_meta_data(id);

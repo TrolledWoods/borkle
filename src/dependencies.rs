@@ -1,32 +1,45 @@
 use crate::location::Location;
 use crate::program::{FunctionId, ScopeId};
 use std::fmt;
-use ustr::{Ustr, UstrMap};
+use ustr::Ustr;
+
+#[derive(PartialEq, Eq, PartialOrd, Ord, Debug, Clone, Copy)]
+pub enum MemberDep {
+    Type,
+    Value,
+    ValueAndCallableIfFunction,
+}
 
 #[derive(Clone)]
 pub struct DependencyList {
-    pub values: UstrMap<(ScopeId, Location)>,
-    pub types: UstrMap<(ScopeId, Location)>,
-    pub calling_named: UstrMap<(ScopeId, Location)>,
+    pub members: Vec<(ScopeId, Ustr, Location, MemberDep)>,
     pub calling: Vec<FunctionId>,
 }
 
 impl DependencyList {
     pub fn new() -> Self {
         Self {
-            values: UstrMap::default(),
-            types: UstrMap::default(),
-            calling_named: UstrMap::default(),
+            members: Vec::new(),
             calling: Vec::new(),
         }
     }
 
-    pub fn add(&mut self, loc: Location, scope_id: ScopeId, name: Ustr, kind: DependencyKind) {
-        match kind {
-            DependencyKind::Value => self.values.insert(name, (scope_id, loc)),
-            DependencyKind::Type => self.types.insert(name, (scope_id, loc)),
-            DependencyKind::CallingNamed => self.calling_named.insert(name, (scope_id, loc)),
-        };
+    pub fn add(&mut self, loc: Location, scope_id: ScopeId, name: Ustr, dep: MemberDep) {
+        let entry = self
+            .members
+            .iter_mut()
+            .find(|(s, n, _, _)| *s == scope_id && *n == name);
+
+        if let Some((_, _, _, old_dep)) = entry {
+            // If there was already an entry for this identifier, we want to look if the new
+            // dependency is more general than the one before, and if it is, we want to replace the
+            // old one with the new one.
+            if *old_dep < dep {
+                *old_dep = dep;
+            }
+        } else {
+            self.members.push((scope_id, name, loc, dep));
+        }
     }
 }
 
@@ -39,17 +52,9 @@ pub enum DependencyKind {
 
 impl fmt::Debug for DependencyList {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "types: ")?;
-        for type_ in self.types.keys() {
-            write!(f, "{}, ", type_)?;
-        }
-        write!(f, " values: ")?;
-        for value in self.values.keys() {
-            write!(f, "{}, ", value)?;
-        }
-        write!(f, " calling_named: ")?;
-        for calling in self.calling_named.keys() {
-            write!(f, "{}, ", calling)?;
+        write!(f, " members: ")?;
+        for (_, key, _, dep) in &self.members {
+            write!(f, "{}: {:?}, ", key, dep)?;
         }
         write!(f, " calling: ")?;
         for calling in &self.calling {

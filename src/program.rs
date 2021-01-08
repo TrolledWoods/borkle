@@ -1,5 +1,5 @@
 use crate::command_line_arguments::Arguments;
-use crate::dependencies::{DependencyKind, DependencyList};
+use crate::dependencies::{DependencyKind, DependencyList, MemberDep};
 use crate::errors::ErrorCtx;
 use crate::id::{Id, IdVec};
 use crate::ir::Routine;
@@ -657,81 +657,85 @@ impl Program {
         drop(non_ready_tasks);
 
         let mut num_deps = 0;
-        for (dep_name, (scope_id, loc)) in deps.types {
-            let scopes = self.scopes.read();
-            let scope = &scopes[scope_id];
-            let mut scope_wanted_names = scope.wanted_names.write();
+        for (scope_id, dep_name, loc, dep_kind) in deps.members {
+            match dep_kind {
+                MemberDep::Type => {
+                    let scopes = self.scopes.read();
+                    let scope = &scopes[scope_id];
+                    let mut scope_wanted_names = scope.wanted_names.write();
 
-            if let Some(dep_id) = scope.get(dep_name) {
-                drop(scope_wanted_names);
-                drop(scopes);
-                let mut members = self.members.write();
-                let dependency = &mut members[dep_id];
-                if dependency.type_.add_dependant(loc, id) {
-                    num_deps += 1;
+                    if let Some(dep_id) = scope.get(dep_name) {
+                        drop(scope_wanted_names);
+                        drop(scopes);
+                        let mut members = self.members.write();
+                        let dependency = &mut members[dep_id];
+                        if dependency.type_.add_dependant(loc, id) {
+                            num_deps += 1;
+                        }
+                    } else {
+                        num_deps += 1;
+                        self.logger.log(format_args!(
+                            "Undefined identifier '{}' in scope {}, wants type of it",
+                            dep_name, scope_id.0
+                        ));
+                        let wanted = scope_wanted_names.entry(dep_name).or_insert_with(Vec::new);
+                        wanted.push((DependencyKind::Type, loc, id));
+                    }
                 }
-            } else {
-                num_deps += 1;
-                self.logger.log(format_args!(
-                    "Undefined identifier '{}' in scope {}, wants type of it",
-                    dep_name, scope_id.0
-                ));
-                let wanted = scope_wanted_names.entry(dep_name).or_insert_with(Vec::new);
-                wanted.push((DependencyKind::Type, loc, id));
-            }
-        }
+                MemberDep::Value => {
+                    let scopes = self.scopes.write();
+                    let scope = &scopes[scope_id];
+                    let mut scope_wanted_names = scope.wanted_names.write();
 
-        for (dep_name, (scope_id, loc)) in deps.values {
-            let scopes = self.scopes.write();
-            let scope = &scopes[scope_id];
-            let mut scope_wanted_names = scope.wanted_names.write();
-
-            if let Some(dep_id) = scope.get(dep_name) {
-                drop(scope_wanted_names);
-                drop(scopes);
-                let mut members = self.members.write();
-                let dependency = &mut members[dep_id];
-                if dependency.value.add_dependant(loc, id) {
-                    num_deps += 1;
+                    if let Some(dep_id) = scope.get(dep_name) {
+                        drop(scope_wanted_names);
+                        drop(scopes);
+                        let mut members = self.members.write();
+                        let dependency = &mut members[dep_id];
+                        if dependency.value.add_dependant(loc, id) {
+                            num_deps += 1;
+                        }
+                    } else {
+                        num_deps += 1;
+                        self.logger.log(format_args!(
+                            "Undefined identifier '{}' in scope {}, wants value of it",
+                            dep_name, scope_id.0
+                        ));
+                        let wanted = scope_wanted_names.entry(dep_name).or_insert_with(Vec::new);
+                        wanted.push((DependencyKind::Value, loc, id));
+                    }
                 }
-            } else {
-                num_deps += 1;
-                self.logger.log(format_args!(
-                    "Undefined identifier '{}' in scope {}, wants value of it",
-                    dep_name, scope_id.0
-                ));
-                let wanted = scope_wanted_names.entry(dep_name).or_insert_with(Vec::new);
-                wanted.push((DependencyKind::Value, loc, id));
-            }
-        }
 
-        for (dep_name, (scope_id, loc)) in deps.calling_named {
-            let scopes = self.scopes.write();
-            let scope = &scopes[scope_id];
-            let mut scope_wanted_names = scope.wanted_names.write();
+                MemberDep::ValueAndCallableIfFunction => {
+                    let scopes = self.scopes.write();
+                    let scope = &scopes[scope_id];
+                    let mut scope_wanted_names = scope.wanted_names.write();
 
-            if let Some(dep_id) = scope.get(dep_name) {
-                drop(scope_wanted_names);
-                drop(scopes);
-                let mut members = self.members.write();
-                let dependency = &mut members[dep_id];
-                if dependency.callable.add_dependant(loc, id) {
-                    num_deps += 1;
-                } else if let TypeKind::Function { .. } = dependency.type_.unwrap().0.kind() {
-                    // If we know the value of it already, just push it to the list of functions we
-                    // depend on being able to call.
-                    let function_id =
-                        unsafe { *dependency.value.unwrap().as_ptr().cast::<FunctionId>() };
-                    deps.calling.push(function_id);
+                    if let Some(dep_id) = scope.get(dep_name) {
+                        drop(scope_wanted_names);
+                        drop(scopes);
+                        let mut members = self.members.write();
+                        let dependency = &mut members[dep_id];
+                        if dependency.callable.add_dependant(loc, id) {
+                            num_deps += 1;
+                        } else if let TypeKind::Function { .. } = dependency.type_.unwrap().0.kind()
+                        {
+                            // If we know the value of it already, just push it to the list of functions we
+                            // depend on being able to call.
+                            let function_id =
+                                unsafe { *dependency.value.unwrap().as_ptr().cast::<FunctionId>() };
+                            deps.calling.push(function_id);
+                        }
+                    } else {
+                        num_deps += 1;
+                        self.logger.log(format_args!(
+                            "Undefined identifier '{}' in scope {}, wants value of it",
+                            dep_name, scope_id.0
+                        ));
+                        let wanted = scope_wanted_names.entry(dep_name).or_insert_with(Vec::new);
+                        wanted.push((DependencyKind::CallingNamed, loc, id));
+                    }
                 }
-            } else {
-                num_deps += 1;
-                self.logger.log(format_args!(
-                    "Undefined identifier '{}' in scope {}, wants value of it",
-                    dep_name, scope_id.0
-                ));
-                let wanted = scope_wanted_names.entry(dep_name).or_insert_with(Vec::new);
-                wanted.push((DependencyKind::CallingNamed, loc, id));
             }
         }
 
