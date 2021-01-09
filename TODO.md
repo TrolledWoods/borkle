@@ -6,7 +6,10 @@
 * [X] Inconsistancy; Named type uses ';' while unnamed struct uses ',', this is inconsistant!
 * [X] Dependency system now doesn't associate tasks with members, but rather tasks are their own standalone thing
 * [X] Feature; Allow for recursive functions.
+* [X] "Polymorphism"
 
+* [ ] Make a generic way to construct an Id that just wraps a usize.
+* [ ] Cached polymorphic variants
 * [ ] Cache callable functions, so that when a function is callable it doesn't have to be recalculated whether it is callable or not.
 * [ ] Right now functions in type expressions are not properly handled in the dependency system, and might crash the compiler!
 * [ ] Show where bad loops of recursion happen(can they even happen?)

@@ -2,6 +2,16 @@ library "fmt.bo";
 library "vec_u8.bo";
 library "string.bo";
 
+type NiceTypeBro {
+    x: u64;
+    y: u64;
+};
+
+const Same[T] = T;
+const Same = 99;
+
+const num = Same[42];
+
 const the_type1 = type [const factorial(3)] u32;
 const the_type2 = type [const factorial(3)] u32;
 const the_type3 = type [const factorial(3)] u32;

@@ -51,6 +51,8 @@ pub enum NodeKind {
         inner: SelfBox<Node>,
     },
 
+    // FIXME: Performance; Put the vector in the self buffer as well, since that should totally be
+    // possible to do.
     Global(ScopeId, Ustr, Vec<SelfBox<Node>>),
     GlobalForTyping(ScopeId, Ustr, Vec<SelfBox<Node>>),
 

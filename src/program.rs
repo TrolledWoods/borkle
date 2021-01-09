@@ -34,6 +34,7 @@ pub struct Program {
     pub logger: Logger,
 
     members: RwLock<IdVec<MemberId, Member>>,
+    poly_members: RwLock<IdVec<PolyMemberId, PolyMember>>,
     scopes: RwLock<IdVec<ScopeId, Scope>>,
 
     constant_data: Mutex<Vec<Constant>>,
@@ -62,6 +63,7 @@ impl Program {
             arguments,
             logger,
             members: default(),
+            poly_members: default(),
             scopes: default(),
             non_ready_tasks: default(),
             file_contents: default(),
@@ -779,6 +781,12 @@ impl Function {
     }
 }
 
+struct PolyMember {
+    name: Ustr,
+    typeable: DependableOption<()>,
+    // cached_variants:
+}
+
 struct Member {
     name: Ustr,
     type_: DependableOption<(Type, Arc<MemberMetaData>)>,
@@ -943,6 +951,31 @@ impl fmt::Debug for FunctionId {
         write!(f, "{}", self.0)
     }
 }
+
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+#[repr(transparent)]
+pub struct PolyMemberId(usize);
+
+impl Id for PolyMemberId {}
+
+impl From<usize> for PolyMemberId {
+    fn from(other: usize) -> Self {
+        Self(other)
+    }
+}
+
+impl Into<usize> for PolyMemberId {
+    fn into(self) -> usize {
+        self.0
+    }
+}
+
+impl fmt::Debug for PolyMemberId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 #[repr(transparent)]
 pub struct MemberId(usize);
