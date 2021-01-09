@@ -99,12 +99,14 @@ impl Program {
                 errors.global_error(format!("'{}' is not defined", name));
             }
 
-            for (&name, &member_id) in &scope.public_members {
-                let member = &members[member_id];
-                if member.type_.to_option().is_none() {
-                    errors.global_error(format!("'{}' cannot be computed", name));
-                } else if member.value.to_option().is_none() {
-                    errors.global_error(format!("'{}' cannot be computed(value)", name));
+            for (&name, &id) in &scope.public_members {
+                if let PolyOrMember::Member(member_id) = id {
+                    let member = &members[member_id];
+                    if member.type_.to_option().is_none() {
+                        errors.global_error(format!("'{}' cannot be computed", name));
+                    } else if member.value.to_option().is_none() {
+                        errors.global_error(format!("'{}' cannot be computed(value)", name));
+                    }
                 }
             }
         }
@@ -274,7 +276,7 @@ impl Program {
 
     /// Locks
     /// * ``scopes`` read
-    pub fn get_member_id(&self, scope: ScopeId, name: Ustr) -> Option<MemberId> {
+    pub fn get_member_id(&self, scope: ScopeId, name: Ustr) -> Option<PolyOrMember> {
         let scopes = self.scopes.read();
         let public = scopes[scope].public_members.get(&name).copied();
         public.or_else(|| scopes[scope].private_members.get(&name).copied())
@@ -416,6 +418,47 @@ impl Program {
         })
     }
 
+    pub fn flag_poly_member(&self, id: PolyMemberId, kind: MemberDep) {
+        match kind {
+            MemberDep::Type => {
+                let mut poly_members = self.poly_members.write();
+                let old =
+                    std::mem::replace(&mut poly_members[id].type_, DependableOption::Some(()));
+                drop(poly_members);
+
+                if let DependableOption::None(dependencies) = old {
+                    for (_, dependency) in dependencies.into_inner() {
+                        self.resolve_dependency(dependency);
+                    }
+                }
+            }
+            MemberDep::Value => {
+                let mut poly_members = self.poly_members.write();
+                let old =
+                    std::mem::replace(&mut poly_members[id].value, DependableOption::Some(()));
+                drop(poly_members);
+
+                if let DependableOption::None(dependencies) = old {
+                    for (_, dependency) in dependencies.into_inner() {
+                        self.resolve_dependency(dependency);
+                    }
+                }
+            }
+            MemberDep::ValueAndCallableIfFunction => {
+                let mut poly_members = self.poly_members.write();
+                let old =
+                    std::mem::replace(&mut poly_members[id].callable, DependableOption::Some(()));
+                drop(poly_members);
+
+                if let DependableOption::None(dependencies) = old {
+                    for (_, dependency) in dependencies.into_inner() {
+                        self.resolve_dependency(dependency);
+                    }
+                }
+            }
+        }
+    }
+
     pub fn flag_member_callable(&self, id: MemberId) {
         let mut members = self.members.write();
         let old = std::mem::replace(&mut members[id].callable, DependableOption::Some(()));
@@ -515,7 +558,7 @@ impl Program {
     ) -> Result<MemberId, ()> {
         let id = self.members.write().push(Member::new(name));
 
-        self.bind_member_to_name(errors, scope_id, name, loc, id, true)?;
+        self.bind_member_to_name(errors, scope_id, name, loc, PolyOrMember::Member(id), true)?;
         Ok(id)
     }
 
@@ -529,7 +572,7 @@ impl Program {
         scope_id: ScopeId,
         name: Ustr,
         loc: Location,
-        member_id: MemberId,
+        member_id: PolyOrMember,
         is_public: bool,
     ) -> Result<(), ()> {
         let mut scopes = self.scopes.write();
@@ -564,18 +607,38 @@ impl Program {
             drop(wanted_names);
             drop(scopes);
 
-            for &(kind, loc, dependant) in &dependants {
-                let mut members = self.members.write();
-                let member = &mut members[member_id];
+            match member_id {
+                PolyOrMember::Member(member_id) => {
+                    for &(kind, loc, dependant) in &dependants {
+                        let mut members = self.members.write();
+                        let member = &mut members[member_id];
 
-                self.logger.log(format_args!(
-                    "Dependant at '{:?}' found definition of '{}', now searches for the {:?} of it",
-                    loc, member.name, kind,
-                ));
+                        self.logger.log(format_args!(
+                                "Dependant at '{:?}' found definition of '{}', now searches for the {:?} of it",
+                                loc, member.name, kind,
+                        ));
 
-                if !member.add_dependant(loc, kind, dependant) {
-                    drop(members);
-                    self.resolve_dependency(dependant);
+                        if !member.add_dependant(loc, kind, dependant) {
+                            drop(members);
+                            self.resolve_dependency(dependant);
+                        }
+                    }
+                }
+                PolyOrMember::Poly(poly_id) => {
+                    for &(kind, loc, dependant) in &dependants {
+                        let mut members = self.poly_members.write();
+                        let member = &mut members[poly_id];
+
+                        self.logger.log(format_args!(
+                                "Dependant at '{:?}' found definition of '{}', now searches for the {:?} of it",
+                                loc, member.name, kind,
+                        ));
+
+                        if !member.add_dependant(loc, kind, dependant) {
+                            drop(members);
+                            self.resolve_dependency(dependant);
+                        }
+                    }
                 }
             }
         }
@@ -630,9 +693,19 @@ impl Program {
                         drop(scope_wanted_names);
                         drop(scopes);
 
-                        let members = self.members.read();
-                        if members[dep_id].add_dependant(loc, dep_kind, id) {
-                            num_deps += 1;
+                        match dep_id {
+                            PolyOrMember::Poly(dep_id) => {
+                                let members = self.poly_members.read();
+                                if members[dep_id].add_dependant(loc, dep_kind, id) {
+                                    num_deps += 1;
+                                }
+                            }
+                            PolyOrMember::Member(dep_id) => {
+                                let members = self.members.read();
+                                if members[dep_id].add_dependant(loc, dep_kind, id) {
+                                    num_deps += 1;
+                                }
+                            }
                         }
                     } else {
                         num_deps += 1;
@@ -736,14 +809,14 @@ struct Scope {
     // FIXME: Have these store the location where the thing was bound to a name as well.
     // At least in the public_members, since those are usually not imported but bound in the scope?
     // However, even private_members would have a use for the location of the import/library
-    public_members: UstrMap<MemberId>,
-    private_members: UstrMap<MemberId>,
+    public_members: UstrMap<PolyOrMember>,
+    private_members: UstrMap<PolyOrMember>,
     wanted_names: RwLock<UstrMap<Vec<(MemberDep, Location, TaskId)>>>,
     wildcard_exports: RwLock<Vec<ScopeId>>,
 }
 
 impl Scope {
-    fn get(&self, name: Ustr) -> Option<MemberId> {
+    fn get(&self, name: Ustr) -> Option<PolyOrMember> {
         let public = self.public_members.get(&name).copied();
         public.or_else(|| self.private_members.get(&name).copied())
     }
@@ -783,8 +856,26 @@ impl Function {
 
 struct PolyMember {
     name: Ustr,
-    typeable: DependableOption<()>,
+
+    // These do not contain the actual types(because monomorphisation has to happen), however, they
+    // do express the ability to calculate these things. Basically, if you monomorphise this
+    // polymember into a normal member, these represent what parts of that member you can then
+    // calculate.
+    type_: DependableOption<()>,
+    value: DependableOption<()>,
+    callable: DependableOption<()>,
     // cached_variants:
+    // FIXME: This will exist later.
+}
+
+impl PolyMember {
+    fn add_dependant(&self, loc: Location, dep: MemberDep, dependant: TaskId) -> bool {
+        match dep {
+            MemberDep::Type => self.type_.add_dependant(loc, dependant),
+            MemberDep::Value => self.value.add_dependant(loc, dependant),
+            MemberDep::ValueAndCallableIfFunction => self.callable.add_dependant(loc, dependant),
+        }
+    }
 }
 
 struct Member {
@@ -890,6 +981,8 @@ struct NonReadyTask {
 }
 
 pub enum Task {
+    FlagPolyMember(PolyMemberId, MemberDep, DependencyList),
+
     Parse(Option<(Location, ScopeId)>, PathBuf),
     TypeMember(MemberId, crate::locals::LocalVariables, crate::parser::Ast),
     EmitMember(MemberId, crate::locals::LocalVariables, crate::typer::Ast),
@@ -913,11 +1006,15 @@ pub enum Task {
 impl fmt::Debug for Task {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Task::FlagPolyMember(id, dep_kind, _) => {
+                write!(f, "flag_member_callable({:?}, {:?})", id, dep_kind)
+            }
+
             Task::Parse(_, buf) => write!(f, "parse({:?})", buf),
             Task::TypeMember(id, _, _) => write!(f, "type_member({:?})", id),
             Task::EmitMember(id, _, _) => write!(f, "emit_member({:?})", id),
             Task::EvaluateMember(id, _) => write!(f, "evaluate_member({:?})", id),
-            Task::FlagMemberCallable(id) => write!(f, "flag_member_callable({:?}", id),
+            Task::FlagMemberCallable(id) => write!(f, "flag_member_callable({:?})", id),
             Task::TypeFunction(id, _, _, _, _) => write!(f, "type_function({:?})", id),
             Task::EmitFunction(id, _, _, _) => write!(f, "emit_function({:?})", id),
         }
@@ -950,6 +1047,12 @@ impl fmt::Debug for FunctionId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.0)
     }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+pub enum PolyOrMember {
+    Poly(PolyMemberId),
+    Member(MemberId),
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]

@@ -7,7 +7,7 @@ use crate::operators::UnaryOp;
 use crate::parser::ast::Node as ParsedNode;
 use crate::parser::{ast::NodeKind as ParsedNodeKind, Ast as ParsedAst};
 use crate::program::constant::ConstantRef;
-use crate::program::{MemberMetaData, Program, Task};
+use crate::program::{MemberMetaData, PolyOrMember, Program, Task};
 use crate::self_buffer::{SelfBuffer, SelfTree};
 use crate::thread_pool::ThreadContext;
 use crate::types::{Alias, IntTypeKind, Type, TypeData, TypeKind};
@@ -1107,30 +1107,67 @@ fn type_ast<'a>(
                 return Err(());
             }
         }
-        ParsedNodeKind::GlobalForTyping(scope, name, _) => {
-            let id = ctx.program.get_member_id(scope, name).unwrap();
-            let (type_, meta_data) = ctx.program.get_member_meta_data(id);
-            Node::new(
-                parsed.loc,
-                NodeKind::Constant(ctx.program.get_value_of_member(id), Some(meta_data)),
-                type_,
-            )
-        }
-        ParsedNodeKind::Global(scope, name, _) => {
+        ParsedNodeKind::GlobalForTyping(scope, name, ref poly_args) => {
             let id = ctx.program.get_member_id(scope, name).unwrap();
 
-            if ctx.is_const {
-                ctx.deps.add(
-                    parsed.loc,
-                    DepKind::Member(id, MemberDep::ValueAndCallableIfFunction),
-                );
-            } else {
-                ctx.deps
-                    .add(parsed.loc, DepKind::Member(id, MemberDep::Value));
+            match id {
+                PolyOrMember::Member(id) => {
+                    if !poly_args.is_empty() {
+                        ctx.errors.error(
+                            parsed.loc,
+                            format!(
+                                "Polymorphic arguments were not expected; '{}' is not polymorphic",
+                                name
+                            ),
+                        );
+                        return Err(());
+                    }
+
+                    let (type_, meta_data) = ctx.program.get_member_meta_data(id);
+                    Node::new(
+                        parsed.loc,
+                        NodeKind::Constant(ctx.program.get_value_of_member(id), Some(meta_data)),
+                        type_,
+                    )
+                }
+                PolyOrMember::Poly(id) => {
+                    todo!("Monomorphisation");
+                }
             }
+        }
+        ParsedNodeKind::Global(scope, name, ref poly_args) => {
+            let id = ctx.program.get_member_id(scope, name).unwrap();
 
-            let (type_, meta_data) = ctx.program.get_member_meta_data(id);
-            Node::new(parsed.loc, NodeKind::Global(id, meta_data), type_)
+            match id {
+                PolyOrMember::Member(id) => {
+                    if !poly_args.is_empty() {
+                        ctx.errors.error(
+                            parsed.loc,
+                            format!(
+                                "Polymorphic arguments were not expected; '{}' is not polymorphic",
+                                name
+                            ),
+                        );
+                        return Err(());
+                    }
+
+                    if ctx.is_const {
+                        ctx.deps.add(
+                            parsed.loc,
+                            DepKind::Member(id, MemberDep::ValueAndCallableIfFunction),
+                        );
+                    } else {
+                        ctx.deps
+                            .add(parsed.loc, DepKind::Member(id, MemberDep::Value));
+                    }
+
+                    let (type_, meta_data) = ctx.program.get_member_meta_data(id);
+                    Node::new(parsed.loc, NodeKind::Global(id, meta_data), type_)
+                }
+                PolyOrMember::Poly(_) => {
+                    todo!("Monomorphisation");
+                }
+            }
         }
         ParsedNodeKind::Local(local_id) => {
             let local = ctx.locals.get(local_id);
@@ -1281,10 +1318,28 @@ fn const_fold_type_expr<'a>(
     buffer: &mut SelfBuffer,
 ) -> Result<Type, ()> {
     match parsed.kind {
-        ParsedNodeKind::GlobalForTyping(scope, name, _) => {
+        ParsedNodeKind::GlobalForTyping(scope, name, ref poly_args) => {
             let id = ctx.program.get_member_id(scope, name).unwrap();
-            let ptr = ctx.program.get_value_of_member(id).as_ptr();
-            Ok(unsafe { *ptr.cast::<Type>() })
+            match id {
+                PolyOrMember::Poly(id) => {
+                    todo!("Monomorphisation");
+                }
+                PolyOrMember::Member(id) => {
+                    if !poly_args.is_empty() {
+                        ctx.errors.error(
+                            parsed.loc,
+                            format!(
+                                "Polymorphic arguments were not expected; '{}' is not polymorphic",
+                                name
+                            ),
+                        );
+                        return Err(());
+                    }
+
+                    let ptr = ctx.program.get_value_of_member(id).as_ptr();
+                    Ok(unsafe { *ptr.cast::<Type>() })
+                }
+            }
         }
         ParsedNodeKind::LiteralType(type_) => Ok(type_),
         ParsedNodeKind::StructType {

@@ -1,4 +1,4 @@
-use crate::dependencies::{DepKind, DependencyList};
+use crate::dependencies::{DepKind, DependencyList, MemberDep};
 use crate::errors::ErrorCtx;
 use crate::location::Location;
 use crate::program::{MemberMetaData, Program, ScopeId, Task};
@@ -126,6 +126,26 @@ fn worker<'a>(alloc: &'a mut Bump, program: &'a Program) -> (ThreadContext<'a>, 
     loop {
         if let Some(task) = work.dequeue() {
             match task {
+                Task::FlagPolyMember(poly_member, MemberDep::Type, mut deps) => {
+                    program.flag_poly_member(poly_member, MemberDep::Type);
+
+                    deps.set_minimum_member_dep(MemberDep::ValueAndCallableIfFunction);
+                    program.queue_task(
+                        deps,
+                        Task::FlagPolyMember(
+                            poly_member,
+                            MemberDep::ValueAndCallableIfFunction,
+                            DependencyList::new(), // Since the next thing ignores its dependencies anyway, we don't care to pass it. This might change later though
+                        ),
+                    );
+                }
+                Task::FlagPolyMember(poly_member, MemberDep::Value, _) => {
+                    program.flag_poly_member(poly_member, MemberDep::Value);
+                    program.flag_poly_member(poly_member, MemberDep::ValueAndCallableIfFunction);
+                }
+                // FIXME: Think about if we can be less conservative and use this anyway.
+                Task::FlagPolyMember(poly_member, MemberDep::ValueAndCallableIfFunction, _) => {}
+
                 Task::Parse(meta_data, file) => parse_file(&mut errors, program, &file, meta_data),
                 Task::TypeMember(member_id, locals, ast) => {
                     use crate::typer::ast::NodeKind;
