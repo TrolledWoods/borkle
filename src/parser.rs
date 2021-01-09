@@ -173,13 +173,19 @@ fn constant(global: &mut DataContext<'_>) -> Result<(), ()> {
                 .program
                 .queue_task(dependencies, Task::TypeMember(id, locals, tree));
         } else {
-            // global.program.insert_polymorphic(
-            //     global.errors,
-            //     token.loc,
-            //     name,
-            //     dependencies,
-            //     true,
-            // )?;
+            let id = global.program.define_polymorphic_member(
+                global.errors,
+                token.loc,
+                global.scope,
+                name,
+                locals,
+                tree,
+                polymorphic_arguments.len(),
+            )?;
+            global.program.queue_task(
+                dependencies.clone(),
+                Task::FlagPolyMember(id, MemberDep::Type, dependencies),
+            );
         }
 
         global

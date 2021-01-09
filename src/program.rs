@@ -547,6 +547,25 @@ impl Program {
         self.modify_dependency_count(id, -1);
     }
 
+    pub fn define_polymorphic_member(
+        &self,
+        errors: &mut ErrorCtx,
+        loc: Location,
+        scope_id: ScopeId,
+        name: Ustr,
+        locals: crate::locals::LocalVariables,
+        ast: crate::parser::Ast,
+        num_args: usize,
+    ) -> Result<PolyMemberId, ()> {
+        let id = self
+            .poly_members
+            .write()
+            .push(PolyMember::new(name, locals, ast, num_args));
+
+        self.bind_member_to_name(errors, scope_id, name, loc, PolyOrMember::Poly(id), true)?;
+        Ok(id)
+    }
+
     /// # Locks
     /// Locks ``members`` write, and ``scopes`` write
     pub fn define_member(
@@ -857,6 +876,9 @@ impl Function {
 struct PolyMember {
     name: Ustr,
 
+    ast: Arc<(crate::locals::LocalVariables, crate::parser::Ast)>,
+    num_args: usize,
+
     // These do not contain the actual types(because monomorphisation has to happen), however, they
     // do express the ability to calculate these things. Basically, if you monomorphise this
     // polymember into a normal member, these represent what parts of that member you can then
@@ -869,6 +891,23 @@ struct PolyMember {
 }
 
 impl PolyMember {
+    fn new(
+        name: Ustr,
+        locals: crate::locals::LocalVariables,
+        ast: crate::parser::Ast,
+        num_args: usize,
+    ) -> Self {
+        Self {
+            name,
+            num_args,
+            ast: Arc::new((locals, ast)),
+
+            type_: DependableOption::None(default()),
+            value: DependableOption::None(default()),
+            callable: DependableOption::None(default()),
+        }
+    }
+
     fn add_dependant(&self, loc: Location, dep: MemberDep, dependant: TaskId) -> bool {
         match dep {
             MemberDep::Type => self.type_.add_dependant(loc, dependant),
@@ -905,6 +944,15 @@ struct Member {
 }
 
 impl Member {
+    fn new(name: Ustr) -> Self {
+        Self {
+            name,
+            type_: DependableOption::None(default()),
+            value: DependableOption::None(default()),
+            callable: DependableOption::None(default()),
+        }
+    }
+
     fn add_dependant(&self, loc: Location, dep: MemberDep, dependant: TaskId) -> bool {
         match dep {
             MemberDep::Type => self.type_.add_dependant(loc, dependant),
@@ -921,17 +969,6 @@ pub enum MemberMetaData {
         arg_names: Vec<Ustr>,
         default_values: Vec<ConstantRef>,
     },
-}
-
-impl Member {
-    fn new(name: Ustr) -> Self {
-        Self {
-            name,
-            type_: DependableOption::None(default()),
-            value: DependableOption::None(default()),
-            callable: DependableOption::None(default()),
-        }
-    }
 }
 
 pub enum DependableOption<T> {

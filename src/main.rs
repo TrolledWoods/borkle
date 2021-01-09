@@ -2,6 +2,7 @@
 #![deny(mutable_borrow_reservation_conflict)]
 #![warn(clippy::pedantic)]
 #![allow(
+    clippy::too_many_arguments,
     clippy::struct_excessive_bools,
     clippy::wildcard_imports,
     clippy::similar_names,

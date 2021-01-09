@@ -7,8 +7,8 @@ type NiceTypeBro {
     y: u64;
 };
 
-const Same[T] = T;
-const Same = 99;
+const Same[T] = 42;
+// const Same = 99;
 
 const num = Same[42];
 
