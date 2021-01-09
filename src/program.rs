@@ -461,6 +461,7 @@ impl Program {
 
     pub fn flag_member_callable(&self, id: MemberId) {
         let mut members = self.members.write();
+        let is_monomorphised = members[id].is_monomorphised;
         let old = std::mem::replace(&mut members[id].callable, DependableOption::Some(()));
         drop(members);
 
@@ -468,7 +469,26 @@ impl Program {
             for (_, dependency) in dependencies.into_inner() {
                 self.resolve_dependency(dependency);
             }
+        } else if is_monomorphised {
+            self.logger.log(format_args!(
+                "{:?} was flagged callable twice! Oh no, inefficiency!",
+                id
+            ));
+        } else {
+            unreachable!("This shouldn't happen, ever");
         }
+    }
+
+    pub fn member_is_typed(&self, id: MemberId) -> bool {
+        self.members.read()[id].callable.is_some()
+    }
+
+    pub fn member_is_evaluated(&self, id: MemberId) -> bool {
+        self.members.read()[id].value.is_some()
+    }
+
+    pub fn member_is_callable(&self, id: MemberId) -> bool {
+        self.members.read()[id].callable.is_some()
     }
 
     /// # Locks
@@ -477,6 +497,7 @@ impl Program {
     /// * ``functions`` write
     pub fn set_value_of_member(&self, id: MemberId, value: ConstantRef) {
         let mut members = self.members.write();
+        let is_monomorphised = members[id].is_monomorphised;
         let old = std::mem::replace(&mut members[id].value, DependableOption::Some(value));
         drop(members);
 
@@ -484,6 +505,11 @@ impl Program {
             for (_, dependency) in dependencies.into_inner() {
                 self.resolve_dependency(dependency);
             }
+        } else if is_monomorphised {
+            self.logger.log(format_args!(
+                "{:?}(monomorphic variant) was evaluated twice! Oh no, inefficiency!",
+                id
+            ));
         } else {
             unreachable!("You can only set the value of a member once!");
         }
@@ -493,6 +519,7 @@ impl Program {
     /// * ``members`` write
     pub fn set_type_of_member(&self, id: MemberId, type_: Type, meta_data: MemberMetaData) {
         let mut members = self.members.write();
+        let is_monomorphised = members[id].is_monomorphised;
         let member_type = &mut members[id].type_;
         let old = std::mem::replace(
             member_type,
@@ -504,6 +531,11 @@ impl Program {
             for (_, dependency) in dependencies.into_inner() {
                 self.resolve_dependency(dependency);
             }
+        } else if is_monomorphised {
+            self.logger.log(format_args!(
+                "{:?}(monomorphic variant) was evaluated twice! Oh no, inefficiency!",
+                id
+            ));
         } else {
             unreachable!("You can only set the type of a member once!");
         }
@@ -591,7 +623,7 @@ impl Program {
         drop(poly_members);
 
         // Create a member to host the monomorphised thing.
-        let member_id = self.members.write().push(Member::new(name));
+        let member_id = self.members.write().push(Member::new(name, true));
 
         // FIXME: This is also happening in the thread_pool for the tasks there; should we try and
         // combine the two?
@@ -651,7 +683,7 @@ impl Program {
         scope_id: ScopeId,
         name: Ustr,
     ) -> Result<MemberId, ()> {
-        let id = self.members.write().push(Member::new(name));
+        let id = self.members.write().push(Member::new(name, false));
 
         self.bind_member_to_name(errors, scope_id, name, loc, PolyOrMember::Member(id), true)?;
         Ok(id)
@@ -994,6 +1026,8 @@ impl PolyMember {
 }
 
 struct Member {
+    is_monomorphised: bool,
+
     name: Ustr,
     type_: DependableOption<(Type, Arc<MemberMetaData>)>,
     value: DependableOption<ConstantRef>,
@@ -1020,8 +1054,9 @@ struct Member {
 }
 
 impl Member {
-    fn new(name: Ustr) -> Self {
+    fn new(name: Ustr, is_monomorphised: bool) -> Self {
         Self {
+            is_monomorphised,
             name,
             type_: DependableOption::None(default()),
             value: DependableOption::None(default()),
@@ -1053,6 +1088,13 @@ pub enum DependableOption<T> {
 }
 
 impl<T> DependableOption<T> {
+    fn is_some(&self) -> bool {
+        match self {
+            Self::Some(_) => true,
+            Self::None(_) => false,
+        }
+    }
+
     fn add_dependant(&self, loc: Location, dependant: TaskId) -> bool {
         match self {
             Self::Some(_) => false,
