@@ -574,7 +574,7 @@ impl Program {
         poly_args: &[(Type, ConstantRef)],
         wanted_dep: MemberDep,
     ) -> Result<MemberId, ()> {
-        let mut poly_members = self.poly_members.write();
+        let poly_members = self.poly_members.read();
 
         debug_assert_eq!(
             poly_members[id].num_args,

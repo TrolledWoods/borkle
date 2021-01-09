@@ -63,6 +63,7 @@ fn type_ast<'a>(
     buffer: &mut SelfBuffer,
 ) -> Result<Node, ()> {
     let node = match parsed.kind {
+        ParsedNodeKind::PolymorphicArgument(_) => todo!("Polymorphic argument bro"),
         ParsedNodeKind::Parenthesis(ref inner) => type_ast(ctx, wanted_type, inner, buffer)?,
         ParsedNodeKind::BuiltinFunction(kind) => {
             let specific = wanted_type.get_specific().ok_or_else(|| ctx.errors.error(parsed.loc, "A builtin function definition needs a type bound to work(why are you even messing with these, these are supposed to be defined withing the standard librarys 'intrinsics.bo' file! XD p.s: giving a bad type definition could segfault the compiler right now)".to_string()))?;

@@ -42,6 +42,7 @@ pub enum NodeKind {
     ArrayLiteral(Vec<SelfBox<Node>>),
     BuiltinFunction(BuiltinFunction),
 
+    PolymorphicArgument(usize),
     ConstAtTyping {
         locals: LocalVariables,
         inner: SelfBox<Node>,

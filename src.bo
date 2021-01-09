@@ -2,9 +2,9 @@ library "fmt.bo";
 library "vec_u8.bo";
 library "string.bo";
 
-const Same[T] = 42 : u64;
+const Same[T] = T;
 
-const num = Same[42];
+const num = Same[42 : u64];
 
 #entry fn() -> u64 {
     num

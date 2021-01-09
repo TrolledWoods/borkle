@@ -44,7 +44,7 @@ pub fn process_string(
 
                 let mut buffer = SelfBuffer::new();
                 let mut dependencies = DependencyList::new();
-                let mut imperative = ImperativeContext::new(&mut dependencies, false);
+                let mut imperative = ImperativeContext::new(&mut dependencies, false, &[]);
                 imperative.evaluate_at_typing = true;
                 let node = named_type(&mut context, &mut imperative, &mut buffer, loc, name)?;
                 let tree = buffer.insert_root(node);
@@ -86,7 +86,7 @@ pub fn process_string(
             TokenKind::Keyword(Keyword::Entry) => {
                 let mut buffer = SelfBuffer::new();
                 let mut dependencies = DependencyList::new();
-                let mut imperative = ImperativeContext::new(&mut dependencies, false);
+                let mut imperative = ImperativeContext::new(&mut dependencies, false, &[]);
                 let expr = expression(&mut context, &mut imperative, &mut buffer)?;
                 let tree = buffer.insert_root(expr);
 
@@ -159,7 +159,8 @@ fn constant(global: &mut DataContext<'_>) -> Result<(), ()> {
         let mut buffer = SelfBuffer::new();
 
         let mut dependencies = DependencyList::new();
-        let mut imperative = ImperativeContext::new(&mut dependencies, false);
+        let mut imperative =
+            ImperativeContext::new(&mut dependencies, false, &polymorphic_arguments);
         let expr = expression(global, &mut imperative, &mut buffer)?;
         let tree = buffer.insert_root(expr);
 
@@ -515,6 +516,12 @@ fn value(
                 }
                 imperative.locals.get_mut(local_id).num_uses += 1;
                 Node::new(token.loc, NodeKind::Local(local_id))
+            } else if let Some(index) = imperative
+                .poly_args
+                .iter()
+                .position(|(_, arg)| *arg == name)
+            {
+                Node::new(token.loc, NodeKind::PolymorphicArgument(index))
             } else if imperative.evaluate_at_typing {
                 imperative.dependencies.add(
                     token.loc,
@@ -565,8 +572,11 @@ fn value(
             Node::new(token.loc, NodeKind::BuiltinFunction(builtin_kind))
         }
         TokenKind::Keyword(Keyword::Const) => {
-            let mut sub_ctx =
-                ImperativeContext::new(imperative.dependencies, imperative.evaluate_at_typing);
+            let mut sub_ctx = ImperativeContext::new(
+                imperative.dependencies,
+                imperative.evaluate_at_typing,
+                imperative.poly_args,
+            );
             sub_ctx.in_const_expression = true;
             let inner = expression(global, &mut sub_ctx, buffer)?;
 
@@ -1063,7 +1073,7 @@ fn function_declaration(
         .expect_next_is(global.errors, &TokenKind::Open(Bracket::Round))?;
 
     let mut body_deps = DependencyList::new();
-    let mut sub_imperative = ImperativeContext::new(&mut body_deps, false);
+    let mut sub_imperative = ImperativeContext::new(&mut body_deps, false, imperative.poly_args);
 
     let mut args = Vec::new();
     let mut default_args = Vec::new();
