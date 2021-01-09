@@ -2,50 +2,11 @@ library "fmt.bo";
 library "vec_u8.bo";
 library "string.bo";
 
-type NiceTypeBro {
-    x: u64;
-    y: u64;
-};
-
-const Same[T] = 42;
-// const Same = 99;
+const Same[T] = 42 : u64;
 
 const num = Same[42];
 
-const the_type1 = type [const factorial(3)] u32;
-const the_type2 = type [const factorial(3)] u32;
-const the_type3 = type [const factorial(3)] u32;
-const the_type4 = type [const factorial(3)] u32;
-const the_type5 = type [const factorial(3)] u32;
-
-const my_type = const factorial(3);
-const my_type2 = const factorial(3);
-const the_type = type [const factorial(3)] u32;
-
-const factorial = fn(num: usize) -> usize
-    if num > 0  factorial(num - 1) * num
-    else 1;
-
-const my_type3 = const factorial(3);
-const my_type4 = const factorial(3);
-
 #entry fn() -> u64 {
-    let vec = #0 : VecU8;
-    recurse(&vec, 9);
-    // print(vec.buf);
-    // print("\n");
-
-    0
+    num
 };
 
-const recurse = fn(string: &VecU8, layer: u64) {
-    if layer == 0 {
-        vec_u8_push(string, ".");
-        vec_u8_push(string, "\n");
-    } else {
-        recurse(string, layer - 1);
-        for (0 : u64) .. layer  vec_u8_push(string, "-");
-        vec_u8_push(string, "\n");
-        recurse(string, layer - 1);
-    };
-};

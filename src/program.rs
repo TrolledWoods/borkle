@@ -5,7 +5,7 @@ use crate::id::{Id, IdVec};
 use crate::ir::Routine;
 use crate::location::Location;
 use crate::logging::Logger;
-use crate::thread_pool::WorkPile;
+use crate::thread_pool::{ThreadContext, WorkPile};
 use crate::types::{IntTypeKind, PointerInType, Type, TypeKind};
 use constant::{Constant, ConstantRef};
 use parking_lot::{Mutex, RwLock};
@@ -564,6 +564,77 @@ impl Program {
 
         self.bind_member_to_name(errors, scope_id, name, loc, PolyOrMember::Poly(id), true)?;
         Ok(id)
+    }
+
+    pub fn monomorphise_poly_member<'a>(
+        &'a self,
+        errors: &mut ErrorCtx,
+        thread_context: &mut ThreadContext<'a>,
+        id: PolyMemberId,
+        poly_args: &[(Type, ConstantRef)],
+        wanted_dep: MemberDep,
+    ) -> Result<MemberId, ()> {
+        let mut poly_members = self.poly_members.write();
+
+        debug_assert_eq!(
+            poly_members[id].num_args,
+            poly_args.len(),
+            "There has to be the same number of polymorphic arguments passed as ones that exist."
+        );
+
+        let name = poly_members[id].name;
+        let ast = Arc::clone(&poly_members[id].ast);
+        drop(poly_members);
+
+        // Create a member to host the monomorphised thing.
+        let member_id = self.members.write().push(Member::new(name));
+
+        // FIXME: This is also happening in the thread_pool for the tasks there; should we try and
+        // combine the two?
+        let (locals, parsed_ast) = &*ast;
+        let (dependency_list, locals, typed_ast) = crate::typer::process_ast(
+            errors,
+            thread_context,
+            self,
+            locals.clone(),
+            parsed_ast,
+            None,
+        )?;
+
+        // FIXME: Calculate the member meta data here.
+        self.set_type_of_member(member_id, typed_ast.type_(), MemberMetaData::None);
+
+        if wanted_dep < MemberDep::Value {
+            self.queue_task(
+                dependency_list,
+                Task::EmitMember(member_id, locals, typed_ast),
+            );
+
+            // It's fine, it's already enough
+            return Ok(member_id);
+        }
+
+        assert_ne!(wanted_dep, MemberDep::Value, "Depending on just the value shouldn't really happen in this place, because either you go full on callable or you depend on the type. If you need to depend on the value it monomorphises it by depending on the type and then calculates the type on the value individually.");
+
+        let (_, routine) = crate::emit::emit(thread_context, self, locals, &typed_ast);
+        let mut stack = crate::interp::Stack::new(2048);
+
+        let result = crate::interp::interp(self, &mut stack, &routine);
+
+        self.logger
+            .log(format_args!("value '{}'", self.member_name(member_id),));
+
+        let type_ = self.get_member_type(member_id);
+        let value = self.insert_buffer(type_, result.as_ptr());
+
+        self.set_value_of_member(member_id, value);
+        self.flag_member_callable(member_id);
+
+        for function_id in unsafe { type_.get_function_ids(value.as_ptr()) } {
+            self.flag_function_callable(function_id);
+        }
+
+        Ok(member_id)
     }
 
     /// # Locks

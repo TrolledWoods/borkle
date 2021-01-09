@@ -1110,7 +1110,15 @@ fn type_ast<'a>(
         ParsedNodeKind::GlobalForTyping(scope, name, ref poly_args) => {
             let id = ctx.program.get_member_id(scope, name).unwrap();
 
-            let id = monomorphise(ctx.errors, parsed.loc, name, id, poly_args)?;
+            let id = monomorphise(
+                ctx,
+                parsed.loc,
+                name,
+                id,
+                MemberDep::ValueAndCallableIfFunction,
+                poly_args,
+                buffer,
+            )?;
 
             let (type_, meta_data) = ctx.program.get_member_meta_data(id);
             Node::new(
@@ -1121,8 +1129,15 @@ fn type_ast<'a>(
         }
         ParsedNodeKind::Global(scope, name, ref poly_args) => {
             let id = ctx.program.get_member_id(scope, name).unwrap();
-
-            let id = monomorphise(ctx.errors, parsed.loc, name, id, poly_args)?;
+            let id = monomorphise(
+                ctx,
+                parsed.loc,
+                name,
+                id,
+                MemberDep::Type,
+                poly_args,
+                buffer,
+            )?;
 
             if ctx.is_const {
                 ctx.deps.add(
@@ -1288,7 +1303,15 @@ fn const_fold_type_expr<'a>(
     match parsed.kind {
         ParsedNodeKind::GlobalForTyping(scope, name, ref poly_args) => {
             let id = ctx.program.get_member_id(scope, name).unwrap();
-            let id = monomorphise(ctx.errors, parsed.loc, name, id, poly_args)?;
+            let id = monomorphise(
+                ctx,
+                parsed.loc,
+                name,
+                id,
+                MemberDep::ValueAndCallableIfFunction,
+                poly_args,
+                buffer,
+            )?;
 
             let ptr = ctx.program.get_value_of_member(id).as_ptr();
             Ok(unsafe { *ptr.cast::<Type>() })
@@ -1458,17 +1481,19 @@ fn auto_cast<'a>(
     }
 }
 
-fn monomorphise(
-    errors: &mut ErrorCtx,
+fn monomorphise<'a>(
+    ctx: &mut Context<'a, '_>,
     loc: Location,
     name: Ustr,
     id: PolyOrMember,
-    poly_args: &[SelfBox<ParsedNode>],
+    needed_evaluation: MemberDep,
+    poly_args: &'a [SelfBox<ParsedNode>],
+    buffer: &mut SelfBuffer,
 ) -> Result<MemberId, ()> {
     match id {
         PolyOrMember::Member(id) => {
             if !poly_args.is_empty() {
-                errors.error(
+                ctx.errors.error(
                     loc,
                     format!(
                         "Polymorphic arguments were not expected; '{}' is not polymorphic",
@@ -1481,7 +1506,31 @@ fn monomorphise(
             Ok(id)
         }
         PolyOrMember::Poly(id) => {
-            todo!("Monomorphise")
+            let mut evaluated_poly_args = Vec::with_capacity(poly_args.len());
+            for arg in poly_args {
+                let result = type_ast(ctx, WantedType::none(), arg, buffer)?;
+
+                if let NodeKind::Constant(value, _) = result.kind() {
+                    evaluated_poly_args.push((result.type_(), *value));
+                } else {
+                    ctx.errors.error(
+                        arg.loc,
+                        "Expected constant value, use 'const' if you want a complicated expression"
+                            .to_string(),
+                    );
+                    return Err(());
+                }
+            }
+
+            println!("{:?}", evaluated_poly_args);
+
+            ctx.program.monomorphise_poly_member(
+                ctx.errors,
+                ctx.thread_context,
+                id,
+                &evaluated_poly_args,
+                needed_evaluation,
+            )
         }
     }
 }

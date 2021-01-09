@@ -144,7 +144,7 @@ fn worker<'a>(alloc: &'a mut Bump, program: &'a Program) -> (ThreadContext<'a>, 
                     program.flag_poly_member(poly_member, MemberDep::ValueAndCallableIfFunction);
                 }
                 // FIXME: Think about if we can be less conservative and use this anyway.
-                Task::FlagPolyMember(poly_member, MemberDep::ValueAndCallableIfFunction, _) => {}
+                Task::FlagPolyMember(_, MemberDep::ValueAndCallableIfFunction, _) => {}
 
                 Task::Parse(meta_data, file) => parse_file(&mut errors, program, &file, meta_data),
                 Task::TypeMember(member_id, locals, ast) => {
