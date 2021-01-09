@@ -566,6 +566,10 @@ impl Program {
         Ok(id)
     }
 
+    pub fn get_num_poly_args(&self, id: PolyMemberId) -> usize {
+        self.poly_members.read()[id].num_args
+    }
+
     pub fn monomorphise_poly_member<'a>(
         &'a self,
         errors: &mut ErrorCtx,
@@ -599,6 +603,7 @@ impl Program {
             locals.clone(),
             parsed_ast,
             None,
+            poly_args,
         )?;
 
         // FIXME: Calculate the member meta data here.
@@ -1102,6 +1107,7 @@ pub enum Task {
         Arc<crate::parser::Ast>,
         Type,
         Type,
+        Vec<(Type, ConstantRef)>,
     ),
     EmitFunction(
         FunctionId,
@@ -1123,7 +1129,7 @@ impl fmt::Debug for Task {
             Task::EmitMember(id, _, _) => write!(f, "emit_member({:?})", id),
             Task::EvaluateMember(id, _) => write!(f, "evaluate_member({:?})", id),
             Task::FlagMemberCallable(id) => write!(f, "flag_member_callable({:?})", id),
-            Task::TypeFunction(id, _, _, _, _) => write!(f, "type_function({:?})", id),
+            Task::TypeFunction(id, _, _, _, _, _) => write!(f, "type_function({:?})", id),
             Task::EmitFunction(id, _, _, _) => write!(f, "emit_function({:?})", id),
         }
     }

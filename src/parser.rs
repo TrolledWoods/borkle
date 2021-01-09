@@ -351,14 +351,26 @@ fn type_(
             let polymorphic_arguments =
                 parse_passed_polymorphic_arguments(global, imperative, buffer)?;
 
-            imperative.dependencies.add(
-                loc,
-                DepKind::MemberByName(global.scope, name, MemberDep::ValueAndCallableIfFunction),
-            );
-            Ok(Node::new(
-                loc,
-                NodeKind::GlobalForTyping(global.scope, name, polymorphic_arguments),
-            ))
+            if let Some(index) = imperative
+                .poly_args
+                .iter()
+                .position(|(_, arg)| *arg == name)
+            {
+                Ok(Node::new(loc, NodeKind::PolymorphicArgument(index)))
+            } else {
+                imperative.dependencies.add(
+                    loc,
+                    DepKind::MemberByName(
+                        global.scope,
+                        name,
+                        MemberDep::ValueAndCallableIfFunction,
+                    ),
+                );
+                Ok(Node::new(
+                    loc,
+                    NodeKind::GlobalForTyping(global.scope, name, polymorphic_arguments),
+                ))
+            }
         }
         TokenKind::Open(Bracket::Curly) => {
             global.tokens.next();

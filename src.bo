@@ -1,12 +1,18 @@
-library "fmt.bo";
-library "vec_u8.bo";
-library "string.bo";
-
-const Same[T] = T;
-
-const num = Same[42 : u64];
+library "io.bo";
 
 #entry fn() -> u64 {
-    num
+    factorial[type u64](3)
 };
 
+const Add[NBits] = fn(a: UInt[NBits], b: UInt[NBits]) -> UInt[NBits]  a + b;
+
+const factorial[T] = fn(with: T) -> T  if with == 0  1 else factorial[T](with - 1) * with;
+
+const UInt[NBits] =
+    if NBits == 8        type u8
+    else if NBits == 16  type u16
+    else if NBits == 32  type u32
+    else if NBits == 64  type u64
+    else type ();
+
+const integer = 42 : UInt[64];

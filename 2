@@ -595,14 +595,7 @@ fn type_ast<'a>(
             let function_id = ctx.program.insert_function(parsed.loc);
             ctx.program.queue_task(
                 body_deps.clone(),
-                Task::TypeFunction(
-                    function_id,
-                    locals,
-                    Arc::clone(&body),
-                    return_type,
-                    type_,
-                    ctx.poly_args.to_vec(),
-                ),
+                Task::TypeFunction(function_id, locals, Arc::clone(&body), return_type, type_, ctx.poly_args.to_vec()),
             );
 
             let function_id_buffer = ctx
@@ -1315,17 +1308,6 @@ fn const_fold_type_expr<'a>(
     buffer: &mut SelfBuffer,
 ) -> Result<Type, ()> {
     match parsed.kind {
-        ParsedNodeKind::PolymorphicArgument(index) => {
-            let (arg_type, arg_value) = ctx.poly_args[index];
-
-            if let TypeKind::Type = arg_type.kind() {
-                Ok(unsafe { *arg_value.as_ptr().cast::<Type>() })
-            } else {
-                ctx.errors
-                    .error(parsed.loc, "This is not a type".to_string());
-                Err(())
-            }
-        }
         ParsedNodeKind::GlobalForTyping(scope, name, ref poly_args) => {
             let id = ctx.program.get_member_id(scope, name).unwrap();
             let id = monomorphise(
@@ -1531,8 +1513,6 @@ fn monomorphise<'a>(
             Ok(id)
         }
         PolyOrMember::Poly(id) => {
-            let num_args = ctx.program.get_num_poly_args(id);
-
             let mut evaluated_poly_args = Vec::with_capacity(poly_args.len());
             for arg in poly_args {
                 let result = type_ast(ctx, WantedType::none(), arg, buffer)?;
@@ -1549,17 +1529,7 @@ fn monomorphise<'a>(
                 }
             }
 
-            if evaluated_poly_args.len() != num_args {
-                ctx.errors.error(
-                    loc,
-                    format!(
-                        "Expected '{}' polymorphic arguments, got '{}'",
-                        num_args,
-                        evaluated_poly_args.len()
-                    ),
-                );
-                return Err(());
-            }
+            println!("{:?}", evaluated_poly_args);
 
             ctx.program.monomorphise_poly_member(
                 ctx.errors,

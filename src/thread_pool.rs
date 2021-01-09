@@ -127,6 +127,10 @@ fn worker<'a>(alloc: &'a mut Bump, program: &'a Program) -> (ThreadContext<'a>, 
         if let Some(task) = work.dequeue() {
             match task {
                 Task::FlagPolyMember(poly_member, MemberDep::Type, mut deps) => {
+                    program.logger.log(format_args!(
+                        "flagged poly member is typeable '{:?}'",
+                        poly_member
+                    ));
                     program.flag_poly_member(poly_member, MemberDep::Type);
 
                     deps.set_minimum_member_dep(MemberDep::ValueAndCallableIfFunction);
@@ -134,12 +138,16 @@ fn worker<'a>(alloc: &'a mut Bump, program: &'a Program) -> (ThreadContext<'a>, 
                         deps,
                         Task::FlagPolyMember(
                             poly_member,
-                            MemberDep::ValueAndCallableIfFunction,
+                            MemberDep::Value,
                             DependencyList::new(), // Since the next thing ignores its dependencies anyway, we don't care to pass it. This might change later though
                         ),
                     );
                 }
                 Task::FlagPolyMember(poly_member, MemberDep::Value, _) => {
+                    program.logger.log(format_args!(
+                        "flagged poly member is value and callable '{:?}'",
+                        poly_member
+                    ));
                     program.flag_poly_member(poly_member, MemberDep::Value);
                     program.flag_poly_member(poly_member, MemberDep::ValueAndCallableIfFunction);
                 }
@@ -157,6 +165,7 @@ fn worker<'a>(alloc: &'a mut Bump, program: &'a Program) -> (ThreadContext<'a>, 
                         locals,
                         &ast,
                         None,
+                        &[],
                     ) {
                         Ok((dependencies, locals, ast)) => {
                             let meta_data = match ast.kind() {
@@ -281,7 +290,7 @@ fn worker<'a>(alloc: &'a mut Bump, program: &'a Program) -> (ThreadContext<'a>, 
                         program.flag_function_callable(function_id);
                     }
                 }
-                Task::TypeFunction(function_id, locals, ast, return_type, type_) => {
+                Task::TypeFunction(function_id, locals, ast, return_type, type_, poly_args) => {
                     program
                         .logger
                         .log(format_args!("typing function '{:?}'", function_id));
@@ -293,6 +302,7 @@ fn worker<'a>(alloc: &'a mut Bump, program: &'a Program) -> (ThreadContext<'a>, 
                         locals,
                         &ast,
                         Some(return_type),
+                        &poly_args,
                     ) {
                         Ok((dependencies, locals, ast)) => {
                             program.queue_task(
