@@ -614,6 +614,10 @@ fn value(
             let t = type_(global, imperative, buffer)?;
             Node::new(token.loc, NodeKind::TypeAsValue(buffer.insert(t)))
         }
+        TokenKind::PrimitiveInt(type_) => {
+            let type_node = Node::new(token.loc, NodeKind::LiteralType(type_.into()));
+            Node::new(token.loc, NodeKind::TypeAsValue(buffer.insert(type_node)))
+        }
         TokenKind::Keyword(Keyword::Break) => {
             let id = if global.tokens.try_consume(&TokenKind::SingleQuote) {
                 let (loc, label_name) = global.tokens.expect_identifier(global.errors)?;

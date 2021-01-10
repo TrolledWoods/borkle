@@ -34,7 +34,7 @@ impl Constant {
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub struct ConstantRef {
     ptr: NonNull<u8>,
 }

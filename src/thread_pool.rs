@@ -156,138 +156,153 @@ fn worker<'a>(alloc: &'a mut Bump, program: &'a Program) -> (ThreadContext<'a>, 
 
                 Task::Parse(meta_data, file) => parse_file(&mut errors, program, &file, meta_data),
                 Task::TypeMember(member_id, locals, ast) => {
-                    use crate::typer::ast::NodeKind;
+                    // If it's a polymorphic thing anything could have happened, honestly
+                    if !program.member_is_typed(member_id) {
+                        use crate::typer::ast::NodeKind;
 
-                    match crate::typer::process_ast(
-                        &mut errors,
-                        &mut thread_context,
-                        program,
-                        locals,
-                        &ast,
-                        None,
-                        &[],
-                    ) {
-                        Ok((dependencies, locals, ast)) => {
-                            let meta_data = match ast.kind() {
-                                NodeKind::Constant(_, Some(meta_data)) => (&**meta_data).clone(),
-                                NodeKind::Global(_, meta_data) => (&**meta_data).clone(),
-                                _ => MemberMetaData::None,
-                            };
-                            let type_ = ast.type_();
+                        match crate::typer::process_ast(
+                            &mut errors,
+                            &mut thread_context,
+                            program,
+                            locals,
+                            &ast,
+                            None,
+                            &[],
+                        ) {
+                            Ok((dependencies, locals, ast)) => {
+                                let meta_data = match ast.kind() {
+                                    NodeKind::Constant(_, Some(meta_data)) => {
+                                        (&**meta_data).clone()
+                                    }
+                                    NodeKind::Global(_, meta_data) => (&**meta_data).clone(),
+                                    _ => MemberMetaData::None,
+                                };
+                                let type_ = ast.type_();
 
-                            if type_.can_be_stored_in_constant() {
-                                program.logger.log(format_args!(
-                                    "type '{}' {:?}",
-                                    program.member_name(member_id),
-                                    ast.type_(),
-                                ));
+                                if type_.can_be_stored_in_constant() {
+                                    program.logger.log(format_args!(
+                                        "type '{}' {:?}",
+                                        program.member_name(member_id),
+                                        ast.type_(),
+                                    ));
 
-                                program.set_type_of_member(member_id, type_, meta_data);
-                                program.queue_task(
-                                    dependencies,
-                                    Task::EmitMember(member_id, locals, ast),
-                                );
-                            } else {
-                                errors.error(ast.loc, format!("'{}' cannot be stored in a constant, because it contains types that the compiler cannot reason about properly, such as '&any', '[] any', or similar", type_));
+                                    program.set_type_of_member(member_id, type_, meta_data);
+                                    program.queue_task(
+                                        dependencies,
+                                        Task::EmitMember(member_id, locals, ast),
+                                    );
+                                } else {
+                                    errors.error(ast.loc, format!("'{}' cannot be stored in a constant, because it contains types that the compiler cannot reason about properly, such as '&any', '[] any', or similar", type_));
+                                }
                             }
-                        }
-                        Err(()) => {
-                            // TODO: Here we want to poison the Value parameter of the thing this
-                            // Task is associated with.
+                            Err(()) => {
+                                // TODO: Here we want to poison the Value parameter of the thing this
+                                // Task is associated with.
+                            }
                         }
                     }
                 }
                 Task::EmitMember(member_id, locals, ast) => {
-                    use crate::typer::NodeKind;
+                    if !program.member_is_evaluated(member_id) {
+                        use crate::typer::NodeKind;
 
-                    program.logger.log(format_args!(
-                        "emitting member '{}' {:?}",
-                        program.member_name(member_id),
-                        ast.type_(),
-                    ));
+                        program.logger.log(format_args!(
+                            "emitting member '{}' {:?}",
+                            program.member_name(member_id),
+                            ast.type_(),
+                        ));
 
-                    match ast.kind() {
-                        NodeKind::Constant(result, _) => {
-                            program.logger.log(format_args!(
-                                "value(at emitting step, through shortcut) '{}'",
-                                program.member_name(member_id),
-                            ));
+                        match ast.kind() {
+                            NodeKind::Constant(result, _) => {
+                                program.logger.log(format_args!(
+                                    "value(at emitting step, through shortcut) '{}'",
+                                    program.member_name(member_id),
+                                ));
 
-                            program.set_value_of_member(member_id, *result);
+                                program.set_value_of_member(member_id, *result);
 
-                            // Flag the member as callable once all the function pointers inside
-                            // the type are also callable. FIXME: This doesn't work for function
-                            // pointers behind other pointers yet!
-                            let mut dependencies = DependencyList::new();
-                            for function_id in
-                                unsafe { ast.type_().get_function_ids(result.as_ptr()) }
-                            {
-                                dependencies.add(ast.loc, DepKind::Callable(function_id));
+                                // Flag the member as callable once all the function pointers inside
+                                // the type are also callable. FIXME: This doesn't work for function
+                                // pointers behind other pointers yet!
+                                let mut dependencies = DependencyList::new();
+                                for function_id in
+                                    unsafe { ast.type_().get_function_ids(result.as_ptr()) }
+                                {
+                                    dependencies.add(ast.loc, DepKind::Callable(function_id));
+                                }
+
+                                program
+                                    .queue_task(dependencies, Task::FlagMemberCallable(member_id));
                             }
+                            NodeKind::Global(aliasing, _) => {
+                                program.logger.log(format_args!(
+                                    "value(at emitting step, through shortcut) '{}'",
+                                    program.member_name(member_id),
+                                ));
 
-                            program.queue_task(dependencies, Task::FlagMemberCallable(member_id));
-                        }
-                        NodeKind::Global(aliasing, _) => {
-                            program.logger.log(format_args!(
-                                "value(at emitting step, through shortcut) '{}'",
-                                program.member_name(member_id),
-                            ));
+                                let result = program.get_value_of_member(*aliasing);
+                                program.set_value_of_member(member_id, result);
 
-                            let result = program.get_value_of_member(*aliasing);
-                            program.set_value_of_member(member_id, result);
+                                // Flag the member as callable once all the function pointers inside
+                                // the type are also callable. FIXME: This doesn't work for function
+                                // pointers behind other pointers yet!
+                                let mut dependencies = DependencyList::new();
+                                for function_id in
+                                    unsafe { ast.type_().get_function_ids(result.as_ptr()) }
+                                {
+                                    dependencies.add(ast.loc, DepKind::Callable(function_id));
+                                }
 
-                            // Flag the member as callable once all the function pointers inside
-                            // the type are also callable. FIXME: This doesn't work for function
-                            // pointers behind other pointers yet!
-                            let mut dependencies = DependencyList::new();
-                            for function_id in
-                                unsafe { ast.type_().get_function_ids(result.as_ptr()) }
-                            {
-                                dependencies.add(ast.loc, DepKind::Callable(function_id));
+                                program
+                                    .queue_task(dependencies, Task::FlagMemberCallable(member_id));
                             }
+                            _ => {
+                                let (calling, routine) =
+                                    crate::emit::emit(&mut thread_context, program, locals, &ast);
 
-                            program.queue_task(dependencies, Task::FlagMemberCallable(member_id));
-                        }
-                        _ => {
-                            let (calling, routine) =
-                                crate::emit::emit(&mut thread_context, program, locals, &ast);
-
-                            let mut dependencies = DependencyList::new();
-                            for call in calling {
-                                // FIXME: This should include the location of the call
-                                dependencies.add(ast.loc, DepKind::Callable(call));
+                                let mut dependencies = DependencyList::new();
+                                for call in calling {
+                                    // FIXME: This should include the location of the call
+                                    dependencies.add(ast.loc, DepKind::Callable(call));
+                                }
+                                program.queue_task(
+                                    dependencies,
+                                    Task::EvaluateMember(member_id, routine),
+                                );
                             }
-                            program
-                                .queue_task(dependencies, Task::EvaluateMember(member_id, routine));
                         }
                     }
                 }
                 Task::EvaluateMember(member_id, routine) => {
-                    let mut stack = crate::interp::Stack::new(2048);
+                    if !program.member_is_evaluated(member_id) {
+                        let mut stack = crate::interp::Stack::new(2048);
 
-                    let result = crate::interp::interp(program, &mut stack, &routine);
+                        let result = crate::interp::interp(program, &mut stack, &routine);
 
-                    program
-                        .logger
-                        .log(format_args!("value '{}'", program.member_name(member_id),));
+                        program
+                            .logger
+                            .log(format_args!("value '{}'", program.member_name(member_id),));
 
-                    let type_ = program.get_member_type(member_id);
-                    let value = program.insert_buffer(type_, result.as_ptr());
+                        let type_ = program.get_member_type(member_id);
+                        let value = program.insert_buffer(type_, result.as_ptr());
 
-                    program.set_value_of_member(member_id, value);
-                    program.flag_member_callable(member_id);
+                        program.set_value_of_member(member_id, value);
+                        program.flag_member_callable(member_id);
 
-                    for function_id in unsafe { type_.get_function_ids(value.as_ptr()) } {
-                        program.flag_function_callable(function_id);
+                        for function_id in unsafe { type_.get_function_ids(value.as_ptr()) } {
+                            program.flag_function_callable(function_id);
+                        }
                     }
                 }
                 Task::FlagMemberCallable(member_id) => {
-                    program.flag_member_callable(member_id);
+                    if !program.member_is_callable(member_id) {
+                        program.flag_member_callable(member_id);
 
-                    let (value, type_) = program.get_member_value(member_id);
+                        let (value, type_) = program.get_member_value(member_id);
 
-                    for function_id in unsafe { type_.get_function_ids(value.as_ptr()) } {
-                        program.flag_function_callable(function_id);
+                        for function_id in unsafe { type_.get_function_ids(value.as_ptr()) } {
+                            program.flag_function_callable(function_id);
+                        }
                     }
                 }
                 Task::TypeFunction(function_id, locals, ast, return_type, type_, poly_args) => {

@@ -40,3 +40,4 @@
 * [ ] Indexing operations
 * [ ] In the Instr it's unclear what thing members are for. Make this more general. Also, probably remove some members as there are a lot of instructions that have them and it's probably unnecessary, or make that information part of Values?
 * [ ] Task scheduler
+* [ ] A zero sized type that doesn't fit into constants as a way to mark your own type as not being able to fit into a constant.

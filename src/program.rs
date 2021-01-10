@@ -480,7 +480,7 @@ impl Program {
     }
 
     pub fn member_is_typed(&self, id: MemberId) -> bool {
-        self.members.read()[id].callable.is_some()
+        self.members.read()[id].type_.is_some()
     }
 
     pub fn member_is_evaluated(&self, id: MemberId) -> bool {
@@ -533,7 +533,7 @@ impl Program {
             }
         } else if is_monomorphised {
             self.logger.log(format_args!(
-                "{:?}(monomorphic variant) was evaluated twice! Oh no, inefficiency!",
+                "{:?}(monomorphic variant) was typed twice! Oh no, inefficiency!",
                 id
             ));
         } else {
@@ -610,7 +610,15 @@ impl Program {
         poly_args: &[(Type, ConstantRef)],
         wanted_dep: MemberDep,
     ) -> Result<MemberId, ()> {
-        let poly_members = self.poly_members.read();
+        // FIXME: Some redundant work going on, but because we do not have a centralized location
+        // for things like ast:s in work, we can't do that. Could we have some kind of handle to a
+        // task associated with a member, since that might let us get the data associated with that
+        // task? Then we could like look if the member has a task currently running and just run
+        // that for it here, so that we can do the processing immediately. Though that might not
+        // work since that task qould already be enqueued since all the dependencies of it would
+        // have been resolved already(if they weren't that'd be a bug).
+
+        let mut poly_members = self.poly_members.write();
 
         debug_assert_eq!(
             poly_members[id].num_args,
@@ -619,11 +627,42 @@ impl Program {
         );
 
         let name = poly_members[id].name;
+
+        let cached = &poly_members[id].cached;
+        let mut member_id = None;
+        for (key, cached_member) in cached {
+            if &**key == poly_args {
+                member_id = Some(*cached_member);
+            }
+        }
+
+        // Create a member to host the monomorphised thing, or grab one from the cache
+        let member_id = member_id.unwrap_or_else(|| {
+            // FIXME: This might lock up, but there is not really an option. I need to get some
+            // less restrictive rules on how to lock things, but for now I think this is fine since
+            // members and poly_members are not locked at the same tiem anywhere else. I think
+            // locks will break if we lock them in separate orders, but in this case it is MAYBE
+            // fine. Anyway, the point is we don't have a choice really, I do have to find a way to
+            // do this in the future if this particular way turns out to not work correctly.
+            let member_id = self.members.write().push(Member::new(name, true));
+            poly_members[id]
+                .cached
+                .push((poly_args.to_vec(), member_id));
+            member_id
+        });
+
         let ast = Arc::clone(&poly_members[id].ast);
         drop(poly_members);
 
-        // Create a member to host the monomorphised thing.
-        let member_id = self.members.write().push(Member::new(name, true));
+        // Is the thing we want already computed?
+        match wanted_dep {
+            MemberDep::Type if self.member_is_typed(member_id) => return Ok(member_id),
+            MemberDep::Value if self.member_is_evaluated(member_id) => return Ok(member_id),
+            MemberDep::ValueAndCallableIfFunction if self.member_is_callable(member_id) => {
+                return Ok(member_id)
+            }
+            _ => {}
+        }
 
         // FIXME: This is also happening in the thread_pool for the tasks there; should we try and
         // combine the two?
@@ -994,8 +1033,9 @@ struct PolyMember {
     type_: DependableOption<()>,
     value: DependableOption<()>,
     callable: DependableOption<()>,
+
     // cached_variants:
-    // FIXME: This will exist later.
+    cached: Vec<(Vec<(Type, ConstantRef)>, MemberId)>,
 }
 
 impl PolyMember {
@@ -1013,6 +1053,8 @@ impl PolyMember {
             type_: DependableOption::None(default()),
             value: DependableOption::None(default()),
             callable: DependableOption::None(default()),
+
+            cached: Vec::new(),
         }
     }
 

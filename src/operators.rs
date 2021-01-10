@@ -177,6 +177,9 @@ impl BinaryOp {
                 Some(left)
             }
 
+            (BinaryOp::Equals, TypeKind::Type) => Some(left),
+            (BinaryOp::NotEquals, TypeKind::Type) => Some(left),
+
             (BinaryOp::Range, _) => Some(left),
 
             (BinaryOp::Add, TypeKind::Reference(_)) => {
@@ -208,6 +211,9 @@ impl BinaryOp {
             (op, TypeKind::Bool, TypeKind::Bool) if op.is_comparison() => {
                 Some(Type::new(TypeKind::Bool))
             }
+
+            (BinaryOp::Equals, TypeKind::Type, TypeKind::Type) => Some(Type::new(TypeKind::Bool)),
+            (BinaryOp::NotEquals, TypeKind::Type, TypeKind::Type) => Some(Type::new(TypeKind::Bool)),
 
             (BinaryOp::Range, a, b) if a == b => Some(Type::new(TypeKind::Range(left))),
 
@@ -284,6 +290,13 @@ impl BinaryOp {
             (BinaryOp::NotEquals, TypeKind::Int(i1), TypeKind::Int(i2)) if i1 == i2 => {
                 all_int_types!(i1, output, (a, b), !=)
             }
+
+            (BinaryOp::Equals, TypeKind::Type, TypeKind::Type) => {
+                *output.cast() = *a.cast::<usize>() == *b.cast::<usize>();
+            },
+            (BinaryOp::NotEquals, TypeKind::Type, TypeKind::Type) => {
+                *output.cast() = *a.cast::<usize>() != *b.cast::<usize>();
+            },
 
             (BinaryOp::LessThan, TypeKind::Reference(i1), TypeKind::Reference(i2)) if i1 == i2 => 
                 *output.cast() = *a.cast::<*const u8>() < *b.cast::<*const u8>(),
