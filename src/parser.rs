@@ -670,7 +670,7 @@ fn value(
 
             let label = parse_default_label(global, imperative)?;
 
-            let iterator = if let Some(Token {
+            let iterator_local = if let Some(Token {
                 kind: TokenKind::Keyword(Keyword::In),
                 ..
             }) = global.tokens.peek_nth(1)
@@ -678,14 +678,16 @@ fn value(
                 let (name_loc, name) = global.tokens.expect_identifier(global.errors)?;
                 global.tokens.next();
 
-                imperative.insert_local(Local::new(name_loc, name))
+                Local::new(name_loc, name)
             } else {
-                imperative.insert_local(Local::new(token.loc, "_it".into()))
+                Local::new(token.loc, "_it".into())
             };
 
+            let iterating = expression(global, imperative, buffer)?;
+
+            let iterator = imperative.insert_local(iterator_local);
             let iteration_var = imperative.insert_local(Local::new(token.loc, "_iters".into()));
 
-            let iterating = expression(global, imperative, buffer)?;
             let body = expression(global, imperative, buffer)?;
 
             imperative.pop_default_label();
