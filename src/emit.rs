@@ -372,10 +372,10 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, node: &'a Node) -> Value {
             ctx.emit_move(to, from);
             to
         }
-        NodeKind::BufferToAny { buffer, inner } => {
+        NodeKind::BufferToVoid { buffer, inner } => {
             let from = emit_node(ctx, buffer);
 
-            let ptr = ctx.registers.create(Type::new(TypeKind::Any));
+            let ptr = ctx.registers.create(Type::new(TypeKind::VoidPtr));
             ctx.emit_member(
                 ptr,
                 from,
@@ -426,10 +426,10 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, node: &'a Node) -> Value {
 
             to
         }
-        NodeKind::AnyToBuffer { any, inner } => {
+        NodeKind::VoidToBuffer { any, inner } => {
             let from = emit_node(ctx, any);
 
-            let ptr = ctx.registers.create(Type::new(TypeKind::Any));
+            let ptr = ctx.registers.create(Type::new(TypeKind::VoidPtr));
             ctx.emit_member(
                 ptr,
                 from,

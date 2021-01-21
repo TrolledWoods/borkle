@@ -41,6 +41,7 @@ pub enum Bracket {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Keyword {
     Entry,
+    Void,
     Any,
     Break,
     Type,
@@ -134,6 +135,7 @@ pub fn process_string(errors: &mut ErrorCtx, file: Ustr, string: &str) -> Result
                     "type" => TokenKind::Keyword(Keyword::Type),
                     "break" => TokenKind::Keyword(Keyword::Break),
                     "any" => TokenKind::Keyword(Keyword::Any),
+                    "void" => TokenKind::Keyword(Keyword::Void),
                     "let" => TokenKind::Keyword(Keyword::Let),
                     "defer" => TokenKind::Keyword(Keyword::Defer),
                     "fn" => TokenKind::Keyword(Keyword::Function),

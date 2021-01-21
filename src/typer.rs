@@ -1453,31 +1453,31 @@ fn auto_cast<'a>(
             },
             to_type,
         )),
-        (TypeKind::Reference(_), TypeKind::Any) => Ok(Node::new(
+        (TypeKind::Reference(_), TypeKind::VoidPtr) => Ok(Node::new(
             loc,
             NodeKind::BitCast {
                 value: buffer.insert(from),
             },
             to_type,
         )),
-        (TypeKind::Any, TypeKind::Reference(_)) => Ok(Node::new(
+        (TypeKind::VoidPtr, TypeKind::Reference(_)) => Ok(Node::new(
             loc,
             NodeKind::BitCast {
                 value: buffer.insert(from),
             },
             to_type,
         )),
-        (TypeKind::AnyBuffer, TypeKind::Buffer(inner)) => Ok(Node::new(
+        (TypeKind::VoidBuffer, TypeKind::Buffer(inner)) => Ok(Node::new(
             loc,
-            NodeKind::AnyToBuffer {
+            NodeKind::VoidToBuffer {
                 any: buffer.insert(from),
                 inner: *inner,
             },
             to_type,
         )),
-        (TypeKind::Buffer(inner), TypeKind::AnyBuffer) => Ok(Node::new(
+        (TypeKind::Buffer(inner), TypeKind::VoidBuffer) => Ok(Node::new(
             loc,
-            NodeKind::BufferToAny {
+            NodeKind::BufferToVoid {
                 buffer: buffer.insert(from),
                 inner: *inner,
             },

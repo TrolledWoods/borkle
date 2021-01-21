@@ -2,8 +2,8 @@ const i_stdout_write        = #builtin_function stdout_write            : fn([] 
 const i_stdout_flush        = #builtin_function stdout_flush            : fn();
 const i_stdin_getline       = #builtin_function stdin_get_line          : fn() -> [] u8;
 
-const i_copy                = #builtin_function mem_copy                : fn(&any, &any, usize);
-const i_copy_nonoverlapping = #builtin_function mem_copy_nonoverlapping : fn(&any, &any, usize);
+const i_copy                = #builtin_function mem_copy                : fn(&void, &void, usize);
+const i_copy_nonoverlapping = #builtin_function mem_copy_nonoverlapping : fn(&void, &void, usize);
 
-const i_alloc               = #builtin_function alloc                   : fn(usize) -> &any;
-const i_dealloc             = #builtin_function dealloc                 : fn([] any);
+const i_alloc               = #builtin_function alloc                   : fn(usize) -> &void;
+const i_dealloc             = #builtin_function dealloc                 : fn([] void);

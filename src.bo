@@ -1,81 +1,8 @@
 library "mem.bo";
 library "fmt.bo";
 
-const INITIAL_SIZE = 16 : usize;
-
-// TODO: This should be turned into a named type
-const Vec[T] = type { ptr: &T; len: usize; capacity: usize; };
-
-const vec_push[T] = fn(vec: &Vec[T], element: T) {
-    vec_reserve[T](vec, vec.len + 1);
-    *(vec.ptr + vec.len) = element;
-    vec.len = vec.len + 1;
-};
-
-const vec_buf[T] = fn(vec: &Vec[T]) -> [] T {
-    let buf = #uninit : [] T;
-    buf.ptr = vec.ptr;
-    buf.len = vec.len;
-    buf
-};
-
-const vec_reserve[T] = fn(vec: &Vec[T], wanted: usize) {
-    if vec.capacity < wanted {
-        // We need to increase the capacity of the vec
-        
-        // We only want to allocate at least the wanted capacity, but allocating more is fine if we
-        // feel like it, and we probably do feel like it.
-        let new_capacity = vec.capacity;
-        if new_capacity == 0 {
-            new_capacity = INITIAL_SIZE;
-        } else while new_capacity < wanted {
-            new_capacity = new_capacity * 2;
-        };
-
-        let new_buffer = alloc[T](new_capacity);
-        // Copy the old elements over to the new buffer
-        mem_copy_nonoverlapping[T](new_buffer.ptr, vec.ptr, vec.len);
-
-        // Deallocate the old buffer
-        let old = #uninit : [] T;
-        old.ptr = vec.ptr;
-        old.len = vec.capacity;
-        dealloc[T](old);
-
-        // Put the new buffer into the vector
-        vec.ptr = new_buffer.ptr;
-        vec.capacity = new_buffer.len;
-    };
-};
-
 #entry fn() -> u64 {
-    let vec = #0 : Vec[u64];
-
-    vec_push[u64](&vec, 64);
-    vec_push[u64](&vec, 12);
-    vec_push[u64](&vec, 99);
-
-    for vec_buf[u64](&vec) {
-        print("Element % of the vector is %\n", &[fmt_usize(_iters), fmt_u64(*_it)]);
-    };
-
-    vec_push[u64](&vec, 12);
-    vec_push[u64](&vec, 99);
-
-    for vec_buf[u64](&vec) {
-        print("Element % of the vector is %\n", &[fmt_usize(_iters), fmt_u64(*_it)]);
-    };
-
-    let old_vec = vec;
-    let vec = #0 : Vec[Vec[u64]];
-
-    vec_push[Vec[u64]](&vec, old_vec);
-
-    for vec_buf[Vec[u64]](&vec) {
-        for num in vec_buf[u64](_it) {
-            print("Element % of the vector is %\n", &[fmt_usize(_iters), fmt_u64(*num)]);
-        };
-    };
+    let void_ptr = #0 : &void;
 
     0
 };

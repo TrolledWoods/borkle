@@ -121,11 +121,11 @@ pub enum NodeKind {
         length: usize,
         array: SelfBox<Node>,
     },
-    BufferToAny {
+    BufferToVoid {
         buffer: SelfBox<Node>,
         inner: Type,
     },
-    AnyToBuffer {
+    VoidToBuffer {
         any: SelfBox<Node>,
         inner: Type,
     },

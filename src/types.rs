@@ -246,8 +246,8 @@ impl Display for TypeKind {
     fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Range(inner) => write!(fmt, "{0}..{0}", inner),
-            Self::AnyBuffer => write!(fmt, "[] any"),
-            Self::Any => write!(fmt, "&any"),
+            Self::VoidBuffer => write!(fmt, "[] void"),
+            Self::VoidPtr => write!(fmt, "&void"),
             Self::Never => write!(fmt, "!"),
             Self::Type => write!(fmt, "type"),
             Self::Empty => write!(fmt, "()"),
@@ -302,8 +302,8 @@ pub enum TypeKind {
     F64,
     F32,
     Bool,
-    Any,
-    AnyBuffer,
+    VoidPtr,
+    VoidBuffer,
     Range(Type),
     Int(IntTypeKind),
     Array(Type, usize),
@@ -318,8 +318,8 @@ impl TypeKind {
         match self {
             TypeKind::Never
             | TypeKind::Type
-            | TypeKind::Any
-            | TypeKind::AnyBuffer
+            | TypeKind::VoidPtr
+            | TypeKind::VoidBuffer
             | TypeKind::Empty
             | TypeKind::F64
             | TypeKind::F32
@@ -351,8 +351,8 @@ impl TypeKind {
                 let usize_type = Type::new_without_lock(types, TypeKind::Int(IntTypeKind::Usize));
                 vec![("ptr".into(), 0, ptr_type), ("len".into(), 8, usize_type)]
             }
-            TypeKind::AnyBuffer => {
-                let ptr_type = Type::new_without_lock(types, TypeKind::Any);
+            TypeKind::VoidBuffer => {
+                let ptr_type = Type::new_without_lock(types, TypeKind::VoidPtr);
                 let usize_type = Type::new_without_lock(types, TypeKind::Int(IntTypeKind::Usize));
                 vec![("ptr".into(), 0, ptr_type), ("len".into(), 8, usize_type)]
             }
@@ -387,7 +387,7 @@ impl TypeKind {
     fn can_be_stored_in_constant(&self) -> bool {
         match self {
             TypeKind::Array(_, 0) | TypeKind::Function { .. } => true,
-            TypeKind::Any | TypeKind::AnyBuffer | TypeKind::Never => false,
+            TypeKind::VoidPtr | TypeKind::VoidBuffer | TypeKind::Never => false,
             _ => {
                 let mut can_be = true;
                 self.for_each_child(|child| {
@@ -405,8 +405,8 @@ impl TypeKind {
             Self::Never => (0, 0),
             Self::Type => (8, 8),
             Self::Empty => (0, 1),
-            Self::Any | Self::F64 | Self::Reference(_) | Self::Function { .. } => (8, 8),
-            Self::AnyBuffer | Self::Buffer(_) => (16, 8),
+            Self::VoidPtr | Self::F64 | Self::Reference(_) | Self::Function { .. } => (8, 8),
+            Self::VoidBuffer | Self::Buffer(_) => (16, 8),
             Self::F32 => (4, 4),
             Self::Bool => (1, 1),
             Self::Range(inner) => {
@@ -450,7 +450,7 @@ impl TypeKind {
             | Self::Int(_)
             | Self::F32
             | Self::F64
-            | Self::Any
+            | Self::VoidPtr
             | Self::Bool => {}
             Self::Reference(internal) => {
                 if internal.size() > 0 {
@@ -462,7 +462,7 @@ impl TypeKind {
                     pointers.push((0, PointerInType::Buffer(*internal)));
                 }
             }
-            Self::AnyBuffer => {
+            Self::VoidBuffer => {
                 pointers.push((
                     0,
                     PointerInType::Buffer(Type::new_without_lock(
@@ -622,37 +622,4 @@ pub struct Member {
 fn array_size(size: usize, align: usize, num_elements: usize) -> usize {
     let element_size = to_align(size, align);
     element_size * num_elements
-}
-
-pub mod type_creation {
-    #![allow(unused)]
-    use super::{IntTypeKind, Type, TypeKind};
-
-    pub fn any_type() -> Type {
-        Type::new(TypeKind::Any)
-    }
-
-    pub fn any_buf_type() -> Type {
-        Type::new(TypeKind::AnyBuffer)
-    }
-
-    pub fn empty_type() -> Type {
-        Type::new(TypeKind::Empty)
-    }
-
-    pub fn u8_type() -> Type {
-        Type::new(TypeKind::Int(IntTypeKind::U8))
-    }
-
-    pub fn usize_type() -> Type {
-        Type::new(TypeKind::Int(IntTypeKind::Usize))
-    }
-
-    pub fn ref_type(inner: Type) -> Type {
-        Type::new(TypeKind::Reference(inner))
-    }
-
-    pub fn buf_type(inner: Type) -> Type {
-        Type::new(TypeKind::Buffer(inner))
-    }
 }

@@ -418,10 +418,13 @@ fn type_(
                 TokenKind::Close(Bracket::Square) => {
                     global.tokens.next();
 
-                    if global.tokens.try_consume(&TokenKind::Keyword(Keyword::Any)) {
+                    if global
+                        .tokens
+                        .try_consume(&TokenKind::Keyword(Keyword::Void))
+                    {
                         Ok(Node::new(
                             loc,
-                            NodeKind::LiteralType(TypeKind::AnyBuffer.into()),
+                            NodeKind::LiteralType(TypeKind::VoidBuffer.into()),
                         ))
                     } else {
                         let inner = type_(global, imperative, buffer)?;
@@ -481,8 +484,14 @@ fn type_(
         }
         _ => {
             if global.tokens.try_consume_operator_string("&").is_some() {
-                if global.tokens.try_consume(&TokenKind::Keyword(Keyword::Any)) {
-                    Ok(Node::new(loc, NodeKind::LiteralType(TypeKind::Any.into())))
+                if global
+                    .tokens
+                    .try_consume(&TokenKind::Keyword(Keyword::Void))
+                {
+                    Ok(Node::new(
+                        loc,
+                        NodeKind::LiteralType(TypeKind::VoidPtr.into()),
+                    ))
                 } else {
                     let inner = type_(global, imperative, buffer)?;
                     Ok(Node::new(

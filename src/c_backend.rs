@@ -516,7 +516,7 @@ pub fn append_c_type_headers(output: &mut String) {
                 .unwrap();
             }
 
-            TypeKind::Any => output.push_str("void *"),
+            TypeKind::VoidPtr => output.push_str("void *"),
             TypeKind::Bool => output.push_str("uint8_t "),
             TypeKind::Int(IntTypeKind::U8) => output.push_str("uint8_t "),
             TypeKind::Int(IntTypeKind::U16) => output.push_str("uint16_t "),
@@ -535,7 +535,7 @@ pub fn append_c_type_headers(output: &mut String) {
             TypeKind::Reference(internal) => {
                 write!(output, "{}", c_format_pointer_type(*internal)).unwrap()
             }
-            TypeKind::AnyBuffer => {
+            TypeKind::VoidBuffer => {
                 write!(output, "struct{{\n  void *ptr;\n  uint64_t len;\n}}",).unwrap();
             }
             TypeKind::Buffer(internal) => {
