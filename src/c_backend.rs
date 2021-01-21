@@ -538,6 +538,9 @@ pub fn append_c_type_headers(output: &mut String) {
             TypeKind::VoidBuffer => {
                 write!(output, "struct{{\n  void *ptr;\n  uint64_t len;\n}}",).unwrap();
             }
+            TypeKind::AnyPtr => {
+                write!(output, "struct{{\n  void *ptr;\n  uint64_t type_;\n}}",).unwrap();
+            }
             TypeKind::Buffer(internal) => {
                 write!(
                     output,

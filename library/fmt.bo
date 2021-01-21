@@ -10,7 +10,7 @@ type Format {
 
 const print = fn(
     fmt_string: [] u8,
-    fmt_args = const &[] : [] Format,
+    fmt_args = const &[] : [] &any,
 ) {
     let prev_section = 0 : usize;
     let arg_i = 0 : usize;
@@ -24,7 +24,21 @@ const print = fn(
         };
 
         let format = *(fmt_args.ptr + arg_i);
-        format.print_it(format.data);
+
+        if      format.type_ == u8     print_u8(*<< format.ptr)
+        else if format.type_ == u16    print_u16(*<< format.ptr)
+        else if format.type_ == u32    print_u32(*<< format.ptr)
+        else if format.type_ == u64    print_u64(*<< format.ptr)
+        else if format.type_ == usize  print_usize(*<< format.ptr)
+        else if format.type_ == i8     print_i8(*<< format.ptr)
+        else if format.type_ == i16    print_i16(*<< format.ptr)
+        else if format.type_ == i32    print_i32(*<< format.ptr)
+        else if format.type_ == i64    print_i64(*<< format.ptr)
+        else if format.type_ == isize  print_isize(*<< format.ptr)
+        else if format.type_ == type [] u8  put_string(*<< format.ptr)
+        else {
+            put_string("<type of field can't be formatted>");
+        };
 
         arg_i = arg_i + 1;
         prev_section = _iters + 1;

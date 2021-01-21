@@ -6,7 +6,7 @@ use crate::location::Location;
 use crate::operators::BinaryOp;
 use crate::program::{Program, ScopeId, Task};
 use crate::self_buffer::{SelfBox, SelfBuffer, SelfTree};
-use crate::types::TypeKind;
+use crate::types::{Type, TypeKind};
 pub use ast::{Node, NodeKind};
 use context::{DataContext, ImperativeContext};
 use lexer::{Bracket, Keyword, Token, TokenKind};
@@ -490,7 +490,12 @@ fn type_(
                 {
                     Ok(Node::new(
                         loc,
-                        NodeKind::LiteralType(TypeKind::VoidPtr.into()),
+                        NodeKind::LiteralType(Type::new(TypeKind::VoidPtr)),
+                    ))
+                } else if global.tokens.try_consume(&TokenKind::Keyword(Keyword::Any)) {
+                    Ok(Node::new(
+                        loc,
+                        NodeKind::LiteralType(Type::new(TypeKind::AnyPtr)),
                     ))
                 } else {
                     let inner = type_(global, imperative, buffer)?;

@@ -2,7 +2,9 @@ library "mem.bo";
 library "fmt.bo";
 
 #entry fn() -> u64 {
-    let void_ptr = #0 : &void;
+    print("Now print is much cleaner to use! Although not as flexible... %\n", &[&42]);
+
+    print("Print is much much better now % '%' \n", &[&42, &"Hello!"]);
 
     0
 };

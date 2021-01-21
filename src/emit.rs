@@ -372,6 +372,35 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, node: &'a Node) -> Value {
             ctx.emit_move(to, from);
             to
         }
+        NodeKind::PtrToAny { ptr, type_ } => {
+            let ptr = emit_node(ctx, ptr);
+
+            let to = ctx.registers.create(node.type_());
+            ctx.emit_move_to_member_of_value(
+                to,
+                ptr,
+                Member {
+                    offset: 0,
+                    amount: 1,
+                },
+            );
+
+            let type_type = Type::new(TypeKind::Type);
+            let type_ = ctx
+                .program
+                .insert_buffer(type_type, type_.as_id().to_le_bytes().as_ptr());
+
+            ctx.emit_move_to_member_of_value(
+                to,
+                Value::Global(type_, type_type),
+                Member {
+                    offset: 8,
+                    amount: 1,
+                },
+            );
+
+            to
+        }
         NodeKind::BufferToVoid { buffer, inner } => {
             let from = emit_node(ctx, buffer);
 

@@ -139,7 +139,7 @@ fn type_ast<'a>(
             ctx.is_const = old_const;
 
             if !inner.type_().can_be_stored_in_constant() {
-                ctx.errors.error(parsed.loc, format!("'{}' cannot be stored in a constant, because it contains types that the compiler cannot reason about properly, such as '&any', '[] any', or similar", inner.type_()));
+                ctx.errors.error(parsed.loc, format!("'{}' cannot be stored in a constant, because it contains types that the compiler cannot reason about properly, such as '&any', '&void', '[] void', or similar", inner.type_()));
                 return Err(());
             }
 
@@ -173,7 +173,7 @@ fn type_ast<'a>(
             let inner = type_ast(ctx, wanted_type, inner, buffer)?;
 
             if !inner.type_().can_be_stored_in_constant() {
-                ctx.errors.error(parsed.loc, format!("'{}' cannot be stored in a constant, because it contains types that the compiler cannot reason about properly, such as '&any', '[] any', or similar", inner.type_()));
+                ctx.errors.error(parsed.loc, format!("'{}' cannot be stored in a constant, because it contains types that the compiler cannot reason about properly, such as '&any', '&void', '[] void', or similar", inner.type_()));
                 return Err(());
             }
 
@@ -1450,6 +1450,14 @@ fn auto_cast<'a>(
             loc,
             NodeKind::BitCast {
                 value: buffer.insert(from),
+            },
+            to_type,
+        )),
+        (TypeKind::Reference(internal), TypeKind::AnyPtr) => Ok(Node::new(
+            loc,
+            NodeKind::PtrToAny {
+                ptr: buffer.insert(from),
+                type_: *internal,
             },
             to_type,
         )),

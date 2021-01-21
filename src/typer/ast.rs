@@ -129,6 +129,10 @@ pub enum NodeKind {
         any: SelfBox<Node>,
         inner: Type,
     },
+    PtrToAny {
+        ptr: SelfBox<Node>,
+        type_: Type,
+    },
 }
 
 unsafe impl Send for NodeKind {}

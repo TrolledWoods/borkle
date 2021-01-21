@@ -172,6 +172,10 @@ impl Type {
         &self.0.pointers
     }
 
+    pub fn as_id(self) -> usize {
+        self.0 as *const _ as usize
+    }
+
     #[inline]
     pub fn as_ptr(self) -> *const u8 {
         self.0 as *const TypeData as *const _
@@ -248,6 +252,7 @@ impl Display for TypeKind {
             Self::Range(inner) => write!(fmt, "{0}..{0}", inner),
             Self::VoidBuffer => write!(fmt, "[] void"),
             Self::VoidPtr => write!(fmt, "&void"),
+            Self::AnyPtr => write!(fmt, "&any"),
             Self::Never => write!(fmt, "!"),
             Self::Type => write!(fmt, "type"),
             Self::Empty => write!(fmt, "()"),
@@ -302,6 +307,7 @@ pub enum TypeKind {
     F64,
     F32,
     Bool,
+    AnyPtr,
     VoidPtr,
     VoidBuffer,
     Range(Type),
@@ -318,6 +324,7 @@ impl TypeKind {
         match self {
             TypeKind::Never
             | TypeKind::Type
+            | TypeKind::AnyPtr
             | TypeKind::VoidPtr
             | TypeKind::VoidBuffer
             | TypeKind::Empty
@@ -350,6 +357,11 @@ impl TypeKind {
                 let ptr_type = Type::new_without_lock(types, TypeKind::Reference(inner));
                 let usize_type = Type::new_without_lock(types, TypeKind::Int(IntTypeKind::Usize));
                 vec![("ptr".into(), 0, ptr_type), ("len".into(), 8, usize_type)]
+            }
+            TypeKind::AnyPtr => {
+                let ptr_type = Type::new_without_lock(types, TypeKind::VoidPtr);
+                let type_type = Type::new_without_lock(types, TypeKind::Type);
+                vec![("ptr".into(), 0, ptr_type), ("type_".into(), 8, type_type)]
             }
             TypeKind::VoidBuffer => {
                 let ptr_type = Type::new_without_lock(types, TypeKind::VoidPtr);
@@ -406,7 +418,7 @@ impl TypeKind {
             Self::Type => (8, 8),
             Self::Empty => (0, 1),
             Self::VoidPtr | Self::F64 | Self::Reference(_) | Self::Function { .. } => (8, 8),
-            Self::VoidBuffer | Self::Buffer(_) => (16, 8),
+            Self::AnyPtr | Self::VoidBuffer | Self::Buffer(_) => (16, 8),
             Self::F32 => (4, 4),
             Self::Bool => (1, 1),
             Self::Range(inner) => {
@@ -451,6 +463,7 @@ impl TypeKind {
             | Self::F32
             | Self::F64
             | Self::VoidPtr
+            | Self::AnyPtr
             | Self::Bool => {}
             Self::Reference(internal) => {
                 if internal.size() > 0 {

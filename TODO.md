@@ -8,7 +8,9 @@
 * [X] Feature; Allow for recursive functions.
 * [X] "Polymorphism"
 * [X] BUG! The for loop variable can be used in the iterator, and that crashes the compiler.
+* [ ] AnyPtr
 
+* [ ] Allow AnyPtr to be stored inside constants.
 * [ ] Make a generic way to construct an Id that just wraps a usize.
 * [ ] Cached polymorphic variants
 * [ ] Cache callable functions, so that when a function is callable it doesn't have to be recalculated whether it is callable or not.

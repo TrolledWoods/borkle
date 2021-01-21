@@ -72,6 +72,7 @@ impl WantedType {
         match self.kind {
             WantedKind::None => Some(Self::none()),
             WantedKind::Specific(type_) => match type_.kind() {
+                TypeKind::AnyPtr => Some(Self::none()),
                 TypeKind::Reference(inner) => Some(Self::specific(self.loc, *inner)),
                 TypeKind::Buffer(inner) => Some(Self::array(self.loc, *inner)),
                 _ => None,
