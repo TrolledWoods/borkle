@@ -9,6 +9,7 @@
 * [X] "Polymorphism"
 * [X] BUG! The for loop variable can be used in the iterator, and that crashes the compiler.
 * [X] AnyPtr
+* [ ] IDEA: &out pointer, write only pointer, if a function takes a pointer like this you can also declare a variable like this; initialize(let variable), where initialize is a fn(&out Something)
 
 * [ ] Allow AnyPtr to be stored inside constants.
 * [ ] Make a generic way to construct an Id that just wraps a usize.
@@ -24,7 +25,6 @@
 * [ ] Make a global setup file for the compiler!
 * [ ] Add a way to run all the borkle sub-programs in a markdown file
 * [ ] Have a way for named function parameter meta data to be created for extern functions.
-* [ ] IDEA: &out pointer, write only pointer, if a function takes a pointer like this you can also declare a variable like this; initialize(let variable), where initialize is a fn(&out Something)
 * [ ] Make intrinsics use stubs instead of the #intrinsic stuff that's there right now
 * [ ] When the type of a function is known, allow for omitting the parameter and return types.
 * [ ] Make functions have their own scope.

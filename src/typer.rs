@@ -510,6 +510,7 @@ fn type_ast<'a>(
             ref rvalue,
         } => {
             let lvalue = type_ast(ctx, WantedType::none(), lvalue, buffer)?;
+            make_sure_valid_lvalue(ctx, &lvalue, true, false)?;
             let rvalue = type_ast(
                 ctx,
                 WantedType::specific(Some(lvalue.loc), lvalue.type_()),
@@ -908,7 +909,9 @@ fn type_ast<'a>(
                             format!("Expected '{}', got a reference of something", wanted_type),
                         )
                     })?;
+
                     let operand = type_ast(ctx, wanted_inner, operand, buffer)?;
+                    make_sure_valid_lvalue(ctx, &operand, false, true)?;
 
                     match wanted_type.get_specific() {
                         Some(Type(TypeData {
@@ -1308,6 +1311,72 @@ fn type_ast<'a>(
     }
 
     Ok(node)
+}
+
+/// An 'lvalue' is something you're assigning to, or something you're referencing. Basically, it's
+/// not just a value, but a value at a specific location, either in a variable, in memory, or
+/// similar. For example, *pointer may just be the number 3, but if you were to do *pointer = 5,
+/// the '*pointer' here also cares about the location of that number, and not just the value.
+fn make_sure_valid_lvalue(
+    ctx: &mut Context<'_, '_>,
+    typed: &Node,
+    will_modify: bool,
+    will_read: bool,
+) -> Result<(), ()> {
+    // Right now, this only really validates that it's a valid lvalue, but it doesn't do anything
+    // different. In the future, we may want to migrate some of that logic from the emit.rs file
+    // into here, but I'm not sure.
+
+    if typed.type_().size() == 0 {
+        // Zero sized types can always be referenced.
+        return Ok(());
+    }
+
+    match typed.kind() {
+        NodeKind::Member { ref of, .. } => make_sure_valid_lvalue(ctx, of, will_modify, will_read),
+        NodeKind::Unary {
+            op: UnaryOp::Dereference,
+            ref operand,
+        } => {
+            if let TypeKind::Reference(_) = *operand.type_().kind() {
+                // @Improvement: Later we want different kinds of mutability in references,
+                // so this will check that we're doing things properly
+                Ok(())
+            } else {
+                unreachable!("This should not happen because this is called after typing, and the typing should catch it")
+            }
+        }
+        NodeKind::Global { .. } | NodeKind::Constant { .. } => {
+            if will_modify {
+                ctx.errors.error(
+                    typed.loc,
+                    "Cannot modify a global value, or take a non-constant reference to it"
+                        .to_string(),
+                );
+                return Err(());
+            }
+
+            Ok(())
+        }
+        NodeKind::Local(_) => {
+            // @Improvement: We should check if it will modify it, and return an error if this is
+            // an immutable variable
+            Ok(())
+        }
+        _ => {
+            // ctx.errors.error(typed.loc, "Not an lvalue, which is required here.\nTry breaking it out into a local variable first and then referencing that instead, maybe.".to_string());
+
+            if will_modify {
+                ctx.errors.error(typed.loc, "Cannot assign or take mutable references to temporary values, put this in a variable first".to_string());
+                return Err(());
+            }
+
+            // @Cleanup: This is a little weird, but basically, we can create a temporary value and
+            // just reference that in most cases. That's dealt with the emitter. The reason lvalues
+            // are validated is because of mutability
+            Ok(())
+        }
+    }
 }
 
 fn const_fold_type_expr<'a>(
