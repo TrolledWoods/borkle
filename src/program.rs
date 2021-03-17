@@ -1235,9 +1235,9 @@ impl From<usize> for FunctionId {
     }
 }
 
-impl Into<usize> for FunctionId {
-    fn into(self) -> usize {
-        self.0
+impl From<FunctionId> for usize {
+    fn from(other: FunctionId) -> usize {
+        other.0
     }
 }
 
@@ -1265,9 +1265,9 @@ impl From<usize> for PolyMemberId {
     }
 }
 
-impl Into<usize> for PolyMemberId {
-    fn into(self) -> usize {
-        self.0
+impl From<PolyMemberId> for usize {
+    fn from(other: PolyMemberId) -> usize {
+        other.0
     }
 }
 
@@ -1289,9 +1289,9 @@ impl From<usize> for MemberId {
     }
 }
 
-impl Into<usize> for MemberId {
-    fn into(self) -> usize {
-        self.0
+impl From<MemberId> for usize {
+    fn from(other: MemberId) -> usize {
+        other.0
     }
 }
 
@@ -1313,9 +1313,9 @@ impl From<usize> for ScopeId {
     }
 }
 
-impl Into<usize> for ScopeId {
-    fn into(self) -> usize {
-        self.0
+impl From<ScopeId> for usize {
+    fn from(other: ScopeId) -> usize {
+        other.0
     }
 }
 
