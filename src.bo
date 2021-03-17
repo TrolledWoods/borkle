@@ -1,29 +1,14 @@
 library "mem.bo";
 library "fmt.bo";
 
+const assign = fn(assignment: &let u32) {
+    let bad = &let *assignment;
+    *assignment = 42;
+};
+
 const main = fn() -> u64 {
-    print("Now print is much cleaner to use! Although not as flexible... %\n", &[&42]);
-    print("Print is much much better now % '%' \n", &[&42, &"Hello!"]);
-
-    print("The last thing to do to make print very good, is to add variable arguments\n");
-    print("However, that is quite difficult, so I'm not going to do that right now\n");
-
-    let void_ptr = #0 : &void;
-    let x = 3 : u32;
-
-    void_ptr = &x;
-
-    let y = *(<< void_ptr : &u32);
-
-    let array = [4, 3, 3, 1];
-
-    let output = for 'some_label &array {
-        if *_it < 0  break 'some_label 42;
-
-        print("Hi %, %\n", &[&_iters, &*_it]);
-    } else 99;
-
-    print("The output is %\n", &[&output]);
+    let x = #uninit : u32;
+    assign(&let x);
 
     0
 };

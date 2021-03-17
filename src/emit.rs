@@ -5,7 +5,7 @@ use crate::program::{FunctionId, Program};
 use crate::thread_pool::ThreadContext;
 use crate::typer::ast::NodeKind;
 use crate::typer::Node;
-use crate::types::{IntTypeKind, Type, TypeKind};
+use crate::types::{IntTypeKind, Type, TypeKind, PtrPermits};
 
 mod context;
 use context::Context;
@@ -181,7 +181,7 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, node: &'a Node) -> Value {
 
             match iterating.type_().kind() {
                 TypeKind::Range(inner) => match inner.kind() {
-                    TypeKind::Int(_) | TypeKind::Reference(_) => {
+                    TypeKind::Int(_) | TypeKind::Reference { .. } => {
                         ctx.emit_member(
                             start,
                             iterating_value,
@@ -578,7 +578,7 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, node: &'a Node) -> Value {
             // sized pointer from a zero sized type.
             if !elements.is_empty() && internal_type.size() > 0 {
                 let to = ctx.registers.create(node.type_());
-                let ref_type = Type::new(TypeKind::Reference(internal_type));
+                let ref_type = Type::new(TypeKind::Reference { pointee: internal_type, permits: PtrPermits::READ_WRITE });
                 let reference = ctx.registers.create(ref_type);
                 ctx.emit_pointer_to_member_of_value(reference, to, Member::default());
                 for (i, element) in elements.iter().enumerate() {

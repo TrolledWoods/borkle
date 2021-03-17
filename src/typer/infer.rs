@@ -73,7 +73,7 @@ impl WantedType {
             WantedKind::None => Some(Self::none()),
             WantedKind::Specific(type_) => match type_.kind() {
                 TypeKind::AnyPtr | TypeKind::VoidPtr => Some(Self::none()),
-                TypeKind::Reference(inner) => Some(Self::specific(self.loc, *inner)),
+                TypeKind::Reference { pointee, .. } => Some(Self::specific(self.loc, *pointee)),
                 TypeKind::Buffer(inner) => Some(Self::array(self.loc, *inner)),
                 _ => None,
             },
@@ -88,7 +88,16 @@ impl WantedType {
 
         match self.kind {
             WantedKind::None => true,
-            WantedKind::Specific(wanted) => wanted == got,
+            WantedKind::Specific(wanted) => match (wanted.kind(), got.kind()) {
+                (
+                    TypeKind::Reference {
+                        pointee: wanted_pointee,
+                        permits: wanted_permits,
+                    },
+                    TypeKind::Reference { pointee, permits },
+                ) => wanted_pointee == pointee && permits.superset(*wanted_permits),
+                _ => wanted == got,
+            },
             WantedKind::Array(inner) => match *got.kind() {
                 TypeKind::Array(got_inner, _) => got_inner == inner,
                 _ => false,

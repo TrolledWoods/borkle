@@ -5,7 +5,7 @@ use crate::location::Location;
 use crate::operators::{BinaryOp, UnaryOp};
 use crate::program::{BuiltinFunction, ScopeId};
 use crate::self_buffer::{SelfBox, SelfTree};
-use crate::types::Type;
+use crate::types::{Type, PtrPermits};
 use std::fmt;
 use std::sync::Arc;
 use ustr::Ustr;
@@ -110,9 +110,10 @@ pub enum NodeKind {
         args: Vec<SelfBox<Node>>,
         returns: SelfBox<Node>,
     },
-    ReferenceType(SelfBox<Node>),
+    ReferenceType(SelfBox<Node>, PtrPermits),
     LiteralType(Type),
 
+    Reference(SelfBox<Node>, PtrPermits),
     Unary {
         op: UnaryOp,
         operand: SelfBox<Node>,

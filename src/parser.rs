@@ -3,10 +3,10 @@ use crate::errors::ErrorCtx;
 use crate::literal::Literal;
 use crate::locals::Local;
 use crate::location::Location;
-use crate::operators::BinaryOp;
+use crate::operators::{BinaryOp, UnaryOp};
 use crate::program::{Program, ScopeId, Task};
 use crate::self_buffer::{SelfBox, SelfBuffer, SelfTree};
-use crate::types::{Type, TypeKind};
+use crate::types::{Type, TypeKind, PtrPermits};
 pub use ast::{Node, NodeKind};
 use context::{DataContext, ImperativeContext};
 use lexer::{Bracket, Keyword, Token, TokenKind};
@@ -498,10 +498,11 @@ fn type_(
                         NodeKind::LiteralType(Type::new(TypeKind::AnyPtr)),
                     ))
                 } else {
+                    let permits = parse_pointer_permits(global);
                     let inner = type_(global, imperative, buffer)?;
                     Ok(Node::new(
                         loc,
-                        NodeKind::ReferenceType(buffer.insert(inner)),
+                        NodeKind::ReferenceType(buffer.insert(inner), permits),
                     ))
                 }
             } else {
@@ -515,17 +516,40 @@ fn type_(
     }
 }
 
-/// A value
 fn value(
     global: &mut DataContext<'_>,
     imperative: &mut ImperativeContext<'_>,
     buffer: &mut SelfBuffer,
 ) -> Result<Node, ()> {
-    let mut unary_operators = Vec::new();
-    while let Some((loc, op)) = global.tokens.try_consume_operator() {
-        unary_operators.push((loc, op));
+    if let Some((loc, op)) = global.tokens.try_consume_operator() {
+        if op == UnaryOp::Reference {
+            let permits = parse_pointer_permits(global);
+            let value = value(global, imperative, buffer)?;
+            Ok(Node::new(
+                loc,
+                NodeKind::Reference(buffer.insert(value), permits),
+            ))
+        } else {
+            let value = value(global, imperative, buffer)?;
+            Ok(Node::new(
+                loc,
+                NodeKind::Unary {
+                    operand: buffer.insert(value),
+                    op,
+                },
+            ))
+        }
+    } else {
+        value_without_unaries(global, imperative, buffer)
     }
+}
 
+/// A value
+fn value_without_unaries(
+    global: &mut DataContext<'_>,
+    imperative: &mut ImperativeContext<'_>,
+    buffer: &mut SelfBuffer,
+) -> Result<Node, ()> {
     let token = global.tokens.expect_next(global.errors)?;
     let mut value = match token.kind {
         TokenKind::Identifier(name) => {
@@ -977,16 +1001,6 @@ fn value(
         }
     }
 
-    while let Some((loc, op)) = unary_operators.pop() {
-        value = Node::new(
-            loc,
-            NodeKind::Unary {
-                operand: buffer.insert(value),
-                op,
-            },
-        );
-    }
-
     Ok(value)
 }
 
@@ -1258,6 +1272,22 @@ fn maybe_parse_polymorphic_arguments(
         }
     }
     Ok(args)
+}
+
+fn parse_pointer_permits(
+    global: &mut DataContext<'_>
+) -> PtrPermits {
+    match global.tokens.peek() {
+        Some(Token { kind: TokenKind::Keyword(Keyword::Let), .. }) => {
+            global.tokens.next();
+            PtrPermits::WRITE
+        }
+        Some(Token { kind: TokenKind::Keyword(Keyword::Const), .. }) => {
+            global.tokens.next();
+            PtrPermits::READ
+        }
+        _ => PtrPermits::READ_WRITE,
+    }
 }
 
 fn parse_default_label(

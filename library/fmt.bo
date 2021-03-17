@@ -109,7 +109,8 @@ const internal_fmt_number = fn(data: FormatNumber) -> Format {
 
             let i = 0 : usize;
             while i < needed_left_pad {
-                put_string(<< &[data.pad_char]);
+                let temp = [data.pad_char];
+                put_string(<< &temp);
                 i = i + 1;
             };
 
@@ -120,7 +121,8 @@ const internal_fmt_number = fn(data: FormatNumber) -> Format {
 
             i = 0;
             while i < needed_right_pad {
-                put_string(<< &[data.pad_char]);
+                let temp = [data.pad_char];
+                put_string(<< &temp);
                 i = i + 1;
             };
         } else {

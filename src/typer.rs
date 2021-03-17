@@ -9,7 +9,7 @@ use crate::program::constant::ConstantRef;
 use crate::program::{MemberId, MemberMetaData, PolyOrMember, Program, Task};
 use crate::self_buffer::{SelfBox, SelfBuffer, SelfTree};
 use crate::thread_pool::ThreadContext;
-use crate::types::{Alias, IntTypeKind, Type, TypeData, TypeKind};
+use crate::types::{Alias, IntTypeKind, PtrPermits, Type, TypeData, TypeKind};
 pub use ast::{Node, NodeKind};
 use infer::WantedType;
 use std::sync::Arc;
@@ -311,12 +311,15 @@ fn type_ast<'a>(
 
             let iterator_type = match iterating.type_().kind() {
                 TypeKind::Range(inner)
-                    if matches!(inner.kind(), TypeKind::Int(_) | TypeKind::Reference(_)) =>
+                    if matches!(inner.kind(), TypeKind::Int(_) | TypeKind::Reference { .. }) =>
                 {
                     *inner
                 }
-                TypeKind::Buffer(inner) => Type::new(TypeKind::Reference(*inner)),
-                TypeKind::Reference(inner) => match inner.kind() {
+                TypeKind::Buffer(inner) => Type::new(TypeKind::Reference {
+                    pointee: *inner,
+                    permits: PtrPermits::READ_WRITE,
+                }),
+                TypeKind::Reference { pointee, permits } => match pointee.kind() {
                     TypeKind::Array(inner, length) => {
                         iterating = Node::new(
                             parsed.loc,
@@ -326,7 +329,10 @@ fn type_ast<'a>(
                             },
                             Type::new(TypeKind::Buffer(*inner)),
                         );
-                        Type::new(TypeKind::Reference(*inner))
+                        Type::new(TypeKind::Reference {
+                            pointee: *inner,
+                            permits: *permits,
+                        })
                     }
                     _ => {
                         ctx.errors.error(
@@ -510,7 +516,7 @@ fn type_ast<'a>(
             ref rvalue,
         } => {
             let lvalue = type_ast(ctx, WantedType::none(), lvalue, buffer)?;
-            make_sure_valid_lvalue(ctx, &lvalue, true, false)?;
+            make_sure_valid_lvalue(ctx, &lvalue, PtrPermits::WRITE)?;
             let rvalue = type_ast(
                 ctx,
                 WantedType::specific(Some(lvalue.loc), lvalue.type_()),
@@ -902,65 +908,20 @@ fn type_ast<'a>(
                     let internal = type_ast(ctx, WantedType::none(), operand, buffer)?;
                     auto_cast(ctx, parsed.loc, internal, wanted_type, buffer)?
                 }
-                UnaryOp::Reference => {
-                    let wanted_inner = wanted_type.get_pointee().ok_or_else(|| {
-                        ctx.errors.error(
-                            parsed.loc,
-                            format!("Expected '{}', got a reference of something", wanted_type),
-                        )
-                    })?;
-
-                    let operand = type_ast(ctx, wanted_inner, operand, buffer)?;
-                    make_sure_valid_lvalue(ctx, &operand, false, true)?;
-
-                    match wanted_type.get_specific() {
-                        Some(Type(TypeData {
-                            kind: TypeKind::Reference(_),
-                            ..
-                        }))
-                        | None => {
-                            let type_ = Type::new(TypeKind::Reference(operand.type_()));
-
-                            if let NodeKind::Constant(constant, _) = operand.kind() {
-                                let constant = ctx.program.insert_buffer(
-                                    type_,
-                                    &(constant.as_ptr() as usize).to_le_bytes() as *const _
-                                        as *const _,
-                                );
-                                Node::new(parsed.loc, NodeKind::Constant(constant, None), type_)
-                            } else {
-                                Node::new(
-                                    parsed.loc,
-                                    NodeKind::Unary {
-                                        op,
-                                        operand: buffer.insert(operand),
-                                    },
-                                    type_,
-                                )
-                            }
-                        }
-                        Some(wanted) => {
-                            let type_ = Type::new(TypeKind::Reference(operand.type_()));
-                            let from = Node::new(
-                                parsed.loc,
-                                NodeKind::Unary {
-                                    op,
-                                    operand: buffer.insert(operand),
-                                },
-                                type_,
-                            );
-                            auto_cast(ctx, parsed.loc, from, wanted, buffer)?
-                        }
-                    }
-                }
                 UnaryOp::Dereference => {
-                    let wanted_inner = wanted_type
-                        .get_specific()
-                        .map(|v| Type::new(TypeKind::Reference(v)));
+                    // @Cleanup: We probably want to add some permits to this pointer at some
+                    // point... but right now we don't know enough to calculate that
+                    let wanted_inner = wanted_type.get_specific().map(|v| {
+                        Type::new(TypeKind::Reference {
+                            pointee: v,
+                            permits: PtrPermits::READ_WRITE,
+                        })
+                    });
 
                     let operand = type_ast(ctx, wanted_inner.into(), operand, buffer)?;
-                    let type_ = if let TypeKind::Reference(inner) = *operand.type_().kind() {
-                        inner
+                    let type_ = if let TypeKind::Reference { pointee, .. } = *operand.type_().kind()
+                    {
+                        pointee
                     } else {
                         ctx.errors.error(
                             parsed.loc,
@@ -1000,6 +961,62 @@ fn type_ast<'a>(
                         },
                         type_,
                     )
+                }
+            }
+        }
+        ParsedNodeKind::Reference(ref operand, permits) => {
+            let wanted_inner = wanted_type.get_pointee().ok_or_else(|| {
+                ctx.errors.error(
+                    parsed.loc,
+                    format!("Expected '{}', got a reference of something", wanted_type),
+                )
+            })?;
+
+            let operand = type_ast(ctx, wanted_inner, operand, buffer)?;
+            make_sure_valid_lvalue(ctx, &operand, permits)?;
+
+            match wanted_type.get_specific() {
+                Some(Type(TypeData {
+                    kind: TypeKind::Reference { .. },
+                    ..
+                }))
+                | None => {
+                    let type_ = Type::new(TypeKind::Reference {
+                        pointee: operand.type_(),
+                        permits,
+                    });
+
+                    if let NodeKind::Constant(constant, _) = operand.kind() {
+                        let constant = ctx.program.insert_buffer(
+                            type_,
+                            &(constant.as_ptr() as usize).to_le_bytes() as *const _ as *const _,
+                        );
+                        Node::new(parsed.loc, NodeKind::Constant(constant, None), type_)
+                    } else {
+                        Node::new(
+                            parsed.loc,
+                            NodeKind::Unary {
+                                op: UnaryOp::Reference,
+                                operand: buffer.insert(operand),
+                            },
+                            type_,
+                        )
+                    }
+                }
+                Some(wanted) => {
+                    let type_ = Type::new(TypeKind::Reference {
+                        pointee: operand.type_(),
+                        permits: PtrPermits::READ_WRITE,
+                    });
+                    let from = Node::new(
+                        parsed.loc,
+                        NodeKind::Unary {
+                            op: UnaryOp::Reference,
+                            operand: buffer.insert(operand),
+                        },
+                        type_,
+                    );
+                    auto_cast(ctx, parsed.loc, from, wanted, buffer)?
                 }
             }
         }
@@ -1093,14 +1110,14 @@ fn type_ast<'a>(
             let mut member_of = type_ast(ctx, WantedType::none(), of, buffer)?;
 
             // Dereference it as many times as necessary
-            while let TypeKind::Reference(inner) = *member_of.type_().kind() {
+            while let TypeKind::Reference { pointee, .. } = *member_of.type_().kind() {
                 member_of = Node::new(
                     parsed.loc,
                     NodeKind::Unary {
                         op: UnaryOp::Dereference,
                         operand: buffer.insert(member_of),
                     },
-                    inner,
+                    pointee,
                 );
             }
 
@@ -1288,7 +1305,7 @@ fn type_ast<'a>(
         | ParsedNodeKind::StructType { .. }
         | ParsedNodeKind::FunctionType { .. }
         | ParsedNodeKind::BufferType(_)
-        | ParsedNodeKind::ReferenceType(_) => {
+        | ParsedNodeKind::ReferenceType { .. } => {
             ctx.errors.error(
                 parsed.loc,
                 "(Internal compiler error) The parser should not emit a type node here".to_string(),
@@ -1320,8 +1337,7 @@ fn type_ast<'a>(
 fn make_sure_valid_lvalue(
     ctx: &mut Context<'_, '_>,
     typed: &Node,
-    will_modify: bool,
-    will_read: bool,
+    required_permits: PtrPermits,
 ) -> Result<(), ()> {
     // Right now, this only really validates that it's a valid lvalue, but it doesn't do anything
     // different. In the future, we may want to migrate some of that logic from the emit.rs file
@@ -1333,21 +1349,32 @@ fn make_sure_valid_lvalue(
     }
 
     match typed.kind() {
-        NodeKind::Member { ref of, .. } => make_sure_valid_lvalue(ctx, of, will_modify, will_read),
+        NodeKind::Member { ref of, .. } => make_sure_valid_lvalue(ctx, of, required_permits),
         NodeKind::Unary {
             op: UnaryOp::Dereference,
             ref operand,
         } => {
-            if let TypeKind::Reference(_) = *operand.type_().kind() {
-                // @Improvement: Later we want different kinds of mutability in references,
-                // so this will check that we're doing things properly
-                Ok(())
+            if let TypeKind::Reference { permits, .. } = *operand.type_().kind() {
+                if !permits.superset(required_permits) {
+                    ctx.errors.error(
+                        typed.loc,
+                        format!(
+                            "Required {} permissions, but the type '{}' only allows {}",
+                            required_permits,
+                            operand.type_(),
+                            permits
+                        ),
+                    );
+                    Err(())
+                } else {
+                    Ok(())
+                }
             } else {
                 unreachable!("This should not happen because this is called after typing, and the typing should catch it")
             }
         }
         NodeKind::Global { .. } | NodeKind::Constant { .. } => {
-            if will_modify {
+            if required_permits.write() {
                 ctx.errors.error(
                     typed.loc,
                     "Cannot modify a global value, or take a non-constant reference to it"
@@ -1366,7 +1393,7 @@ fn make_sure_valid_lvalue(
         _ => {
             // ctx.errors.error(typed.loc, "Not an lvalue, which is required here.\nTry breaking it out into a local variable first and then referencing that instead, maybe.".to_string());
 
-            if will_modify {
+            if required_permits.write() {
                 ctx.errors.error(typed.loc, "Cannot assign or take mutable references to temporary values, put this in a variable first".to_string());
                 return Err(());
             }
@@ -1448,9 +1475,9 @@ fn const_fold_type_expr<'a>(
                 Err(())
             }
         }
-        ParsedNodeKind::ReferenceType(ref internal) => {
+        ParsedNodeKind::ReferenceType(ref internal, permits) => {
             let pointee = const_fold_type_expr(ctx, internal, buffer)?;
-            Ok(Type::new(TypeKind::Reference(pointee)))
+            Ok(Type::new(TypeKind::Reference { pointee, permits }))
         }
         ParsedNodeKind::FunctionType {
             ref args,
@@ -1503,10 +1530,14 @@ fn auto_cast<'a>(
 
     match (from.type_().kind(), to_type.kind()) {
         (
-            TypeKind::Reference(Type(TypeData {
-                kind: TypeKind::Array(from_inner, len),
+            TypeKind::Reference {
+                pointee:
+                    Type(TypeData {
+                        kind: TypeKind::Array(from_inner, len),
+                        ..
+                    }),
                 ..
-            })),
+            },
             TypeKind::Buffer(to_inner),
         ) if from_inner == to_inner => Ok(Node::new(
             loc,
@@ -1516,29 +1547,29 @@ fn auto_cast<'a>(
             },
             to_type,
         )),
-        (TypeKind::Reference(_), TypeKind::Int(IntTypeKind::Usize)) => Ok(Node::new(
+        (TypeKind::Reference { .. }, TypeKind::Int(IntTypeKind::Usize)) => Ok(Node::new(
             loc,
             NodeKind::BitCast {
                 value: buffer.insert(from),
             },
             to_type,
         )),
-        (TypeKind::Reference(internal), TypeKind::AnyPtr) => Ok(Node::new(
+        (TypeKind::Reference { pointee, .. }, TypeKind::AnyPtr) => Ok(Node::new(
             loc,
             NodeKind::PtrToAny {
                 ptr: buffer.insert(from),
-                type_: *internal,
+                type_: *pointee,
             },
             to_type,
         )),
-        (TypeKind::Reference(_), TypeKind::VoidPtr) => Ok(Node::new(
+        (TypeKind::Reference { .. }, TypeKind::VoidPtr) => Ok(Node::new(
             loc,
             NodeKind::BitCast {
                 value: buffer.insert(from),
             },
             to_type,
         )),
-        (TypeKind::VoidPtr, TypeKind::Reference(_)) => Ok(Node::new(
+        (TypeKind::VoidPtr, TypeKind::Reference { .. }) => Ok(Node::new(
             loc,
             NodeKind::BitCast {
                 value: buffer.insert(from),
@@ -1562,18 +1593,27 @@ fn auto_cast<'a>(
             to_type,
         )),
         (
-            TypeKind::Reference(Type(TypeData {
-                kind: TypeKind::Array(from_inner, len),
-                ..
-            })),
-            TypeKind::Reference(to_inner),
-        ) if from_inner == to_inner && *len > 0 => Ok(Node::new(
-            loc,
-            NodeKind::BitCast {
-                value: buffer.insert(from),
+            TypeKind::Reference {
+                pointee:
+                    Type(TypeData {
+                        kind: TypeKind::Array(from_inner, len),
+                        ..
+                    }),
+                permits: from_permits,
             },
-            to_type,
-        )),
+            TypeKind::Reference {
+                pointee: to_inner,
+                permits: to_permits,
+            },
+        ) if from_inner == to_inner && from_permits.superset(*to_permits) && *len > 0 => {
+            Ok(Node::new(
+                loc,
+                NodeKind::BitCast {
+                    value: buffer.insert(from),
+                },
+                to_type,
+            ))
+        }
         (_, _) => {
             ctx.errors.error(
                 loc,

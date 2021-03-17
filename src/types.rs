@@ -98,7 +98,7 @@ impl Type {
             is_unique,
             aliases,
             members: kind.get_members(types),
-            is_pointer_to_zst: matches!(kind, TypeKind::Reference(inner) | TypeKind::Buffer(inner) if inner.size() == 0),
+            is_pointer_to_zst: matches!(kind, TypeKind::Reference { pointee: inner, .. } | TypeKind::Buffer(inner) if inner.size() == 0),
             call_scheme: kind.call_scheme(),
             is_never_type,
             size,
@@ -133,8 +133,8 @@ impl Type {
     }
 
     pub fn pointing_to(self) -> Option<Type> {
-        if let TypeKind::Reference(inner) = *self.kind() {
-            Some(inner)
+        if let TypeKind::Reference { pointee, .. } = *self.kind() {
+            Some(pointee)
         } else {
             None
         }
@@ -260,7 +260,7 @@ impl Display for TypeKind {
             Self::F32 => write!(fmt, "f32"),
             Self::Int(int) => int.fmt(fmt),
             Self::Bool => write!(fmt, "bool"),
-            Self::Reference(internal) => write!(fmt, "&{}", internal),
+            Self::Reference { pointee, permits } => write!(fmt, "&{}{}", permits.to_str(), pointee),
             Self::Buffer(internal) => write!(fmt, "[] {}", internal),
             Self::Array(internal, length) => write!(fmt, "[{}] {}", length, internal),
             Self::Function { args, returns } => {
@@ -299,6 +299,66 @@ pub fn to_align(value: usize, align: usize) -> usize {
     (value + align - 1) & !(align - 1)
 }
 
+/// Permissions for pointers
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+pub struct PtrPermits(u8);
+
+impl Debug for PtrPermits {
+    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match *self {
+            Self::NONE => write!(fmt, "PtrPermit(no)"),
+            Self::WRITE => write!(fmt, "PtrPermit(write)"),
+            Self::READ => write!(fmt, "PtrPermit(read)"),
+            Self::READ_WRITE => write!(fmt, "PtrPermit(read and write)"),
+            _ => unreachable!(),
+        }
+    }
+}
+
+impl Display for PtrPermits {
+    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match *self {
+            Self::NONE => write!(fmt, "no"),
+            Self::WRITE => write!(fmt, "write"),
+            Self::READ => write!(fmt, "read"),
+            Self::READ_WRITE => write!(fmt, "read and write"),
+            _ => unreachable!(),
+        }
+    }
+}
+
+impl PtrPermits {
+    pub const NONE: Self = Self(0b00);
+    pub const WRITE: Self = Self(0b01);
+    pub const READ: Self = Self(0b10);
+    pub const READ_WRITE: Self = Self(0b11);
+
+    pub fn to_str(self) -> &'static str {
+        if !self.write() && self.read() {
+            "const "
+        } else if self.write() && !self.read() {
+            "let "
+        } else if self.write() && self.read() {
+            ""
+        } else {
+            "UNKNOWN!!!!"
+        }
+    }
+
+    pub fn write(self) -> bool {
+        (self.0 & 0b01) > 0
+    }
+
+    pub fn read(self) -> bool {
+        (self.0 & 0b10) > 0
+    }
+
+    /// Checks if these permissions are more than the given permissions
+    pub fn superset(self, other: Self) -> bool {
+        (!other.write() || self.write()) && (!other.read() || self.read())
+    }
+}
+
 #[derive(Hash, PartialEq, Eq)]
 pub enum TypeKind {
     Never,
@@ -313,7 +373,7 @@ pub enum TypeKind {
     Range(Type),
     Int(IntTypeKind),
     Array(Type, usize),
-    Reference(Type),
+    Reference { pointee: Type, permits: PtrPermits },
     Buffer(Type),
     Function { args: Vec<Type>, returns: Type },
     Struct(Vec<(Ustr, Type)>),
@@ -335,7 +395,7 @@ impl TypeKind {
             TypeKind::Buffer(inner)
             | TypeKind::Array(inner, _)
             | TypeKind::Range(inner)
-            | TypeKind::Reference(inner) => on_inner(*inner),
+            | TypeKind::Reference { pointee: inner, .. } => on_inner(*inner),
             TypeKind::Function { args, returns, .. } => {
                 for arg in args {
                     on_inner(*arg);
@@ -354,7 +414,13 @@ impl TypeKind {
     fn get_members(&self, types: &mut Vec<&'static TypeData>) -> Vec<(Ustr, usize, Type)> {
         match *self {
             TypeKind::Buffer(inner) => {
-                let ptr_type = Type::new_without_lock(types, TypeKind::Reference(inner));
+                let ptr_type = Type::new_without_lock(
+                    types,
+                    TypeKind::Reference {
+                        pointee: inner,
+                        permits: PtrPermits::READ_WRITE,
+                    },
+                );
                 let usize_type = Type::new_without_lock(types, TypeKind::Int(IntTypeKind::Usize));
                 vec![("ptr".into(), 0, ptr_type), ("len".into(), 8, usize_type)]
             }
@@ -417,7 +483,7 @@ impl TypeKind {
             Self::Never => (0, 0),
             Self::Type => (8, 8),
             Self::Empty => (0, 1),
-            Self::VoidPtr | Self::F64 | Self::Reference(_) | Self::Function { .. } => (8, 8),
+            Self::VoidPtr | Self::F64 | Self::Reference { .. } | Self::Function { .. } => (8, 8),
             Self::AnyPtr | Self::VoidBuffer | Self::Buffer(_) => (16, 8),
             Self::F32 => (4, 4),
             Self::Bool => (1, 1),
@@ -465,9 +531,9 @@ impl TypeKind {
             | Self::VoidPtr
             | Self::AnyPtr
             | Self::Bool => {}
-            Self::Reference(internal) => {
-                if internal.size() > 0 {
-                    pointers.push((0, PointerInType::Pointer(*internal)));
+            Self::Reference { pointee, .. } => {
+                if pointee.size() > 0 {
+                    pointers.push((0, PointerInType::Pointer(*pointee)));
                 }
             }
             Self::Buffer(internal) => {

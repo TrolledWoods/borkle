@@ -532,8 +532,8 @@ pub fn append_c_type_headers(output: &mut String) {
             TypeKind::F32 => output.push_str("float "),
             TypeKind::F64 => output.push_str("double "),
 
-            TypeKind::Reference(internal) => {
-                write!(output, "{}", c_format_pointer_type(*internal)).unwrap()
+            TypeKind::Reference { pointee, .. } => {
+                write!(output, "{}", c_format_pointer_type(*pointee)).unwrap()
             }
             TypeKind::VoidBuffer => {
                 write!(output, "struct{{\n  void *ptr;\n  uint64_t len;\n}}",).unwrap();

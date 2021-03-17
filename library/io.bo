@@ -5,7 +5,8 @@ const put_string = fn (buffer: [] u8) {
 };
 
 const put_char = fn(char: u8) {
-    i_stdout_write(&[char]);
+    let temp = [char];
+    i_stdout_write(&temp);
 };
 
 const debug_string = fn(buffer: [] u8) {

@@ -145,7 +145,7 @@ fn interp_internal(program: &Program, stack: &mut StackFrame<'_>, routine: &User
             Instr::Increment { value } => {
                 let incr_amount = match value.type_().kind() {
                     TypeKind::Int(_) => 1,
-                    TypeKind::Reference(inner) => inner.size() as u64,
+                    TypeKind::Reference { pointee, .. } => pointee.size() as u64,
                     _ => unreachable!(),
                 };
 

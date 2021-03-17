@@ -182,10 +182,10 @@ impl BinaryOp {
 
             (BinaryOp::Range, _) => Some(left),
 
-            (BinaryOp::Add, TypeKind::Reference(_)) => {
+            (BinaryOp::Add, TypeKind::Reference { .. }) => {
                 Some(Type::new(TypeKind::Int(IntTypeKind::Usize)))
             }
-            (BinaryOp::Sub, TypeKind::Reference(_)) => {
+            (BinaryOp::Sub, TypeKind::Reference { .. }) => {
                 Some(Type::new(TypeKind::Int(IntTypeKind::Usize)))
             }
 
@@ -220,8 +220,8 @@ impl BinaryOp {
             (BinaryOp::And, TypeKind::Bool, TypeKind::Bool)
             | (BinaryOp::Or, TypeKind::Bool, TypeKind::Bool) => Some(left),
 
-            (BinaryOp::Add, TypeKind::Reference(_), TypeKind::Int(IntTypeKind::Usize))
-            | (BinaryOp::Sub, TypeKind::Reference(_), TypeKind::Int(IntTypeKind::Usize)) => {
+            (BinaryOp::Add, TypeKind::Reference { .. }, TypeKind::Int(IntTypeKind::Usize))
+            | (BinaryOp::Sub, TypeKind::Reference { .. }, TypeKind::Int(IntTypeKind::Usize)) => {
                 Some(left)
             }
             _ => None,
@@ -230,11 +230,11 @@ impl BinaryOp {
 
     pub unsafe fn run(self, left: Type, right: Type, a: *const u8, b: *const u8, output: *mut u8) {
         match (self, left.kind(), right.kind()) {
-            (BinaryOp::Add, TypeKind::Reference(inner), TypeKind::Int(IntTypeKind::Usize)) => {
-                *output.cast() = *a.cast::<usize>() + *b.cast::<usize>() * inner.size();
+            (BinaryOp::Add, TypeKind::Reference { pointee, .. }, TypeKind::Int(IntTypeKind::Usize)) => {
+                *output.cast() = *a.cast::<usize>() + *b.cast::<usize>() * pointee.size();
             }
-            (BinaryOp::Sub, TypeKind::Reference(inner), TypeKind::Int(IntTypeKind::Usize)) => {
-                *output.cast() = *a.cast::<usize>() - *b.cast::<usize>() * inner.size();
+            (BinaryOp::Sub, TypeKind::Reference { pointee, .. }, TypeKind::Int(IntTypeKind::Usize)) => {
+                *output.cast() = *a.cast::<usize>() - *b.cast::<usize>() * pointee.size();
             }
 
             (BinaryOp::Add, TypeKind::Int(i1), TypeKind::Int(i2)) if i1 == i2 => {
@@ -298,7 +298,7 @@ impl BinaryOp {
                 *output.cast() = *a.cast::<usize>() != *b.cast::<usize>();
             },
 
-            (BinaryOp::LessThan, TypeKind::Reference(i1), TypeKind::Reference(i2)) if i1 == i2 => 
+            (BinaryOp::LessThan, TypeKind::Reference { pointee: i1, .. }, TypeKind::Reference { pointee: i2, .. }) if i1 == i2 => 
                 *output.cast() = *a.cast::<*const u8>() < *b.cast::<*const u8>(),
             (BinaryOp::LessThan, TypeKind::Int(i1), TypeKind::Int(i2)) if i1 == i2 => {
                 all_int_types!(i1, output, (a, b), <)
