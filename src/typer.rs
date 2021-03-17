@@ -310,7 +310,9 @@ fn type_ast<'a>(
             let mut iterating = type_ast(ctx, WantedType::none(), iterating, buffer)?;
 
             let iterator_type = match iterating.type_().kind() {
-                TypeKind::Range(inner) if matches!(inner.kind(), TypeKind::Int(_) | TypeKind::Reference(_)) => {
+                TypeKind::Range(inner)
+                    if matches!(inner.kind(), TypeKind::Int(_) | TypeKind::Reference(_)) =>
+                {
                     *inner
                 }
                 TypeKind::Buffer(inner) => Type::new(TypeKind::Reference(*inner)),
@@ -349,7 +351,6 @@ fn type_ast<'a>(
                 }
             };
 
-            ctx.locals.get_label_mut(label).type_ = wanted_type.get_specific();
             ctx.locals.get_mut(iterator).type_ = Some(iterator_type);
             let body = type_ast(ctx, WantedType::none(), body, buffer)?;
 

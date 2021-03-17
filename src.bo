@@ -1,10 +1,31 @@
 library "mem.bo";
 library "fmt.bo";
 
-#entry fn() -> u64 {
+const main = fn() -> u64 {
     print("Now print is much cleaner to use! Although not as flexible... %\n", &[&42]);
-
     print("Print is much much better now % '%' \n", &[&42, &"Hello!"]);
+
+    let array = [4, 3, 3, 1];
+
+    let output = for 'some_label &array {
+        if *_it < 0  break 'some_label 42;
+
+        print("Hi %, %\n", &[&_iters, &*_it]);
+    } else 99;
+
+    print("The output is %\n", &[&output]);
 
     0
 };
+
+#entry main;
+
+
+
+
+
+
+// We add some redundant libraries down here so that we can make sure they
+// compile.
+library "string.bo";
+library "vec_u8.bo";

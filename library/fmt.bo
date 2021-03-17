@@ -16,7 +16,7 @@ const print = fn(
     let arg_i = 0 : usize;
 
     for fmt_string  if *_it == "%" {
-        put_string(slice_u8(fmt_string, prev_section, _iters));
+        put_string(slice[u8](fmt_string, prev_section, _iters));
 
         if arg_i >= fmt_args.len {
             put_string("\n\n ---- printf formatting error! There are not enough given formatting arguments!!! ---- \n");
@@ -48,7 +48,7 @@ const print = fn(
         put_string("\n\n ---- printf formatting error! There number of formatting arguments does not match the number in the string\n");
     };
  
-    put_string(slice_u8(fmt_string, prev_section, fmt_string.len));
+    put_string(slice[u8](fmt_string, prev_section, fmt_string.len));
 };
 
 const fmt_str = fn(string: [] u8) -> Format {

@@ -15,8 +15,8 @@ const vec_u8_create = fn() -> VecU8  #0;
 const vec_u8_reserve = fn(vec: &VecU8, requested: usize) {
     if requested > vec.capacity {
         if vec.capacity == 0 {
-            let new = alloc(INITIAL_SIZE);
-            vec.ptr = << new.ptr;
+            let new = alloc[u8](INITIAL_SIZE);
+            vec.ptr = new.ptr;
             vec.capacity = new.len;
         } else {
             let old_buf = #uninit : [] u8;
@@ -28,12 +28,12 @@ const vec_u8_reserve = fn(vec: &VecU8, requested: usize) {
                 new_capacity = new_capacity * 2;
             };
 
-            let new = alloc(new_capacity);
-            vec.ptr = << new.ptr;
+            let new = alloc[u8](new_capacity);
+            vec.ptr = new.ptr;
             vec.capacity = new.len;
-            mem_copy_nonoverlapping(<< vec.ptr, << old_buf.ptr, vec.len);
+            mem_copy_nonoverlapping[u8](vec.ptr, old_buf.ptr, vec.len);
 
-            dealloc(<< old_buf);
+            dealloc[u8](old_buf);
         };
     };
 };
@@ -42,7 +42,7 @@ const vec_u8_free = fn(vec: VecU8) {
     let buf = #uninit : [] u8;
     buf.ptr = vec.ptr;
     buf.len = vec.capacity;
-    dealloc(<< buf);
+    dealloc[u8](buf);
 };
 
 const vec_u8_get = fn(vec: &VecU8, index: usize) -> &u8 {
@@ -57,7 +57,7 @@ const vec_u8_push = fn(vec: &VecU8, character: u8) {
 
 const vec_u8_push_buf = fn(vec: &VecU8, from: [] u8) {
     vec_u8_reserve(vec, vec.len + from.len);
-    mem_copy_nonoverlapping(<< (vec.ptr + vec.len), << from.ptr, from.len);
+    mem_copy_nonoverlapping[u8](vec.ptr + vec.len, from.ptr, from.len);
     vec.len = vec.len + from.len;
 };
 

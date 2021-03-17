@@ -17,7 +17,7 @@ const string_trim = fn(string: [] u8) -> [] u8
 const string_trim_start = fn(string: [] u8) -> [] u8 {
     for string {
         if !is_whitespace(*_it) {
-            break slice_u8(string, _iters, string.len);
+            break slice[u8](string, _iters, string.len);
         };
     } else &[]
 };
@@ -27,7 +27,7 @@ const string_trim_end = fn(string: [] u8) -> [] u8 {
     while _iters < string.len {
         let i = string.len - _iters - 1;
         if !is_whitespace(*(string.ptr + i))
-            break slice_u8(string, 0, string.len - _iters);
+            break slice[u8](string, 0, string.len - _iters);
     } else &[]
 };
 

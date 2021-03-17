@@ -34,6 +34,7 @@ impl Constant {
     }
 }
 
+/// This is a reference to constant data in the program.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub struct ConstantRef {
     ptr: NonNull<u8>,
