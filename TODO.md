@@ -32,7 +32,6 @@
 * [ ] Make assignment an expression.
 * [ ] Compile time functions
 * [ ] Functions for constructing types programmatically at compile time
-* [ ] Polymorphism
 * [ ] Implement the proper separation between 'thread pool' and 'program'
 * [ ] If the dynamic library in the target directory is already defined, and has the same "last edited" date as the source file, don't copy the file from the source.
 * [ ] Struct literals
