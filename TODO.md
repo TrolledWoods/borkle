@@ -9,6 +9,8 @@
 * [X] "Polymorphism"
 * [X] BUG! The for loop variable can be used in the iterator, and that crashes the compiler.
 * [X] AnyPtr
+* [X] Added order of operations
+* [X] Made type bounds an operator as well
 * [ ] IDEA: &out pointer, write only pointer, if a function takes a pointer like this you can also declare a variable like this; initialize(let variable), where initialize is a fn(&out Something)
 
 * [ ] Allow AnyPtr to be stored inside constants.

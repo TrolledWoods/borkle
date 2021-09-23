@@ -300,7 +300,7 @@ pub fn routine_to_c(output: &mut String, routine: &Routine, arg_types: &[Type], 
                             BinaryOp::Div => "/",
                             BinaryOp::BitAnd => "&",
                             BinaryOp::BitOr => "|",
-                            BinaryOp::Range => unreachable!("Special case operator"),
+                            _ => unreachable!("Cannot output this operator to C, it's supposed to be replaced by the compiler in an earlier stage"),
                         };
 
                         write!(

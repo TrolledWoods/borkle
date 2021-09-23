@@ -3,7 +3,7 @@ library "fmt.bo";
 
 const main = fn() -> u64 {
     print("\n*******\n\n");
-    
+
     let a = 2 + 2 * 2;
     let b = 2 * 2 + 2;
     let a_array = [&a : &any];

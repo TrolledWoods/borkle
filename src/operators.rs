@@ -100,23 +100,25 @@ operator!(UnaryOp {
 });
 
 operator!(BinaryOp {
-    And = ("&&", 1),
-    Or  = ("||", 2),
+    TypeBound = (":", 2),
+
+    And = ("&&", 6),
+    Or  = ("||", 6),
     Range = ("..", 48539),
 
-    Equals = ("==", 3),
-    NotEquals = ("!=", 3),
-    LargerThanEquals = (">=", 3),
-    LargerThan = (">", 3),
-    LessThanEquals = ("<=", 3),
-    LessThan = ("<", 3),
+    Equals = ("==", 8),
+    NotEquals = ("!=", 8),
+    LargerThanEquals = (">=", 8),
+    LargerThan = (">", 8),
+    LessThanEquals = ("<=", 8),
+    LessThan = ("<", 8),
 
     Add = ("+", 100),
     Sub = ("-", 100),
     Mult = ("*", 101),
     Div = ("/", 102),
-    BitAnd = ("&", 4),
-    BitOr = ("|", 5),
+    BitAnd = ("&", 7),
+    BitOr = ("|", 7),
 });
 
 operator!(AccessOp {

@@ -209,18 +209,7 @@ fn expression(
 ) -> Result<Node, ()> {
     let expr = expression_rec(global, imperative, buffer, 0)?;
 
-    if let Some(loc) = global.tokens.try_consume_operator_string(":") {
-        let type_bound = type_(global, imperative, buffer)?;
-        Ok(Node::new(
-            loc,
-            NodeKind::TypeBound {
-                value: buffer.insert(expr),
-                bound: buffer.insert(type_bound),
-            },
-        ))
-    } else {
-        Ok(expr)
-    }
+    Ok(expr)
 }
 
 fn expression_rec(
@@ -233,16 +222,27 @@ fn expression_rec(
 
     while let Some((loc, op)) = global.tokens.try_consume_operator_with_precedence::<BinaryOp>(precedence) {
         // @Improvement: Reimplement `has_to_be_alone`
-
-        let right = expression_rec(global, imperative, buffer, op.precedence())?;
-        expr = Node::new(
-            loc,
-            NodeKind::Binary {
-                op,
-                left: buffer.insert(expr),
-                right: buffer.insert(right),
-            },
-        );
+    
+        if op == BinaryOp::TypeBound {
+            let right = type_(global, imperative, buffer)?;
+            expr = Node::new(
+                loc,
+                NodeKind::TypeBound {
+                    value: buffer.insert(expr),
+                    bound: buffer.insert(right),
+                },
+            );
+        } else {
+            let right = expression_rec(global, imperative, buffer, op.precedence())?;
+            expr = Node::new(
+                loc,
+                NodeKind::Binary {
+                    op,
+                    left: buffer.insert(expr),
+                    right: buffer.insert(right),
+                },
+            );
+        }
     }
 
     Ok(expr)
