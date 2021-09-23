@@ -4,7 +4,6 @@ use crate::locals::{LabelId, LocalId, LocalVariables};
 use crate::location::Location;
 use crate::operators::{BinaryOp, UnaryOp};
 use crate::program::{BuiltinFunction, ScopeId};
-use crate::self_buffer::{SelfBox, SelfTree};
 use crate::types::{Type, PtrPermits};
 use std::fmt;
 use std::sync::Arc;
@@ -12,18 +11,13 @@ use ustr::Ustr;
 
 pub type NodeId = u32;
 
-#[derive(Default)]
+#[derive(Debug)]
 pub struct Ast {
     pub nodes: Vec<Node>,
+    pub root: NodeId,
 }
 
 impl Ast {
-    pub fn add(&mut self, node: Node) -> NodeId {
-        let id = self.nodes.len() as u32;
-        self.nodes.push(node);
-        id
-    }
-
     pub fn get(&self, id: NodeId) -> &Node {
         let id = id as usize;
         debug_assert!(id < self.nodes.len());
@@ -41,6 +35,46 @@ impl Ast {
     }
 }
 
+#[derive(Default)]
+pub struct AstBuilder {
+    pub nodes: Vec<Node>,
+}
+
+impl AstBuilder {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn insert_root(mut self, root: Node) -> Ast {
+        let root = self.add(root);
+        Ast {
+            nodes: self.nodes,
+            root,
+        }
+    }
+
+    pub fn add(&mut self, node: Node) -> NodeId {
+        let id = self.nodes.len() as u32;
+        self.nodes.push(node);
+        id
+    }
+
+    /*pub fn has_to_be_alone(&self, id: NodeId) -> bool {
+        match self.get(id).kind {
+            NodeKind::ConstAtTyping { .. }
+            | NodeKind::ConstAtEvaluation { .. }
+            | NodeKind::If { .. }
+            | NodeKind::For { .. }
+            | NodeKind::While { .. } => true,
+            NodeKind::BitCast {
+                value: operand, ..
+            }
+            | NodeKind::Unary { operand, .. } => self.has_to_be_alone(operand),
+            _ => false,
+        }
+    }*/
+}
+
 pub struct Node {
     pub loc: Location,
     pub kind: NodeKind,
@@ -50,146 +84,131 @@ impl Node {
     pub const fn new(loc: Location, kind: NodeKind) -> Self {
         Self { loc, kind }
     }
-
-    pub fn has_to_be_alone(&self) -> bool {
-        match self.kind {
-            NodeKind::ConstAtTyping { .. }
-            | NodeKind::ConstAtEvaluation { .. }
-            | NodeKind::If { .. }
-            | NodeKind::For { .. }
-            | NodeKind::While { .. } => true,
-            NodeKind::BitCast {
-                value: ref operand, ..
-            }
-            | NodeKind::Unary { ref operand, .. } => operand.has_to_be_alone(),
-            _ => false,
-        }
-    }
 }
 
 #[derive(Debug)]
 pub enum NodeKind {
     Literal(Literal),
-    ArrayLiteral(Vec<SelfBox<Node>>),
+    ArrayLiteral(Vec<NodeId>),
     BuiltinFunction(BuiltinFunction),
 
     PolymorphicArgument(usize),
     ConstAtTyping {
         locals: LocalVariables,
-        inner: SelfBox<Node>,
+        inner: NodeId,
     },
     ConstAtEvaluation {
         locals: LocalVariables,
-        inner: SelfBox<Node>,
+        inner: NodeId,
     },
 
     // FIXME: Performance; Put the vector in the self buffer as well, since that should totally be
     // possible to do.
-    Global(ScopeId, Ustr, Vec<SelfBox<Node>>),
-    GlobalForTyping(ScopeId, Ustr, Vec<SelfBox<Node>>),
+    Global(ScopeId, Ustr, Vec<NodeId>),
+    GlobalForTyping(ScopeId, Ustr, Vec<NodeId>),
 
     For {
         iterator: LocalId,
         iteration_var: LocalId,
-        iterating: SelfBox<Node>,
-        body: SelfBox<Node>,
-        else_body: Option<SelfBox<Node>>,
+        iterating: NodeId,
+        body: NodeId,
+        else_body: Option<NodeId>,
         label: LabelId,
     },
     While {
-        condition: SelfBox<Node>,
+        condition: NodeId,
         iteration_var: LocalId,
-        body: SelfBox<Node>,
-        else_body: Option<SelfBox<Node>>,
+        body: NodeId,
+        else_body: Option<NodeId>,
         label: LabelId,
     },
     If {
-        condition: SelfBox<Node>,
-        true_body: SelfBox<Node>,
-        false_body: Option<SelfBox<Node>>,
+        condition: NodeId,
+        true_body: NodeId,
+        false_body: Option<NodeId>,
     },
 
     Member {
-        of: SelfBox<Node>,
+        of: NodeId,
         name: Ustr,
     },
 
     FunctionDeclaration {
         locals: LocalVariables,
-        args: Vec<(Ustr, SelfBox<Node>)>,
-        default_args: Vec<(Ustr, SelfBox<Node>)>,
-        returns: SelfBox<Node>,
+        args: Vec<(Ustr, NodeId)>,
+        default_args: Vec<(Ustr, NodeId)>,
+        returns: NodeId,
         body_deps: DependencyList,
-        body: Arc<SelfTree<Node>>,
+        body: Arc<Ast>,
     },
 
-    TypeAsValue(SelfBox<Node>),
+    TypeAsValue(NodeId),
     NamedType {
         name: Ustr,
-        fields: Vec<(Ustr, SelfBox<Node>)>,
+        fields: Vec<(Ustr, NodeId)>,
         aliases: Vec<(Ustr, Vec<(Location, Ustr)>)>,
     },
     StructType {
-        fields: Vec<(Ustr, SelfBox<Node>)>,
+        fields: Vec<(Ustr, NodeId)>,
     },
-    BufferType(SelfBox<Node>),
+    BufferType(NodeId),
     ArrayType {
-        len: SelfBox<Node>,
-        members: SelfBox<Node>,
+        len: NodeId,
+        members: NodeId,
     },
     FunctionType {
-        args: Vec<SelfBox<Node>>,
-        returns: SelfBox<Node>,
+        args: Vec<NodeId>,
+        returns: NodeId,
     },
-    ReferenceType(SelfBox<Node>, PtrPermits),
+    ReferenceType(NodeId, PtrPermits),
     LiteralType(Type),
 
-    Reference(SelfBox<Node>, PtrPermits),
+    Reference(NodeId, PtrPermits),
     Unary {
         op: UnaryOp,
-        operand: SelfBox<Node>,
+        operand: NodeId,
     },
     Binary {
         op: BinaryOp,
-        left: SelfBox<Node>,
-        right: SelfBox<Node>,
+        left: NodeId,
+        right: NodeId,
     },
 
     Break {
         label: LabelId,
         num_defer_deduplications: usize,
-        value: SelfBox<Node>,
+        value: NodeId,
     },
 
     Defer {
-        deferring: SelfBox<Node>,
+        deferring: NodeId,
     },
 
     FunctionCall {
-        calling: SelfBox<Node>,
-        args: Vec<SelfBox<Node>>,
-        named_args: Vec<(Ustr, SelfBox<Node>)>,
+        calling: NodeId,
+        args: Vec<NodeId>,
+        named_args: Vec<(Ustr, NodeId)>,
     },
     Block {
-        contents: Vec<SelfBox<Node>>,
+        contents: Vec<NodeId>,
         label: Option<LabelId>,
     },
-    Parenthesis(SelfBox<Node>),
+    Parenthesis(NodeId),
     Empty,
     Uninit,
     Zeroed,
 
     TypeBound {
-        value: SelfBox<Node>,
-        bound: SelfBox<Node>,
+        value: NodeId,
+        bound: NodeId,
     },
     BitCast {
-        value: SelfBox<Node>,
+        value: NodeId,
     },
 
     Declare {
         local: LocalId,
-        value: SelfBox<Node>,
+        value: NodeId,
     },
     Local(LocalId),
 }

@@ -2,5 +2,6 @@ library "fmt.bo";
 library "mem.bo";
 
 #entry fn() -> u64 { 'hello
+    print("Hello world!\n");
     44
 };
