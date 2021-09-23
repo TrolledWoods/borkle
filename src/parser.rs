@@ -3,7 +3,7 @@ use crate::errors::ErrorCtx;
 use crate::literal::Literal;
 use crate::locals::Local;
 use crate::location::Location;
-use crate::operators::{BinaryOp, UnaryOp};
+use crate::operators::{BinaryOp, UnaryOp, Operator};
 use crate::program::{Program, ScopeId, Task};
 use crate::self_buffer::{SelfBox, SelfBuffer, SelfTree};
 use crate::types::{Type, TypeKind, PtrPermits};
@@ -207,56 +207,7 @@ fn expression(
     imperative: &mut ImperativeContext<'_>,
     buffer: &mut SelfBuffer,
 ) -> Result<Node, ()> {
-    let mut expr = value(global, imperative, buffer)?;
-
-    let mut old_op: Option<BinaryOp> = None;
-    let mut is_first_iteration = false;
-    while let Some((loc, op, meta_data)) = global.tokens.try_consume_operator_with_metadata() {
-        if is_first_iteration {
-            if expr.has_to_be_alone() {
-                global
-                    .errors
-                    .error(expr.loc, "Parsing ambiguity, this is a value that contains another expression, hence it is required that you put it inside of parenthesees if you want to use it as an operand.".to_string());
-                return Err(());
-            }
-
-            is_first_iteration = false;
-        }
-
-        if !meta_data.cleared_operator_string {
-            global.errors.warning(
-                loc,
-                "Ambiguous operator separation, please insert a space to clearly indicate \
-                where the binary operator ends and the unary operators begin"
-                    .to_string(),
-            );
-        }
-
-        if old_op.unwrap_or(op).precedence() != op.precedence() {
-            global.error(
-                loc,
-                "Only operators with the same precedence can be used after one another".to_string(),
-            );
-            return Err(());
-        }
-
-        let right = value(global, imperative, buffer)?;
-        if right.has_to_be_alone() {
-            global
-                .errors
-                .error(right.loc, "Parsing ambiguity, this is a value that contains another expression, hence it is required that you put it inside of parenthesees if you want to use it as an operand.".to_string());
-            return Err(());
-        }
-        expr = Node::new(
-            loc,
-            NodeKind::Binary {
-                op,
-                left: buffer.insert(expr),
-                right: buffer.insert(right),
-            },
-        );
-        old_op = Some(op);
-    }
+    let expr = expression_rec(global, imperative, buffer, 0)?;
 
     if let Some(loc) = global.tokens.try_consume_operator_string(":") {
         let type_bound = type_(global, imperative, buffer)?;
@@ -270,6 +221,31 @@ fn expression(
     } else {
         Ok(expr)
     }
+}
+
+fn expression_rec(
+    global: &mut DataContext<'_>,
+    imperative: &mut ImperativeContext<'_>,
+    buffer: &mut SelfBuffer,
+    precedence: usize,
+) -> Result<Node, ()> {
+    let mut expr = value(global, imperative, buffer)?;
+
+    while let Some((loc, op)) = global.tokens.try_consume_operator_with_precedence::<BinaryOp>(precedence) {
+        // @Improvement: Reimplement `has_to_be_alone`
+
+        let right = expression_rec(global, imperative, buffer, op.precedence())?;
+        expr = Node::new(
+            loc,
+            NodeKind::Binary {
+                op,
+                left: buffer.insert(expr),
+                right: buffer.insert(right),
+            },
+        );
+    }
+
+    Ok(expr)
 }
 
 fn named_type(

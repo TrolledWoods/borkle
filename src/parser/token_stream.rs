@@ -57,6 +57,32 @@ impl TokenStream {
         })
     }
 
+    pub fn try_consume_operator_with_precedence<T: Operator>(
+        &mut self,
+        precedence: usize,
+    ) -> Option<(Location, T)> {
+        let token = self.peek_mut()?;
+        if let TokenKind::Operator(ref mut string) = token.kind {
+            if let Some((op, suffix)) = T::from_prefix(string) {
+                if op.precedence() <= precedence {
+                    return None;
+                }
+                
+                let loc = token.loc;
+                if suffix.is_empty() {
+                    self.next();
+                } else {
+                    *string = suffix.into();
+                }
+                return Some((
+                    loc,
+                    op,
+                ));
+            }
+        }
+        None
+    }
+
     pub fn try_consume_operator_with_metadata<T: Operator>(
         &mut self,
     ) -> Option<(Location, T, OperatorConsumptionMeta)> {

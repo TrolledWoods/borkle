@@ -59,6 +59,7 @@ macro_rules! all_int_types {
 
 pub trait Operator: Sized {
     fn from_prefix(string: &str) -> Option<(Self, &'_ str)>;
+    fn precedence(&self) -> usize;
 }
 
 macro_rules! operator {
@@ -72,15 +73,6 @@ macro_rules! operator {
             $($operator_name,)*
         }
 
-        impl $enum_name {
-            #[allow(unused)]
-            pub const fn precedence(&self) -> usize {
-                match self {
-                    $(Self::$operator_name => $precedence,)*
-                }
-            }
-        }
-
         impl Operator for $enum_name {
             fn from_prefix(string: &str) -> Option<(Self, &'_ str)> {
                 $(if let Some(suffix) = string.strip_prefix($name) {
@@ -88,6 +80,12 @@ macro_rules! operator {
                 })*
 
                 None
+            }
+
+            fn precedence(&self) -> usize {
+                match self {
+                    $(Self::$operator_name => $precedence,)*
+                }
             }
         }
     };
