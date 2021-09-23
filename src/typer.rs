@@ -22,14 +22,25 @@ pub enum TypeInfo {
     /// The type it returns will be this type, but it may have to insert a cast to do it,
     /// or might not be able to return this at all and will later return an error.
     Returns(Type),
+    /// Type type is resolved, but the node still has more work to do(for example, the node should really be switched
+    /// to another kind of node, but hasn't be able to yet, but it knows what type it will be.
+    /// `TypeIsValue` node for example).
+    ResolvedButIncomplete(Type),
     /// The type is entirely resolved, and it's guaranteed to be this type
     Resolved(Type),
 }
 
 impl TypeInfo {
+    fn resolved(&self) -> Option<Type> {
+        match *self {
+            Self::Resolved(type_) => Some(type_),
+            _ => None,
+        }
+    }
+
     fn returns(&self) -> Option<Type> {
         match *self {
-            Self::Returns(type_) | Self::Resolved(type_) => Some(type_),
+            Self::Returns(type_) | Self::Resolved(type_) | Self::ResolvedButIncomplete(type_) => Some(type_),
             Self::None => None,
         }
     }
@@ -49,6 +60,98 @@ struct Context<'a, 'b> {
     poly_args: &'a [(Type, ConstantRef)],
     ast: ParsedAst,
     interesting_locations: Vec<NodeId>,
+}
+
+impl Context<'_, '_> {
+    /// Sets the type that's expected for a given node. Will ping the node, if the expectation is different from what it was previously.
+    /// If the expectation cannot be fulfilled(it is already expected to be a different type, or is a different type), it will emit an error
+    /// and return false.
+    fn set_expected_type(&mut self, node_id: NodeId, expected_type: Type) -> bool {
+        let node = self.ast.get_mut(node_id);
+        if let Some(type_) = node.type_.returns() {
+            if expected_type != type_ {
+                self.has_errors = true;
+                self.errors.error(
+                    node.loc,
+                    format!("Expected '{}', found '{}'", expected_type, type_),
+                );
+                return false;
+            }
+        }
+
+        // Already on a higher stage of completion than this.
+        if matches!(node.type_, TypeInfo::Resolved(_) | TypeInfo::ResolvedButIncomplete(_)) {
+            return true;
+        }
+
+        if !matches!(node.type_, TypeInfo::Returns(_)) {
+            eprintln!("Pushed interesting location {}", node_id);
+            self.interesting_locations.push(node_id);
+        }
+
+        eprintln!("Found that node {:?} should be of the type {}", node.kind, expected_type);
+        node.type_ = TypeInfo::Returns(expected_type);
+
+        return true;
+    }
+
+    /// Sets the type of a node to the given type. If the type state was updated, it will also ping the parent.
+    /// If the type cannot be set (the type is already expected to be something different),
+    /// it emits an error and returns false.
+    ///
+    /// This should _only_ be used by the node itself to set the type it _is_.
+    fn set_type(&mut self, node_id: NodeId, wanted_type: Type) -> bool {
+        let node = self.ast.get_mut(node_id);
+        if let Some(type_) = node.type_.returns() {
+            if wanted_type != type_ {
+                self.has_errors = true;
+                self.errors.error(
+                    node.loc,
+                    format!("Expected '{}', found '{}'", type_, wanted_type),
+                );
+                return false;
+            }
+        }
+
+        if !matches!(node.type_, TypeInfo::Resolved(_)) {
+            if let Some(parent) = node.parent {
+                eprintln!("Pushed interesting location {}", parent);
+                self.interesting_locations.push(parent);
+            }
+        }
+
+        eprintln!("Found that node {:?} is of type {}", node.kind, wanted_type);
+        node.type_ = TypeInfo::Resolved(wanted_type);
+
+        return true;
+    }
+
+    fn set_type_but_incomplete(&mut self, node_id: NodeId, wanted_type: Type) -> bool {
+        let node = self.ast.get_mut(node_id);
+        if let Some(type_) = node.type_.returns() {
+            if wanted_type != type_ {
+                self.has_errors = true;
+                self.errors.error(
+                    node.loc,
+                    format!("Expected '{}', found '{}'", wanted_type, type_),
+                );
+                return false;
+            }
+        }
+
+        debug_assert!(!matches!(node.type_, TypeInfo::Resolved(_)), "Type is already resolved, cannot become incomplete");
+        if !matches!(node.type_, TypeInfo::ResolvedButIncomplete(_)) {
+            if let Some(parent) = node.parent {
+                eprintln!("Pushed interesting location {}", parent);
+                self.interesting_locations.push(parent);
+            }
+        }
+
+        eprintln!("Found that node {:?} is of type {}, but incomplete", node.kind, wanted_type);
+        node.type_ = TypeInfo::ResolvedButIncomplete(wanted_type);
+
+        return true;
+    }
 }
 
 pub fn process_ast<'a>(
@@ -81,7 +184,9 @@ pub fn process_ast<'a>(
         ctx.ast.get_mut(root).type_ = TypeInfo::Returns(wanted_type);
     }
 
-    while let Some(interesting_location) = ctx.interesting_locations.pop() {
+    let mut rng = crate::random::Random::new();
+    while !ctx.interesting_locations.is_empty() {
+        let interesting_location = ctx.interesting_locations.remove(rng.gen_u32() as usize % ctx.interesting_locations.len());
         type_node(&mut ctx, interesting_location);
     }
 
@@ -97,25 +202,16 @@ fn type_node(ctx: &mut Context<'_, '_>, node_id: NodeId) {
     let node = ctx.ast.get(node_id);
     let node_type = node.type_;
     if matches!(node_type, TypeInfo::Resolved(_)) {
+        eprintln!("Node {:?} was already typed", node.kind);
         // Already typed!
         return;
     }
+    eprintln!("Started typing node {:?}", node.kind);
     let node_loc = node.loc;
     match node.kind {
         ParsedNodeKind::Literal(Literal::String(ref data)) => {
             let u8_type = Type::new(TypeKind::Int(IntTypeKind::U8));
             let type_ = Type::new(TypeKind::Buffer(u8_type));
-
-            if let Some(wanted_type) = node_type.returns() {
-                if wanted_type != type_ {
-                    ctx.errors.error(
-                        node_loc,
-                        format!("Expected string, found {}", wanted_type),
-                    );
-                    
-                    return;
-                }
-            }
 
             let ptr = ctx.program.insert_buffer(
                 type_,
@@ -125,9 +221,45 @@ fn type_node(ctx: &mut Context<'_, '_>, node_id: NodeId) {
                 } as *const _ as *const _,
             );
 
-            let node = ctx.ast.get_mut(node_id);
-            node.kind = NodeKind::Constant(ptr, None);
-            node.type_ = TypeInfo::Resolved(type_);
+            ctx.set_type(node_id, type_);
+
+            ctx.ast.get_mut(node_id).kind = NodeKind::Constant(ptr, None);
+        }
+        ParsedNodeKind::TypeBound {
+            value,
+            bound,
+        } => {
+            // The right hand side on a type bound is a type expression, so the type of it is in actuality a value.
+            if let TypeInfo::Resolved(inner_type) = ctx.ast.get(bound).type_ {
+                ctx.set_type(node_id, inner_type);
+                ctx.set_expected_type(value, inner_type);
+            }
+        }
+
+        // Type expressions
+        ParsedNodeKind::LiteralType(type_) => {
+            ctx.set_type(node_id, type_);
+        }
+        ParsedNodeKind::BufferType(internal) => {
+            if let TypeInfo::Resolved(inner_type) = ctx.ast.get(internal).type_ {
+                ctx.set_type(node_id, Type::new(TypeKind::Buffer(inner_type)));
+            }
+        }
+        ParsedNodeKind::TypeAsValue(inner) => {
+            let type_ = Type::new(TypeKind::Type);
+            if let TypeInfo::Resolved(inner_type) = ctx.ast.get(inner).type_ {
+                ctx.ast.get_mut(node_id).kind = NodeKind::Constant(
+                    ctx.program.insert_buffer(
+                        Type::new(TypeKind::Type),
+                        &(inner_type.as_ptr() as usize).to_le_bytes() as *const _,
+                    ),
+                    None,
+                );
+
+                ctx.set_type(node_id, type_);
+            } else {
+                ctx.set_type_but_incomplete(node_id, type_);
+            }
         }
         _ => unimplemented!(),
     }

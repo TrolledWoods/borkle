@@ -362,6 +362,10 @@ pub enum NodeKind {
         body: Arc<Ast>,
     },
 
+    /// Any node within this node, is what I call a "type" node. These nodes, when typechecked, actually have their
+    /// type set as their value instead of their type; their type is just "Type". The reason for that is that they're
+    /// essentially a form of compile time execution, but so common that they use this system instead of the bytecode
+    /// system, in the typechecker. It's similar to constant folding, but for types. And it's hacky.
     TypeAsValue(NodeId),
     NamedType {
         name: Ustr,

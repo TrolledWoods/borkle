@@ -19,6 +19,7 @@
     clippy::cast_ptr_alignment,
 )]
 
+mod random;
 mod c_backend;
 mod command_line_arguments;
 mod dependencies;
