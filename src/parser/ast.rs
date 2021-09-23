@@ -10,6 +10,37 @@ use std::fmt;
 use std::sync::Arc;
 use ustr::Ustr;
 
+pub type NodeId = u32;
+
+#[derive(Default)]
+pub struct Ast {
+    pub nodes: Vec<Node>,
+}
+
+impl Ast {
+    pub fn add(&mut self, node: Node) -> NodeId {
+        let id = self.nodes.len() as u32;
+        self.nodes.push(node);
+        id
+    }
+
+    pub fn get(&self, id: NodeId) -> &Node {
+        let id = id as usize;
+        debug_assert!(id < self.nodes.len());
+        unsafe {
+            self.nodes.get_unchecked(id)
+        }
+    }
+
+    pub fn get_mut(&mut self, id: NodeId) -> &mut Node {
+        let id = id as usize;
+        debug_assert!(id < self.nodes.len());
+        unsafe {
+            self.nodes.get_unchecked_mut(id)
+        }
+    }
+}
+
 pub struct Node {
     pub loc: Location,
     pub kind: NodeKind,

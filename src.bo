@@ -1,30 +1,6 @@
-library "mem.bo";
 library "fmt.bo";
+library "mem.bo";
 
-const main = fn() -> u64 {
-    print("\n*******\n\n");
-
-    let a = 2 + 2 * 2;
-    let b = 2 * 2 + 2;
-    let a_array = [&a : &any];
-    let b_array = [&b : &any];
-    print("2 + 2 * 2 = %\n", &a_array);
-    print("2 * 2 + 2 = %\n", &b_array);
-
-    print("Hello, my name is trolled, nice to meet you :)\n");
-    print("\n*******\n\n");
-
-    0
+#entry fn() -> u64 { 'hello
+    44
 };
-
-#entry main;
-
-
-
-
-
-
-// We add some redundant libraries down here so that we can make sure they
-// compile.
-library "string.bo";
-library "vec_u8.bo";
