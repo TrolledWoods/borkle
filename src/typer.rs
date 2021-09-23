@@ -17,6 +17,17 @@ use ustr::Ustr;
 
 pub type Ast = SelfTree<Node>;
 
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+pub enum TypeInfo {
+    /// There is no information yet as to what type this will be.
+    None,
+    /// The type it returns will be this type, but it may have to insert a cast to do it,
+    /// or might not be able to return this at all and will later return an error.
+    Returns(Type),
+    /// The type is entirely resolved, and it's guaranteed to be this type
+    Resolved(Type),
+}
+
 pub mod ast;
 mod infer;
 
@@ -70,6 +81,7 @@ fn type_ast<'a>(
     buffer: &mut SelfBuffer,
 ) -> Result<Node, ()> {
     let node = match ctx.ast.get(parsed).kind {
+        ParsedNodeKind::Constant(_, _) | ParsedNodeKind::ResolvedGlobal(_, _) | ParsedNodeKind::BufferToVoid { .. } | ParsedNodeKind::VoidToBuffer { .. } | ParsedNodeKind::PtrToAny { .. } => unreachable!("These are produced by the typer after resolving the nodes, they shouldn't be typed again"),
         ParsedNodeKind::PolymorphicArgument(index) => {
             let (type_, constant_ref) = ctx.poly_args[index];
             Node::new(ctx.ast.get(parsed).loc, NodeKind::Constant(constant_ref, None), type_)

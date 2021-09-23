@@ -1,9 +1,11 @@
 use crate::dependencies::DependencyList;
+use crate::program::constant::ConstantRef;
+use crate::typer::TypeInfo;
 use crate::literal::Literal;
 use crate::locals::{LabelId, LocalId, LocalVariables};
 use crate::location::Location;
 use crate::operators::{BinaryOp, UnaryOp};
-use crate::program::{BuiltinFunction, ScopeId};
+use crate::program::{BuiltinFunction, ScopeId, MemberId, MemberMetaData};
 use crate::types::{Type, PtrPermits};
 use std::fmt;
 use std::sync::Arc;
@@ -91,11 +93,12 @@ impl AstBuilder {
 pub struct Node {
     pub loc: Location,
     pub kind: NodeKind,
+    pub type_: TypeInfo,
 }
 
 impl Node {
     pub const fn new(loc: Location, kind: NodeKind) -> Self {
-        Self { loc, kind }
+        Self { loc, kind, type_: TypeInfo::None }
     }
 }
 
@@ -115,10 +118,11 @@ pub enum NodeKind {
         inner: NodeId,
     },
 
-    // FIXME: Performance; Put the vector in the self buffer as well, since that should totally be
-    // possible to do.
     Global(ScopeId, Ustr, Vec<NodeId>),
     GlobalForTyping(ScopeId, Ustr, Vec<NodeId>),
+
+    Constant(ConstantRef, Option<Arc<MemberMetaData>>),
+    ResolvedGlobal(MemberId, Arc<MemberMetaData>),
 
     For {
         iterator: LocalId,
@@ -218,12 +222,24 @@ pub enum NodeKind {
     BitCast {
         value: NodeId,
     },
-
     Declare {
         local: LocalId,
         value: NodeId,
     },
     Local(LocalId),
+
+    BufferToVoid {
+        buffer: NodeId,
+        inner: Type,
+    },
+    VoidToBuffer {
+        any: NodeId,
+        inner: Type,
+    },
+    PtrToAny {
+        ptr: NodeId,
+        type_: Type,
+    },
 }
 
 impl fmt::Debug for Node {
