@@ -1,14 +1,33 @@
 library "mem.bo";
 library "fmt.bo";
 
-const assign = fn(assignment: &let u32) {
-    let bad = &let *assignment;
-    *assignment = 42;
+type MyStruct {
+    a: u32;
+    b: u32;
+
+    #alias c = a;
+};
+
+const new[T] = fn() -> MyStruct {
+    let my_uninit = #uninit : MyStruct;
+    my_uninit.b = 5;
+    my_uninit.c = 9;
+    my_uninit
+};
+
+const initialize_subsection = fn(to: &let u32) {
+    *to = 50;
+};
+
+const initialize = fn(to: &let MyStruct) {
+    initialize_subsection(&let to.a);
+    initialize_subsection(&let to.b);
 };
 
 const main = fn() -> u64 {
-    let x = #uninit : u32;
-    assign(&let x);
+    let x = #uninit : MyStruct;
+    initialize(&let x);
+
 
     0
 };

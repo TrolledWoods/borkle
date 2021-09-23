@@ -114,6 +114,8 @@ pub struct ThreadContext<'a> {
 }
 
 fn worker<'a>(alloc: &'a mut Bump, program: &'a Program) -> (ThreadContext<'a>, ErrorCtx) {
+    profile::profile!("Worker thread loop");
+
     let mut errors = ErrorCtx::new();
     let work = program.work();
 
@@ -127,6 +129,8 @@ fn worker<'a>(alloc: &'a mut Bump, program: &'a Program) -> (ThreadContext<'a>, 
         if let Some(task) = work.dequeue() {
             match task {
                 Task::FlagPolyMember(poly_member, MemberDep::Type, mut deps) => {
+                    profile::profile!("Task::FlagPolyMember Type");
+
                     program.logger.log(format_args!(
                         "flagged poly member is typeable '{:?}'",
                         poly_member
@@ -144,6 +148,7 @@ fn worker<'a>(alloc: &'a mut Bump, program: &'a Program) -> (ThreadContext<'a>, 
                     );
                 }
                 Task::FlagPolyMember(poly_member, MemberDep::Value, _) => {
+                    profile::profile!("Task::FlagPolyMember Value");
                     program.logger.log(format_args!(
                         "flagged poly member is value and callable '{:?}'",
                         poly_member
@@ -154,10 +159,14 @@ fn worker<'a>(alloc: &'a mut Bump, program: &'a Program) -> (ThreadContext<'a>, 
                 // FIXME: Think about if we can be less conservative and use this anyway.
                 Task::FlagPolyMember(_, MemberDep::ValueAndCallableIfFunction, _) => {}
 
-                Task::Parse(meta_data, file) => parse_file(&mut errors, program, &file, meta_data),
+                Task::Parse(meta_data, file) => {
+                    profile::profile!("Parse");
+                    parse_file(&mut errors, program, &file, meta_data);
+                },
                 Task::TypeMember(member_id, locals, ast) => {
                     // If it's a polymorphic thing anything could have happened, honestly
                     if !program.member_is_typed(member_id) {
+                        profile::profile!("Task::TypeMember");
                         use crate::typer::ast::NodeKind;
 
                         match crate::typer::process_ast(
@@ -204,6 +213,7 @@ fn worker<'a>(alloc: &'a mut Bump, program: &'a Program) -> (ThreadContext<'a>, 
                 }
                 Task::EmitMember(member_id, locals, ast) => {
                     if !program.member_is_evaluated(member_id) {
+                        profile::profile!("Task::EmitMember");
                         use crate::typer::NodeKind;
 
                         program.logger.log(format_args!(

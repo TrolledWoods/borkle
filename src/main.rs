@@ -40,6 +40,8 @@ mod typer;
 mod types;
 
 fn main() {
+    profile::begin();
+
     let time = std::time::Instant::now();
     let logger = logging::Logger::new();
 
@@ -62,7 +64,7 @@ fn main() {
         let (mut c_output, errors) = thread_pool::run(&mut program, options.num_threads);
 
         let files = program.file_contents();
-        if !errors.print(&files) {
+        if !errors.print(files) {
             // There were errors!
             return;
         }
@@ -133,4 +135,6 @@ fn main() {
             println!("Finished in {:.4} seconds", elapsed.as_secs_f32());
         }
     }
+
+    profile::finish("target\\profile_output.json");
 }

@@ -30,6 +30,8 @@ pub fn process_string(
     string: &str,
     scope: ScopeId,
 ) -> Result<(), ()> {
+    profile::profile!("process_string");
+
     let mut tokens = lexer::process_string(errors, file, string)?;
 
     let mut context = DataContext::new(errors, program, &mut tokens, Path::new(&*file), scope);

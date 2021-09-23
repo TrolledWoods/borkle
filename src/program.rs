@@ -120,6 +120,7 @@ impl Program {
         calls: Vec<FunctionId>,
         routine: Routine,
     ) -> FunctionId {
+        profile::profile!("Insert defined function");
         let mut functions = self.functions.write();
         functions.push(Function {
             loc,
@@ -136,6 +137,7 @@ impl Program {
     /// Locks
     /// * ``functions`` write
     pub fn insert_function(&self, loc: Location) -> FunctionId {
+        profile::profile!("Insert function");
         let mut functions = self.functions.write();
         functions.push(Function {
             loc,
@@ -153,6 +155,7 @@ impl Program {
         calling: Vec<FunctionId>,
         routine: Routine,
     ) {
+        profile::profile!("Set routine of function");
         let mut functions = self.functions.write();
         let old = std::mem::replace(
             &mut functions[function_id].routine,
@@ -186,6 +189,7 @@ impl Program {
     /// Locks
     /// * ``functions`` read
     pub fn get_routine(&self, id: FunctionId) -> Option<Arc<Routine>> {
+        profile::profile!("Get routine");
         let functions = self.functions.read();
 
         // FIXME: This is not very good for performance, we want to avoid cloning arcs. Could we
@@ -200,6 +204,8 @@ impl Program {
     /// * ``entry_point`` write
     /// * ``members`` read
     pub fn get_entry_point(&self) -> Option<FunctionId> {
+        profile::profile!("Get entry point");
+
         let member_id = (*self.entry_point.lock())?;
 
         let members = self.members.read();
@@ -228,6 +234,7 @@ impl Program {
     /// # Locks
     /// * ``members`` read
     pub fn get_member_value(&self, id: MemberId) -> (ConstantRef, Type) {
+        profile::profile!("Get member value");
         let members = self.members.read();
         let member = &members[id];
 
@@ -240,6 +247,7 @@ impl Program {
     /// # Locks
     /// * ``scopes`` write
     pub fn create_scope(&self) -> ScopeId {
+        profile::profile!("Create scope");
         self.scopes.write().push(default())
     }
 
@@ -252,6 +260,7 @@ impl Program {
         from: ScopeId,
         to: ScopeId,
     ) -> Result<(), ()> {
+        profile::profile!("Insert wildcard export");
         let scopes = self.scopes.read();
         let mut wildcards = scopes[from].wildcard_exports.write();
 
@@ -277,6 +286,7 @@ impl Program {
     /// Locks
     /// * ``scopes`` read
     pub fn get_member_id(&self, scope: ScopeId, name: Ustr) -> Option<PolyOrMember> {
+        profile::profile!("Get member id");
         let scopes = self.scopes.read();
         let public = scopes[scope].public_members.get(&name).copied();
         public.or_else(|| scopes[scope].private_members.get(&name).copied())
@@ -285,6 +295,7 @@ impl Program {
     /// Locks
     /// * ``members`` read
     pub fn member_name(&self, id: MemberId) -> Ustr {
+        profile::profile!("Member name");
         let members = self.members.read();
         members[id].name
     }
@@ -292,6 +303,7 @@ impl Program {
     /// Locks
     /// * ``members`` read
     pub fn get_value_of_member(&self, id: MemberId) -> ConstantRef {
+        profile::profile!("Get value of member");
         let members = self.members.read();
         *members[id].value.unwrap()
     }
@@ -299,6 +311,7 @@ impl Program {
     /// Locks
     /// * ``members`` read
     pub fn get_member_type(&self, id: MemberId) -> Type {
+        profile::profile!("Get member type");
         let members = self.members.read();
         members[id].type_.unwrap().0
     }
@@ -306,6 +319,7 @@ impl Program {
     /// Locks
     /// * ``members`` read
     pub fn get_member_meta_data(&self, id: MemberId) -> (Type, Arc<MemberMetaData>) {
+        profile::profile!("program::get_member_meta_data");
         let members = self.members.read();
         members[id].type_.unwrap().clone()
     }
@@ -340,6 +354,7 @@ impl Program {
     }
 
     pub fn add_file(&self, path: impl AsRef<Path>) {
+        profile::profile!("program::add_file");
         self.work
             .enqueue(Task::Parse(None, path.as_ref().to_path_buf()));
     }
@@ -347,6 +362,7 @@ impl Program {
     /// Locks
     /// * ``files`` write
     pub fn insert_file_contents(&self, name: Ustr, path: String) {
+        profile::profile!("program::insert_file_contents");
         self.file_contents.lock().insert(name, path);
     }
 
@@ -369,6 +385,7 @@ impl Program {
         type_: Type,
         get_data: impl FnOnce(*mut u8),
     ) -> ConstantRef {
+        profile::profile!("program::insert_buffer_from_operation");
         if type_.size() == 0 {
             return ConstantRef::dangling();
         }
@@ -419,6 +436,7 @@ impl Program {
     }
 
     pub fn flag_poly_member(&self, id: PolyMemberId, kind: MemberDep) {
+        profile::profile!("program::flag_poly_member");
         match kind {
             MemberDep::Type => {
                 let mut poly_members = self.poly_members.write();
@@ -460,6 +478,7 @@ impl Program {
     }
 
     pub fn flag_member_callable(&self, id: MemberId) {
+        profile::profile!("program::flag_member_callable");
         let mut members = self.members.write();
         let is_monomorphised = members[id].is_monomorphised;
         let old = std::mem::replace(&mut members[id].callable, DependableOption::Some(()));
@@ -496,6 +515,7 @@ impl Program {
     /// * ``members`` write
     /// * ``functions`` write
     pub fn set_value_of_member(&self, id: MemberId, value: ConstantRef) {
+        profile::profile!("program::set_value_of_member");
         let mut members = self.members.write();
         let is_monomorphised = members[id].is_monomorphised;
         let old = std::mem::replace(&mut members[id].value, DependableOption::Some(value));
@@ -518,6 +538,7 @@ impl Program {
     /// # Locks
     /// * ``members`` write
     pub fn set_type_of_member(&self, id: MemberId, type_: Type, meta_data: MemberMetaData) {
+        profile::profile!("program::set_type_of_member");
         let mut members = self.members.write();
         let is_monomorphised = members[id].is_monomorphised;
         let member_type = &mut members[id].type_;
@@ -589,6 +610,7 @@ impl Program {
         ast: crate::parser::Ast,
         num_args: usize,
     ) -> Result<PolyMemberId, ()> {
+        profile::profile!("program::define_polymorphic_member");
         let id = self
             .poly_members
             .write()
@@ -610,6 +632,8 @@ impl Program {
         poly_args: &[(Type, ConstantRef)],
         wanted_dep: MemberDep,
     ) -> Result<MemberId, ()> {
+        profile::profile!("program::monomorphise_poly_member");
+
         // FIXME: Some redundant work going on, but because we do not have a centralized location
         // for things like ast:s in work, we can't do that. Could we have some kind of handle to a
         // task associated with a member, since that might let us get the data associated with that

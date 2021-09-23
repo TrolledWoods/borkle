@@ -39,6 +39,8 @@ pub fn process_ast<'a>(
     wanted_type: Option<Type>,
     poly_args: &[(Type, ConstantRef)],
 ) -> Result<(DependencyList, LocalVariables, Ast), ()> {
+    profile::profile!("Type ast");
+
     let mut deps = DependencyList::new();
     let mut ctx = Context {
         is_const: false,
