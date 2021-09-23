@@ -736,6 +736,7 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, node: NodeId) -> Value {
             }
             to
         }
+        _ => unreachable!("This node should not reach emission"),
     }
 }
 

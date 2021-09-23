@@ -43,8 +43,21 @@ impl AstBuilder {
         Self::default()
     }
 
+    pub fn nodes(&self) -> &[Node] {
+        &self.nodes
+    }
+
     pub fn insert_root(mut self, root: Node) -> Ast {
         let root = self.add(root);
+
+        // @Performance: This is not necessary, it's just to make sure that everything
+        // is correct
+        for (i, node) in self.nodes.iter().enumerate().rev().skip(1).rev() {
+            if i as u32 != root && node.parent.is_none() {
+                panic!("Node without a parent");
+            }
+        }
+
         Ast {
             builder: self,
             root,
@@ -67,8 +80,189 @@ impl AstBuilder {
         }
     }
 
-    pub fn add(&mut self, node: Node) -> NodeId {
+    pub fn add(&mut self, mut node: Node) -> NodeId {
         let id = self.nodes.len() as u32;
+
+        use NodeKind::*;
+
+        match node.kind {
+            Parenthesis(inner) => self.get_mut(inner).parent = Some(id),
+            Literal(_) => {},
+            ArrayLiteral(ref nodes) => for &node in nodes { self.get_mut(node).parent = Some(id); },
+            BuiltinFunction(_) => {},
+
+            PolymorphicArgument(_) => {},
+            ConstAtTyping {
+                locals: _,
+                inner,
+            } => self.get_mut(inner).parent = Some(id),
+            ConstAtEvaluation {
+                locals: _,
+                inner,
+            } => self.get_mut(inner).parent = Some(id),
+
+            Global(_, _, ref nodes) => for &node in nodes { self.get_mut(node).parent = Some(id); },
+            GlobalForTyping(_, _, ref nodes) => for &node in nodes { self.get_mut(node).parent = Some(id); },
+
+            Constant(_, _) => {},
+            ResolvedGlobal(_, _) => {},
+
+            For {
+                iterator: _,
+                iteration_var: _,
+                iterating: condition,
+                body,
+                else_body,
+                label: _,
+            } | While {
+                condition,
+                iteration_var: _,
+                body,
+                else_body,
+                label: _,
+            } | If {
+                condition,
+                true_body: body,
+                false_body: else_body,
+            } => {
+                self.get_mut(condition).parent = Some(id);
+                self.get_mut(body).parent = Some(id);
+                else_body.map(|v| self.get_mut(v).parent = Some(id));
+            },
+            Member {
+                of,
+                name: _,
+            } => self.get_mut(of).parent = Some(id),
+
+            FunctionDeclaration {
+                locals: _,
+                ref args,
+                ref default_args,
+                returns,
+                body_deps: _,
+                body: _,
+            } => {
+                for &(_, arg) in args { self.get_mut(arg).parent = Some(id); }
+                for &(_, arg) in default_args { self.get_mut(arg).parent = Some(id); }
+                self.get_mut(returns).parent = Some(id);
+            },
+
+            BufferType(inner)
+           | TypeAsValue(inner) => self.get_mut(inner).parent = Some(id),
+            NamedType {
+                name: _,
+                ref fields,
+                aliases: _,
+            } | StructType {
+                ref fields,
+            } => for &(_, field) in fields { self.get_mut(field).parent = Some(id); },
+            ReferenceType(inner, _)
+            | Reference(inner, _)
+            | Defer {
+                deferring: inner,
+            } | BitCast {
+                value: inner,
+            } => {
+                self.get_mut(inner).parent = Some(id);
+            },
+            ArrayType {
+                len,
+                members,
+            } => {
+                self.get_mut(len).parent = Some(id);
+                self.get_mut(members).parent = Some(id);
+            },
+            FunctionType {
+                ref args,
+                returns,
+            } => {
+                self.get_mut(returns).parent = Some(id);
+                for &arg in args { self.get_mut(arg).parent = Some(id); }
+            },
+            LiteralType(_) => {},
+
+            Unary {
+                op: _,
+                operand,
+            } => self.get_mut(operand).parent = Some(id),
+            Binary {
+                op: _,
+                left,
+                right,
+            } => {
+                self.get_mut(left).parent = Some(id);
+                self.get_mut(right).parent = Some(id);
+            },
+
+            Break {
+                label: _,
+                num_defer_deduplications: _,
+                value,
+            } => self.get_mut(value).parent = Some(id),
+
+
+            FunctionCall {
+                calling,
+                ref args,
+                ref named_args,
+            } => {
+                self.get_mut(calling).parent = Some(id);
+                for &arg in args { self.get_mut(arg).parent = Some(id); }
+                for &(_, arg) in named_args { self.get_mut(arg).parent = Some(id); }
+            },
+            ResolvedFunctionCall {
+                calling,
+                ref args,
+            } => {
+                self.get_mut(calling).parent = Some(id);
+                for &(_, arg) in args { self.get_mut(arg).parent = Some(id); }
+            },
+
+            Block {
+                ref contents,
+                label: _,
+            } => for &arg in contents { self.get_mut(arg).parent = Some(id); },
+            Empty | Uninit | Zeroed => {},
+
+            TypeBound {
+                value,
+                bound,
+            } => {
+                self.get_mut(value).parent = Some(id);
+                self.get_mut(bound).parent = Some(id);
+            },
+            Declare {
+                local: _,
+                value,
+            } => self.get_mut(value).parent = Some(id),
+            Local(_) => {},
+
+            ArrayToBuffer {
+                length: _,
+                array,
+            } => {
+                self.get_mut(array).parent = Some(id);
+            },
+            BufferToVoid {
+                buffer,
+                inner: _,
+            } => {
+                self.get_mut(buffer).parent = Some(id);
+            },
+            VoidToBuffer {
+                any,
+                inner: _,
+            } => {
+                self.get_mut(any).parent = Some(id);
+            },
+            PtrToAny {
+                ptr,
+                type_: _,
+            } => {
+                self.get_mut(ptr).parent = Some(id);
+            },
+        }
+
         self.nodes.push(node);
         id
     }
@@ -93,12 +287,13 @@ impl AstBuilder {
 pub struct Node {
     pub loc: Location,
     pub kind: NodeKind,
+    pub parent: Option<NodeId>,
     pub type_: TypeInfo,
 }
 
 impl Node {
     pub const fn new(loc: Location, kind: NodeKind) -> Self {
-        Self { loc, kind, type_: TypeInfo::None }
+        Self { loc, kind, type_: TypeInfo::None, parent: None }
     }
 
     pub fn type_(&self) -> Type {

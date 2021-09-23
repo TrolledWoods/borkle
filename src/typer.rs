@@ -26,11 +26,21 @@ pub enum TypeInfo {
     Resolved(Type),
 }
 
+impl TypeInfo {
+    fn returns(&self) -> Option<Type> {
+        match *self {
+            Self::Returns(type_) | Self::Resolved(type_) => Some(type_),
+            Self::None => None,
+        }
+    }
+}
+
 pub mod ast;
 mod infer;
 
 struct Context<'a, 'b> {
     is_const: bool,
+    has_errors: bool,
     thread_context: &'a mut ThreadContext<'b>,
     errors: &'a mut ErrorCtx,
     program: &'b Program,
@@ -38,6 +48,7 @@ struct Context<'a, 'b> {
     deps: &'a mut DependencyList,
     poly_args: &'a [(Type, ConstantRef)],
     ast: ParsedAst,
+    interesting_locations: Vec<NodeId>,
 }
 
 pub fn process_ast<'a>(
@@ -54,20 +65,75 @@ pub fn process_ast<'a>(
     let mut deps = DependencyList::new();
     let mut ctx = Context {
         is_const: false,
+        has_errors: false,
         thread_context,
         errors,
         program,
         locals,
         deps: &mut deps,
         poly_args,
+        interesting_locations: (0..parsed.nodes.len() as u32).collect(),
         ast: parsed,
     };
-    let root = type_ast(&mut ctx, wanted_type.into(), parsed.root)?;
-    let tree = buffer.insert_root(root);
-    let locals = ctx.locals;
-    Ok((deps, locals, ctx.ast))
+
+    if let Some(wanted_type) = wanted_type {
+        let root = ctx.ast.root;
+        ctx.ast.get_mut(root).type_ = TypeInfo::Returns(wanted_type);
+    }
+
+    while let Some(interesting_location) = ctx.interesting_locations.pop() {
+        type_node(&mut ctx, interesting_location);
+    }
+
+    if ctx.has_errors {
+        return Err(());
+    }
+
+    let (locals, ast) = (ctx.locals, ctx.ast);
+    Ok((deps, locals, ast))
 }
 
+fn type_node(ctx: &mut Context<'_, '_>, node_id: NodeId) {
+    let node = ctx.ast.get(node_id);
+    let node_type = node.type_;
+    if matches!(node_type, TypeInfo::Resolved(_)) {
+        // Already typed!
+        return;
+    }
+    let node_loc = node.loc;
+    match node.kind {
+        ParsedNodeKind::Literal(Literal::String(ref data)) => {
+            let u8_type = Type::new(TypeKind::Int(IntTypeKind::U8));
+            let type_ = Type::new(TypeKind::Buffer(u8_type));
+
+            if let Some(wanted_type) = node_type.returns() {
+                if wanted_type != type_ {
+                    ctx.errors.error(
+                        node_loc,
+                        format!("Expected string, found {}", wanted_type),
+                    );
+                    
+                    return;
+                }
+            }
+
+            let ptr = ctx.program.insert_buffer(
+                type_,
+                &crate::types::BufferRepr {
+                    ptr: data.as_ptr() as *mut _,
+                    length: data.len(),
+                } as *const _ as *const _,
+            );
+
+            let node = ctx.ast.get_mut(node_id);
+            node.kind = NodeKind::Constant(ptr, None);
+            node.type_ = TypeInfo::Resolved(type_);
+        }
+        _ => unimplemented!(),
+    }
+}
+
+/*
 /// If the `wanted_type` is Some(type_), this function itself will generate an error if the types
 /// do not match, i.e., if Some(type_) is passed as the `wanted_type`, if the function returns Ok
 /// that is guaranteed to be the type_ passed in.
@@ -1702,3 +1768,4 @@ fn monomorphise<'a>(
         }
     }
 }
+*/
