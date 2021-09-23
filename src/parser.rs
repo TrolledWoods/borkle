@@ -220,7 +220,7 @@ fn expression_rec(
 ) -> Result<Node, ()> {
     let mut expr = value(global, imperative, buffer)?;
 
-    while let Some((loc, op)) = global.tokens.try_consume_operator_with_precedence::<BinaryOp>(precedence) {
+    while let Some((loc, op)) = global.tokens.try_consume_operator_with_precedence(precedence) {
         // @Improvement: Reimplement `has_to_be_alone`
     
         if op == BinaryOp::TypeBound {
@@ -903,20 +903,7 @@ fn value_without_unaries(
                     }
                     _ => {
                         let inner = expression(global, imperative, buffer)?;
-
-                        if let Some(loc) = global.tokens.try_consume_operator_string("=") {
-                            let rvalue = expression(global, imperative, buffer)?;
-                            let assignment = Node::new(
-                                loc,
-                                NodeKind::Assign {
-                                    lvalue: buffer.insert(inner),
-                                    rvalue: buffer.insert(rvalue),
-                                },
-                            );
-                            contents.push(buffer.insert(assignment));
-                        } else {
-                            contents.push(buffer.insert(inner));
-                        }
+                        contents.push(buffer.insert(inner));
                     }
                 }
 

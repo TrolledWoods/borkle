@@ -3,7 +3,7 @@ use crate::errors::ErrorCtx;
 use crate::literal::Literal;
 use crate::locals::LocalVariables;
 use crate::location::Location;
-use crate::operators::UnaryOp;
+use crate::operators::{UnaryOp, BinaryOp};
 use crate::parser::{ast::Node as ParsedNode, ast::NodeKind as ParsedNodeKind, Ast as ParsedAst};
 use crate::program::constant::ConstantRef;
 use crate::program::{MemberId, MemberMetaData, PolyOrMember, Program, Task};
@@ -513,9 +513,10 @@ fn type_ast<'a>(
                 type_,
             )
         }
-        ParsedNodeKind::Assign {
-            ref lvalue,
-            ref rvalue,
+        ParsedNodeKind::Binary {
+            op: BinaryOp::Assign,
+            left: ref lvalue,
+            right: ref rvalue,
         } => {
             let lvalue = type_ast(ctx, WantedType::none(), lvalue, buffer)?;
             make_sure_valid_lvalue(ctx, &lvalue, PtrPermits::WRITE)?;

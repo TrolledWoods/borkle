@@ -1,7 +1,7 @@
 use super::lexer::{Token, TokenKind};
 use crate::errors::ErrorCtx;
 use crate::location::Location;
-use crate::operators::{Operator, UnaryOp};
+use crate::operators::{Operator, UnaryOp, BinaryOp};
 use ustr::Ustr;
 
 pub struct TokenStream {
@@ -57,15 +57,21 @@ impl TokenStream {
         })
     }
 
-    pub fn try_consume_operator_with_precedence<T: Operator>(
+    pub fn try_consume_operator_with_precedence(
         &mut self,
         precedence: usize,
-    ) -> Option<(Location, T)> {
+    ) -> Option<(Location, BinaryOp)> {
         let token = self.peek_mut()?;
         if let TokenKind::Operator(ref mut string) = token.kind {
-            if let Some((op, suffix)) = T::from_prefix(string) {
-                if op.precedence() <= precedence {
-                    return None;
+            if let Some((op, suffix)) = BinaryOp::from_prefix(string) {
+                if op.is_right_to_left() {
+                    if op.precedence() < precedence {
+                        return None;
+                    }
+                } else {
+                    if op.precedence() <= precedence {
+                        return None;
+                    }
                 }
                 
                 let loc = token.loc;

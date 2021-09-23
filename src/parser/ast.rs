@@ -160,10 +160,6 @@ pub enum NodeKind {
         local: LocalId,
         value: SelfBox<Node>,
     },
-    Assign {
-        lvalue: SelfBox<Node>,
-        rvalue: SelfBox<Node>,
-    },
     Local(LocalId),
 }
 

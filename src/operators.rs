@@ -119,6 +119,8 @@ operator!(BinaryOp {
     Div = ("/", 102),
     BitAnd = ("&", 7),
     BitOr = ("|", 7),
+
+    Assign = ("=", 1),
 });
 
 operator!(AccessOp {
@@ -126,6 +128,10 @@ operator!(AccessOp {
 });
 
 impl BinaryOp {
+    pub fn is_right_to_left(self) -> bool {
+        matches!(self, BinaryOp::Assign)
+    }
+
     fn is_algebraic(self) -> bool {
         matches!(
             self,
