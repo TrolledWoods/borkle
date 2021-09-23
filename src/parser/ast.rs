@@ -11,7 +11,7 @@ use ustr::Ustr;
 
 pub type NodeId = u32;
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Ast {
     builder: AstBuilder,
     pub root: NodeId,
@@ -31,7 +31,7 @@ impl std::ops::DerefMut for Ast {
     }
 }
 
-#[derive(Debug, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct AstBuilder {
     pub nodes: Vec<Node>,
 }
@@ -87,6 +87,7 @@ impl AstBuilder {
     }*/
 }
 
+#[derive(Clone)]
 pub struct Node {
     pub loc: Location,
     pub kind: NodeKind,
@@ -98,7 +99,7 @@ impl Node {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum NodeKind {
     Literal(Literal),
     ArrayLiteral(Vec<NodeId>),
