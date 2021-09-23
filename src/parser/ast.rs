@@ -13,11 +13,42 @@ pub type NodeId = u32;
 
 #[derive(Debug)]
 pub struct Ast {
-    pub nodes: Vec<Node>,
+    builder: AstBuilder,
     pub root: NodeId,
 }
 
-impl Ast {
+impl std::ops::Deref for Ast {
+    type Target = AstBuilder;
+
+    fn deref(&self) -> &Self::Target {
+        &self.builder
+    }
+}
+
+impl std::ops::DerefMut for Ast {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.builder
+    }
+}
+
+#[derive(Debug, Default)]
+pub struct AstBuilder {
+    pub nodes: Vec<Node>,
+}
+
+impl AstBuilder {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn insert_root(mut self, root: Node) -> Ast {
+        let root = self.add(root);
+        Ast {
+            builder: self,
+            root,
+        }
+    }
+
     pub fn get(&self, id: NodeId) -> &Node {
         let id = id as usize;
         debug_assert!(id < self.nodes.len());
@@ -31,25 +62,6 @@ impl Ast {
         debug_assert!(id < self.nodes.len());
         unsafe {
             self.nodes.get_unchecked_mut(id)
-        }
-    }
-}
-
-#[derive(Default)]
-pub struct AstBuilder {
-    pub nodes: Vec<Node>,
-}
-
-impl AstBuilder {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    pub fn insert_root(mut self, root: Node) -> Ast {
-        let root = self.add(root);
-        Ast {
-            nodes: self.nodes,
-            root,
         }
     }
 
