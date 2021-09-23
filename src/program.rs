@@ -675,8 +675,10 @@ impl Program {
             member_id
         });
 
-        let ast = Arc::clone(&poly_members[id].ast);
+        let ast = poly_members[id].ast.clone();
         drop(poly_members);
+
+        let ast = (*ast).clone();
 
         // Is the thing we want already computed?
         match wanted_dep {
@@ -690,7 +692,7 @@ impl Program {
 
         // FIXME: This is also happening in the thread_pool for the tasks there; should we try and
         // combine the two?
-        let (locals, parsed_ast) = &*ast;
+        let (locals, parsed_ast) = ast;
         let (dependency_list, locals, typed_ast) = crate::typer::process_ast(
             errors,
             thread_context,
@@ -702,7 +704,7 @@ impl Program {
         )?;
 
         // FIXME: Calculate the member meta data here.
-        self.set_type_of_member(member_id, typed_ast.type_(), MemberMetaData::None);
+        self.set_type_of_member(member_id, typed_ast.get(typed_ast.root).type_(), MemberMetaData::None);
 
         if wanted_dep < MemberDep::Value {
             self.queue_task(
@@ -716,7 +718,7 @@ impl Program {
 
         assert_ne!(wanted_dep, MemberDep::Value, "Depending on just the value shouldn't really happen in this place, because either you go full on callable or you depend on the type. If you need to depend on the value it monomorphises it by depending on the type and then calculates the type on the value individually.");
 
-        let (_, routine) = crate::emit::emit(thread_context, self, locals, &typed_ast);
+        let (_, routine) = crate::emit::emit(thread_context, self, locals, &typed_ast, typed_ast.root);
         let mut stack = crate::interp::Stack::new(2048);
 
         let result = crate::interp::interp(self, &mut stack, &routine);
@@ -1212,7 +1214,7 @@ pub enum Task {
     TypeFunction(
         FunctionId,
         crate::locals::LocalVariables,
-        Arc<crate::parser::Ast>,
+        crate::parser::Ast,
         Type,
         Type,
         Vec<(Type, ConstantRef)>,

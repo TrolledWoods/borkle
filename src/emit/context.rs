@@ -1,6 +1,7 @@
 use crate::ir::{Instr, LabelId, Member, Registers, Value};
 use crate::locals::LocalVariables;
 use crate::operators::{BinaryOp, UnaryOp};
+use crate::parser::ast::{Ast, NodeId};
 use crate::program::{FunctionId, Program};
 use crate::thread_pool::ThreadContext;
 use crate::typer::ast::Node;
@@ -13,8 +14,9 @@ pub struct Context<'a, 'b> {
     pub program: &'b Program,
     pub label_locations: Vec<usize>,
     pub calling: Vec<FunctionId>,
+    pub ast: &'a Ast,
 
-    pub defers: Vec<&'a Node>,
+    pub defers: Vec<NodeId>,
 }
 
 impl Context<'_, '_> {

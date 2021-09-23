@@ -100,6 +100,14 @@ impl Node {
     pub const fn new(loc: Location, kind: NodeKind) -> Self {
         Self { loc, kind, type_: TypeInfo::None }
     }
+
+    pub fn type_(&self) -> Type {
+        if let TypeInfo::Resolved(type_) = self.type_ {
+            type_
+        } else {
+            unreachable!("Called type_ on Node before typing was completed");
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -206,6 +214,11 @@ pub enum NodeKind {
         args: Vec<NodeId>,
         named_args: Vec<(Ustr, NodeId)>,
     },
+    ResolvedFunctionCall {
+        calling: NodeId,
+        args: Vec<(usize, NodeId)>,
+    },
+
     Block {
         contents: Vec<NodeId>,
         label: Option<LabelId>,
@@ -228,6 +241,10 @@ pub enum NodeKind {
     },
     Local(LocalId),
 
+    ArrayToBuffer {
+        length: usize,
+        array: NodeId,
+    },
     BufferToVoid {
         buffer: NodeId,
         inner: Type,

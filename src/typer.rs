@@ -10,12 +10,10 @@ use crate::program::{MemberId, MemberMetaData, PolyOrMember, Program, Task};
 use crate::self_buffer::{SelfBuffer, SelfTree};
 use crate::thread_pool::ThreadContext;
 use crate::types::{Alias, IntTypeKind, PtrPermits, Type, TypeData, TypeKind};
-pub use ast::{Node, NodeKind};
+pub use crate::parser::{ast::Node, ast::NodeKind, Ast, ast::NodeId};
 use infer::WantedType;
 use std::sync::Arc;
 use ustr::Ustr;
-
-pub type Ast = SelfTree<Node>;
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub enum TypeInfo {
@@ -39,7 +37,7 @@ struct Context<'a, 'b> {
     locals: LocalVariables,
     deps: &'a mut DependencyList,
     poly_args: &'a [(Type, ConstantRef)],
-    ast: &'a ParsedAst,
+    ast: ParsedAst,
 }
 
 pub fn process_ast<'a>(
@@ -47,7 +45,7 @@ pub fn process_ast<'a>(
     thread_context: &mut ThreadContext<'a>,
     program: &'a Program,
     locals: LocalVariables,
-    parsed: &ParsedAst,
+    parsed: ParsedAst,
     wanted_type: Option<Type>,
     poly_args: &[(Type, ConstantRef)],
 ) -> Result<(DependencyList, LocalVariables, Ast), ()> {
@@ -64,11 +62,10 @@ pub fn process_ast<'a>(
         poly_args,
         ast: parsed,
     };
-    let mut buffer = SelfBuffer::new();
-    let root = type_ast(&mut ctx, wanted_type.into(), parsed.root, &mut buffer)?;
+    let root = type_ast(&mut ctx, wanted_type.into(), parsed.root)?;
     let tree = buffer.insert_root(root);
     let locals = ctx.locals;
-    Ok((deps, locals, tree))
+    Ok((deps, locals, ctx.ast))
 }
 
 /// If the `wanted_type` is Some(type_), this function itself will generate an error if the types
@@ -78,7 +75,6 @@ fn type_ast<'a>(
     ctx: &mut Context<'a, '_>,
     wanted_type: WantedType,
     parsed: ParsedNodeId,
-    buffer: &mut SelfBuffer,
 ) -> Result<Node, ()> {
     let node = match ctx.ast.get(parsed).kind {
         ParsedNodeKind::Constant(_, _) | ParsedNodeKind::ResolvedGlobal(_, _) | ParsedNodeKind::BufferToVoid { .. } | ParsedNodeKind::VoidToBuffer { .. } | ParsedNodeKind::PtrToAny { .. } => unreachable!("These are produced by the typer after resolving the nodes, they shouldn't be typed again"),

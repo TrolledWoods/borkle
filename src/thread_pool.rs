@@ -167,32 +167,32 @@ fn worker<'a>(alloc: &'a mut Bump, program: &'a Program) -> (ThreadContext<'a>, 
                     // If it's a polymorphic thing anything could have happened, honestly
                     if !program.member_is_typed(member_id) {
                         profile::profile!("Task::TypeMember");
-                        use crate::typer::ast::NodeKind;
+                        use crate::parser::ast::NodeKind;
 
                         match crate::typer::process_ast(
                             &mut errors,
                             &mut thread_context,
                             program,
                             locals,
-                            &ast,
+                            ast,
                             None,
                             &[],
                         ) {
                             Ok((dependencies, locals, ast)) => {
-                                let meta_data = match ast.kind() {
+                                let meta_data = match &ast.get(ast.root).kind {
                                     NodeKind::Constant(_, Some(meta_data)) => {
                                         (&**meta_data).clone()
                                     }
-                                    NodeKind::Global(_, meta_data) => (&**meta_data).clone(),
+                                    NodeKind::ResolvedGlobal(_, meta_data) => (&**meta_data).clone(),
                                     _ => MemberMetaData::None,
                                 };
-                                let type_ = ast.type_();
+                                let type_ = ast.get(ast.root).type_();
 
                                 if type_.can_be_stored_in_constant() {
                                     program.logger.log(format_args!(
                                         "type '{}' {:?}",
                                         program.member_name(member_id),
-                                        ast.type_(),
+                                        ast.get(ast.root).type_(),
                                     ));
 
                                     program.set_type_of_member(member_id, type_, meta_data);
@@ -201,7 +201,7 @@ fn worker<'a>(alloc: &'a mut Bump, program: &'a Program) -> (ThreadContext<'a>, 
                                         Task::EmitMember(member_id, locals, ast),
                                     );
                                 } else {
-                                    errors.error(ast.loc, format!("'{}' cannot be stored in a constant, because it contains types that the compiler cannot reason about properly, such as '&any', '[] any', or similar", type_));
+                                    errors.error(ast.get(ast.root).loc, format!("'{}' cannot be stored in a constant, because it contains types that the compiler cannot reason about properly, such as '&any', '[] any', or similar", type_));
                                 }
                             }
                             Err(()) => {
@@ -219,10 +219,10 @@ fn worker<'a>(alloc: &'a mut Bump, program: &'a Program) -> (ThreadContext<'a>, 
                         program.logger.log(format_args!(
                             "emitting member '{}' {:?}",
                             program.member_name(member_id),
-                            ast.type_(),
+                            ast.get(ast.root).type_(),
                         ));
 
-                        match ast.kind() {
+                        match &ast.get(ast.root).kind {
                             NodeKind::Constant(result, _) => {
                                 program.logger.log(format_args!(
                                     "value(at emitting step, through shortcut) '{}'",
@@ -236,15 +236,15 @@ fn worker<'a>(alloc: &'a mut Bump, program: &'a Program) -> (ThreadContext<'a>, 
                                 // pointers behind other pointers yet!
                                 let mut dependencies = DependencyList::new();
                                 for function_id in
-                                    unsafe { ast.type_().get_function_ids(result.as_ptr()) }
+                                    unsafe { ast.get(ast.root).type_().get_function_ids(result.as_ptr()) }
                                 {
-                                    dependencies.add(ast.loc, DepKind::Callable(function_id));
+                                    dependencies.add(ast.get(ast.root).loc, DepKind::Callable(function_id));
                                 }
 
                                 program
                                     .queue_task(dependencies, Task::FlagMemberCallable(member_id));
                             }
-                            NodeKind::Global(aliasing, _) => {
+                            NodeKind::ResolvedGlobal(aliasing, _) => {
                                 program.logger.log(format_args!(
                                     "value(at emitting step, through shortcut) '{}'",
                                     program.member_name(member_id),
@@ -258,9 +258,9 @@ fn worker<'a>(alloc: &'a mut Bump, program: &'a Program) -> (ThreadContext<'a>, 
                                 // pointers behind other pointers yet!
                                 let mut dependencies = DependencyList::new();
                                 for function_id in
-                                    unsafe { ast.type_().get_function_ids(result.as_ptr()) }
+                                    unsafe { ast.get(ast.root).type_().get_function_ids(result.as_ptr()) }
                                 {
-                                    dependencies.add(ast.loc, DepKind::Callable(function_id));
+                                    dependencies.add(ast.get(ast.root).loc, DepKind::Callable(function_id));
                                 }
 
                                 program
@@ -268,12 +268,12 @@ fn worker<'a>(alloc: &'a mut Bump, program: &'a Program) -> (ThreadContext<'a>, 
                             }
                             _ => {
                                 let (calling, routine) =
-                                    crate::emit::emit(&mut thread_context, program, locals, &ast);
+                                    crate::emit::emit(&mut thread_context, program, locals, &ast, ast.root);
 
                                 let mut dependencies = DependencyList::new();
                                 for call in calling {
                                     // FIXME: This should include the location of the call
-                                    dependencies.add(ast.loc, DepKind::Callable(call));
+                                    dependencies.add(ast.get(ast.root).loc, DepKind::Callable(call));
                                 }
                                 program.queue_task(
                                     dependencies,
@@ -325,7 +325,7 @@ fn worker<'a>(alloc: &'a mut Bump, program: &'a Program) -> (ThreadContext<'a>, 
                         &mut thread_context,
                         program,
                         locals,
-                        &ast,
+                        ast,
                         Some(return_type),
                         &poly_args,
                     ) {
