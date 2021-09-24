@@ -4,7 +4,6 @@ use crate::operators::{BinaryOp, UnaryOp};
 use crate::parser::ast::{Ast, NodeId};
 use crate::program::{FunctionId, Program};
 use crate::thread_pool::ThreadContext;
-use crate::typer::ast::Node;
 
 pub struct Context<'a, 'b> {
     pub thread_context: &'a mut ThreadContext<'b>,

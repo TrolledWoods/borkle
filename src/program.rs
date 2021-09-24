@@ -318,6 +318,14 @@ impl Program {
 
     /// Locks
     /// * ``members`` read
+    pub fn try_get_member_meta_data(&self, id: MemberId) -> Option<(Type, Arc<MemberMetaData>)> {
+        profile::profile!("program::try_get_member_meta_data");
+        let members = self.members.read();
+        members[id].type_.to_option().map(|v| v.clone())
+    }
+
+    /// Locks
+    /// * ``members`` read
     pub fn get_member_meta_data(&self, id: MemberId) -> (Type, Arc<MemberMetaData>) {
         profile::profile!("program::get_member_meta_data");
         let members = self.members.read();
@@ -632,6 +640,7 @@ impl Program {
         poly_args: &[(Type, ConstantRef)],
         wanted_dep: MemberDep,
     ) -> Result<MemberId, ()> {
+        /*
         profile::profile!("program::monomorphise_poly_member");
 
         // FIXME: Some redundant work going on, but because we do not have a centralized location
@@ -693,15 +702,12 @@ impl Program {
         // FIXME: This is also happening in the thread_pool for the tasks there; should we try and
         // combine the two?
         let (locals, parsed_ast) = ast;
-        let (dependency_list, locals, typed_ast) = crate::typer::process_ast(
-            errors,
-            thread_context,
-            self,
-            locals.clone(),
-            parsed_ast,
-            None,
-            poly_args,
-        )?;
+        match crate::typer::process_ast(errors, thread_context, self, locals.clone(), parsed_ast, None, poly_args)? {
+            Ok((dependency_list, locals, typed_ast)) => {
+            }
+            Err((dependency_list, yield_info)) => {
+            }
+        }
 
         // FIXME: Calculate the member meta data here.
         self.set_type_of_member(member_id, typed_ast.get(typed_ast.root).type_(), MemberMetaData::None);
@@ -737,6 +743,8 @@ impl Program {
         }
 
         Ok(member_id)
+        */
+        panic!("Monomorphise poly member temporarily disabled");
     }
 
     /// # Locks
@@ -1207,14 +1215,13 @@ pub enum Task {
     FlagPolyMember(PolyMemberId, MemberDep, DependencyList),
 
     Parse(Option<(Location, ScopeId)>, PathBuf),
-    TypeMember(MemberId, crate::locals::LocalVariables, crate::parser::Ast),
+    TypeMember(MemberId, crate::typer::YieldData),
     EmitMember(MemberId, crate::locals::LocalVariables, crate::typer::Ast),
     EvaluateMember(MemberId, crate::ir::UserDefinedRoutine),
     FlagMemberCallable(MemberId),
     TypeFunction(
         FunctionId,
-        crate::locals::LocalVariables,
-        crate::parser::Ast,
+        crate::typer::YieldData,
         Type,
         Type,
         Vec<(Type, ConstantRef)>,
@@ -1235,11 +1242,11 @@ impl fmt::Debug for Task {
             }
 
             Task::Parse(_, buf) => write!(f, "parse({:?})", buf),
-            Task::TypeMember(id, _, _) => write!(f, "type_member({:?})", id),
+            Task::TypeMember(id, _) => write!(f, "type_member({:?})", id),
             Task::EmitMember(id, _, _) => write!(f, "emit_member({:?})", id),
             Task::EvaluateMember(id, _) => write!(f, "evaluate_member({:?})", id),
             Task::FlagMemberCallable(id) => write!(f, "flag_member_callable({:?})", id),
-            Task::TypeFunction(id, _, _, _, _, _) => write!(f, "type_function({:?})", id),
+            Task::TypeFunction(id, _, _, _, _) => write!(f, "type_function({:?})", id),
             Task::EmitFunction(id, _, _, _) => write!(f, "emit_function({:?})", id),
         }
     }

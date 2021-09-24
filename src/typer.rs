@@ -43,23 +43,57 @@ impl TypeInfo {
     }
 }
 
-pub mod ast;
 mod infer;
 
+pub struct YieldData {
+    emit_deps: DependencyList,
+    locals: LocalVariables,
+    ast: ParsedAst,
+    interesting_locations: Vec<NodeId>,
+}
+
+impl YieldData {
+    pub fn new(locals: LocalVariables, ast: ParsedAst) -> Self {
+        Self {
+            locals,
+            emit_deps: DependencyList::new(),
+            interesting_locations: (0..ast.nodes().len() as u32 - 1).collect(),
+            ast,
+        }
+    }
+}
+
 struct Context<'a, 'b> {
-    is_const: bool,
     has_errors: bool,
     thread_context: &'a mut ThreadContext<'b>,
     errors: &'a mut ErrorCtx,
     program: &'b Program,
     locals: LocalVariables,
-    deps: &'a mut DependencyList,
-    poly_args: &'a [(Type, ConstantRef)],
+    /// Dependencies necessary for the next yield.
+    yield_deps: DependencyList,
+    /// Dependencies necessary for being able to emit code for this output.
+    emit_deps: DependencyList,
     ast: ParsedAst,
     interesting_locations: Vec<NodeId>,
+    /// Locations where we couldn't continue because things we depend
+    /// on haven't been resolved. We will resume after all the new dependencies
+    /// have been dispatched.
+    unresolved_dependency_locations: Vec<NodeId>,
 }
 
 impl Context<'_, '_> {
+    fn into_yield_data(self) -> (DependencyList, YieldData) {
+        (
+            self.yield_deps,
+            YieldData {
+                emit_deps: self.emit_deps,
+                locals: self.locals,
+                ast: self.ast,
+                interesting_locations: self.unresolved_dependency_locations,
+            },
+        )
+    }
+
     /// Sets the type that's expected for a given node. Will ping the node, if the expectation is different from what it was previously.
     /// If the expectation cannot be fulfilled(it is already expected to be a different type, or is a different type), it will emit an error.
     ///
@@ -167,30 +201,27 @@ pub fn process_ast<'a>(
     errors: &mut ErrorCtx,
     thread_context: &mut ThreadContext<'a>,
     program: &'a Program,
-    locals: LocalVariables,
-    parsed: ParsedAst,
-    wanted_type: Option<Type>,
-    poly_args: &[(Type, ConstantRef)],
-) -> Result<(DependencyList, LocalVariables, Ast), ()> {
+    from: YieldData,
+) -> Result<Result<(DependencyList, LocalVariables, Ast), (DependencyList, YieldData)>, ()> {
     profile::profile!("Type ast");
 
-    let mut deps = DependencyList::new();
+    let mut yield_deps = DependencyList::new();
     let mut ctx = Context {
-        is_const: false,
         has_errors: false,
         thread_context,
         errors,
         program,
-        locals,
-        deps: &mut deps,
-        poly_args,
-        interesting_locations: (0..parsed.nodes.len() as u32).collect(),
-        ast: parsed,
+        locals: from.locals,
+        yield_deps,
+        emit_deps: from.emit_deps,
+        interesting_locations: from.interesting_locations,
+        unresolved_dependency_locations: Vec::new(),
+        ast: from.ast,
     };
 
-    if let Some(wanted_type) = wanted_type {
+    /*if let Some(wanted_type) = wanted_type {
         ctx.set_expected_type(ctx.ast.root, wanted_type);
-    }
+    }*/
 
     let mut rng = crate::random::Random::new();
     while !ctx.interesting_locations.is_empty() {
@@ -198,12 +229,15 @@ pub fn process_ast<'a>(
         type_node(&mut ctx, interesting_location);
     }
 
-    if ctx.has_errors {
-        return Err(());
-    }
+    if ctx.unresolved_dependency_locations.is_empty() {
+        if ctx.has_errors {
+            return Err(());
+        }
 
-    let (locals, ast) = (ctx.locals, ctx.ast);
-    Ok((deps, locals, ast))
+        Ok(Ok((ctx.emit_deps, ctx.locals, ctx.ast)))
+    } else {
+        Ok(Err(ctx.into_yield_data()))
+    }
 }
 
 fn type_node(ctx: &mut Context<'_, '_>, node_id: NodeId) {
@@ -252,7 +286,7 @@ fn type_node(ctx: &mut Context<'_, '_>, node_id: NodeId) {
                 let could_set_type = ctx.set_type(node_id, global_type);
                 if could_set_type {
                     // TODO: Deal with constant values. Instead of is_const being in the context(which it can't be now), maybe it should be in the NodeKind itself. Constant values have to be callable and value, because if they're functions they're going to be called when emitting the code.
-                    ctx.deps.add(node_loc, DepKind::Member(id, MemberDep::Value));
+                    ctx.emit_deps.add(node_loc, DepKind::Member(id, MemberDep::Value));
                     ctx.ast.get_mut(node_id).kind = NodeKind::ResolvedGlobal(id, meta_data);
                 }
             } else {

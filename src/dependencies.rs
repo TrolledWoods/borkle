@@ -3,7 +3,7 @@ use crate::program::{FunctionId, MemberId, ScopeId};
 use std::cmp::Ordering;
 use ustr::Ustr;
 
-#[derive(Clone, Debug)]
+#[derive(Default, Clone, Debug)]
 pub struct DependencyList {
     pub deps: Vec<(Location, DepKind)>,
 }

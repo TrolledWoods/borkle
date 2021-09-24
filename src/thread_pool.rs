@@ -163,7 +163,7 @@ fn worker<'a>(alloc: &'a mut Bump, program: &'a Program) -> (ThreadContext<'a>, 
                     profile::profile!("Parse");
                     parse_file(&mut errors, program, &file, meta_data);
                 },
-                Task::TypeMember(member_id, locals, ast) => {
+                Task::TypeMember(member_id, yield_info) => {
                     // If it's a polymorphic thing anything could have happened, honestly
                     if !program.member_is_typed(member_id) {
                         profile::profile!("Task::TypeMember");
@@ -173,12 +173,9 @@ fn worker<'a>(alloc: &'a mut Bump, program: &'a Program) -> (ThreadContext<'a>, 
                             &mut errors,
                             &mut thread_context,
                             program,
-                            locals,
-                            ast,
-                            None,
-                            &[],
+                            yield_info,
                         ) {
-                            Ok((dependencies, locals, ast)) => {
+                            Ok(Ok((dependencies, locals, ast))) => {
                                 let meta_data = match &ast.get(ast.root).kind {
                                     NodeKind::Constant(_, Some(meta_data)) => {
                                         (&**meta_data).clone()
@@ -203,6 +200,9 @@ fn worker<'a>(alloc: &'a mut Bump, program: &'a Program) -> (ThreadContext<'a>, 
                                 } else {
                                     errors.error(ast.get(ast.root).loc, format!("'{}' cannot be stored in a constant, because it contains types that the compiler cannot reason about properly, such as '&any', '[] any', or similar", type_));
                                 }
+                            }
+                            Ok(Err((dependencies, yield_info))) => {
+                                program.queue_task(dependencies, Task::TypeMember(member_id, yield_info));
                             }
                             Err(()) => {
                                 // TODO: Here we want to poison the Value parameter of the thing this
@@ -315,7 +315,7 @@ fn worker<'a>(alloc: &'a mut Bump, program: &'a Program) -> (ThreadContext<'a>, 
                         }
                     }
                 }
-                Task::TypeFunction(function_id, locals, ast, return_type, type_, poly_args) => {
+                Task::TypeFunction(function_id, yield_data, return_type, type_, poly_args) => {
                     program
                         .logger
                         .log(format_args!("typing function '{:?}'", function_id));
@@ -324,15 +324,18 @@ fn worker<'a>(alloc: &'a mut Bump, program: &'a Program) -> (ThreadContext<'a>, 
                         &mut errors,
                         &mut thread_context,
                         program,
-                        locals,
-                        ast,
-                        Some(return_type),
-                        &poly_args,
+                        yield_data,
                     ) {
-                        Ok((dependencies, locals, ast)) => {
+                        Ok(Ok((dependencies, locals, ast))) => {
                             program.queue_task(
                                 dependencies,
                                 Task::EmitFunction(function_id, locals, ast, type_),
+                            );
+                        }
+                        Ok(Err((dependencies, yield_data))) => {
+                            program.queue_task(
+                                dependencies,
+                                Task::TypeFunction(function_id, yield_data, return_type, type_, poly_args),
                             );
                         }
                         Err(()) => {
