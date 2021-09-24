@@ -50,6 +50,7 @@ pub struct YieldData {
     locals: LocalVariables,
     ast: ParsedAst,
     interesting_locations: Vec<NodeId>,
+    unresolved_type_nodes: usize,
 }
 
 impl YieldData {
@@ -57,7 +58,9 @@ impl YieldData {
         Self {
             locals,
             emit_deps: DependencyList::new(),
-            interesting_locations: (0..ast.nodes().len() as u32 - 1).collect(),
+            interesting_locations: (0..ast.nodes().len() as u32).collect(),
+            // @Volatile: Later, if we set some of the types in the parser, this can't start out as 0.
+            unresolved_type_nodes: ast.nodes().len(),
             ast,
         }
     }
@@ -79,6 +82,7 @@ struct Context<'a, 'b> {
     /// on haven't been resolved. We will resume after all the new dependencies
     /// have been dispatched.
     unresolved_dependency_locations: Vec<NodeId>,
+    unresolved_type_nodes: usize,
 }
 
 impl Context<'_, '_> {
@@ -90,6 +94,7 @@ impl Context<'_, '_> {
                 locals: self.locals,
                 ast: self.ast,
                 interesting_locations: self.unresolved_dependency_locations,
+                unresolved_type_nodes: self.unresolved_type_nodes,
             },
         )
     }
@@ -162,6 +167,7 @@ impl Context<'_, '_> {
 
         eprintln!("Found that node {:?} is of type {}", node.kind, wanted_type);
         node.type_ = TypeInfo::Resolved(wanted_type);
+        self.unresolved_type_nodes -= 1;
 
         return true;
     }
@@ -216,6 +222,7 @@ pub fn process_ast<'a>(
         emit_deps: from.emit_deps,
         interesting_locations: from.interesting_locations,
         unresolved_dependency_locations: Vec::new(),
+        unresolved_type_nodes: from.unresolved_type_nodes,
         ast: from.ast,
     };
 
@@ -229,14 +236,21 @@ pub fn process_ast<'a>(
         type_node(&mut ctx, interesting_location);
     }
 
-    if ctx.unresolved_dependency_locations.is_empty() {
+    if ctx.unresolved_dependency_locations.is_empty() && ctx.unresolved_type_nodes == 0 {
         if ctx.has_errors {
             return Err(());
         }
 
         Ok(Ok((ctx.emit_deps, ctx.locals, ctx.ast)))
-    } else {
+    } else if !ctx.unresolved_dependency_locations.is_empty() {
         Ok(Err(ctx.into_yield_data()))
+    } else {
+        for node in ctx.ast.nodes() {
+            if !matches!(node.type_, TypeInfo::Resolved(_)) {
+                ctx.errors.error(node.loc, "Ambiguous type".to_string());
+            }
+        }
+        Err(())
     }
 }
 
