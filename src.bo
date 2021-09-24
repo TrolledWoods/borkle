@@ -1,1 +1,3 @@
+const C = B : u8;
 const A = "Hello world!" : [] u8;
+const B = A;

@@ -21,13 +21,10 @@ pub enum TypeInfo {
     None,
     /// The type it returns will be this type, but it may have to insert a cast to do it,
     /// or might not be able to return this at all and will later return an error.
-    Returns(Type),
-    /// Type type is resolved, but the node still has more work to do(for example, the node should really be switched
-    /// to another kind of node, but hasn't be able to yet, but it knows what type it will be.
-    /// `TypeIsValue` node for example).
-    ResolvedButIncomplete(Type),
+    Expected(Type),
     /// The type is entirely resolved, and it's guaranteed to be this type
     Resolved(Type),
+    Error,
 }
 
 impl TypeInfo {
@@ -40,8 +37,8 @@ impl TypeInfo {
 
     fn returns(&self) -> Option<Type> {
         match *self {
-            Self::Returns(type_) | Self::Resolved(type_) | Self::ResolvedButIncomplete(type_) => Some(type_),
-            Self::None => None,
+            Self::Expected(type_) | Self::Resolved(type_) => Some(type_),
+            Self::None | Self::Error => None,
         }
     }
 }
@@ -64,51 +61,60 @@ struct Context<'a, 'b> {
 
 impl Context<'_, '_> {
     /// Sets the type that's expected for a given node. Will ping the node, if the expectation is different from what it was previously.
-    /// If the expectation cannot be fulfilled(it is already expected to be a different type, or is a different type), it will emit an error
-    /// and return false.
+    /// If the expectation cannot be fulfilled(it is already expected to be a different type, or is a different type), it will emit an error.
+    ///
+    /// It returns true if the type was set.
+    ///
     fn set_expected_type(&mut self, node_id: NodeId, expected_type: Type) -> bool {
         let node = self.ast.get_mut(node_id);
         if let Some(type_) = node.type_.returns() {
             if expected_type != type_ {
+                if node.type_ != TypeInfo::Error {
+                    self.errors.error(
+                        node.loc,
+                        format!("Expected '{}', found '{}'", expected_type, type_),
+                    );
+                }
                 self.has_errors = true;
-                self.errors.error(
-                    node.loc,
-                    format!("Expected '{}', found '{}'", expected_type, type_),
-                );
+                node.type_ = TypeInfo::Error;
                 return false;
             }
         }
 
         // Already on a higher stage of completion than this.
-        if matches!(node.type_, TypeInfo::Resolved(_) | TypeInfo::ResolvedButIncomplete(_)) {
+        if matches!(node.type_, TypeInfo::Resolved(_)) {
             return true;
         }
 
-        if !matches!(node.type_, TypeInfo::Returns(_)) {
+        if !matches!(node.type_, TypeInfo::Expected(_)) {
             eprintln!("Pushed interesting location {}", node_id);
             self.interesting_locations.push(node_id);
         }
 
         eprintln!("Found that node {:?} should be of the type {}", node.kind, expected_type);
-        node.type_ = TypeInfo::Returns(expected_type);
+        node.type_ = TypeInfo::Expected(expected_type);
 
         return true;
     }
 
     /// Sets the type of a node to the given type. If the type state was updated, it will also ping the parent.
-    /// If the type cannot be set (the type is already expected to be something different),
-    /// it emits an error and returns false.
+    /// If the type cannot be set (the type is already expected to be something different), it emits an error.
+    ///
+    /// It returns true if the type was set correctly.
     ///
     /// This should _only_ be used by the node itself to set the type it _is_.
     fn set_type(&mut self, node_id: NodeId, wanted_type: Type) -> bool {
         let node = self.ast.get_mut(node_id);
         if let Some(type_) = node.type_.returns() {
             if wanted_type != type_ {
+                if node.type_ != TypeInfo::Error {
+                    self.errors.error(
+                        node.loc,
+                        format!("Expected '{}', found '{}'", type_, wanted_type),
+                    );
+                }
                 self.has_errors = true;
-                self.errors.error(
-                    node.loc,
-                    format!("Expected '{}', found '{}'", type_, wanted_type),
-                );
+                node.type_ = TypeInfo::Error;
                 return false;
             }
         }
@@ -130,17 +136,20 @@ impl Context<'_, '_> {
         let node = self.ast.get_mut(node_id);
         if let Some(type_) = node.type_.returns() {
             if wanted_type != type_ {
+                if node.type_ != TypeInfo::Error {
+                    self.errors.error(
+                        node.loc,
+                        format!("Expected '{}', found '{}'", wanted_type, type_),
+                    );
+                }
+                node.type_ = TypeInfo::Error;
                 self.has_errors = true;
-                self.errors.error(
-                    node.loc,
-                    format!("Expected '{}', found '{}'", wanted_type, type_),
-                );
                 return false;
             }
         }
 
         debug_assert!(!matches!(node.type_, TypeInfo::Resolved(_)), "Type is already resolved, cannot become incomplete");
-        if !matches!(node.type_, TypeInfo::ResolvedButIncomplete(_)) {
+        if !matches!(node.type_, TypeInfo::Expected(_)) {
             if let Some(parent) = node.parent {
                 eprintln!("Pushed interesting location {}", parent);
                 self.interesting_locations.push(parent);
@@ -148,7 +157,7 @@ impl Context<'_, '_> {
         }
 
         eprintln!("Found that node {:?} is of type {}, but incomplete", node.kind, wanted_type);
-        node.type_ = TypeInfo::ResolvedButIncomplete(wanted_type);
+        node.type_ = TypeInfo::Expected(wanted_type);
 
         return true;
     }
@@ -180,8 +189,7 @@ pub fn process_ast<'a>(
     };
 
     if let Some(wanted_type) = wanted_type {
-        let root = ctx.ast.root;
-        ctx.ast.get_mut(root).type_ = TypeInfo::Returns(wanted_type);
+        ctx.set_expected_type(ctx.ast.root, wanted_type);
     }
 
     let mut rng = crate::random::Random::new();
@@ -233,6 +241,26 @@ fn type_node(ctx: &mut Context<'_, '_>, node_id: NodeId) {
             if let TypeInfo::Resolved(inner_type) = ctx.ast.get(bound).type_ {
                 ctx.set_type(node_id, inner_type);
                 ctx.set_expected_type(value, inner_type);
+            }
+        }
+        ParsedNodeKind::Global(scope, name, ref poly_args) => {
+            assert!(poly_args.is_empty(), "No poly args yet for globals");
+            let id = ctx.program.get_member_id(scope, name).unwrap();
+            if let PolyOrMember::Member(id) = id {
+                // TODO: With the new system we can yield if it's not possible to get the type yet.
+                let (global_type, meta_data) = ctx.program.get_member_meta_data(id);
+                let could_set_type = ctx.set_type(node_id, global_type);
+                if could_set_type {
+                    // TODO: Deal with constant values. Instead of is_const being in the context(which it can't be now), maybe it should be in the NodeKind itself. Constant values have to be callable and value, because if they're functions they're going to be called when emitting the code.
+                    ctx.deps.add(node_loc, DepKind::Member(id, MemberDep::Value));
+                    ctx.ast.get_mut(node_id).kind = NodeKind::ResolvedGlobal(id, meta_data);
+                }
+            } else {
+                ctx.has_errors = true;
+                ctx.errors.error(
+                    node_loc,
+                    format!("Cannot deal with polymorphic globals yet."),
+                );
             }
         }
 
