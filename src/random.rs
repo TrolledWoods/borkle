@@ -19,6 +19,10 @@ impl Random {
         )
     }
 
+    pub fn get_seed(&self) -> u32 {
+        self.0
+    }
+
     pub fn with_seed(seed: u32) -> Self {
         Random(seed)
     }

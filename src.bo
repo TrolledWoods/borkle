@@ -1,1 +1,3 @@
-const A = "Hello world!" : [] u8;
+const B = {
+    "hello"
+} : u8;

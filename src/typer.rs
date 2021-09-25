@@ -59,7 +59,7 @@ impl YieldData {
             locals,
             emit_deps: DependencyList::new(),
             interesting_locations: (0..ast.nodes().len() as u32).collect(),
-            // @Volatile: Later, if we set some of the types in the parser, this can't start out as 0.
+            // @Volatile: Later, if we set some of the types in the parser, this has to be reduced.
             unresolved_type_nodes: ast.nodes().len(),
             ast,
         }
@@ -163,11 +163,11 @@ impl Context<'_, '_> {
                 eprintln!("Pushed interesting location {}", parent);
                 self.interesting_locations.push(parent);
             }
-        }
 
-        eprintln!("Found that node {:?} is of type {}", node.kind, wanted_type);
-        node.type_ = TypeInfo::Resolved(wanted_type);
-        self.unresolved_type_nodes -= 1;
+            eprintln!("Found that node {:?} is of type {}", node.kind, wanted_type);
+            node.type_ = TypeInfo::Resolved(wanted_type);
+            self.unresolved_type_nodes -= 1;
+        }
 
         return true;
     }
@@ -231,6 +231,8 @@ pub fn process_ast<'a>(
     }*/
 
     let mut rng = crate::random::Random::new();
+    // let mut rng = crate::random::Random::with_seed(3018122990);
+    println!("Random seed: {}", rng.get_seed());
     while !ctx.interesting_locations.is_empty() {
         let interesting_location = ctx.interesting_locations.remove(rng.gen_u32() as usize % ctx.interesting_locations.len());
         type_node(&mut ctx, interesting_location);
@@ -265,6 +267,11 @@ fn type_node(ctx: &mut Context<'_, '_>, node_id: NodeId) {
     eprintln!("Started typing node {:?}", node.kind);
     let node_loc = node.loc;
     match node.kind {
+        ParsedNodeKind::Uninit => {
+            if let Some(expected) = node_type.returns() {
+                ctx.set_type(node_id, expected);
+            }
+        }
         ParsedNodeKind::Literal(Literal::String(ref data)) => {
             let u8_type = Type::new(TypeKind::Int(IntTypeKind::U8));
             let type_ = Type::new(TypeKind::Buffer(u8_type));
@@ -277,9 +284,9 @@ fn type_node(ctx: &mut Context<'_, '_>, node_id: NodeId) {
                 } as *const _ as *const _,
             );
 
-            ctx.set_type(node_id, type_);
-
-            ctx.ast.get_mut(node_id).kind = NodeKind::Constant(ptr, None);
+            if ctx.set_type(node_id, type_) {
+                ctx.ast.get_mut(node_id).kind = NodeKind::Constant(ptr, None);
+            }
         }
         ParsedNodeKind::TypeBound {
             value,
@@ -311,6 +318,18 @@ fn type_node(ctx: &mut Context<'_, '_>, node_id: NodeId) {
                 );
             }
         }
+        ParsedNodeKind::Block {
+            ref contents,
+            label,
+        } => {
+            let last_expression = *contents.last().unwrap();
+
+            if let Some(returns) = ctx.ast.get(last_expression).type_.returns() {
+                ctx.set_type(node_id, returns);
+            } else if let Some(returns) = ctx.ast.get(node_id).type_.returns() {
+                ctx.set_expected_type(last_expression, returns);
+            }
+        }
 
         // Type expressions
         ParsedNodeKind::LiteralType(type_) => {
@@ -324,17 +343,22 @@ fn type_node(ctx: &mut Context<'_, '_>, node_id: NodeId) {
         ParsedNodeKind::TypeAsValue(inner) => {
             let type_ = Type::new(TypeKind::Type);
             if let TypeInfo::Resolved(inner_type) = ctx.ast.get(inner).type_ {
-                ctx.ast.get_mut(node_id).kind = NodeKind::Constant(
-                    ctx.program.insert_buffer(
-                        Type::new(TypeKind::Type),
-                        &(inner_type.as_ptr() as usize).to_le_bytes() as *const _,
-                    ),
-                    None,
-                );
-
-                ctx.set_type(node_id, type_);
+                if ctx.set_type(node_id, type_) {
+                    ctx.ast.get_mut(node_id).kind = NodeKind::Constant(
+                        ctx.program.insert_buffer(
+                            Type::new(TypeKind::Type),
+                            &(inner_type.as_ptr() as usize).to_le_bytes() as *const _,
+                        ),
+                        None,
+                    );
+                }
             } else {
                 ctx.set_type_but_incomplete(node_id, type_);
+            }
+        }
+        ParsedNodeKind::Empty => {
+            if ctx.set_type(node_id, Type::new(TypeKind::Empty)) {
+                ctx.ast.get_mut(node_id).kind = NodeKind::Constant(ConstantRef::dangling(), None);
             }
         }
         _ => unimplemented!(),
