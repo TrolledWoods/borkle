@@ -1,9 +1,6 @@
-const A = #uninit : u8;
+
+const A = 42 : usize;
 
 const B = {
-    #uninit : u32;
-    {
-        A;
-        #uninit
-    }
-} : u32;
+    A + 5 > 2 + 4
+};

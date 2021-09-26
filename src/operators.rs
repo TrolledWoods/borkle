@@ -127,111 +127,102 @@ operator!(AccessOp {
     Member = (".", 0),
 });
 
+const INT_OPERATIONS: &[[TypeKind; 3]] = &[
+    [TypeKind::Int(IntTypeKind::U8), TypeKind::Int(IntTypeKind::U8), TypeKind::Int(IntTypeKind::U8)],
+    [TypeKind::Int(IntTypeKind::U16), TypeKind::Int(IntTypeKind::U16), TypeKind::Int(IntTypeKind::U16)],
+    [TypeKind::Int(IntTypeKind::U32), TypeKind::Int(IntTypeKind::U32), TypeKind::Int(IntTypeKind::U32)],
+    [TypeKind::Int(IntTypeKind::U64), TypeKind::Int(IntTypeKind::U64), TypeKind::Int(IntTypeKind::U64)],
+    [TypeKind::Int(IntTypeKind::I8), TypeKind::Int(IntTypeKind::I8), TypeKind::Int(IntTypeKind::I8)],
+    [TypeKind::Int(IntTypeKind::I16), TypeKind::Int(IntTypeKind::I16), TypeKind::Int(IntTypeKind::I16)],
+    [TypeKind::Int(IntTypeKind::I32), TypeKind::Int(IntTypeKind::I32), TypeKind::Int(IntTypeKind::I32)],
+    [TypeKind::Int(IntTypeKind::I64), TypeKind::Int(IntTypeKind::I64), TypeKind::Int(IntTypeKind::I64)],
+    [TypeKind::Int(IntTypeKind::Isize), TypeKind::Int(IntTypeKind::Isize), TypeKind::Int(IntTypeKind::Isize)],
+    [TypeKind::Int(IntTypeKind::Usize), TypeKind::Int(IntTypeKind::Usize), TypeKind::Int(IntTypeKind::Usize)],
+];
+
+const POINTER_OPERATIONS: &[[TypeKind; 3]] = &[
+    [TypeKind::VoidPtr, TypeKind::Int(IntTypeKind::Usize), TypeKind::VoidPtr],
+    [TypeKind::VoidPtr, TypeKind::Int(IntTypeKind::Isize), TypeKind::VoidPtr],
+];
+
+const BOOLEAN_COMPARISONS: &[[TypeKind; 3]] = &[
+    [TypeKind::Int(IntTypeKind::U8 ), TypeKind::Int(IntTypeKind::U8),  TypeKind::Bool],
+    [TypeKind::Int(IntTypeKind::U16), TypeKind::Int(IntTypeKind::U16), TypeKind::Bool],
+    [TypeKind::Int(IntTypeKind::U32), TypeKind::Int(IntTypeKind::U32), TypeKind::Bool],
+    [TypeKind::Int(IntTypeKind::U64), TypeKind::Int(IntTypeKind::U64), TypeKind::Bool],
+    [TypeKind::Int(IntTypeKind::I8 ), TypeKind::Int(IntTypeKind::I8),  TypeKind::Bool],
+    [TypeKind::Int(IntTypeKind::I16), TypeKind::Int(IntTypeKind::I16), TypeKind::Bool],
+    [TypeKind::Int(IntTypeKind::I32), TypeKind::Int(IntTypeKind::I32), TypeKind::Bool],
+    [TypeKind::Int(IntTypeKind::I64), TypeKind::Int(IntTypeKind::I64), TypeKind::Bool],
+    [TypeKind::Int(IntTypeKind::Isize), TypeKind::Int(IntTypeKind::Isize), TypeKind::Bool],
+    [TypeKind::Int(IntTypeKind::Usize), TypeKind::Int(IntTypeKind::Usize), TypeKind::Bool],
+];
+
+const BOOLEAN_META_OPERATORS: &[[TypeKind; 3]] = &[
+    [TypeKind::Bool, TypeKind::Bool, TypeKind::Bool],
+];
+
+fn check_operations<'a>(matching_operators: impl Iterator<Item = &'a [TypeKind; 3]> + Clone, givens: [Option<Type>; 3]) -> Result<[Option<Type>; 3], ()> {
+    let mut ops = matching_operators.filter(|a| a.iter().zip(&givens).map(|(a, b)| b.map_or(true, |b| a == b.kind())).all(|v| v == true));
+    let output = ops.next().ok_or(())?;
+
+    // The answer has to be unanimous(all output have to give the specific type), for the inferrence to
+    // happen.
+    let mut i = 0;
+    Ok(output.clone().map(|out| {
+        let out = ops.clone().all(|v| v[i] == out).then(|| Type::new(out));
+        i += 1;
+        out
+    }))
+}
+
 impl BinaryOp {
+    pub fn try_infer_types(self, givens: [Option<Type>; 3]) -> Result<[Option<Type>; 3], ()> {
+        /* This is not valid, since if all the types in the inputs/outputs are known, this will never fail, even though
+         * the operation may not actually support those inputs/outputs. It would be nice to be able to do this shortcut
+         * without that incorrectness.
+            if let Some(given) = givens[wanted as usize] {
+                return InferredType::Found(given);
+            }
+        */
+
+        match self {
+            BinaryOp::Add | BinaryOp::Sub => {
+                check_operations(
+                    INT_OPERATIONS.iter().chain(POINTER_OPERATIONS),
+                    givens,
+                )
+            }
+            BinaryOp::Mult | BinaryOp::Div => {
+                check_operations(
+                    INT_OPERATIONS.iter(),
+                    givens,
+                )
+            }
+            BinaryOp::BitAnd | BinaryOp::BitOr => {
+                check_operations(
+                    INT_OPERATIONS.iter().chain(BOOLEAN_META_OPERATORS),
+                    givens,
+                )
+            }
+            BinaryOp::Equals | BinaryOp::NotEquals => {
+                check_operations(
+                    BOOLEAN_COMPARISONS.iter().chain(BOOLEAN_META_OPERATORS),
+                    givens,
+                )
+            }
+            BinaryOp::LargerThanEquals | BinaryOp::LargerThan | BinaryOp::LessThanEquals | BinaryOp::LessThan => {
+                check_operations(
+                    BOOLEAN_COMPARISONS.iter(),
+                    givens,
+                )
+            }
+            _ => unimplemented!("Operator not finished yet"),
+        }
+    }
+
     pub fn is_right_to_left(self) -> bool {
         matches!(self, BinaryOp::Assign)
-    }
-
-    fn is_algebraic(self) -> bool {
-        matches!(
-            self,
-            BinaryOp::Add
-                | BinaryOp::Sub
-                | BinaryOp::Mult
-                | BinaryOp::Div
-                | BinaryOp::BitAnd
-                | BinaryOp::BitOr
-        )
-    }
-
-    fn is_non_strict_comparison(self) -> bool {
-        matches!(
-            self,
-            BinaryOp::LessThan
-                | BinaryOp::LessThanEquals
-                | BinaryOp::LargerThan
-                | BinaryOp::LargerThanEquals
-        )
-    }
-
-    fn is_comparison(self) -> bool {
-        matches!(
-            self,
-            BinaryOp::LessThan
-                | BinaryOp::LessThanEquals
-                | BinaryOp::LargerThan
-                | BinaryOp::LargerThanEquals
-                | BinaryOp::Equals
-                | BinaryOp::NotEquals
-        )
-    }
-
-    pub fn left_hand_side_from_return(self, returns: Type) -> Option<Type> {
-        match (self, returns.kind()) {
-            (op, _) if op.is_algebraic() => Some(returns),
-            (BinaryOp::And, _) | (BinaryOp::Or, _) => Some(Type::new(TypeKind::Bool)),
-            (BinaryOp::Range, TypeKind::Range(inner)) => Some(*inner),
-            _ => None,
-        }
-    }
-
-    pub fn right_hand_side_from_left(self, left: Type) -> Option<Type> {
-        match (self, left.kind()) {
-            (op, TypeKind::Int(_)) | (op, TypeKind::F32) | (op, TypeKind::F64)
-                if op.is_algebraic() || op.is_comparison() =>
-            {
-                Some(left)
-            }
-
-            (BinaryOp::Equals, TypeKind::Type) => Some(left),
-            (BinaryOp::NotEquals, TypeKind::Type) => Some(left),
-
-            (BinaryOp::Range, _) => Some(left),
-
-            (BinaryOp::Add, TypeKind::Reference { .. }) => {
-                Some(Type::new(TypeKind::Int(IntTypeKind::Usize)))
-            }
-            (BinaryOp::Sub, TypeKind::Reference { .. }) => {
-                Some(Type::new(TypeKind::Int(IntTypeKind::Usize)))
-            }
-
-            (BinaryOp::And, _) | (BinaryOp::Or, _) => Some(Type::new(TypeKind::Bool)),
-            _ => None,
-        }
-    }
-
-    pub fn return_from_args(self, left: Type, right: Type) -> Option<Type> {
-        match (self, left.kind(), right.kind()) {
-            (op, TypeKind::Int(a), TypeKind::Int(b)) if a == b && op.is_algebraic() => Some(left),
-            (op, TypeKind::F32, TypeKind::F32) if op.is_algebraic() => Some(left),
-            (op, TypeKind::F64, TypeKind::F64) if op.is_algebraic() => Some(left),
-
-            (op, TypeKind::Int(a), TypeKind::Int(b)) if op.is_comparison() && a == b => {
-                Some(Type::new(TypeKind::Bool))
-            }
-            (op, TypeKind::F32, TypeKind::F32) | (op, TypeKind::F64, TypeKind::F64)
-                if op.is_non_strict_comparison() =>
-            {
-                Some(Type::new(TypeKind::Bool))
-            }
-            (op, TypeKind::Bool, TypeKind::Bool) if op.is_comparison() => {
-                Some(Type::new(TypeKind::Bool))
-            }
-
-            (BinaryOp::Equals, TypeKind::Type, TypeKind::Type) => Some(Type::new(TypeKind::Bool)),
-            (BinaryOp::NotEquals, TypeKind::Type, TypeKind::Type) => Some(Type::new(TypeKind::Bool)),
-
-            (BinaryOp::Range, a, b) if a == b => Some(Type::new(TypeKind::Range(left))),
-
-            (BinaryOp::And, TypeKind::Bool, TypeKind::Bool)
-            | (BinaryOp::Or, TypeKind::Bool, TypeKind::Bool) => Some(left),
-
-            (BinaryOp::Add, TypeKind::Reference { .. }, TypeKind::Int(IntTypeKind::Usize))
-            | (BinaryOp::Sub, TypeKind::Reference { .. }, TypeKind::Int(IntTypeKind::Usize)) => {
-                Some(left)
-            }
-            _ => None,
-        }
     }
 
     pub unsafe fn run(self, left: Type, right: Type, a: *const u8, b: *const u8, output: *mut u8) {

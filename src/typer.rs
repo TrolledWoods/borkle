@@ -2,6 +2,7 @@ use crate::dependencies::{DepKind, DependencyList, MemberDep};
 use crate::errors::ErrorCtx;
 use crate::literal::Literal;
 use crate::locals::LocalVariables;
+use crate::operators::BinaryOp;
 use crate::program::constant::ConstantRef;
 use crate::program::{PolyOrMember, Program};
 use crate::thread_pool::ThreadContext;
@@ -251,7 +252,7 @@ pub fn process_ast<'a>(
 fn type_node(ctx: &mut Context<'_, '_>, node_id: NodeId) {
     let node = ctx.ast.get(node_id);
     let node_type = node.type_;
-    if matches!(node_type, TypeInfo::Resolved(_)) {
+    if matches!(node_type, TypeInfo::Resolved(_) | TypeInfo::Error) {
         eprintln!("Node {:?} was already typed", node.kind);
         // Already typed!
         return;
@@ -262,6 +263,76 @@ fn type_node(ctx: &mut Context<'_, '_>, node_id: NodeId) {
         NodeKind::Uninit => {
             if let Some(expected) = node_type.returns() {
                 ctx.set_type(node_id, expected);
+            }
+        }
+        NodeKind::Zeroed => {
+            if let Some(expected) = node_type.returns() {
+                if ctx.set_type(node_id, expected) {
+                    ctx.ast.get_mut(node_id).kind = NodeKind::Constant(ctx.program.insert_zeroed_buffer(expected), None);
+                }
+            }
+        }
+        NodeKind::Binary { op: BinaryOp::Assign, left, right } => {
+            let left_type = ctx.ast.get(left).type_.returns();
+            let right_type = ctx.ast.get(right).type_.returns();
+
+            if let Some(result) = left_type.or(right_type) {
+                ctx.set_expected_type(left, result);
+                ctx.set_expected_type(right, result);
+                ctx.set_type(node_id, Type::new(TypeKind::Empty));
+            } else {
+                ctx.set_type_but_incomplete(node_id, Type::new(TypeKind::Empty));
+            }
+        }
+        NodeKind::Binary { op, left, right } => {
+            let left_type = ctx.ast.get(left).type_.returns();
+            let right_type = ctx.ast.get(right).type_.returns();
+            let return_type = node_type.returns();
+
+            if let Ok([left_type, right_type, return_type]) = op.try_infer_types([left_type, right_type, return_type]) {
+                eprintln!("Operator types {:?}, {:?}, {:?}", left_type, right_type, return_type);
+                if let Some(v) = left_type {
+                    ctx.set_expected_type(left, v);
+                }
+
+                if let Some(v) = right_type {
+                    ctx.set_expected_type(right, v);
+                }
+
+                if let Some(v) = return_type {
+                    if left_type.is_some() && right_type.is_some() {
+                        ctx.set_type(node_id, v);
+                    } else {
+                        ctx.set_type_but_incomplete(node_id, v);
+                    }
+                }
+            } else {
+                ctx.errors.error(node_loc, "This operator does not support the set of types given to it".to_string());
+                ctx.has_errors = true;
+            }
+        }
+            
+        NodeKind::Literal(Literal::Int(data)) => {
+            // @Improvement: Later, there should be "incomplete types",
+            // so types can have a subset of their values known, and then
+            // once all the values are known they get turned into a finished
+            // type.
+            if let Some(expected) = node_type.returns() {
+                if ctx.set_type(node_id, expected) {
+                    if let TypeKind::Int(int_type_kind) = expected.kind() {
+                        let range = int_type_kind.range();
+                        if !range.contains(&data) {
+                            ctx.errors.error(node_loc, format!("A {} can only be in the range {} to {}", expected, range.start(), range.end()));
+                            ctx.has_errors = true;
+                        } else {
+                            let bytes = data.to_ne_bytes();
+                            ctx.ast.get_mut(node_id).kind = NodeKind::Constant(ctx.program.insert_buffer(expected, bytes.as_ptr()), None);
+                        }
+                    } else {
+                        ctx.errors.error(node_loc, format!("An integer literal can only be one of the integer types, but here it's expected to be a '{}'", expected));
+                        return;
+                    }
+                }
             }
         }
         NodeKind::Literal(Literal::String(ref data)) => {
@@ -346,6 +417,15 @@ fn type_node(ctx: &mut Context<'_, '_>, node_id: NodeId) {
                 }
             } else {
                 ctx.set_type_but_incomplete(node_id, type_);
+            }
+        }
+        NodeKind::Parenthesis(inner) => {
+            if let Some(expected) = node_type.returns() {
+                ctx.set_expected_type(inner, expected);
+            }
+
+            if let Some(expected) = ctx.ast.get(inner).type_.returns() {
+                ctx.set_type(node_id, expected);
             }
         }
         NodeKind::Empty => {

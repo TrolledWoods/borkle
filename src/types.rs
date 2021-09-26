@@ -359,7 +359,7 @@ impl PtrPermits {
     }
 }
 
-#[derive(Hash, PartialEq, Eq)]
+#[derive(Clone, Hash, PartialEq, Eq)]
 pub enum TypeKind {
     Never,
     Type,
