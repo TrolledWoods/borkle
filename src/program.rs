@@ -634,11 +634,11 @@ impl Program {
 
     pub fn monomorphise_poly_member<'a>(
         &'a self,
-        errors: &mut ErrorCtx,
-        thread_context: &mut ThreadContext<'a>,
-        id: PolyMemberId,
-        poly_args: &[(Type, ConstantRef)],
-        wanted_dep: MemberDep,
+        _errors: &mut ErrorCtx,
+        _thread_context: &mut ThreadContext<'a>,
+        _id: PolyMemberId,
+        _poly_args: &[(Type, ConstantRef)],
+        _wanted_dep: MemberDep,
     ) -> Result<MemberId, ()> {
         /*
         profile::profile!("program::monomorphise_poly_member");

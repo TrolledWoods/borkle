@@ -2,18 +2,11 @@ use crate::dependencies::{DepKind, DependencyList, MemberDep};
 use crate::errors::ErrorCtx;
 use crate::literal::Literal;
 use crate::locals::LocalVariables;
-use crate::location::Location;
-use crate::operators::{UnaryOp, BinaryOp};
-use crate::parser::{ast::NodeKind as ParsedNodeKind, Ast as ParsedAst, ast::NodeId as ParsedNodeId};
 use crate::program::constant::ConstantRef;
-use crate::program::{MemberId, MemberMetaData, PolyOrMember, Program, Task};
-use crate::self_buffer::{SelfBuffer, SelfTree};
+use crate::program::{PolyOrMember, Program};
 use crate::thread_pool::ThreadContext;
-use crate::types::{Alias, IntTypeKind, PtrPermits, Type, TypeData, TypeKind};
+use crate::types::{IntTypeKind, Type, TypeKind};
 pub use crate::parser::{ast::Node, ast::NodeKind, Ast, ast::NodeId};
-use infer::WantedType;
-use std::sync::Arc;
-use ustr::Ustr;
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub enum TypeInfo {
@@ -48,13 +41,13 @@ mod infer;
 pub struct YieldData {
     emit_deps: DependencyList,
     locals: LocalVariables,
-    ast: ParsedAst,
+    ast: Ast,
     interesting_locations: Vec<NodeId>,
     unresolved_type_nodes: usize,
 }
 
 impl YieldData {
-    pub fn new(locals: LocalVariables, ast: ParsedAst) -> Self {
+    pub fn new(locals: LocalVariables, ast: Ast) -> Self {
         Self {
             locals,
             emit_deps: DependencyList::new(),
@@ -76,7 +69,7 @@ struct Context<'a, 'b> {
     yield_deps: DependencyList,
     /// Dependencies necessary for being able to emit code for this output.
     emit_deps: DependencyList,
-    ast: ParsedAst,
+    ast: Ast,
     interesting_locations: Vec<NodeId>,
     /// Locations where we couldn't continue because things we depend
     /// on haven't been resolved. We will resume after all the new dependencies
@@ -169,7 +162,7 @@ impl Context<'_, '_> {
             self.unresolved_type_nodes -= 1;
         }
 
-        return true;
+        true
     }
 
     fn set_type_but_incomplete(&mut self, node_id: NodeId, wanted_type: Type) -> bool {
@@ -199,7 +192,7 @@ impl Context<'_, '_> {
         eprintln!("Found that node {:?} is of type {}, but incomplete", node.kind, wanted_type);
         node.type_ = TypeInfo::Expected(wanted_type);
 
-        return true;
+        true
     }
 }
 
@@ -211,14 +204,13 @@ pub fn process_ast<'a>(
 ) -> Result<Result<(DependencyList, LocalVariables, Ast), (DependencyList, YieldData)>, ()> {
     profile::profile!("Type ast");
 
-    let mut yield_deps = DependencyList::new();
     let mut ctx = Context {
         has_errors: false,
         thread_context,
         errors,
         program,
         locals: from.locals,
-        yield_deps,
+        yield_deps: DependencyList::new(),
         emit_deps: from.emit_deps,
         interesting_locations: from.interesting_locations,
         unresolved_dependency_locations: Vec::new(),
@@ -231,7 +223,7 @@ pub fn process_ast<'a>(
     }*/
 
     let mut rng = crate::random::Random::new();
-    // let mut rng = crate::random::Random::with_seed(3018122990);
+    // let mut rng = crate::random::Random::with_seed(1960374640);
     println!("Random seed: {}", rng.get_seed());
     while !ctx.interesting_locations.is_empty() {
         let interesting_location = ctx.interesting_locations.remove(rng.gen_u32() as usize % ctx.interesting_locations.len());
@@ -267,12 +259,12 @@ fn type_node(ctx: &mut Context<'_, '_>, node_id: NodeId) {
     eprintln!("Started typing node {:?}", node.kind);
     let node_loc = node.loc;
     match node.kind {
-        ParsedNodeKind::Uninit => {
+        NodeKind::Uninit => {
             if let Some(expected) = node_type.returns() {
                 ctx.set_type(node_id, expected);
             }
         }
-        ParsedNodeKind::Literal(Literal::String(ref data)) => {
+        NodeKind::Literal(Literal::String(ref data)) => {
             let u8_type = Type::new(TypeKind::Int(IntTypeKind::U8));
             let type_ = Type::new(TypeKind::Buffer(u8_type));
 
@@ -288,7 +280,7 @@ fn type_node(ctx: &mut Context<'_, '_>, node_id: NodeId) {
                 ctx.ast.get_mut(node_id).kind = NodeKind::Constant(ptr, None);
             }
         }
-        ParsedNodeKind::TypeBound {
+        NodeKind::TypeBound {
             value,
             bound,
         } => {
@@ -298,7 +290,7 @@ fn type_node(ctx: &mut Context<'_, '_>, node_id: NodeId) {
                 ctx.set_expected_type(value, inner_type);
             }
         }
-        ParsedNodeKind::Global(scope, name, ref poly_args) => {
+        NodeKind::Global(scope, name, ref poly_args) => {
             assert!(poly_args.is_empty(), "No poly args yet for globals");
             let id = ctx.program.get_member_id(scope, name).unwrap();
             if let PolyOrMember::Member(id) = id {
@@ -318,7 +310,7 @@ fn type_node(ctx: &mut Context<'_, '_>, node_id: NodeId) {
                 );
             }
         }
-        ParsedNodeKind::Block {
+        NodeKind::Block {
             ref contents,
             label,
         } => {
@@ -332,15 +324,15 @@ fn type_node(ctx: &mut Context<'_, '_>, node_id: NodeId) {
         }
 
         // Type expressions
-        ParsedNodeKind::LiteralType(type_) => {
+        NodeKind::LiteralType(type_) => {
             ctx.set_type(node_id, type_);
         }
-        ParsedNodeKind::BufferType(internal) => {
+        NodeKind::BufferType(internal) => {
             if let TypeInfo::Resolved(inner_type) = ctx.ast.get(internal).type_ {
                 ctx.set_type(node_id, Type::new(TypeKind::Buffer(inner_type)));
             }
         }
-        ParsedNodeKind::TypeAsValue(inner) => {
+        NodeKind::TypeAsValue(inner) => {
             let type_ = Type::new(TypeKind::Type);
             if let TypeInfo::Resolved(inner_type) = ctx.ast.get(inner).type_ {
                 if ctx.set_type(node_id, type_) {
@@ -356,7 +348,7 @@ fn type_node(ctx: &mut Context<'_, '_>, node_id: NodeId) {
                 ctx.set_type_but_incomplete(node_id, type_);
             }
         }
-        ParsedNodeKind::Empty => {
+        NodeKind::Empty => {
             if ctx.set_type(node_id, Type::new(TypeKind::Empty)) {
                 ctx.ast.get_mut(node_id).kind = NodeKind::Constant(ConstantRef::dangling(), None);
             }

@@ -1,0 +1,10 @@
+{
+  "version": "0.2.1",
+  "tasks": [
+    {
+      "taskLabel": "task-borkle",
+      "appliesTo": "target/debug/borkle.exe",
+      "type": "launch"
+    }
+  ]
+}

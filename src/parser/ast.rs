@@ -80,7 +80,7 @@ impl AstBuilder {
         }
     }
 
-    pub fn add(&mut self, mut node: Node) -> NodeId {
+    pub fn add(&mut self, node: Node) -> NodeId {
         let id = self.nodes.len() as u32;
 
         use NodeKind::*;

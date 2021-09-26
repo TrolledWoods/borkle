@@ -1,3 +1,9 @@
+const A = #uninit : u8;
+
 const B = {
-    "hello"
-} : u8;
+    #uninit : u32;
+    {
+        A;
+        #uninit
+    }
+} : u32;
