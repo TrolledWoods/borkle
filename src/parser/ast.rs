@@ -248,8 +248,12 @@ impl AstBuilder {
             },
             Declare {
                 local: _,
+                dummy_local_node,
                 value,
-            } => self.get_mut(value).parent = Some(id),
+            } => {
+                self.get_mut(value).parent = Some(id);
+                self.get_mut(dummy_local_node).parent = Some(id);
+            }
             Local(_) => {},
 
             ArrayToBuffer {
@@ -451,6 +455,8 @@ pub enum NodeKind {
     },
     Declare {
         local: LocalId,
+        // @Cleanup: I think right now the emitter will still emit the dummy nodes, it probably shouldn't...
+        dummy_local_node: NodeId,
         value: NodeId,
     },
     Local(LocalId),

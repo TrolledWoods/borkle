@@ -889,12 +889,15 @@ fn value_without_unaries(
                             let value = expression(global, imperative, buffer)?;
 
                             let id = imperative.insert_local(Local::new(token.loc, name));
+                            let dummy_local_node = buffer.add(Node::new(token.loc, NodeKind::Local(id)));
+                            imperative.locals.get_mut(id).uses.push(dummy_local_node);
 
                             let declaration = buffer.add(Node::new(
                                 token.loc,
                                 NodeKind::Declare {
                                     local: id,
                                     value,
+                                    dummy_local_node,
                                 },
                             ));
 

@@ -1,7 +1,7 @@
 use crate::dependencies::{DepKind, DependencyList, MemberDep};
 use crate::errors::ErrorCtx;
 use crate::literal::Literal;
-use crate::locals::LocalVariables;
+use crate::locals::{LocalVariables, LocalId};
 use crate::operators::BinaryOp;
 use crate::program::constant::ConstantRef;
 use crate::program::{PolyOrMember, Program};
@@ -195,6 +195,22 @@ impl Context<'_, '_> {
 
         true
     }
+
+    fn set_type_of_local(&mut self, local_id: LocalId, wanted_type: Type) {
+        let local = self.locals.get_mut(local_id);
+        if let Some(previous_type) = local.type_ {
+            if previous_type != wanted_type {
+                // @Improvement: This error shouldn't be at the definition location of the local
+                self.errors.error(local.loc, format!("This local variable wants to be two types: {} and {}", previous_type, wanted_type));
+                self.has_errors = true;
+                return;
+            }
+        } else {
+            local.type_ = Some(wanted_type);
+
+            self.interesting_locations.extend(local.uses.iter().copied());
+        }
+    }
 }
 
 pub fn process_ast<'a>(
@@ -272,7 +288,18 @@ fn type_node(ctx: &mut Context<'_, '_>, node_id: NodeId) {
                 }
             }
         }
-        NodeKind::Binary { op: BinaryOp::Assign, left, right } => {
+        NodeKind::Local(local_id) => {
+            let local = ctx.locals.get(local_id);
+            if let Some(local_type) = local.type_ {
+                ctx.set_type(node_id, local_type);
+            }
+
+            if let Some(expected_type) = node_type.returns() {
+                ctx.set_type_of_local(local_id, expected_type);
+            }
+        }
+        NodeKind::Declare { local: _, dummy_local_node: left, value: right }
+        | NodeKind::Binary { op: BinaryOp::Assign, left, right } => {
             let left_type = ctx.ast.get(left).type_.returns();
             let right_type = ctx.ast.get(right).type_.returns();
 
@@ -311,7 +338,6 @@ fn type_node(ctx: &mut Context<'_, '_>, node_id: NodeId) {
                 ctx.has_errors = true;
             }
         }
-            
         NodeKind::Literal(Literal::Int(data)) => {
             // @Improvement: Later, there should be "incomplete types",
             // so types can have a subset of their values known, and then

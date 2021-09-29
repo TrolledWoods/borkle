@@ -643,7 +643,7 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, node: NodeId) -> Value {
             ctx.emit_unary(*op, to, from);
             to
         }
-        NodeKind::Declare { local: id, value } => {
+        NodeKind::Declare { local: id, value, dummy_local_node: _ } => {
             let from = emit_node(ctx, *value);
             let to = ctx.registers.create(ctx.ast.get(*value).type_());
             ctx.locals.get_mut(*id).value = Some(to);

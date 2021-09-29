@@ -1,6 +1,12 @@
-
-const A = 42 : usize;
-
 const B = {
-    A + 5 > 2 + 4
+    let a = 1;
+    let b = a;
+    let c = b;
+
+    let d = 0;
+
+    c = b;
+    d = c;
+
+    (a + 6) : u8;
 };
