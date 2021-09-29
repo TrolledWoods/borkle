@@ -1,3 +1,5 @@
+* Figuring out the types of local variables in the new typing system.
+
 # Version 0.0.3
 * [X] Made all the locks in Program private, and manage them by documenting what locks a function takes, and never take two non recursive locks at the same time. Might not be completely robust, but it is certainly a lot better than it was before!
 * [X] BUG! The compiler locks up sometimes.
@@ -12,6 +14,7 @@
 * [X] Added order of operations
 * [X] Made type bounds an operator as well
 * [ ] IDEA: &out pointer, write only pointer, if a function takes a pointer like this you can also declare a variable like this; initialize(let variable), where initialize is a fn(&out Something)
+
 
 * [ ] Allow AnyPtr to be stored inside constants.
 * [ ] Make a generic way to construct an Id that just wraps a usize.

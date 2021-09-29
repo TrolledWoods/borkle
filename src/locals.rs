@@ -1,4 +1,5 @@
 use crate::location::Location;
+use crate::parser::ast::NodeId;
 use crate::types::Type;
 use ustr::Ustr;
 
@@ -14,6 +15,7 @@ pub struct Local {
     pub loc: Location,
     pub type_: Option<Type>,
     pub value: Option<crate::ir::Value>,
+    pub uses: Vec<NodeId>,
     pub num_uses: usize,
 }
 
@@ -24,6 +26,7 @@ impl Local {
             loc,
             type_: None,
             value: None,
+            uses: Vec::new(),
             num_uses: 0,
         }
     }

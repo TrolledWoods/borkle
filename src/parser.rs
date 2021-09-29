@@ -50,7 +50,7 @@ pub fn process_string(
                 let node = named_type(&mut context, &mut imperative, &mut buffer, loc, name)?;
 
                 let locals = imperative.locals;
-                let tree = buffer.insert_root(node);
+                let tree = buffer.set_root(node);
 
                 context
                     .tokens
@@ -90,7 +90,7 @@ pub fn process_string(
                 let mut dependencies = DependencyList::new();
                 let mut imperative = ImperativeContext::new(&mut dependencies, false, &[]);
                 let expr = expression(&mut context, &mut imperative, &mut buffer)?;
-                let tree = buffer.insert_root(expr);
+                let tree = buffer.set_root(expr);
 
                 context
                     .tokens
@@ -164,7 +164,7 @@ fn constant(global: &mut DataContext<'_>) -> Result<(), ()> {
         let mut imperative =
             ImperativeContext::new(&mut dependencies, false, &polymorphic_arguments);
         let expr = expression(global, &mut imperative, &mut buffer)?;
-        let tree = buffer.insert_root(expr);
+        let tree = buffer.set_root(expr);
 
         let locals = imperative.locals;
 
@@ -206,7 +206,7 @@ fn expression(
     global: &mut DataContext<'_>,
     imperative: &mut ImperativeContext<'_>,
     buffer: &mut AstBuilder,
-) -> Result<Node, ()> {
+) -> Result<NodeId, ()> {
     let expr = expression_rec(global, imperative, buffer, 0)?;
 
     Ok(expr)
@@ -217,7 +217,7 @@ fn expression_rec(
     imperative: &mut ImperativeContext<'_>,
     buffer: &mut AstBuilder,
     precedence: usize,
-) -> Result<Node, ()> {
+) -> Result<NodeId, ()> {
     let mut expr = value(global, imperative, buffer)?;
 
     while let Some((loc, op)) = global.tokens.try_consume_operator_with_precedence(precedence) {
@@ -225,23 +225,23 @@ fn expression_rec(
     
         if op == BinaryOp::TypeBound {
             let right = type_(global, imperative, buffer)?;
-            expr = Node::new(
+            expr = buffer.add(Node::new(
                 loc,
                 NodeKind::TypeBound {
-                    value: buffer.add(expr),
-                    bound: buffer.add(right),
+                    value: expr,
+                    bound: right,
                 },
-            );
+            ));
         } else {
             let right = expression_rec(global, imperative, buffer, op.precedence())?;
-            expr = Node::new(
+            expr = buffer.add(Node::new(
                 loc,
                 NodeKind::Binary {
                     op,
-                    left: buffer.add(expr),
-                    right: buffer.add(right),
+                    left: expr,
+                    right: right,
                 },
-            );
+            ));
         }
     }
 
@@ -254,7 +254,7 @@ fn named_type(
     buffer: &mut AstBuilder,
     loc: Location,
     name: Ustr,
-) -> Result<Node, ()> {
+) -> Result<NodeId, ()> {
     global
         .tokens
         .expect_next_is(global.errors, &TokenKind::Open(Bracket::Curly))?;
@@ -296,7 +296,7 @@ fn named_type(
                     .tokens
                     .expect_next_is(global.errors, &TokenKind::SemiColon)?;
 
-                fields.push((name, buffer.add(type_)));
+                fields.push((name, type_));
             }
             _ => {
                 global.error(token.loc, "Expected field or alias".to_string());
@@ -305,21 +305,21 @@ fn named_type(
         }
     }
 
-    Ok(Node::new(
+    Ok(buffer.add(Node::new(
         loc,
         NodeKind::NamedType {
             name,
             fields,
             aliases,
         },
-    ))
+    )))
 }
 
 fn type_(
     global: &mut DataContext<'_>,
     imperative: &mut ImperativeContext<'_>,
     buffer: &mut AstBuilder,
-) -> Result<Node, ()> {
+) -> Result<NodeId, ()> {
     let token = global.tokens.expect_peek(global.errors)?;
     let loc = token.loc;
     match token.kind {
@@ -334,7 +334,7 @@ fn type_(
                 .iter()
                 .position(|(_, arg)| *arg == name)
             {
-                Ok(Node::new(loc, NodeKind::PolymorphicArgument(index)))
+                Ok(buffer.add(Node::new(loc, NodeKind::PolymorphicArgument(index))))
             } else {
                 imperative.dependencies.add(
                     loc,
@@ -344,10 +344,10 @@ fn type_(
                         MemberDep::ValueAndCallableIfFunction,
                     ),
                 );
-                Ok(Node::new(
+                Ok(buffer.add(Node::new(
                     loc,
                     NodeKind::GlobalForTyping(global.scope, name, polymorphic_arguments),
-                ))
+                )))
             }
         }
         TokenKind::Open(Bracket::Curly) => {
@@ -375,7 +375,7 @@ fn type_(
                 }
 
                 let field_type = type_(global, imperative, buffer)?;
-                fields.push((name, buffer.add(field_type)));
+                fields.push((name, field_type));
 
                 let token = global.tokens.expect_next(global.errors)?;
                 match token.kind {
@@ -388,7 +388,7 @@ fn type_(
                 }
             }
 
-            Ok(Node::new(loc, NodeKind::StructType { fields }))
+            Ok(buffer.add(Node::new(loc, NodeKind::StructType { fields })))
         }
         TokenKind::Open(Bracket::Square) => {
             global.tokens.next();
@@ -400,13 +400,13 @@ fn type_(
                         .tokens
                         .try_consume(&TokenKind::Keyword(Keyword::Void))
                     {
-                        Ok(Node::new(
+                        Ok(buffer.add(Node::new(
                             loc,
                             NodeKind::LiteralType(TypeKind::VoidBuffer.into()),
-                        ))
+                        )))
                     } else {
                         let inner = type_(global, imperative, buffer)?;
-                        Ok(Node::new(loc, NodeKind::BufferType(buffer.add(inner))))
+                        Ok(buffer.add(Node::new(loc, NodeKind::BufferType(inner))))
                     }
                 }
                 _ => {
@@ -419,23 +419,23 @@ fn type_(
                     imperative.evaluate_at_typing = old_evaluate_at_typing;
                     let inner = type_(global, imperative, buffer)?;
 
-                    Ok(Node::new(
+                    Ok(buffer.add(Node::new(
                         loc,
                         NodeKind::ArrayType {
-                            len: buffer.add(len),
-                            members: buffer.add(inner),
+                            len,
+                            members: inner,
                         },
-                    ))
+                    )))
                 }
             }
         }
         TokenKind::Open(Bracket::Round) => {
             global.tokens.next();
             if global.tokens.try_consume(&TokenKind::Close(Bracket::Round)) {
-                Ok(Node::new(
+                Ok(buffer.add(Node::new(
                     loc,
                     NodeKind::LiteralType(TypeKind::Empty.into()),
-                ))
+                )))
             } else {
                 let inner = type_(global, imperative, buffer)?;
                 global
@@ -450,15 +450,15 @@ fn type_(
         }
         TokenKind::Keyword(Keyword::Bool) => {
             global.tokens.next();
-            Ok(Node::new(loc, NodeKind::LiteralType(TypeKind::Bool.into())))
+            Ok(buffer.add(Node::new(loc, NodeKind::LiteralType(TypeKind::Bool.into()))))
         }
         TokenKind::Type(type_) => {
             global.tokens.next();
-            Ok(Node::new(loc, NodeKind::LiteralType(type_)))
+            Ok(buffer.add(Node::new(loc, NodeKind::LiteralType(type_))))
         }
         TokenKind::PrimitiveInt(type_) => {
             global.tokens.next();
-            Ok(Node::new(loc, NodeKind::LiteralType(type_.into())))
+            Ok(buffer.add(Node::new(loc, NodeKind::LiteralType(type_.into()))))
         }
         _ => {
             if global.tokens.try_consume_operator_string("&").is_some() {
@@ -466,22 +466,22 @@ fn type_(
                     .tokens
                     .try_consume(&TokenKind::Keyword(Keyword::Void))
                 {
-                    Ok(Node::new(
+                    Ok(buffer.add(Node::new(
                         loc,
                         NodeKind::LiteralType(Type::new(TypeKind::VoidPtr)),
-                    ))
+                    )))
                 } else if global.tokens.try_consume(&TokenKind::Keyword(Keyword::Any)) {
-                    Ok(Node::new(
+                    Ok(buffer.add(Node::new(
                         loc,
                         NodeKind::LiteralType(Type::new(TypeKind::AnyPtr)),
-                    ))
+                    )))
                 } else {
                     let permits = parse_pointer_permits(global);
                     let inner = type_(global, imperative, buffer)?;
-                    Ok(Node::new(
+                    Ok(buffer.add(Node::new(
                         loc,
-                        NodeKind::ReferenceType(buffer.add(inner), permits),
-                    ))
+                        NodeKind::ReferenceType(inner, permits),
+                    )))
                 }
             } else {
                 global.error(
@@ -498,24 +498,24 @@ fn value(
     global: &mut DataContext<'_>,
     imperative: &mut ImperativeContext<'_>,
     buffer: &mut AstBuilder,
-) -> Result<Node, ()> {
+) -> Result<NodeId, ()> {
     if let Some((loc, op)) = global.tokens.try_consume_operator() {
         if op == UnaryOp::Reference {
             let permits = parse_pointer_permits(global);
             let value = value(global, imperative, buffer)?;
-            Ok(Node::new(
+            Ok(buffer.add(Node::new(
                 loc,
-                NodeKind::Reference(buffer.add(value), permits),
-            ))
+                NodeKind::Reference(value, permits),
+            )))
         } else {
             let value = value(global, imperative, buffer)?;
-            Ok(Node::new(
+            Ok(buffer.add(Node::new(
                 loc,
                 NodeKind::Unary {
-                    operand: buffer.add(value),
+                    operand: value,
                     op,
                 },
-            ))
+            )))
         }
     } else {
         value_without_unaries(global, imperative, buffer)
@@ -527,7 +527,7 @@ fn value_without_unaries(
     global: &mut DataContext<'_>,
     imperative: &mut ImperativeContext<'_>,
     buffer: &mut AstBuilder,
-) -> Result<Node, ()> {
+) -> Result<NodeId, ()> {
     let token = global.tokens.expect_next(global.errors)?;
     let mut value = match token.kind {
         TokenKind::Identifier(name) => {
@@ -542,14 +542,17 @@ fn value_without_unaries(
                     );
                     return Err(());
                 }
-                imperative.locals.get_mut(local_id).num_uses += 1;
-                Node::new(token.loc, NodeKind::Local(local_id))
+                let local = imperative.locals.get_mut(local_id);
+                local.num_uses += 1;
+                let id = buffer.add(Node::new(token.loc, NodeKind::Local(local_id)));
+                local.uses.push(id);
+                id
             } else if let Some(index) = imperative
                 .poly_args
                 .iter()
                 .position(|(_, arg)| *arg == name)
             {
-                Node::new(token.loc, NodeKind::PolymorphicArgument(index))
+                buffer.add(Node::new(token.loc, NodeKind::PolymorphicArgument(index)))
             } else if imperative.evaluate_at_typing {
                 imperative.dependencies.add(
                     token.loc,
@@ -559,22 +562,22 @@ fn value_without_unaries(
                         MemberDep::ValueAndCallableIfFunction,
                     ),
                 );
-                Node::new(
+                buffer.add(Node::new(
                     token.loc,
                     NodeKind::GlobalForTyping(global.scope, name, polymorphic_arguments),
-                )
+                ))
             } else {
                 imperative.dependencies.add(
                     token.loc,
                     DepKind::MemberByName(global.scope, name, MemberDep::Type),
                 );
-                Node::new(
+                buffer.add(Node::new(
                     token.loc,
                     NodeKind::Global(global.scope, name, polymorphic_arguments),
-                )
+                ))
             }
         }
-        TokenKind::Literal(literal) => Node::new(token.loc, NodeKind::Literal(literal)),
+        TokenKind::Literal(literal) => buffer.add(Node::new(token.loc, NodeKind::Literal(literal))),
         TokenKind::Keyword(Keyword::BuiltinFunction) => {
             use crate::program::BuiltinFunction;
 
@@ -597,7 +600,7 @@ fn value_without_unaries(
                 }
             };
 
-            Node::new(token.loc, NodeKind::BuiltinFunction(builtin_kind))
+            buffer.add(Node::new(token.loc, NodeKind::BuiltinFunction(builtin_kind)))
         }
         TokenKind::Keyword(Keyword::Const) => {
             let mut sub_ctx = ImperativeContext::new(
@@ -609,30 +612,30 @@ fn value_without_unaries(
             let inner = expression(global, &mut sub_ctx, buffer)?;
 
             if imperative.evaluate_at_typing {
-                Node::new(
+                buffer.add(Node::new(
                     token.loc,
                     NodeKind::ConstAtTyping {
                         locals: sub_ctx.locals,
-                        inner: buffer.add(inner),
+                        inner,
                     },
-                )
+                ))
             } else {
-                Node::new(
+                buffer.add(Node::new(
                     token.loc,
                     NodeKind::ConstAtEvaluation {
                         locals: sub_ctx.locals,
-                        inner: buffer.add(inner),
+                        inner,
                     },
-                )
+                ))
             }
         }
         TokenKind::Keyword(Keyword::Type) => {
             let t = type_(global, imperative, buffer)?;
-            Node::new(token.loc, NodeKind::TypeAsValue(buffer.add(t)))
+            buffer.add(Node::new(token.loc, NodeKind::TypeAsValue(t)))
         }
         TokenKind::PrimitiveInt(type_) => {
-            let type_node = Node::new(token.loc, NodeKind::LiteralType(type_.into()));
-            Node::new(token.loc, NodeKind::TypeAsValue(buffer.add(type_node)))
+            let type_node = buffer.add(Node::new(token.loc, NodeKind::LiteralType(type_.into())));
+            buffer.add(Node::new(token.loc, NodeKind::TypeAsValue(type_node)))
         }
         TokenKind::Keyword(Keyword::Break) => {
             let id = if global.tokens.try_consume(&TokenKind::SingleQuote) {
@@ -662,24 +665,24 @@ fn value_without_unaries(
                 kind: TokenKind::SemiColon,
             }) = global.tokens.peek()
             {
-                Node::new(loc, NodeKind::Empty)
+                buffer.add(Node::new(loc, NodeKind::Empty))
             } else {
                 expression(global, imperative, buffer)?
             };
 
             let label_mut = imperative.locals.get_label_mut(id);
             if label_mut.first_break_location.is_none() {
-                label_mut.first_break_location = Some(value.loc);
+                label_mut.first_break_location = Some(buffer.get(value).loc);
             }
 
-            Node::new(
+            buffer.add(Node::new(
                 token.loc,
                 NodeKind::Break {
                     label: id,
                     num_defer_deduplications,
-                    value: buffer.add(value),
+                    value,
                 },
-            )
+            ))
         }
         TokenKind::Keyword(Keyword::For) => {
             imperative.push_scope_boundary();
@@ -714,22 +717,22 @@ fn value_without_unaries(
                 .try_consume(&TokenKind::Keyword(Keyword::Else))
             {
                 let else_body = expression(global, imperative, buffer)?;
-                Some(buffer.add(else_body))
+                Some(else_body)
             } else {
                 None
             };
 
-            Node::new(
+            buffer.add(Node::new(
                 token.loc,
                 NodeKind::For {
                     iterator,
                     iteration_var,
-                    iterating: buffer.add(iterating),
-                    body: buffer.add(body),
+                    iterating,
+                    body,
                     label,
                     else_body,
                 },
-            )
+            ))
         }
         TokenKind::Keyword(Keyword::While) => {
             imperative.push_scope_boundary();
@@ -748,21 +751,21 @@ fn value_without_unaries(
                 .try_consume(&TokenKind::Keyword(Keyword::Else))
             {
                 let else_body = expression(global, imperative, buffer)?;
-                Some(buffer.add(else_body))
+                Some(else_body)
             } else {
                 None
             };
 
-            Node::new(
+            buffer.add(Node::new(
                 token.loc,
                 NodeKind::While {
-                    condition: buffer.add(condition),
+                    condition,
                     iteration_var,
-                    body: buffer.add(body),
+                    body,
                     label,
                     else_body,
                 },
-            )
+            ))
         }
         TokenKind::Keyword(Keyword::If) => {
             let condition = expression(global, imperative, buffer)?;
@@ -777,28 +780,28 @@ fn value_without_unaries(
                 None
             };
 
-            Node::new(
+            buffer.add(Node::new(
                 token.loc,
                 NodeKind::If {
-                    condition: buffer.add(condition),
-                    true_body: buffer.add(true_body),
-                    false_body: false_body.map(|v| buffer.add(v)),
+                    condition,
+                    true_body,
+                    false_body,
                 },
-            )
+            ))
         }
-        TokenKind::Keyword(Keyword::Uninit) => Node::new(token.loc, NodeKind::Uninit),
-        TokenKind::Keyword(Keyword::Zeroed) => Node::new(token.loc, NodeKind::Zeroed),
+        TokenKind::Keyword(Keyword::Uninit) => buffer.add(Node::new(token.loc, NodeKind::Uninit)),
+        TokenKind::Keyword(Keyword::Zeroed) => buffer.add(Node::new(token.loc, NodeKind::Zeroed)),
         TokenKind::Keyword(Keyword::Function) => {
             function_declaration(global, imperative, buffer, token.loc)?
         }
         TokenKind::Keyword(Keyword::BitCast) => {
             let value = value(global, imperative, buffer)?;
-            Node::new(
+            buffer.add(Node::new(
                 token.loc,
                 NodeKind::BitCast {
-                    value: buffer.add(value),
+                    value,
                 },
-            )
+            ))
         }
         TokenKind::Open(Bracket::Square) => {
             let mut args = Vec::new();
@@ -811,7 +814,7 @@ fn value_without_unaries(
                 }
 
                 let expr = expression(global, imperative, buffer)?;
-                args.push(buffer.add(expr));
+                args.push(expr);
 
                 let token = global.tokens.expect_next(global.errors)?;
                 match token.kind {
@@ -824,7 +827,7 @@ fn value_without_unaries(
                 }
             }
 
-            Node::new(token.loc, NodeKind::ArrayLiteral(args))
+            buffer.add(Node::new(token.loc, NodeKind::ArrayLiteral(args)))
         }
         TokenKind::Open(Bracket::Round) => {
             let expr = expression(global, imperative, buffer)?;
@@ -833,7 +836,7 @@ fn value_without_unaries(
                 .tokens
                 .expect_next_is(global.errors, &TokenKind::Close(Bracket::Round))?;
 
-            Node::new(token.loc, NodeKind::Parenthesis(buffer.add(expr)))
+            buffer.add(Node::new(token.loc, NodeKind::Parenthesis(expr)))
         }
 
         TokenKind::Open(Bracket::Curly) => {
@@ -858,13 +861,13 @@ fn value_without_unaries(
                         global.tokens.next();
 
                         let deferring = expression(global, imperative, buffer)?;
-                        let defer = Node::new(
+                        let defer = buffer.add(Node::new(
                             loc,
                             NodeKind::Defer {
-                                deferring: buffer.add(deferring),
+                                deferring,
                             },
-                        );
-                        contents.push(buffer.add(defer));
+                        ));
+                        contents.push(defer);
 
                         imperative.defer_depth += 1;
 
@@ -887,15 +890,15 @@ fn value_without_unaries(
 
                             let id = imperative.insert_local(Local::new(token.loc, name));
 
-                            let declaration = Node::new(
+                            let declaration = buffer.add(Node::new(
                                 token.loc,
                                 NodeKind::Declare {
                                     local: id,
-                                    value: buffer.add(value),
+                                    value,
                                 },
-                            );
+                            ));
 
-                            contents.push(buffer.add(declaration));
+                            contents.push(declaration);
                         } else {
                             global.error(token.loc, "Expected identifier".to_string());
                             return Err(());
@@ -903,7 +906,7 @@ fn value_without_unaries(
                     }
                     _ => {
                         let inner = expression(global, imperative, buffer)?;
-                        contents.push(buffer.add(inner));
+                        contents.push(inner);
                     }
                 }
 
@@ -922,7 +925,7 @@ fn value_without_unaries(
             }
 
             imperative.pop_scope_boundary();
-            Node::new(token.loc, NodeKind::Block { label, contents })
+            buffer.add(Node::new(token.loc, NodeKind::Block { label, contents }))
         }
 
         _ => {
@@ -940,27 +943,27 @@ fn value_without_unaries(
                 global.tokens.next();
 
                 let (_, name) = global.tokens.expect_identifier(global.errors)?;
-                value = Node::new(
+                value = buffer.add(Node::new(
                     loc,
                     NodeKind::Member {
-                        of: buffer.add(value),
+                        of: value,
                         name,
                     },
-                );
+                ));
             }
             TokenKind::Open(Bracket::Round) => {
                 global.tokens.next();
 
                 let (args, named_args) = function_arguments(global, imperative, buffer)?;
 
-                value = Node::new(
+                value = buffer.add(Node::new(
                     loc,
                     NodeKind::FunctionCall {
-                        calling: buffer.add(value),
+                        calling: value,
                         args,
                         named_args,
                     },
-                );
+                ));
             }
             _ => break,
         }
@@ -974,7 +977,7 @@ fn function_type(
     imperative: &mut ImperativeContext<'_>,
     loc: Location,
     buffer: &mut AstBuilder,
-) -> Result<Node, ()> {
+) -> Result<NodeId, ()> {
     // We start with a list of arguments.
     global
         .tokens
@@ -987,7 +990,7 @@ fn function_type(
         }
 
         let arg_type = type_(global, imperative, buffer)?;
-        args.push(buffer.add(arg_type));
+        args.push(arg_type);
 
         let token = global.tokens.expect_next(global.errors)?;
         match token.kind {
@@ -1003,16 +1006,16 @@ fn function_type(
     let returns = if global.tokens.try_consume_operator_string("->").is_some() {
         type_(global, imperative, buffer)?
     } else {
-        Node::new(loc, NodeKind::LiteralType(TypeKind::Empty.into()))
+        buffer.add(Node::new(loc, NodeKind::LiteralType(TypeKind::Empty.into())))
     };
 
-    Ok(Node::new(
+    Ok(buffer.add(Node::new(
         loc,
         NodeKind::FunctionType {
             args,
-            returns: buffer.add(returns),
+            returns,
         },
-    ))
+    )))
 }
 
 fn function_arguments(
@@ -1040,20 +1043,20 @@ fn function_arguments(
 
                 let arg = expression(global, imperative, buffer)?;
 
-                named_args.push((name, buffer.add(arg)));
+                named_args.push((name, arg));
             }
             _ => {
                 let arg = expression(global, imperative, buffer)?;
 
                 if !named_args.is_empty() {
                     global.error(
-                        arg.loc,
+                        buffer.get(arg).loc,
                         "You cannot have unnamed arguments after named arguments".to_string(),
                     );
                     return Err(());
                 }
 
-                args.push(buffer.add(arg));
+                args.push(arg);
             }
         }
 
@@ -1078,7 +1081,7 @@ fn function_declaration(
     imperative: &mut ImperativeContext<'_>,
     buffer: &mut AstBuilder,
     loc: Location,
-) -> Result<Node, ()> {
+) -> Result<NodeId, ()> {
     global
         .tokens
         .expect_next_is(global.errors, &TokenKind::Open(Bracket::Round))?;
@@ -1115,10 +1118,10 @@ fn function_declaration(
                 }
 
                 let arg_type = type_(global, imperative, buffer)?;
-                args.push((name, buffer.add(arg_type)));
+                args.push((name, arg_type));
             } else if global.tokens.try_consume_operator_string("=").is_some() {
                 let arg_value = expression(global, imperative, buffer)?;
-                default_args.push((name, buffer.add(arg_value)));
+                default_args.push((name, arg_value));
             } else {
                 global.error(
                     global.tokens.loc(),
@@ -1150,27 +1153,27 @@ fn function_declaration(
     let returns = if global.tokens.try_consume_operator_string("->").is_some() {
         type_(global, imperative, buffer)?
     } else {
-        Node::new(
+        buffer.add(Node::new(
             global.tokens.loc(),
             NodeKind::LiteralType(TypeKind::Empty.into()),
-        )
+        ))
     };
 
     let mut body_buffer = AstBuilder::new();
     let body = expression(global, &mut sub_imperative, &mut body_buffer)?;
-    let body = Arc::new(body_buffer.insert_root(body));
+    let body = Arc::new(body_buffer.set_root(body));
 
-    Ok(Node::new(
+    Ok(buffer.add(Node::new(
         loc,
         NodeKind::FunctionDeclaration {
             locals: sub_imperative.locals,
             args,
             default_args,
-            returns: buffer.add(returns),
+            returns: returns,
             body_deps,
             body,
         },
-    ))
+    )))
 }
 
 // FIXME: The name of this is confusing af, just make it simple
@@ -1192,7 +1195,7 @@ fn parse_passed_polymorphic_arguments(
             }
 
             let arg = expression(global, imperative, buffer)?;
-            polymorphic_arguments.push(buffer.add(arg));
+            polymorphic_arguments.push(arg);
 
             let token = global.tokens.expect_next(global.errors)?;
             match token.kind {

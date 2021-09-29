@@ -47,6 +47,21 @@ impl AstBuilder {
         &self.nodes
     }
 
+    pub fn set_root(mut self, root: NodeId) -> Ast {
+        // @Performance: This is not necessary, it's just to make sure that everything
+        // is correct
+        for (i, node) in self.nodes.iter().enumerate().rev().skip(1).rev() {
+            if i as u32 != root && node.parent.is_none() {
+                panic!("Node without a parent");
+            }
+        }
+
+        Ast {
+            builder: self,
+            root,
+        }
+    }
+
     pub fn insert_root(mut self, root: Node) -> Ast {
         let root = self.add(root);
 
