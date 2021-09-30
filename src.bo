@@ -1,12 +1,17 @@
 const B = {
     let a = 1;
     let b = a;
-    let c = b;
 
+    let c = 9;
     let d = 0;
+    defer a + d;
+
+    let thing = [a, 1, 3];
 
     c = b;
     d = c;
 
     (a + 6) : u8;
 };
+
+

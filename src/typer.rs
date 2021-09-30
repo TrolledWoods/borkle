@@ -407,6 +407,9 @@ fn type_node(ctx: &mut Context<'_, '_>, node_id: NodeId) {
                 );
             }
         }
+        NodeKind::Defer { deferring } => {
+            ctx.set_type(node_id, Type::new(TypeKind::Empty));
+        }
         NodeKind::Block {
             ref contents,
             label,
