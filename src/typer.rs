@@ -4,9 +4,10 @@ use crate::literal::Literal;
 use crate::locals::{LocalVariables, LocalId};
 use crate::operators::BinaryOp;
 use crate::program::constant::ConstantRef;
-use crate::program::{PolyOrMember, Program};
+use crate::program::{Task, PolyOrMember, Program, MemberMetaData};
 use crate::thread_pool::ThreadContext;
 use crate::types::{IntTypeKind, Type, TypeKind};
+use std::sync::Arc;
 pub use crate::parser::{ast::Node, ast::NodeKind, Ast, ast::NodeId};
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
@@ -406,6 +407,65 @@ fn type_node(ctx: &mut Context<'_, '_>, node_id: NodeId) {
                     format!("Cannot deal with polymorphic globals yet."),
                 );
             }
+        }
+        NodeKind::FunctionDeclaration { ref locals, ref args, ref default_args, returns, ref body, ref body_deps } => {
+            assert!(default_args.is_empty(), "We don't deal with default args yet");
+
+            if args.iter().any(|&(_, v)| ctx.ast.get(v).type_.returns().is_none()) {
+                return;
+            }
+
+            if ctx.ast.get(returns).type_.returns().is_none() {
+                return;
+            }
+
+            // Do the final step, this should only happen exactly once.
+
+            let mut locals = locals.clone();
+
+            let mut arg_types = Vec::with_capacity(args.len());
+            let mut arg_names = Vec::with_capacity(args.len());
+
+            for (local, &(name, node)) in locals.iter_mut().zip(args) {
+                let arg_type = ctx.ast.get(node).type_.returns().unwrap();
+                local.type_ = Some(arg_type);
+                arg_types.push(arg_type);
+                arg_names.push(name);
+            }
+
+            let return_type = ctx.ast.get(returns).type_.returns().unwrap();
+
+            let type_ = Type::new(TypeKind::Function {
+                args: arg_types,
+                returns: return_type,
+            });
+
+            let function_id = ctx.program.insert_function(node_loc);
+            ctx.program.queue_task(
+                body_deps.clone(),
+                Task::TypeFunction(
+                    function_id,
+                    YieldData::new(locals, (**body).clone()),
+                    return_type,
+                    type_,
+                    Vec::new(), // ctx.poly_args.to_vec(),
+                ),
+            );
+
+            let function_id_buffer = ctx
+                .program
+                .insert_buffer(type_, &function_id as *const _ as *const u8);
+
+            ctx.set_type(node_id, type_);
+            ctx.ast.get_mut(node_id).kind = NodeKind::Constant(
+                function_id_buffer,
+                Some(Arc::new(MemberMetaData::Function {
+                    arg_names,
+                    default_values: Vec::new(),
+                })),
+            );
+
+            // @Cleanup: Make the body of the function an ast inside of this ast.
         }
         NodeKind::Defer { deferring } => {
             ctx.set_type(node_id, Type::new(TypeKind::Empty));

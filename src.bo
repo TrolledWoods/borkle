@@ -1,4 +1,6 @@
 const B = {
+    let function = fn (a: u32, b: u32) -> u32  a + b * 3;
+
     let a = 1;
     let b = a;
 
@@ -6,7 +8,7 @@ const B = {
     let d = 0;
     defer a + d;
 
-    let thing = [a, 1, 3];
+    // let thing = [a, 1, 3];
 
     c = b;
     d = c;
