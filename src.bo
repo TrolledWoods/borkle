@@ -1,7 +1,9 @@
 const B = {
-    let a = &(#uninit : u32);
+    let a = &(#uninit : _);
+    let b = *a;
+    &b : &&u32;
     a : &_;
     a
-} : &const _;
+} : &const &const _;
 
 

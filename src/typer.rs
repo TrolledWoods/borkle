@@ -106,6 +106,14 @@ fn build_constraints(ctx: &mut Context<'_, '_>, node_id: NodeId) -> type_infer::
             let local_type_id = ctx.locals.get(local_id).type_infer_value_id;
             ctx.infer.set_equal(local_type_id, node_type_id, Variance::Invariant);
         }
+        NodeKind::Unary { op: UnaryOp::Dereference, operand } => {
+            let operand_type_id = build_constraints(ctx, operand);
+            // @Performance: It should be possible to constrain the type even here, but it's a little hairy.
+            // Maybe a better approach would be just an "assignment" constraint, like "this type has to have this kind", or something
+            let temp = ctx.infer.add_type(type_infer::Ref(type_infer::Access::needs(true, false), type_infer::Unknown));
+            ctx.infer.set_equal(operand_type_id, temp, Variance::Invariant);
+            ctx.infer.set_field_equal(temp, 1, node_type_id, Variance::Variant);
+        }
         NodeKind::Declare { local: _, dummy_local_node: left, value: right }
         | NodeKind::Binary { op: BinaryOp::Assign, left, right } => {
             let left_type_id = build_constraints(ctx, left);

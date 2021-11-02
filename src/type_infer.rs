@@ -209,9 +209,9 @@ impl Variance {
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub struct Access {
     pub read: bool,
-        pub write: bool,
-        pub needs_read: bool,
-        pub needs_write: bool,
+    pub write: bool,
+    pub needs_read: bool,
+    pub needs_write: bool,
 }
 
 impl Default for Access {
@@ -232,6 +232,15 @@ read: read,
           write: write,
           needs_read: read,
           needs_write: write,
+        }
+    }
+    
+    pub fn needs(read: bool, write: bool) -> Self {
+        Self {
+            read: true,
+            write: true,
+            needs_read: read,
+            needs_write: write,
         }
     }
 
