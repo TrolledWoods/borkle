@@ -9,7 +9,7 @@ use crate::thread_pool::ThreadContext;
 use crate::types::{IntTypeKind, Type, TypeKind};
 use std::sync::Arc;
 pub use crate::parser::{ast::Node, ast::NodeKind, Ast, ast::NodeId};
-use crate::type_infer::{self, TypeSystem, Variance};
+use crate::type_infer::{self, TypeSystem, Variance, Access};
 
 mod infer;
 
@@ -120,7 +120,8 @@ fn build_constraints(ctx: &mut Context<'_, '_>, node_id: NodeId) -> type_infer::
         }
         NodeKind::Declare { local: _, dummy_local_node: left, value: right }
         | NodeKind::Binary { op: BinaryOp::Assign, left, right } => {
-            let left_type_id = build_constraints(ctx, left);
+            let access = ctx.infer.add_access(Access::new(false, true));
+            let left_type_id = build_lvalue(ctx, left, access);
             let right_type_id = build_constraints(ctx, right);
 
             ctx.infer.set_equal(left_type_id, right_type_id, Variance::Covariant);
@@ -131,8 +132,9 @@ fn build_constraints(ctx: &mut Context<'_, '_>, node_id: NodeId) -> type_infer::
             ctx.infer.set_equal(node_type_id, temp, Variance::Invariant);
         }
         NodeKind::Reference(operand) => {
-            let inner = build_constraints(ctx, operand);
-            let temp = ctx.infer.add_type(type_infer::Ref(type_infer::Unknown, type_infer::Var(inner)));
+            let access = ctx.infer.add_access(type_infer::Access::default());
+            let inner = build_lvalue(ctx, operand, access);
+            let temp = ctx.infer.add_type(type_infer::Ref(type_infer::Var(access), type_infer::Var(inner)));
             ctx.infer.set_equal(node_type_id, temp, Variance::Invariant);
         }
         NodeKind::Block { ref contents, label: _ } => {
@@ -178,6 +180,33 @@ fn build_constraints(ctx: &mut Context<'_, '_>, node_id: NodeId) -> type_infer::
             ctx.infer.set_equal(node_type_id, temp, Variance::Invariant);
         }
         _ => unimplemented!("Ast node does not have a typing relationship yet {:?}", node.kind),
+    }
+
+    node_type_id
+}
+
+fn build_lvalue(ctx: &mut Context<'_, '_>, node_id: NodeId, access: type_infer::ValueId) -> type_infer::ValueId {
+    let node = ctx.ast.get(node_id);
+    let node_type_id = node.type_infer_value_id;
+    
+    match node.kind {
+        NodeKind::Member { of, name } => {
+            let of_type_id = build_lvalue(ctx, of, access);
+            ctx.infer.set_field_name_equal(of_type_id, name, node_type_id, Variance::Invariant);
+        }
+        NodeKind::Local(local_id) => {
+            let local_type_id = ctx.locals.get(local_id).type_infer_value_id;
+            ctx.infer.set_equal(local_type_id, node_type_id, Variance::Invariant);
+        }
+        NodeKind::Unary { op: UnaryOp::Dereference, operand } => {
+            let operand_type_id = build_constraints(ctx, operand);
+            // @Performance: It should be possible to constrain the type even here, but it's a little hairy.
+            // Maybe a better approach would be just an "assignment" constraint, like "this type has to have this kind", or something
+            let temp = ctx.infer.add_type(type_infer::Ref(type_infer::Var(access), type_infer::Unknown));
+            ctx.infer.set_equal(operand_type_id, temp, Variance::Invariant);
+            ctx.infer.set_field_equal(temp, 1, node_type_id, Variance::Variant);
+        }
+        _ => panic!("Ast node is not a valid lvalue {:?}", node.kind),
     }
 
     node_type_id
