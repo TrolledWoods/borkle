@@ -9,34 +9,7 @@ use crate::thread_pool::ThreadContext;
 use crate::types::{IntTypeKind, Type, TypeKind};
 use std::sync::Arc;
 pub use crate::parser::{ast::Node, ast::NodeKind, Ast, ast::NodeId};
-
-#[derive(Clone, Copy, PartialEq, Eq, Hash)]
-pub enum TypeInfo {
-    /// There is no information yet as to what type this will be.
-    None,
-    /// The type it returns will be this type, but it may have to insert a cast to do it,
-    /// or might not be able to return this at all and will later return an error.
-    Expected(Type),
-    /// The type is entirely resolved, and it's guaranteed to be this type
-    Resolved(Type),
-    Error,
-}
-
-impl TypeInfo {
-    fn resolved(&self) -> Option<Type> {
-        match *self {
-            Self::Resolved(type_) => Some(type_),
-            _ => None,
-        }
-    }
-
-    fn returns(&self) -> Option<Type> {
-        match *self {
-            Self::Expected(type_) | Self::Resolved(type_) => Some(type_),
-            Self::None | Self::Error => None,
-        }
-    }
-}
+use crate::type_infer::{self, TypeSystem, Variance};
 
 mod infer;
 
@@ -44,174 +17,27 @@ pub struct YieldData {
     emit_deps: DependencyList,
     locals: LocalVariables,
     ast: Ast,
-    interesting_locations: Vec<NodeId>,
-    unresolved_type_nodes: usize,
 }
 
 impl YieldData {
     pub fn new(locals: LocalVariables, ast: Ast) -> Self {
         Self {
-            locals,
             emit_deps: DependencyList::new(),
-            interesting_locations: (0..ast.nodes().len() as u32).collect(),
-            // @Volatile: Later, if we set some of the types in the parser, this has to be reduced.
-            unresolved_type_nodes: ast.nodes().len(),
             ast,
+            locals,
         }
     }
 }
 
 struct Context<'a, 'b> {
-    has_errors: bool,
     thread_context: &'a mut ThreadContext<'b>,
     errors: &'a mut ErrorCtx,
     program: &'b Program,
     locals: LocalVariables,
-    /// Dependencies necessary for the next yield.
-    yield_deps: DependencyList,
     /// Dependencies necessary for being able to emit code for this output.
     emit_deps: DependencyList,
     ast: Ast,
-    interesting_locations: Vec<NodeId>,
-    /// Locations where we couldn't continue because things we depend
-    /// on haven't been resolved. We will resume after all the new dependencies
-    /// have been dispatched.
-    unresolved_dependency_locations: Vec<NodeId>,
-    unresolved_type_nodes: usize,
-}
-
-impl Context<'_, '_> {
-    fn into_yield_data(self) -> (DependencyList, YieldData) {
-        (
-            self.yield_deps,
-            YieldData {
-                emit_deps: self.emit_deps,
-                locals: self.locals,
-                ast: self.ast,
-                interesting_locations: self.unresolved_dependency_locations,
-                unresolved_type_nodes: self.unresolved_type_nodes,
-            },
-        )
-    }
-
-    /// Sets the type that's expected for a given node. Will ping the node, if the expectation is different from what it was previously.
-    /// If the expectation cannot be fulfilled(it is already expected to be a different type, or is a different type), it will emit an error.
-    ///
-    /// It returns true if the type was set.
-    ///
-    fn set_expected_type(&mut self, node_id: NodeId, expected_type: Type) -> bool {
-        let node = self.ast.get_mut(node_id);
-        if let Some(type_) = node.type_.returns() {
-            if expected_type != type_ {
-                if node.type_ != TypeInfo::Error {
-                    self.errors.error(
-                        node.loc,
-                        format!("Expected '{}', found '{}'", expected_type, type_),
-                    );
-                }
-                self.has_errors = true;
-                node.type_ = TypeInfo::Error;
-                return false;
-            }
-        }
-
-        // Already on a higher stage of completion than this.
-        if matches!(node.type_, TypeInfo::Resolved(_)) {
-            return true;
-        }
-
-        if !matches!(node.type_, TypeInfo::Expected(_)) {
-            eprintln!("Pushed interesting location {}", node_id);
-            self.interesting_locations.push(node_id);
-        }
-
-        eprintln!("Found that node {:?} should be of the type {}", node.kind, expected_type);
-        node.type_ = TypeInfo::Expected(expected_type);
-
-        return true;
-    }
-
-    /// Sets the type of a node to the given type. If the type state was updated, it will also ping the parent.
-    /// If the type cannot be set (the type is already expected to be something different), it emits an error.
-    ///
-    /// It returns true if the type was set correctly.
-    ///
-    /// This should _only_ be used by the node itself to set the type it _is_.
-    fn set_type(&mut self, node_id: NodeId, wanted_type: Type) -> bool {
-        let node = self.ast.get_mut(node_id);
-        if let Some(type_) = node.type_.returns() {
-            if wanted_type != type_ {
-                if node.type_ != TypeInfo::Error {
-                    self.errors.error(
-                        node.loc,
-                        format!("Expected '{}', found '{}'", type_, wanted_type),
-                    );
-                }
-                self.has_errors = true;
-                node.type_ = TypeInfo::Error;
-                return false;
-            }
-        }
-
-        if !matches!(node.type_, TypeInfo::Resolved(_)) {
-            if let Some(parent) = node.parent {
-                eprintln!("Pushed interesting location {}", parent);
-                self.interesting_locations.push(parent);
-            }
-
-            eprintln!("Found that node {:?} is of type {}", node.kind, wanted_type);
-            node.type_ = TypeInfo::Resolved(wanted_type);
-            self.unresolved_type_nodes -= 1;
-        }
-
-        true
-    }
-
-    fn set_type_but_incomplete(&mut self, node_id: NodeId, wanted_type: Type) -> bool {
-        let node = self.ast.get_mut(node_id);
-        if let Some(type_) = node.type_.returns() {
-            if wanted_type != type_ {
-                if node.type_ != TypeInfo::Error {
-                    self.errors.error(
-                        node.loc,
-                        format!("Expected '{}', found '{}'", wanted_type, type_),
-                    );
-                }
-                node.type_ = TypeInfo::Error;
-                self.has_errors = true;
-                return false;
-            }
-        }
-
-        debug_assert!(!matches!(node.type_, TypeInfo::Resolved(_)), "Type is already resolved, cannot become incomplete");
-        if !matches!(node.type_, TypeInfo::Expected(_)) {
-            if let Some(parent) = node.parent {
-                eprintln!("Pushed interesting location {}", parent);
-                self.interesting_locations.push(parent);
-            }
-        }
-
-        eprintln!("Found that node {:?} is of type {}, but incomplete", node.kind, wanted_type);
-        node.type_ = TypeInfo::Expected(wanted_type);
-
-        true
-    }
-
-    fn set_type_of_local(&mut self, local_id: LocalId, wanted_type: Type) {
-        let local = self.locals.get_mut(local_id);
-        if let Some(previous_type) = local.type_ {
-            if previous_type != wanted_type {
-                // @Improvement: This error shouldn't be at the definition location of the local
-                self.errors.error(local.loc, format!("This local variable wants to be two types: {} and {}", previous_type, wanted_type));
-                self.has_errors = true;
-                return;
-            }
-        } else {
-            local.type_ = Some(wanted_type);
-
-            self.interesting_locations.extend(local.uses.iter().copied());
-        }
-    }
+    infer: TypeSystem,
 }
 
 pub fn process_ast<'a>(
@@ -222,49 +48,105 @@ pub fn process_ast<'a>(
 ) -> Result<Result<(DependencyList, LocalVariables, Ast), (DependencyList, YieldData)>, ()> {
     profile::profile!("Type ast");
 
+    let mut ast = from.ast;
+    let mut locals = from.locals;
+    let mut infer = TypeSystem::new();
+
+    // Create type inference variables for all variables and nodes, so that there's a way to talk about
+    // all of them.
+    // @Performance: This can be done in a faster way
+    eprintln!("Created type slots for ast nodes:");
+    for node in &mut ast.nodes {
+        node.type_infer_value_id = infer.add_unknown_type();
+        eprintln!("set {} to {:?}", node.type_infer_value_id, node);
+    }
+
+    for local in locals.iter_mut() {
+        local.type_infer_value_id = infer.add_unknown_type();
+    }
+
     let mut ctx = Context {
-        has_errors: false,
         thread_context,
         errors,
         program,
-        locals: from.locals,
-        yield_deps: DependencyList::new(),
+        locals,
         emit_deps: from.emit_deps,
-        interesting_locations: from.interesting_locations,
-        unresolved_dependency_locations: Vec::new(),
-        unresolved_type_nodes: from.unresolved_type_nodes,
-        ast: from.ast,
+        ast,
+        infer,
     };
 
-    /*if let Some(wanted_type) = wanted_type {
-        ctx.set_expected_type(ctx.ast.root, wanted_type);
-    }*/
+    // Build the tree relationship between the different types.
+    let root = ctx.ast.root;
+    build_constraints(&mut ctx, root);
 
-    let mut rng = crate::random::Random::new();
-    // let mut rng = crate::random::Random::with_seed(1960374640);
-    println!("Random seed: {}", rng.get_seed());
-    while !ctx.interesting_locations.is_empty() {
-        let interesting_location = ctx.interesting_locations.remove(rng.gen_u32() as usize % ctx.interesting_locations.len());
-        type_node(&mut ctx, interesting_location);
-    }
+    eprintln!("\nState before solving:\n");
+    ctx.infer.print_state();
 
-    if ctx.unresolved_dependency_locations.is_empty() && ctx.unresolved_type_nodes == 0 {
-        if ctx.has_errors {
-            return Err(());
-        }
+    ctx.infer.solve();
+    ctx.infer.finish();
+    eprintln!("\nState after solving:\n");
+    ctx.infer.print_state();
 
-        Ok(Ok((ctx.emit_deps, ctx.locals, ctx.ast)))
-    } else if !ctx.unresolved_dependency_locations.is_empty() {
-        Ok(Err(ctx.into_yield_data()))
-    } else {
-        for node in ctx.ast.nodes() {
-            if !matches!(node.type_, TypeInfo::Resolved(_)) {
-                ctx.errors.error(node.loc, "Ambiguous type".to_string());
-            }
-        }
-        Err(())
-    }
+    Err(())
 }
+
+fn build_constraints(ctx: &mut Context<'_, '_>, node_id: NodeId) -> type_infer::ValueId {
+    let node = ctx.ast.get(node_id);
+    let node_type_id = node.type_infer_value_id;
+    
+    match node.kind {
+        NodeKind::Uninit | NodeKind::Zeroed => {},
+        NodeKind::Empty => {
+            // @Performance: We could set the type directly(because no inferrence has happened yet),
+            // this is a roundabout way of doing things.
+            let temp = ctx.infer.add_type(type_infer::Empty);
+            ctx.infer.set_equal(node_type_id, temp, Variance::Invariant);
+        }
+        NodeKind::Local(local_id) => {
+            let local_type_id = ctx.locals.get(local_id).type_infer_value_id;
+            ctx.infer.set_equal(local_type_id, node_type_id, Variance::Variant);
+        }
+        NodeKind::Declare { local: _, dummy_local_node: left, value: right }
+        | NodeKind::Binary { op: BinaryOp::Assign, left, right } => {
+            let left_type_id = build_constraints(ctx, left);
+            let right_type_id = build_constraints(ctx, right);
+
+            ctx.infer.set_equal(left_type_id, right_type_id, Variance::Covariant);
+
+            // @Performance: We could set the type directly(because no inferrence has happened yet),
+            // this is a roundabout way of doing things.
+            let temp = ctx.infer.add_type(type_infer::Empty);
+            ctx.infer.set_equal(node_type_id, temp, Variance::Invariant);
+        }
+        NodeKind::Block { ref contents, label: _ } => {
+            let last = *contents.last().unwrap();
+            // @Performance: This isn't very fast, but it's fine for now
+            for statement_id in contents[..contents.len() - 1].to_vec() {
+                build_constraints(ctx, statement_id);
+            }
+
+            let last_type_id = build_constraints(ctx, last);
+            ctx.infer.set_equal(node_type_id, last_type_id, Variance::Invariant);
+        }
+        NodeKind::TypeBound { value, bound } => {
+            let bound_type_id = build_constraints(ctx, bound);
+            ctx.infer.set_equal(node_type_id, bound_type_id, Variance::Invariant);
+            let value_type_id = build_constraints(ctx, value);
+            ctx.infer.set_equal(value_type_id, node_type_id, Variance::Variant);
+        }
+        NodeKind::LiteralType(type_) => {
+            // @Performance: We could set the type directly(because no inferrence has happened yet),
+            // this is a roundabout way of doing things.
+            let temp = ctx.infer.add_type(type_infer::CompilerType(type_));
+            ctx.infer.set_equal(node_type_id, temp, Variance::Invariant);
+        }
+        _ => unimplemented!("Ast node does not have a typing relationship yet {:?}", node.kind),
+    }
+
+    node_type_id
+}
+
+/*
 
 fn type_node(ctx: &mut Context<'_, '_>, node_id: NodeId) {
     let node = ctx.ast.get(node_id);
@@ -531,6 +413,7 @@ fn type_node(ctx: &mut Context<'_, '_>, node_id: NodeId) {
         _ => unimplemented!(),
     }
 }
+*/
 
 /*
 /// If the `wanted_type` is Some(type_), this function itself will generate an error if the types

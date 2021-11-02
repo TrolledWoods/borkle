@@ -1,6 +1,5 @@
 use crate::dependencies::DependencyList;
 use crate::program::constant::ConstantRef;
-use crate::typer::TypeInfo;
 use crate::literal::Literal;
 use crate::locals::{LabelId, LocalId, LocalVariables};
 use crate::location::Location;
@@ -307,20 +306,17 @@ pub struct Node {
     pub loc: Location,
     pub kind: NodeKind,
     pub parent: Option<NodeId>,
-    pub type_: TypeInfo,
+    pub type_infer_value_id: crate::type_infer::ValueId,
+    pub type_: Option<Type>,
 }
 
 impl Node {
     pub const fn new(loc: Location, kind: NodeKind) -> Self {
-        Self { loc, kind, type_: TypeInfo::None, parent: None }
+        Self { loc, kind, type_: None, parent: None, type_infer_value_id: 0xffff_ffff }
     }
 
     pub fn type_(&self) -> Type {
-        if let TypeInfo::Resolved(type_) = self.type_ {
-            type_
-        } else {
-            unreachable!("Called type_ on Node before typing was completed");
-        }
+        self.type_.unwrap()
     }
 }
 
@@ -384,7 +380,7 @@ pub enum NodeKind {
     /// Any node within this node, is what I call a "type" node. These nodes, when typechecked, actually have their
     /// type set as their value instead of their type; their type is just "Type". The reason for that is that they're
     /// essentially a form of compile time execution, but so common that they use this system instead of the bytecode
-    /// system, in the typechecker. It's similar to constant folding, but for types. And it's hacky.
+    /// system, in the typechecker. It's similar to constant folding, but for types. And it's hacky :=)
     TypeAsValue(NodeId),
     NamedType {
         name: Ustr,

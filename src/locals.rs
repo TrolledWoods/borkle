@@ -13,6 +13,7 @@ pub struct LabelId(usize);
 pub struct Local {
     pub name: Ustr,
     pub loc: Location,
+    pub type_infer_value_id: crate::type_infer::ValueId,
     pub type_: Option<Type>,
     pub value: Option<crate::ir::Value>,
     pub uses: Vec<NodeId>,
@@ -25,6 +26,7 @@ impl Local {
             name,
             loc,
             type_: None,
+            type_infer_value_id: 0,
             value: None,
             uses: Vec::new(),
             num_uses: 0,
@@ -41,6 +43,7 @@ pub struct Label {
     pub defer_depth: usize,
     pub num_defers: usize,
     pub first_break_location: Option<Location>,
+    pub type_infer_value_id: crate::type_infer::ValueId,
     pub type_: Option<Type>,
     pub value: Option<crate::ir::Value>,
     pub ir_labels: Option<Vec<crate::ir::LabelId>>,

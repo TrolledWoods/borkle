@@ -3,20 +3,22 @@ use std::iter::repeat_with;
 use crate::types::{self, IntTypeKind};
 
 #[derive(Clone, Copy)]
-pub struct CompilerType(types::Type);
+pub struct CompilerType(pub types::Type);
 
 #[derive(Clone, Copy)]
-pub struct Var(usize);
+pub struct Empty;
+#[derive(Clone, Copy)]
+pub struct Var(pub usize);
 #[derive(Clone, Copy)]
 pub struct Unknown;
 #[derive(Clone, Copy)]
-pub struct Int(IntTypeKind);
+pub struct Int(pub IntTypeKind);
 #[derive(Clone, Copy)]
-pub struct Array<T: IntoType, V: IntoValue>(T, V);
+pub struct Array<T: IntoType, V: IntoValue>(pub T, pub V);
 #[derive(Clone, Copy)]
-pub struct Ref<V: IntoAccess, T: IntoType>(V, T);
+pub struct Ref<V: IntoAccess, T: IntoType>(pub V, pub T);
 #[derive(Clone, Copy)]
-pub struct WithType<T: IntoType>(T);
+pub struct WithType<T: IntoType>(pub T);
 
 pub trait IntoType {
     fn into_type(self, system: &mut TypeSystem) -> ValueId;
@@ -48,6 +50,12 @@ impl<T: IntoType, V: IntoValue> IntoType for Array<T, V> {
 impl IntoType for Var {
     fn into_type(self, _: &mut TypeSystem) -> ValueId {
         self.0
+    }
+}
+
+impl IntoType for Empty {
+    fn into_type(self, system: &mut TypeSystem) -> ValueId {
+        system.add(ValueKind::Type(Some((TypeKind::Empty, Some(Box::new([]))))))
     }
 }
 
@@ -127,36 +135,38 @@ impl IntoValue for Unknown {
 pub enum TypeKind {
     // No arguments
     Int(IntTypeKind),
-    Bool,
-    Empty,
+        Bool,
+        Empty,
 
-    // element: type, length: int
-    Array,
-    // (type, type, type, ....)
-    Tuple,
-    // inner element: type
-    Reference,
+        // return, (arg0, arg1, arg2, ...)
+        Function,
+        // element: type, length: int
+        Array,
+        // (type, type, type, ....)
+        Tuple,
+        // inner element: type
+        Reference,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Variance {
     /// Covariance
     Covariant,
-    /// Variance
-    Variant,
-    /// Require exact equality
-    Invariant,
-    /// For cases where variance can't be computed yet, so ignore it for now.
-    DontCare,
+        /// Variance
+        Variant,
+        /// Require exact equality
+        Invariant,
+        /// For cases where variance can't be computed yet, so ignore it for now.
+        DontCare,
 }
 
 impl Variance {
     fn to_string(&self) -> &'static str {
         match self {
             Self::Covariant => "<=",
-            Self::Variant => "=>",
-            Self::Invariant => "==",
-            Self::DontCare => "~~",
+                Self::Variant => "=>",
+                Self::Invariant => "==",
+                Self::DontCare => "~~",
         }
     }
 
@@ -167,31 +177,31 @@ impl Variance {
     fn apply_to(self, other: Variance) -> Variance {
         match (self, other) {
             (Variance::DontCare, _) => Variance::DontCare,
-            (Variance::Variant, c) => c,
-            (Variance::Covariant, c) => c.invert(),
-            (Variance::Invariant, _) => Variance::Invariant,
+                (Variance::Variant, c) => c,
+                (Variance::Covariant, c) => c.invert(),
+                (Variance::Invariant, _) => Variance::Invariant,
         }
     }
 
     fn combine(&mut self, other: Variance) {
         match (*self, other) {
             (Variance::DontCare, c) => *self = c,
-            (Variance::Covariant, Variance::Variant) | (Variance::Variant, Variance::Covariant) =>
-                *self = Variance::Invariant,
-            (_, Variance::Invariant) => *self = Variance::Invariant,
-            (_, Variance::DontCare) |
-            (Variance::Invariant, _) |
-            (Variance::Variant, Variance::Variant) |
-            (Variance::Covariant, Variance::Covariant) => {}
+                (Variance::Covariant, Variance::Variant) | (Variance::Variant, Variance::Covariant) =>
+                    *self = Variance::Invariant,
+                (_, Variance::Invariant) => *self = Variance::Invariant,
+                (_, Variance::DontCare) |
+                    (Variance::Invariant, _) |
+                    (Variance::Variant, Variance::Variant) |
+                    (Variance::Covariant, Variance::Covariant) => {}
         }
     }
-    
+
     fn invert(self) -> Variance {
         match self {
             Self::Covariant => Self::Variant,
-            Self::Variant => Self::Covariant,
-            Self::Invariant => Self::Invariant,
-            Self::DontCare => Self::DontCare,
+                Self::Variant => Self::Covariant,
+                Self::Invariant => Self::Invariant,
+                Self::DontCare => Self::DontCare,
         }
     }
 }
@@ -199,18 +209,18 @@ impl Variance {
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub struct Access {
     pub read: bool,
-    pub write: bool,
-    pub needs_read: bool,
-    pub needs_write: bool,
+        pub write: bool,
+        pub needs_read: bool,
+        pub needs_write: bool,
 }
 
 impl Default for Access {
     fn default() -> Self {
         Self {
-            read: true,
-            write: true,
-            needs_read: false,
-            needs_write: false,
+read: true,
+          write: true,
+          needs_read: false,
+          needs_write: false,
         }
     }
 }
@@ -218,10 +228,10 @@ impl Default for Access {
 impl Access {
     pub fn new(read: bool, write: bool) -> Self {
         Self {
-            read: read,
-            write: write,
-            needs_read: read,
-            needs_write: write,
+read: read,
+          write: write,
+          needs_read: read,
+          needs_write: write,
         }
     }
 
@@ -278,10 +288,10 @@ impl ValueKind {
     }
 }
 
-type ValueId = usize;
+pub type ValueId = usize;
 
 struct Value {
-    kind: ValueKind,
+kind: ValueKind,
 }
 
 impl From<ValueKind> for Value {
@@ -316,9 +326,9 @@ impl Constraint {
 
 #[derive(Debug)]
 pub struct Error {
-    a: ValueId,
-    b: ValueId,
-    kind: ErrorKind,
+a: ValueId,
+       b: ValueId,
+       kind: ErrorKind,
 }
 
 impl Error {
@@ -330,19 +340,19 @@ impl Error {
 #[derive(Debug)]
 pub enum ErrorKind {
     MixingTypesAndValues,
-    IncompatibleTypes,
-    IncompatibleValues,
-    ValueAndTypesIntermixed,
-    IndexOutOfBounds(usize),
+        IncompatibleTypes,
+        IncompatibleValues,
+        ValueAndTypesIntermixed,
+        IndexOutOfBounds(usize),
 }
 
 struct VarianceConstraint {
     /// The variance between the two Access operations
-    variance: Variance,
-    /// The variance "strength" applied in the last queueing of constraints. This is so we can make sure we don't
-    /// issue all the constraints several times unnecessarily.
-    last_variance_applied: Variance,
-    constraints: Vec<Constraint>,
+variance: Variance,
+              /// The variance "strength" applied in the last queueing of constraints. This is so we can make sure we don't
+              /// issue all the constraints several times unnecessarily.
+              last_variance_applied: Variance,
+              constraints: Vec<Constraint>,
 }
 
 fn add_constraint(available_constraints: &mut HashMap<ValueId, Vec<Constraint>>, queued_constraints: &mut Vec<Constraint>, constraint: Constraint) {
@@ -370,31 +380,31 @@ fn add_constraint(available_constraints: &mut HashMap<ValueId, Vec<Constraint>>,
 pub struct TypeSystem {
     /// The first few values are always primitive values, with a fixed position, to make them trivial to create.
     /// 0 - Int
-    values: Vec<Value>,
+values: Vec<Value>,
 
-    /// When the access level of certain things determine the variance of constraints, those constraints are put into here.
-    variance_updates: HashMap<(ValueId, ValueId), VarianceConstraint>,
+            /// When the access level of certain things determine the variance of constraints, those constraints are put into here.
+            variance_updates: HashMap<(ValueId, ValueId), VarianceConstraint>,
 
-    available_constraints: HashMap<ValueId, Vec<Constraint>>,
-    queued_constraints: Vec<Constraint>,
+            available_constraints: HashMap<ValueId, Vec<Constraint>>,
+            queued_constraints: Vec<Constraint>,
 
-    errors: Vec<Error>,
+            errors: Vec<Error>,
 }
 
 impl TypeSystem {
     pub fn new() -> Self {
         Self {
-            values: vec![],
-            variance_updates: HashMap::new(),
-            available_constraints: HashMap::new(),
-            queued_constraints: Vec::new(),
-            errors: Vec::new(),
+values: vec![],
+        variance_updates: HashMap::new(),
+        available_constraints: HashMap::new(),
+        queued_constraints: Vec::new(),
+        errors: Vec::new(),
         }
     }
 
-    pub fn set_equal(&mut self, a: ValueId, b: ValueId) {
+    pub fn set_equal(&mut self, a: ValueId, b: ValueId, variance: Variance) {
         if a == b { return; }
-        add_constraint(&mut self.available_constraints, &mut self.queued_constraints, Constraint::equal(a, b, Variance::Variant));
+        add_constraint(&mut self.available_constraints, &mut self.queued_constraints, Constraint::equal(a, b, variance));
     }
 
     pub fn set_field_equal(&mut self, a: ValueId, field_index: usize, b: ValueId, variance: Variance) {
@@ -414,26 +424,26 @@ impl TypeSystem {
         match &self.values[value].kind {
             Access(access) => {
                 format!(
-                    "{}{}{}",
-                    match (access.needs_read, access.needs_write) {
+                        "{}{}{}",
+                        match (access.needs_read, access.needs_write) {
                         (true, true) => "rw",
                         (true, false) => "r",
                         (false, true) => "w",
                         (false, false) => "[]",
-                    },
-                    match (access.read && !access.needs_read, access.write && !access.needs_write) {
+                        },
+                        match (access.read && !access.needs_read, access.write && !access.needs_write) {
                         (true, true) => "+rw",
                         (true, false) => "+r",
                         (false, true) => "+w",
                         (false, false) => "",
-                    },
-                    match (!access.read && access.needs_read, !access.write && access.needs_write) {
+                        },
+                        match (!access.read && access.needs_read, !access.write && access.needs_write) {
                         (true, true) => "!rw",
                         (true, false) => "!r",
                         (false, true) => "!w",
                         (false, false) => "",
-                    },
-                )
+                        },
+                       )
             }
             Type(Some((TypeKind::Bool, _))) => "bool".to_string(),
             Type(Some((TypeKind::Empty, _))) => "Empty".to_string(),
@@ -443,6 +453,14 @@ impl TypeSystem {
             Value(Some((type_, Some(value)))) => format!("({}: {})", value, self.value_to_str(*type_, rec + 1)),
             Type(Some((TypeKind::Int(int_type_kind), _))) => format!("{:?}", int_type_kind),
             Type(Some((kind, None))) => format!("{:?}", kind),
+            Type(Some((TypeKind::Function, Some(c)))) => match &**c {
+                [return_, args @ ..] => format!(
+                    "({}) -> {}",
+                    args.iter().map(|&v| self.value_to_str(v, rec + 1)).collect::<Vec<_>>().join(", "),
+                    self.value_to_str(*return_, rec + 1),
+                ),
+                _ => unreachable!("A function pointer type has to have at least a return type"),
+            },
             Type(Some((TypeKind::Array, Some(c)))) => match &**c {
                 [type_, length] => format!("[{}; {}]", self.value_to_str(*type_, rec + 1), self.value_to_str(*length, rec + 1)),
                 _ => unreachable!("Arrays should only ever have two type parameters"),
