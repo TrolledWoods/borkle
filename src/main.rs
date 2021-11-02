@@ -1,3 +1,5 @@
+#![feature(let_else)]
+
 #![deny(rust_2018_idioms, clippy::all)]
 #![deny(mutable_borrow_reservation_conflict)]
 #![warn(clippy::pedantic)]
@@ -19,6 +21,7 @@
     clippy::cast_ptr_alignment,
 )]
 
+mod types2;
 mod random;
 mod c_backend;
 mod command_line_arguments;

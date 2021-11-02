@@ -467,6 +467,12 @@ fn type_node(ctx: &mut Context<'_, '_>, node_id: NodeId) {
 
             // @Cleanup: Make the body of the function an ast inside of this ast.
         }
+        /*NodeKind::FunctionCall { calling, ref args, ref named_args } => {
+            assert!(named_args.is_empty(), "Named args aren't handled yet");
+
+            if let Some(calling_type) = ctx.ast.get(calling).type_.returns() {
+            }
+        }*/
         NodeKind::Defer { deferring } => {
             ctx.set_type(node_id, Type::new(TypeKind::Empty));
         }

@@ -1,6 +1,10 @@
 const B = {
     let function = fn (a: u32, b: u32) -> u32  a + b * 3;
 
+    cast(&[&a, &1, &3]) : [] any T &T;
+
+    anify((a, a_function));
+
     let a = 1;
     let b = a;
 
