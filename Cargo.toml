@@ -16,7 +16,7 @@ debug = true
 
 [dependencies]
 profile = { path = "profile/" }
-ustr = "0.7.*"
+ustr = "0.8.*"
 bumpalo = { version = "3.4.0", features = ["boxed"] }
 impl_twice = "0.0.3"
 parking_lot = "0.10.2"

@@ -102,6 +102,10 @@ fn build_constraints(ctx: &mut Context<'_, '_>, node_id: NodeId) -> type_infer::
             let temp = ctx.infer.add_type(type_infer::Empty);
             ctx.infer.set_equal(node_type_id, temp, Variance::Invariant);
         }
+        NodeKind::Member { of, name } => {
+            let of_type_id = build_constraints(ctx, of);
+            ctx.infer.set_field_name_equal(of_type_id, name, node_type_id, Variance::Variant);
+        }
         NodeKind::Local(local_id) => {
             let local_type_id = ctx.locals.get(local_id).type_infer_value_id;
             ctx.infer.set_equal(local_type_id, node_type_id, Variance::Invariant);
@@ -155,6 +159,15 @@ fn build_constraints(ctx: &mut Context<'_, '_>, node_id: NodeId) -> type_infer::
             // @Performance: We could set the type directly(because no inferrence has happened yet),
             // this is a roundabout way of doing things.
             let temp = ctx.infer.add_type(type_infer::CompilerType(type_));
+            ctx.infer.set_equal(node_type_id, temp, Variance::Invariant);
+        }
+        NodeKind::StructType { ref fields } => {
+            // @Performance: Many allocations
+            let names = fields.iter().map(|v| v.0).collect();
+            let fields = fields.iter().map(|v| v.1).collect::<Vec<_>>();
+            let fields = fields.into_iter().map(|v| build_constraints(ctx, v)).collect();
+            // @Performance: This could directly set the type in theory
+            let temp = ctx.infer.add(type_infer::ValueKind::Type(Some((type_infer::TypeKind::Struct(names), Some(fields)))));
             ctx.infer.set_equal(node_type_id, temp, Variance::Invariant);
         }
         // @Improvement: Reference type permits can be inferred as well, but that's not represented here.

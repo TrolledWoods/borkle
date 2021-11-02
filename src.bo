@@ -1,9 +1,18 @@
 const B = {
-    let a = &(#uninit : _);
-    let b = *a;
-    &b : &&u32;
-    a : &_;
-    a
-} : &const &const _;
+    let a = #uninit : {
+        _0: u8;
+        _1: _;
+        _2: _;
+    };
+
+    a._1 = a._2;
+    *a._2 = #0;
+    a._0 = *a._2;
+    
+    // The final type of a is:
+    //
+    // { _0: u8, _1: &(needs neither read or write) u8, _2: &(needs read) u8 }
+
+};
 
 
