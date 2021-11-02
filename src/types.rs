@@ -341,7 +341,7 @@ impl PtrPermits {
         } else if self.write() && self.read() {
             ""
         } else {
-            "UNKNOWN!!!!"
+            "null "
         }
     }
 

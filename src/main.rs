@@ -21,7 +21,7 @@
     clippy::cast_ptr_alignment,
 )]
 
-mod types2;
+mod type_infer;
 mod random;
 mod c_backend;
 mod command_line_arguments;

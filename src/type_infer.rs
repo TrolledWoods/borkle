@@ -1,19 +1,40 @@
 use std::collections::HashMap;
 use std::iter::repeat_with;
+use crate::types::{self, IntTypeKind};
 
 #[derive(Clone, Copy)]
-struct Var(usize);
+pub struct CompilerType(types::Type);
+
 #[derive(Clone, Copy)]
-struct Unknown;
+pub struct Var(usize);
 #[derive(Clone, Copy)]
-struct Int;
+pub struct Unknown;
 #[derive(Clone, Copy)]
-struct Array<T: IntoType, V: IntoValue>(T, V);
+pub struct Int(IntTypeKind);
 #[derive(Clone, Copy)]
-struct Ref<V: IntoAccess, T: IntoType>(V, T);
+pub struct Array<T: IntoType, V: IntoValue>(T, V);
+#[derive(Clone, Copy)]
+pub struct Ref<V: IntoAccess, T: IntoType>(V, T);
+#[derive(Clone, Copy)]
+pub struct WithType<T: IntoType>(T);
 
 pub trait IntoType {
     fn into_type(self, system: &mut TypeSystem) -> ValueId;
+}
+
+impl IntoType for CompilerType {
+    fn into_type(self, system: &mut TypeSystem) -> ValueId {
+        match self.0.0.kind {
+            types::TypeKind::Int(int_type_kind) => Int(int_type_kind).into_type(system),
+            types::TypeKind::Empty => system.add(ValueKind::Type(Some((TypeKind::Empty, Some(Box::new([])))))),
+            types::TypeKind::Bool => system.add(ValueKind::Type(Some((TypeKind::Bool, Some(Box::new([])))))),
+            types::TypeKind::Reference { pointee, permits } =>
+                Ref(Access::new(permits.read(), permits.write()), CompilerType(pointee)).into_type(system),
+            types::TypeKind::Array(type_, length) =>
+                Array(CompilerType(type_), length).into_type(system),
+            _ => todo!("This compiler type is not done yet"),
+        }
+    }
 }
 
 impl<T: IntoType, V: IntoValue> IntoType for Array<T, V> {
@@ -31,8 +52,8 @@ impl IntoType for Var {
 }
 
 impl IntoType for Int {
-    fn into_type(self, _: &mut TypeSystem) -> ValueId {
-        INT_TYPE
+    fn into_type(self, system: &mut TypeSystem) -> ValueId {
+        system.add(ValueKind::Type(Some((TypeKind::Int(self.0), Some(Box::new([]))))))
     }
 }
 
@@ -76,9 +97,17 @@ pub trait IntoValue {
     fn into_value(self, system: &mut TypeSystem) -> ValueId;
 }
 
+impl<T: IntoType> IntoValue for WithType<T> {
+    fn into_value(self, system: &mut TypeSystem) -> ValueId {
+        let type_ = self.0.into_type(system);
+        system.add(ValueKind::Value(Some((type_, None))))
+    }
+}
+
 impl IntoValue for usize {
     fn into_value(self, system: &mut TypeSystem) -> ValueId {
-        system.add_value(Some((INT_TYPE, Some(self))))
+        let int_type = system.add_type(Int(IntTypeKind::Usize));
+        system.add(ValueKind::Value(Some((int_type, Some(self)))))
     }
 }
 
@@ -90,19 +119,22 @@ impl IntoValue for Var {
 
 impl IntoValue for Unknown {
     fn into_value(self, system: &mut TypeSystem) -> ValueId {
-        system.add_value(None)
+        system.add(ValueKind::Value(None))
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TypeKind {
-    /// No arguments
-    Int,
-    /// element: type, length: int
+    // No arguments
+    Int(IntTypeKind),
+    Bool,
+    Empty,
+
+    // element: type, length: int
     Array,
-    /// (type, type, type, ....)
+    // (type, type, type, ....)
     Tuple,
-    /// inner element: type
+    // inner element: type
     Reference,
 }
 
@@ -248,8 +280,6 @@ impl ValueKind {
 
 type ValueId = usize;
 
-const INT_TYPE: ValueId = 0;
-
 struct Value {
     kind: ValueKind,
 }
@@ -354,9 +384,7 @@ pub struct TypeSystem {
 impl TypeSystem {
     pub fn new() -> Self {
         Self {
-            values: vec![
-                ValueKind::Type(Some((TypeKind::Int, Some(Box::new([]))))).into(),
-            ],
+            values: vec![],
             variance_updates: HashMap::new(),
             available_constraints: HashMap::new(),
             queued_constraints: Vec::new(),
@@ -407,11 +435,13 @@ impl TypeSystem {
                     },
                 )
             }
+            Type(Some((TypeKind::Bool, _))) => "bool".to_string(),
+            Type(Some((TypeKind::Empty, _))) => "Empty".to_string(),
             Type(None) => "_".to_string(),
             Value(None) => "_(value)".to_string(),
             Value(Some((type_, None))) => format!("(_: {})", self.value_to_str(*type_, rec + 1)),
             Value(Some((type_, Some(value)))) => format!("({}: {})", value, self.value_to_str(*type_, rec + 1)),
-            Type(Some((TypeKind::Int, _))) => "int".to_string(),
+            Type(Some((TypeKind::Int(int_type_kind), _))) => format!("{:?}", int_type_kind),
             Type(Some((kind, None))) => format!("{:?}", kind),
             Type(Some((TypeKind::Array, Some(c)))) => match &**c {
                 [type_, length] => format!("[{}; {}]", self.value_to_str(*type_, rec + 1), self.value_to_str(*length, rec + 1)),
@@ -707,24 +737,13 @@ impl TypeSystem {
         id
     }
     
-    pub fn add_value(&mut self, value: Option<(ValueId, Option<usize>)>) -> ValueId {
-        let id = self.values.len();
-        self.values.push(ValueKind::Value(value).into());
-        id
+    pub fn add_value(&mut self, value: impl IntoValue) -> ValueId {
+        value.into_value(self)
     }
 
     pub fn add_access(&mut self, access: Access) -> ValueId {
         let id = self.values.len();
         self.values.push(ValueKind::Access(access).into());
-        id
-    }
-
-    pub fn add_reference(&mut self, mutability: Option<ValueId>, inner: Option<ValueId>) -> ValueId {
-        let inner = inner.unwrap_or_else(|| self.add_unknown_type());
-        let mutability = mutability.unwrap_or_else(|| self.add_access(Access::default()));
-        let value = ValueKind::Type(Some((TypeKind::Reference, Some(Box::new([mutability, inner])))));
-        let id = self.values.len();
-        self.values.push(value.into());
         id
     }
 
@@ -740,7 +759,7 @@ impl TypeSystem {
 
     pub fn add_array(&mut self) -> ValueId {
         let inner_type = self.add_unknown_type();
-        let length = self.add_value(Some((INT_TYPE, None)));
+        let length = self.add_value(WithType(Int(IntTypeKind::Usize)));
 
         let id = self.values.len();
         self.values.push(ValueKind::Type(Some((TypeKind::Array, Some(Box::new([inner_type, length]))))).into());
