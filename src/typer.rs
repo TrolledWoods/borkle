@@ -185,6 +185,11 @@ fn build_constraints(ctx: &mut Context<'_, '_>, node_id: NodeId) -> type_infer::
     node_type_id
 }
 
+/// Normal values are assumed to be readonly, because they are temporaries, it doesn't really make sense to
+/// write to them. However, in some cases the value isn't a temporary at all, but actually refers to a value
+/// inside of another value. That's what this is for. Instead of forcing the value to be readonly, we can make
+/// the readability/writability of the value depend on deeper values in the expression.
+/// If this strategy doesn't work however, we fallback to read-only.
 fn build_lvalue(ctx: &mut Context<'_, '_>, node_id: NodeId, access: type_infer::ValueId) -> type_infer::ValueId {
     let node = ctx.ast.get(node_id);
     let node_type_id = node.type_infer_value_id;
@@ -206,7 +211,13 @@ fn build_lvalue(ctx: &mut Context<'_, '_>, node_id: NodeId, access: type_infer::
             ctx.infer.set_equal(operand_type_id, temp, Variance::Invariant);
             ctx.infer.set_field_equal(temp, 1, node_type_id, Variance::Variant);
         }
-        _ => panic!("Ast node is not a valid lvalue {:?}", node.kind),
+        _ => {
+            // Make it a reference to a temporary instead. This forces the pointer to be readonly.
+            // @Speed: This could be faster...
+            let access_strict = ctx.infer.add_access(type_infer::Access::new(true, false));
+            ctx.infer.set_equal(access_strict, access, Variance::Variant);
+            return build_constraints(ctx, node_id);
+        }
     }
 
     node_type_id
