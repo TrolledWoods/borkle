@@ -171,7 +171,7 @@ impl AstBuilder {
                 ref fields,
             } => for &(_, field) in fields { self.get_mut(field).parent = Some(id); },
             ReferenceType(inner, _)
-            | Reference(inner, _)
+            | Reference(inner)
             | Defer {
                 deferring: inner,
             } | BitCast {
@@ -193,7 +193,7 @@ impl AstBuilder {
                 self.get_mut(returns).parent = Some(id);
                 for &arg in args { self.get_mut(arg).parent = Some(id); }
             },
-            LiteralType(_) => {},
+            LiteralType(_) | ImplicitType => {},
 
             Unary {
                 op: _,
@@ -382,6 +382,7 @@ pub enum NodeKind {
     /// essentially a form of compile time execution, but so common that they use this system instead of the bytecode
     /// system, in the typechecker. It's similar to constant folding, but for types. And it's hacky :=)
     TypeAsValue(NodeId),
+    ImplicitType,
     NamedType {
         name: Ustr,
         fields: Vec<(Ustr, NodeId)>,
@@ -402,7 +403,7 @@ pub enum NodeKind {
     ReferenceType(NodeId, PtrPermits),
     LiteralType(Type),
 
-    Reference(NodeId, PtrPermits),
+    Reference(NodeId),
     Unary {
         op: UnaryOp,
         operand: NodeId,

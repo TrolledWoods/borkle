@@ -40,6 +40,7 @@ pub enum Bracket {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Keyword {
+    Underscore,
     Entry,
     Void,
     Any,
@@ -148,6 +149,7 @@ pub fn process_string(errors: &mut ErrorCtx, file: Ustr, string: &str) -> Result
                     "in" => TokenKind::Keyword(Keyword::In),
                     "import" => TokenKind::Keyword(Keyword::Import),
                     "library" => TokenKind::Keyword(Keyword::Library),
+                    "_" => TokenKind::Keyword(Keyword::Underscore),
 
                     "f32" => TokenKind::Type(Type::new(TypeKind::F32)),
                     "f64" => TokenKind::Type(Type::new(TypeKind::F64)),

@@ -350,6 +350,14 @@ fn type_(
                 )))
             }
         }
+        TokenKind::Keyword(Keyword::Underscore) => {
+            global.tokens.next();
+
+            Ok(buffer.add(Node::new(
+                loc,
+                NodeKind::ImplicitType,
+            )))
+        }
         TokenKind::Open(Bracket::Curly) => {
             global.tokens.next();
             let mut fields = Vec::new();
@@ -501,11 +509,10 @@ fn value(
 ) -> Result<NodeId, ()> {
     if let Some((loc, op)) = global.tokens.try_consume_operator() {
         if op == UnaryOp::Reference {
-            let permits = parse_pointer_permits(global);
             let value = value(global, imperative, buffer)?;
             Ok(buffer.add(Node::new(
                 loc,
-                NodeKind::Reference(value, permits),
+                NodeKind::Reference(value),
             )))
         } else {
             let value = value(global, imperative, buffer)?;
@@ -1256,6 +1263,10 @@ fn parse_pointer_permits(
         Some(Token { kind: TokenKind::Keyword(Keyword::Const), .. }) => {
             global.tokens.next();
             PtrPermits::READ
+        }
+        Some(Token { kind: TokenKind::Keyword(Keyword::In), .. }) => {
+            global.tokens.next();
+            PtrPermits::NONE
         }
         _ => PtrPermits::READ_WRITE,
     }

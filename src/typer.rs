@@ -2,7 +2,7 @@ use crate::dependencies::{DepKind, DependencyList, MemberDep};
 use crate::errors::ErrorCtx;
 use crate::literal::Literal;
 use crate::locals::{LocalVariables, LocalId};
-use crate::operators::BinaryOp;
+use crate::operators::{BinaryOp, UnaryOp};
 use crate::program::constant::ConstantRef;
 use crate::program::{Task, PolyOrMember, Program, MemberMetaData};
 use crate::thread_pool::ThreadContext;
@@ -95,7 +95,7 @@ fn build_constraints(ctx: &mut Context<'_, '_>, node_id: NodeId) -> type_infer::
     let node_type_id = node.type_infer_value_id;
     
     match node.kind {
-        NodeKind::Uninit | NodeKind::Zeroed => {},
+        NodeKind::Uninit | NodeKind::Zeroed | NodeKind::ImplicitType => {},
         NodeKind::Empty => {
             // @Performance: We could set the type directly(because no inferrence has happened yet),
             // this is a roundabout way of doing things.
@@ -104,7 +104,7 @@ fn build_constraints(ctx: &mut Context<'_, '_>, node_id: NodeId) -> type_infer::
         }
         NodeKind::Local(local_id) => {
             let local_type_id = ctx.locals.get(local_id).type_infer_value_id;
-            ctx.infer.set_equal(local_type_id, node_type_id, Variance::Variant);
+            ctx.infer.set_equal(local_type_id, node_type_id, Variance::Invariant);
         }
         NodeKind::Declare { local: _, dummy_local_node: left, value: right }
         | NodeKind::Binary { op: BinaryOp::Assign, left, right } => {
@@ -118,6 +118,11 @@ fn build_constraints(ctx: &mut Context<'_, '_>, node_id: NodeId) -> type_infer::
             let temp = ctx.infer.add_type(type_infer::Empty);
             ctx.infer.set_equal(node_type_id, temp, Variance::Invariant);
         }
+        NodeKind::Reference(operand) => {
+            let inner = build_constraints(ctx, operand);
+            let temp = ctx.infer.add_type(type_infer::Ref(type_infer::Unknown, type_infer::Var(inner)));
+            ctx.infer.set_equal(node_type_id, temp, Variance::Invariant);
+        }
         NodeKind::Block { ref contents, label: _ } => {
             let last = *contents.last().unwrap();
             // @Performance: This isn't very fast, but it's fine for now
@@ -127,6 +132,10 @@ fn build_constraints(ctx: &mut Context<'_, '_>, node_id: NodeId) -> type_infer::
 
             let last_type_id = build_constraints(ctx, last);
             ctx.infer.set_equal(node_type_id, last_type_id, Variance::Invariant);
+        }
+        NodeKind::Parenthesis(inner) => {
+            let inner_type_id = build_constraints(ctx, inner);
+            ctx.infer.set_equal(inner_type_id, node_type_id, Variance::Variant);
         }
         NodeKind::TypeBound { value, bound } => {
             let bound_type_id = build_constraints(ctx, bound);
@@ -138,6 +147,13 @@ fn build_constraints(ctx: &mut Context<'_, '_>, node_id: NodeId) -> type_infer::
             // @Performance: We could set the type directly(because no inferrence has happened yet),
             // this is a roundabout way of doing things.
             let temp = ctx.infer.add_type(type_infer::CompilerType(type_));
+            ctx.infer.set_equal(node_type_id, temp, Variance::Invariant);
+        }
+        // @Improvement: Reference type permits can be inferred as well, but that's not represented here.
+        NodeKind::ReferenceType(inner, permits) => {
+            let inner = build_constraints(ctx, inner);
+            let access = type_infer::Access::new(permits.read(), permits.write());
+            let temp = ctx.infer.add_type(type_infer::Ref(access, type_infer::Var(inner)));
             ctx.infer.set_equal(node_type_id, temp, Variance::Invariant);
         }
         _ => unimplemented!("Ast node does not have a typing relationship yet {:?}", node.kind),
