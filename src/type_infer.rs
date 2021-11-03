@@ -340,6 +340,8 @@ impl From<ValueKind> for Value {
     }
 }
 
+type ConstraintId = usize;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 enum Constraint {
     /// Equal is almost equality, unless the is_variant field is set, then a will be variant to b.
@@ -378,6 +380,12 @@ impl Constraint {
                 b,
                 variance: from.apply_to(variance),
             },
+        }
+    }
+
+    fn variance_mut(&mut self) -> &mut Variance {
+        match self {
+            Self::Equal { variance, .. } | Self::EqualsField { variance, .. } | Self::EqualNamedField { variance, .. } => variance,
         }
     }
 
@@ -423,14 +431,58 @@ struct VarianceConstraint {
     /// The variance "strength" applied in the last queueing of constraints. This is so we can make sure we don't
     /// issue all the constraints several times unnecessarily.
     last_variance_applied: Variance,
-    constraints: Vec<Constraint>,
+    constraints: Vec<(ConstraintId, Variance)>,
 }
 
-fn add_constraint(
-    available_constraints: &mut HashMap<ValueId, Vec<Constraint>>,
-    queued_constraints: &mut Vec<Constraint>,
+fn insert_constraint(
+    constraints: &mut Vec<Constraint>,
+    available_constraints: &mut HashMap<ValueId, Vec<ConstraintId>>,
+    constraint: Constraint,
+) -> Option<ConstraintId> {
+    if let Some(id) = constraints.iter().position(|v| v == &constraint) {
+        return Some(id);
+    }
+
+    let id = constraints.len();
+    constraints.push(constraint);
+
+    match constraint {
+        Constraint::Equal { a, b, .. } => {
+            if a == b {
+                return None;
+            };
+
+            let vec = available_constraints.entry(a).or_insert_with(Vec::new);
+            vec.push(id);
+
+            let vec = available_constraints.entry(b).or_insert_with(Vec::new);
+            vec.push(id);
+        }
+        Constraint::EqualsField { a: (a, _), .. }
+        | Constraint::EqualNamedField { a: (a, _), .. } => {
+            let vec = available_constraints.entry(a).or_insert_with(Vec::new);
+            vec.push(id);
+        }
+    }
+
+    Some(id)
+}
+
+fn insert_active_constraint(
+    constraints: &mut Vec<Constraint>,
+    available_constraints: &mut HashMap<ValueId, Vec<ConstraintId>>,
+    queued_constraints: &mut Vec<ConstraintId>,
     constraint: Constraint,
 ) {
+    // @TODO: We want to check for equality things with just different variances here too, but I think
+    // I have to change how constraints are represented first as well.
+    if let Some(_) = constraints.iter().position(|v| v == &constraint) {
+        return;
+    }
+
+    let id = constraints.len();
+    constraints.push(constraint);
+
     match constraint {
         Constraint::Equal { a, b, .. } => {
             if a == b {
@@ -438,21 +490,19 @@ fn add_constraint(
             };
 
             let vec = available_constraints.entry(a).or_insert_with(Vec::new);
-            vec.push(constraint);
+            vec.push(id);
 
             let vec = available_constraints.entry(b).or_insert_with(Vec::new);
-            vec.push(constraint);
-
-            queued_constraints.push(constraint);
+            vec.push(id);
         }
         Constraint::EqualsField { a: (a, _), .. }
         | Constraint::EqualNamedField { a: (a, _), .. } => {
             let vec = available_constraints.entry(a).or_insert_with(Vec::new);
-            vec.push(constraint);
-
-            queued_constraints.push(constraint);
+            vec.push(id);
         }
     }
+
+    queued_constraints.push(id);
 }
 
 pub struct TypeSystem {
@@ -460,11 +510,13 @@ pub struct TypeSystem {
     /// 0 - Int
     values: Vec<Value>,
 
+    constraints: Vec<Constraint>,
+
     /// When the access level of certain things determine the variance of constraints, those constraints are put into here.
     variance_updates: HashMap<(ValueId, ValueId), VarianceConstraint>,
 
-    available_constraints: HashMap<ValueId, Vec<Constraint>>,
-    queued_constraints: Vec<Constraint>,
+    available_constraints: HashMap<ValueId, Vec<ConstraintId>>,
+    queued_constraints: Vec<ConstraintId>,
 
     errors: Vec<Error>,
 }
@@ -474,6 +526,7 @@ impl TypeSystem {
         Self {
             values: vec![],
             variance_updates: HashMap::new(),
+            constraints: Vec::new(),
             available_constraints: HashMap::new(),
             queued_constraints: Vec::new(),
             errors: Vec::new(),
@@ -484,7 +537,8 @@ impl TypeSystem {
         if a == b {
             return;
         }
-        add_constraint(
+        insert_active_constraint(
+            &mut self.constraints,
             &mut self.available_constraints,
             &mut self.queued_constraints,
             Constraint::equal(a, b, variance),
@@ -498,7 +552,8 @@ impl TypeSystem {
         b: ValueId,
         variance: Variance,
     ) {
-        add_constraint(
+        insert_active_constraint(
+            &mut self.constraints,
             &mut self.available_constraints,
             &mut self.queued_constraints,
             Constraint::EqualsField {
@@ -516,7 +571,8 @@ impl TypeSystem {
         b: ValueId,
         variance: Variance,
     ) {
-        add_constraint(
+        insert_active_constraint(
+            &mut self.constraints,
             &mut self.available_constraints,
             &mut self.queued_constraints,
             Constraint::EqualNamedField {
@@ -528,10 +584,11 @@ impl TypeSystem {
     }
 
     pub fn solve(&mut self) {
-        while let Some(available) = self.queued_constraints.pop() {
-            self.apply_constraint(available);
+        while let Some(available_id) = self.queued_constraints.pop() {
+            // println!("Applied constraint: {}", self.constraint_to_string(&self.constraints[available_id]));
 
-            // println!("Applied constraint: {}", self.constraint_to_string(&available));
+            self.apply_constraint(available_id);
+
             // self.print_state();
         }
     }
@@ -684,7 +741,8 @@ impl TypeSystem {
 
         println!("Queued constraints:");
 
-        for constraint in &self.queued_constraints {
+        for &constraint in &self.queued_constraints {
+            let constraint = &self.constraints[constraint];
             println!("{}", self.constraint_to_string(constraint));
         }
         println!();
@@ -705,17 +763,11 @@ impl TypeSystem {
         }
     }
 
-    fn apply_constraint(&mut self, constraint: Constraint) {
+    fn apply_constraint(&mut self, constraint_id: ConstraintId) {
+        let constraint = self.constraints[constraint_id];
+
         let mut a_progress = false;
         let mut b_progress = false;
-
-        let mut add_constraint = |constraint: Constraint| {
-            add_constraint(
-                &mut self.available_constraints,
-                &mut self.queued_constraints,
-                constraint,
-            );
-        };
 
         // @HACK: Later, we want arbitrary child-count constraints, and then this won't work.
         let (a_id, b_id) = match constraint {
@@ -747,11 +799,16 @@ impl TypeSystem {
                     Type(None) => {}
                     Type(Some((TypeKind::Struct(names), _))) => {
                         if let Some(pos) = names.iter().position(|&v| v == field_name) {
-                            add_constraint(Constraint::EqualsField {
-                                a: (a_id, pos),
-                                b: b_id,
-                                variance,
-                            });
+                            insert_active_constraint(
+                                &mut self.constraints,
+                                &mut self.available_constraints,
+                                &mut self.queued_constraints,
+                                Constraint::EqualsField {
+                                    a: (a_id, pos),
+                                    b: b_id,
+                                    variance,
+                                },
+                            );
                         } else {
                             self.errors.push(Error::new(
                                 a_id,
@@ -791,7 +848,12 @@ impl TypeSystem {
                     Type(None) | Type(Some((_, None))) => {}
                     Type(Some((_, Some(fields)))) => {
                         if let Some(&field) = fields.get(field_index) {
-                            add_constraint(Constraint::equal(field, b_id, variance));
+                            insert_active_constraint(
+                                &mut self.constraints,
+                                &mut self.available_constraints,
+                                &mut self.queued_constraints,
+                                Constraint::equal(field, b_id, variance),
+                            );
                         } else {
                             self.errors.push(Error::new(
                                 a_id,
@@ -916,33 +978,44 @@ impl TypeSystem {
                                 .entry((a_access_id, b_access_id))
                                 .or_insert_with(|| VarianceConstraint {
                                     variance,
-                                    last_variance_applied: biggest_guaranteed_variance_of_operation(
-                                        a_access, b_access, variance,
-                                    ),
+                                    last_variance_applied: biggest_guaranteed_variance_of_operation(a_access, b_access, variance),
                                     constraints: Vec::new(),
                                 });
-                            let constraint = Constraint::equal(a_inner, b_inner, variance);
-                            if !variance_constraint
-                                .constraints
-                                .iter()
-                                .any(|v| v == &constraint)
-                            {
-                                variance_constraint.constraints.push(constraint);
-                                add_constraint(Constraint::equal(
-                                    a_inner,
-                                    b_inner,
-                                    variance_constraint.last_variance_applied.apply_to(variance),
-                                ));
+                            let inner_constraint = Constraint::equal(a_inner, b_inner, variance_constraint.last_variance_applied.apply_to(variance));
+                            if let Some(inner_constraint_id) = insert_constraint(&mut self.constraints, &mut self.available_constraints, inner_constraint) {
+                                if !variance_constraint
+                                    .constraints
+                                    .iter()
+                                    .any(|(v, _)| v == &inner_constraint_id)
+                                {
+                                    variance_constraint.constraints.push((inner_constraint_id, variance));
+                                    self.queued_constraints.push(inner_constraint_id);
+                                }
                             }
-                            add_constraint(Constraint::equal(a_access_id, b_access_id, variance));
+                            insert_active_constraint(
+                                &mut self.constraints,
+                                &mut self.available_constraints,
+                                &mut self.queued_constraints,
+                                Constraint::equal(a_access_id, b_access_id, variance),
+                            );
                         } else if *base_a == TypeKind::Function {
-                            add_constraint(Constraint::equal(a_fields[0], b_fields[0], variance));
+                            insert_active_constraint(
+                                &mut self.constraints,
+                                &mut self.available_constraints,
+                                &mut self.queued_constraints,
+                                Constraint::equal(a_fields[0], b_fields[0], variance),
+                            );
                             for (&a_field, &b_field) in a_fields[1..].iter().zip(&b_fields[1..]) {
-                                add_constraint(Constraint::equal(
-                                    a_field,
-                                    b_field,
-                                    variance.invert(),
-                                ));
+                                insert_active_constraint(
+                                    &mut self.constraints,
+                                    &mut self.available_constraints,
+                                    &mut self.queued_constraints,
+                                    Constraint::equal(
+                                        a_field,
+                                        b_field,
+                                        variance.invert(),
+                                    ),
+                                );
                             }
                         } else {
                             // Now, we want to apply equality to all the fields as well.
@@ -950,7 +1023,12 @@ impl TypeSystem {
                                 // @Improvement: Later, variance should be definable in a much more generic way(for generic types).
                                 // In a generic type, you could paramaterize the mutability of something, which might then influence
                                 // the variance of other parameters.
-                                add_constraint(Constraint::equal(a_field, b_field, variance));
+                                insert_active_constraint(
+                                    &mut self.constraints,
+                                    &mut self.available_constraints,
+                                    &mut self.queued_constraints,
+                                    Constraint::equal(a_field, b_field, variance),
+                                );
                             }
                         }
                     }
@@ -1011,6 +1089,7 @@ impl TypeSystem {
                                 a_id,
                                 b_id,
                                 &self.values,
+                                &mut self.constraints,
                                 &mut self.available_constraints,
                                 &mut self.queued_constraints,
                             );
@@ -1031,7 +1110,7 @@ impl TypeSystem {
                     .iter()
                     .flat_map(|v| v.iter())
                     .copied()
-                    .filter(|v| v != &constraint),
+                    .filter(|v| v != &constraint_id),
             );
         }
 
@@ -1042,7 +1121,7 @@ impl TypeSystem {
                     .iter()
                     .flat_map(|v| v.iter())
                     .copied()
-                    .filter(|v| v != &constraint),
+                    .filter(|v| v != &constraint_id),
             );
         }
     }
@@ -1139,8 +1218,9 @@ fn run_variance_constraint(
     a: ValueId,
     b: ValueId,
     values: &[Value],
-    available_constraints: &mut HashMap<ValueId, Vec<Constraint>>,
-    queued_constraints: &mut Vec<Constraint>,
+    constraints: &mut Vec<Constraint>,
+    available_constraints: &mut HashMap<ValueId, Vec<ConstraintId>>,
+    queued_constraints: &mut Vec<ConstraintId>,
 ) {
     let &ValueKind::Access(a_access) = &values[a].kind else { panic!() };
     let &ValueKind::Access(b_access) = &values[b].kind else { panic!() };
@@ -1149,12 +1229,13 @@ fn run_variance_constraint(
         biggest_guaranteed_variance_of_operation(a_access, b_access, constraint.variance);
 
     if new_variance != constraint.last_variance_applied {
-        for &constraint in &constraint.constraints {
-            add_constraint(
-                available_constraints,
-                queued_constraints,
-                constraint.apply_variance(new_variance),
-            );
+        for &(constraint, variance) in &constraint.constraints {
+            let variance_mut = constraints[constraint].variance_mut();
+            let old = *variance_mut;
+            variance_mut.combine(new_variance.apply_to(variance));
+            if old != *variance_mut {
+                queued_constraints.push(constraint);
+            }
         }
         constraint.last_variance_applied = new_variance;
     }
