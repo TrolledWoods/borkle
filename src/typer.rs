@@ -89,7 +89,7 @@ pub fn process_ast<'a>(
 
     println!("\nLocals:\n");
     for local in ctx.locals.iter() {
-        println!("{}({}): {}", local.name, local.type_infer_value_id, ctx.infer.value_to_str(local.type_infer_value_id, 0));
+        println!("{}: {}", local.name, ctx.infer.value_to_str(local.type_infer_value_id, 0));
     }
 
     Err(())
@@ -114,6 +114,21 @@ fn build_constraints(ctx: &mut Context<'_, '_>, node_id: NodeId) -> type_infer::
         NodeKind::Local(local_id) => {
             let local_type_id = ctx.locals.get(local_id).type_infer_value_id;
             ctx.infer.set_equal(local_type_id, node_type_id, Variance::Invariant);
+        }
+        NodeKind::If { condition, true_body, false_body } => {
+            let condition_type_id = build_constraints(ctx, condition);
+            // @Performance: This could be better, I really want a constraint for this kind of thing...
+            let condition_type = ctx.infer.add(type_infer::ValueKind::Type(Some((type_infer::TypeKind::Bool, Some(Box::new([]))))));
+            ctx.infer.set_equal(condition_type_id, condition_type, Variance::Invariant);
+
+            let true_body_id = build_constraints(ctx, true_body);
+            let false_body_id = match false_body {
+                Some(id) => build_constraints(ctx, id),
+                None => ctx.infer.add_type(type_infer::Empty),
+            };
+
+            ctx.infer.set_equal(true_body_id, node_type_id, Variance::Variant);
+            ctx.infer.set_equal(false_body_id, node_type_id, Variance::Variant);
         }
         NodeKind::Unary { op: UnaryOp::Dereference, operand } => {
             let operand_type_id = build_constraints(ctx, operand);
