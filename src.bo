@@ -7,7 +7,9 @@ const B = {
     // let c_copy = &c;
     // c_copy : &const u32;
 
-    let ptr_to_c = &c : &let &u32;
+    let ptr_to_c = &c;
+    let var = #0;
+    ptr_to_c = &(var : &u32);
     *ptr_to_c = #0 : &u32;
 
     let last_ptr = ptr_to_c;

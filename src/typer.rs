@@ -208,6 +208,20 @@ fn build_lvalue(ctx: &mut Context<'_, '_>, node_id: NodeId, access: type_infer::
             let local_type_id = ctx.locals.get(local_id).type_infer_value_id;
             ctx.infer.set_equal(local_type_id, node_type_id, Variance::Invariant);
         }
+        NodeKind::Parenthesis(inner) => {
+            build_lvalue(ctx, inner, access);
+        }
+        NodeKind::TypeBound { value, bound } => {
+            // @Improvment: Here, both things are invariant. One of them could potentially be variant,
+            // but only in some cases. After I think about how cases like this actually work,
+            // I could try integrating this variance with the `access` variance passed in here to make it
+            // less restrictive. It would also be nice if it was consistant with how non lvalue typebounds work,
+            // since right now that's an inconsistancy that's going to be weird if you trigger it.
+            let bound_type_id = build_constraints(ctx, bound);
+            ctx.infer.set_equal(node_type_id, bound_type_id, Variance::Invariant);
+            let value_type_id = build_lvalue(ctx, value, access);
+            ctx.infer.set_equal(value_type_id, node_type_id, Variance::Invariant);
+        }
         NodeKind::Unary { op: UnaryOp::Dereference, operand } => {
             let operand_type_id = build_constraints(ctx, operand);
             // @Performance: It should be possible to constrain the type even here, but it's a little hairy.
