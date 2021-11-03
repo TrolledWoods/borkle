@@ -1,7 +1,7 @@
 use crate::dependencies::{DepKind, DependencyList, MemberDep};
 use crate::errors::ErrorCtx;
 use crate::literal::Literal;
-use crate::locals::Local;
+use crate::locals::{LocalVariables, Local};
 use crate::location::Location;
 use crate::operators::{BinaryOp, UnaryOp, Operator};
 use crate::program::{Program, ScopeId, Task};
@@ -45,11 +45,11 @@ pub fn process_string(
 
                 let mut buffer = AstBuilder::new();
                 let mut dependencies = DependencyList::new();
-                let mut imperative = ImperativeContext::new(&mut dependencies, false, &[]);
+                let mut locals = LocalVariables::new();
+                let mut imperative = ImperativeContext::new(&mut dependencies, &mut locals, false, &[]);
                 imperative.evaluate_at_typing = true;
                 let node = named_type(&mut context, &mut imperative, &mut buffer, loc, name)?;
 
-                let locals = imperative.locals;
                 let tree = buffer.set_root(node);
 
                 context
@@ -88,15 +88,14 @@ pub fn process_string(
             TokenKind::Keyword(Keyword::Entry) => {
                 let mut buffer = AstBuilder::new();
                 let mut dependencies = DependencyList::new();
-                let mut imperative = ImperativeContext::new(&mut dependencies, false, &[]);
+                let mut locals = LocalVariables::new();
+                let mut imperative = ImperativeContext::new(&mut dependencies, &mut locals, false, &[]);
                 let expr = expression(&mut context, &mut imperative, &mut buffer)?;
                 let tree = buffer.set_root(expr);
 
                 context
                     .tokens
                     .expect_next_is(context.errors, &TokenKind::SemiColon)?;
-
-                let locals = imperative.locals;
 
                 let id = context.program.define_member(
                     context.errors,
@@ -161,12 +160,11 @@ fn constant(global: &mut DataContext<'_>) -> Result<(), ()> {
         let mut buffer = AstBuilder::new();
 
         let mut dependencies = DependencyList::new();
+        let mut locals = LocalVariables::new();
         let mut imperative =
-            ImperativeContext::new(&mut dependencies, false, &polymorphic_arguments);
+            ImperativeContext::new(&mut dependencies, &mut locals, false, &polymorphic_arguments);
         let expr = expression(global, &mut imperative, &mut buffer)?;
         let tree = buffer.set_root(expr);
-
-        let locals = imperative.locals;
 
         if polymorphic_arguments.is_empty() {
             let id = global
@@ -613,19 +611,18 @@ fn value_without_unaries(
             buffer.add(Node::new(token.loc, NodeKind::BuiltinFunction(builtin_kind)))
         }
         TokenKind::Keyword(Keyword::Const) => {
-            let mut sub_ctx = ImperativeContext::new(
-                imperative.dependencies,
-                imperative.evaluate_at_typing,
-                imperative.poly_args,
-            );
-            sub_ctx.in_const_expression = true;
-            let inner = expression(global, &mut sub_ctx, buffer)?;
+            // @TODO: Prevent cross-referencing of variable values here!!!!!!!!!!!
+            // Could probably do it just by looking at what scope_id local reads/writes have,
+            // as well as what scope_id the declarations of locals have. That should be all that's necessary....
+            let old_in_const_expr = imperative.in_const_expression;
+            imperative.in_const_expression = true;
+            let inner = expression(global, imperative, buffer)?;
+            imperative.in_const_expression = old_in_const_expr;
 
             if imperative.evaluate_at_typing {
                 buffer.add(Node::new(
                     token.loc,
                     NodeKind::ConstAtTyping {
-                        locals: sub_ctx.locals,
                         inner,
                     },
                 ))
@@ -633,7 +630,6 @@ fn value_without_unaries(
                 buffer.add(Node::new(
                     token.loc,
                     NodeKind::ConstAtEvaluation {
-                        locals: sub_ctx.locals,
                         inner,
                     },
                 ))
@@ -968,13 +964,13 @@ fn value_without_unaries(
                 global.tokens.next();
 
                 let (args, named_args) = function_arguments(global, imperative, buffer)?;
+                assert!(named_args.is_empty(), "Named arguments temporarily unsupported");
 
                 value = buffer.add(Node::new(
                     loc,
                     NodeKind::FunctionCall {
                         calling: value,
                         args,
-                        named_args,
                     },
                 ));
             }
@@ -1099,14 +1095,9 @@ fn function_declaration(
         .tokens
         .expect_next_is(global.errors, &TokenKind::Open(Bracket::Round))?;
 
-    let mut body_deps = DependencyList::new();
-    let mut sub_imperative = ImperativeContext::new(&mut body_deps, false, imperative.poly_args);
+    imperative.push_scope_boundary();
 
     let mut args = Vec::new();
-    let mut default_args = Vec::new();
-
-    let old = imperative.evaluate_at_typing;
-    imperative.evaluate_at_typing = true;
     loop {
         if global.tokens.try_consume(&TokenKind::Close(Bracket::Round)) {
             break;
@@ -1118,27 +1109,14 @@ fn function_declaration(
             ..
         }) = global.tokens.next()
         {
-            sub_imperative.insert_local(Local::new(loc, name));
-
             if global.tokens.try_consume_operator_string(":").is_some() {
-                if !default_args.is_empty() {
-                    global.error(
-                        global.tokens.loc(),
-                        "Cannot define non-default arguments after the first default argument"
-                            .to_string(),
-                    );
-                    return Err(());
-                }
-
                 let arg_type = type_(global, imperative, buffer)?;
-                args.push((name, arg_type));
-            } else if global.tokens.try_consume_operator_string("=").is_some() {
-                let arg_value = expression(global, imperative, buffer)?;
-                default_args.push((name, arg_value));
+                let local_id = imperative.insert_local(Local::new(loc, name));
+                args.push((local_id, arg_type));
             } else {
                 global.error(
                     global.tokens.loc(),
-                    "Expected ':' for argument type, or '=' for argument default value".to_string(),
+                    "Expected ':' for argument type".to_string(),
                 );
                 return Err(());
             }
@@ -1161,8 +1139,6 @@ fn function_declaration(
         }
     }
 
-    imperative.evaluate_at_typing = old;
-
     let returns = if global.tokens.try_consume_operator_string("->").is_some() {
         type_(global, imperative, buffer)?
     } else {
@@ -1172,18 +1148,15 @@ fn function_declaration(
         ))
     };
 
-    let mut body_buffer = AstBuilder::new();
-    let body = expression(global, &mut sub_imperative, &mut body_buffer)?;
-    let body = Arc::new(body_buffer.set_root(body));
+    let body = expression(global, imperative, buffer)?;
+
+    imperative.pop_scope_boundary();
 
     Ok(buffer.add(Node::new(
         loc,
         NodeKind::FunctionDeclaration {
-            locals: sub_imperative.locals,
             args,
-            default_args,
             returns: returns,
-            body_deps,
             body,
         },
     )))

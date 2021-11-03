@@ -51,7 +51,7 @@ impl AstBuilder {
         // is correct
         for (i, node) in self.nodes.iter().enumerate().rev().skip(1).rev() {
             if i as u32 != root && node.parent.is_none() {
-                panic!("Node without a parent");
+                panic!("Node without a parent {:?}", node);
             }
         }
 
@@ -107,11 +107,9 @@ impl AstBuilder {
 
             PolymorphicArgument(_) => {},
             ConstAtTyping {
-                locals: _,
                 inner,
             } => self.get_mut(inner).parent = Some(id),
             ConstAtEvaluation {
-                locals: _,
                 inner,
             } => self.get_mut(inner).parent = Some(id),
 
@@ -149,16 +147,13 @@ impl AstBuilder {
             } => self.get_mut(of).parent = Some(id),
 
             FunctionDeclaration {
-                locals: _,
                 ref args,
-                ref default_args,
                 returns,
-                body_deps: _,
-                body: _,
+                body,
             } => {
                 for &(_, arg) in args { self.get_mut(arg).parent = Some(id); }
-                for &(_, arg) in default_args { self.get_mut(arg).parent = Some(id); }
                 self.get_mut(returns).parent = Some(id);
+                self.get_mut(body).parent = Some(id);
             },
 
             BufferType(inner)
@@ -218,11 +213,9 @@ impl AstBuilder {
             FunctionCall {
                 calling,
                 ref args,
-                ref named_args,
             } => {
                 self.get_mut(calling).parent = Some(id);
                 for &arg in args { self.get_mut(arg).parent = Some(id); }
-                for &(_, arg) in named_args { self.get_mut(arg).parent = Some(id); }
             },
             ResolvedFunctionCall {
                 calling,
@@ -328,11 +321,9 @@ pub enum NodeKind {
 
     PolymorphicArgument(usize),
     ConstAtTyping {
-        locals: LocalVariables,
         inner: NodeId,
     },
     ConstAtEvaluation {
-        locals: LocalVariables,
         inner: NodeId,
     },
 
@@ -369,12 +360,9 @@ pub enum NodeKind {
     },
 
     FunctionDeclaration {
-        locals: LocalVariables,
-        args: Vec<(Ustr, NodeId)>,
-        default_args: Vec<(Ustr, NodeId)>,
+        args: Vec<(LocalId, NodeId)>,
         returns: NodeId,
-        body_deps: DependencyList,
-        body: Arc<Ast>,
+        body: NodeId,
     },
 
     /// Any node within this node, is what I call a "type" node. These nodes, when typechecked, actually have their
@@ -427,7 +415,6 @@ pub enum NodeKind {
     FunctionCall {
         calling: NodeId,
         args: Vec<NodeId>,
-        named_args: Vec<(Ustr, NodeId)>,
     },
     ResolvedFunctionCall {
         calling: NodeId,

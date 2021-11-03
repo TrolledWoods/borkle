@@ -651,11 +651,14 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, node: NodeId) -> Value {
             to
         }
         NodeKind::Local(id) => ctx.locals.get(*id).value.unwrap(),
-        NodeKind::ConstAtEvaluation { locals, inner } => {
+        NodeKind::ConstAtEvaluation { inner } => {
+            todo!();
+            /*
             let type_ = ctx.ast.get(*inner).type_();
             let constant =
                 crate::interp::emit_and_run(ctx.thread_context, ctx.program, locals.clone(), &ctx.ast, *inner);
             Value::Global(constant, type_)
+            */
         }
         NodeKind::Defer { deferring } => {
             ctx.defers.push(*deferring);

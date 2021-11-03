@@ -10,6 +10,8 @@ use ustr::Ustr;
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ScopeBoundaryId(usize);
 
+pub type StackFrameId = u32;
+
 /// A collection of various data that is needed for parsing
 /// things in a data scope. Data scopes are scopes where constants
 /// can be defined.
@@ -44,13 +46,12 @@ impl<'a> DataContext<'a> {
 }
 
 pub struct ImperativeContext<'a> {
-    pub locals: LocalVariables,
+    pub locals: &'a mut LocalVariables,
     pub dependencies: &'a mut DependencyList,
     pub defer_depth: usize,
     pub evaluate_at_typing: bool,
     pub in_const_expression: bool,
     pub poly_args: &'a [(Location, Ustr)],
-
     default_labels: Vec<LabelId>,
     scope_boundaries: Vec<ScopeBoundary>,
     local_map: Vec<(Ustr, LocalId)>,
@@ -60,11 +61,12 @@ pub struct ImperativeContext<'a> {
 impl<'a> ImperativeContext<'a> {
     pub fn new(
         dependencies: &'a mut DependencyList,
+        locals: &'a mut LocalVariables,
         evaluate_at_typing: bool,
         poly_args: &'a [(Location, Ustr)],
     ) -> Self {
         Self {
-            locals: LocalVariables::new(),
+            locals,
             dependencies,
             defer_depth: 0,
             evaluate_at_typing,

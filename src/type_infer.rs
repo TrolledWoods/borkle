@@ -485,7 +485,7 @@ values: vec![],
             Type(Some((kind, None))) => format!("{:?}", kind),
             Type(Some((TypeKind::Function, Some(c)))) => match &**c {
                 [return_, args @ ..] => format!(
-                    "({}) -> {}",
+                    "fn({}) -> {}",
                     args.iter().map(|&v| self.value_to_str(v, rec + 1)).collect::<Vec<_>>().join(", "),
                     self.value_to_str(*return_, rec + 1),
                 ),
@@ -708,6 +708,11 @@ values: vec![],
                                 add_constraint(Constraint::equal(a_inner, b_inner, variance_constraint.last_variance_applied.apply_to(variance)));
                             }
                             add_constraint(Constraint::equal(a_access_id, b_access_id, variance));
+                        } else if *base_a == TypeKind::Function {
+                            add_constraint(Constraint::equal(a_fields[0], b_fields[0], variance));
+                            for (&a_field, &b_field) in a_fields[1..].iter().zip(&b_fields[1..]) {
+                                add_constraint(Constraint::equal(a_field, b_field, variance.invert()));
+                            }
                         } else {
                             // Now, we want to apply equality to all the fields as well.
                             for (&a_field, &b_field) in a_fields.iter().zip(&**b_fields) {
