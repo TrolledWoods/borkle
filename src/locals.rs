@@ -75,6 +75,11 @@ impl LocalVariables {
         id
     }
 
+    #[allow(unused)]
+    pub fn iter(&self) -> impl Iterator<Item = &'_ Local> {
+        self.locals.iter()
+    }
+
     pub fn iter_mut(&mut self) -> impl Iterator<Item = &'_ mut Local> {
         self.locals.iter_mut()
     }

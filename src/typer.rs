@@ -87,6 +87,11 @@ pub fn process_ast<'a>(
     eprintln!("\nState after solving:\n");
     ctx.infer.print_state();
 
+    println!("\nLocals:\n");
+    for local in ctx.locals.iter() {
+        println!("{}({}): {}", local.name, local.type_infer_value_id, ctx.infer.value_to_str(local.type_infer_value_id, 0));
+    }
+
     Err(())
 }
 
@@ -104,7 +109,7 @@ fn build_constraints(ctx: &mut Context<'_, '_>, node_id: NodeId) -> type_infer::
         }
         NodeKind::Member { of, name } => {
             let of_type_id = build_constraints(ctx, of);
-            ctx.infer.set_field_name_equal(of_type_id, name, node_type_id, Variance::Variant);
+            ctx.infer.set_field_name_equal(of_type_id, name, node_type_id, Variance::Invariant);
         }
         NodeKind::Local(local_id) => {
             let local_type_id = ctx.locals.get(local_id).type_infer_value_id;
@@ -116,7 +121,7 @@ fn build_constraints(ctx: &mut Context<'_, '_>, node_id: NodeId) -> type_infer::
             // Maybe a better approach would be just an "assignment" constraint, like "this type has to have this kind", or something
             let temp = ctx.infer.add_type(type_infer::Ref(type_infer::Access::needs(true, false), type_infer::Unknown));
             ctx.infer.set_equal(operand_type_id, temp, Variance::Invariant);
-            ctx.infer.set_field_equal(temp, 1, node_type_id, Variance::Variant);
+            ctx.infer.set_field_equal(temp, 1, node_type_id, Variance::Invariant);
         }
         NodeKind::Declare { local: _, dummy_local_node: left, value: right }
         | NodeKind::Binary { op: BinaryOp::Assign, left, right } => {
@@ -208,14 +213,19 @@ fn build_lvalue(ctx: &mut Context<'_, '_>, node_id: NodeId, access: type_infer::
             // @Performance: It should be possible to constrain the type even here, but it's a little hairy.
             // Maybe a better approach would be just an "assignment" constraint, like "this type has to have this kind", or something
             let temp = ctx.infer.add_type(type_infer::Ref(type_infer::Var(access), type_infer::Unknown));
-            ctx.infer.set_equal(operand_type_id, temp, Variance::Invariant);
-            ctx.infer.set_field_equal(temp, 1, node_type_id, Variance::Variant);
+            // @Correctness: I'm not sure that a variance here is correct in all
+            // cases, but without it the inferrence isn't correct.
+            // But I think it's correct, because essentially what this is saying is "this pointer needs
+            // at least the permissions to do the things we're trying to do, but if it has more that is fine",
+            // and that should be ok, right?
+            ctx.infer.set_equal(operand_type_id, temp, Variance::Variant);
+            ctx.infer.set_field_equal(temp, 1, node_type_id, Variance::Invariant);
         }
         _ => {
             // Make it a reference to a temporary instead. This forces the pointer to be readonly.
             // @Speed: This could be faster...
             let access_strict = ctx.infer.add_access(type_infer::Access::new(true, false));
-            ctx.infer.set_equal(access_strict, access, Variance::Variant);
+            ctx.infer.set_equal(access_strict, access, Variance::Invariant);
             return build_constraints(ctx, node_id);
         }
     }

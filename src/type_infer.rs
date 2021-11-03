@@ -442,6 +442,8 @@ values: vec![],
     pub fn solve(&mut self) {
         while let Some(available) = self.queued_constraints.pop() {
             self.apply_constraint(available);
+
+            // println!("Applied constraint: {}", self.constraint_to_string(&available));
             // self.print_state();
         }
     }
@@ -682,10 +684,14 @@ values: vec![],
                         // mutability parameter that controls the variance of another field, because that behaviour
                         // is quite messy and complex.
                         if *base_a == TypeKind::Reference {
-                            let a_access_id = a_fields[0];
-                            let b_access_id = b_fields[0];
-                            let a_inner = a_fields[1];
-                            let b_inner = b_fields[1];
+                            // @Cleanup: This has to be done because a has to be less than b, otherwise
+                            // the lookups don't work properly. However, this is messy. So it would be nice if it
+                            // could be factored out to something else.
+                            let (a_access_id, a_inner, b_access_id, b_inner, variance) = if a_fields[0] < b_fields[0] {
+                                (a_fields[0], a_fields[1], b_fields[0], b_fields[1], variance)
+                            } else {
+                                (b_fields[0], b_fields[1], a_fields[0], a_fields[1], variance.invert())
+                            };
                             let &ValueKind::Access(a_access) = &self.values[a_access_id].kind else { panic!() };
                             let &ValueKind::Access(b_access) = &self.values[b_access_id].kind else { panic!() };
 
@@ -702,7 +708,6 @@ values: vec![],
                                 add_constraint(Constraint::equal(a_inner, b_inner, variance_constraint.last_variance_applied.apply_to(variance)));
                             }
                             add_constraint(Constraint::equal(a_access_id, b_access_id, variance));
-                            // run_variance_constraint(variance_constraint, a_access_id, b_access_id, &self.values, &mut self.constraints);
                         } else {
                             // Now, we want to apply equality to all the fields as well.
                             for (&a_field, &b_field) in a_fields.iter().zip(&**b_fields) {
