@@ -470,21 +470,24 @@ fn type_(
         }
         _ => {
             if global.tokens.try_consume_operator_string("&").is_some() {
+                let permits = parse_pointer_permits(global);
+
                 if global
                     .tokens
                     .try_consume(&TokenKind::Keyword(Keyword::Void))
                 {
+                    // @TODO: This type should also have pointer permits
                     Ok(buffer.add(Node::new(
                         loc,
                         NodeKind::LiteralType(Type::new(TypeKind::VoidPtr)),
                     )))
                 } else if global.tokens.try_consume(&TokenKind::Keyword(Keyword::Any)) {
+                    // @TODO: This type should also have pointer permits
                     Ok(buffer.add(Node::new(
                         loc,
                         NodeKind::LiteralType(Type::new(TypeKind::AnyPtr)),
                     )))
                 } else {
-                    let permits = parse_pointer_permits(global);
                     let inner = type_(global, imperative, buffer)?;
                     Ok(buffer.add(Node::new(
                         loc,
@@ -1254,21 +1257,28 @@ fn maybe_parse_polymorphic_arguments(
 
 fn parse_pointer_permits(
     global: &mut DataContext<'_>
-) -> PtrPermits {
+) -> Option<PtrPermits> {
     match global.tokens.peek() {
-        Some(Token { kind: TokenKind::Keyword(Keyword::Let), .. }) => {
+        Some(Token { kind: TokenKind::Keyword(Keyword::Write), .. }) => {
             global.tokens.next();
-            PtrPermits::WRITE
+            Some(PtrPermits::WRITE)
         }
-        Some(Token { kind: TokenKind::Keyword(Keyword::Const), .. }) => {
+        Some(Token { kind: TokenKind::Keyword(Keyword::Read), .. }) => {
             global.tokens.next();
-            PtrPermits::READ
+            Some(PtrPermits::READ)
         }
-        Some(Token { kind: TokenKind::Keyword(Keyword::In), .. }) => {
+        Some(Token { kind: TokenKind::Keyword(Keyword::ReadWrite), .. }) => {
             global.tokens.next();
-            PtrPermits::NONE
+            Some(PtrPermits::READ_WRITE)
         }
-        _ => PtrPermits::READ_WRITE,
+        // Leave to be inferred.
+        _ => {
+            if global.tokens.try_consume_operator_string("!!").is_some() {
+                Some(PtrPermits::NONE)
+            } else {
+                None
+            }
+        }
     }
 }
 

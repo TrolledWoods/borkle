@@ -6,7 +6,7 @@ use crate::operators::{BinaryOp, UnaryOp};
 use crate::program::constant::ConstantRef;
 use crate::program::{Task, PolyOrMember, Program, MemberMetaData};
 use crate::thread_pool::ThreadContext;
-use crate::types::{IntTypeKind, Type, TypeKind};
+use crate::types::{IntTypeKind, Type, TypeKind, PtrPermits};
 use std::sync::Arc;
 pub use crate::parser::{ast::Node, ast::NodeKind, Ast, ast::NodeId};
 use crate::type_infer::{self, TypeSystem, Variance, Access};
@@ -180,7 +180,7 @@ fn build_constraints(ctx: &mut Context<'_, '_>, node_id: NodeId) -> type_infer::
         // @Improvement: Reference type permits can be inferred as well, but that's not represented here.
         NodeKind::ReferenceType(inner, permits) => {
             let inner = build_constraints(ctx, inner);
-            let access = type_infer::Access::new(permits.read(), permits.write());
+            let access = permits_to_access(permits);
             let temp = ctx.infer.add_type(type_infer::Ref(access, type_infer::Var(inner)));
             ctx.infer.set_equal(node_type_id, temp, Variance::Invariant);
         }
@@ -188,6 +188,10 @@ fn build_constraints(ctx: &mut Context<'_, '_>, node_id: NodeId) -> type_infer::
     }
 
     node_type_id
+}
+
+fn permits_to_access(permits: Option<PtrPermits>) -> type_infer::Access {
+    permits.map_or_else(Default::default, |v| type_infer::Access::new(v.read(), v.write()))
 }
 
 /// Normal values are assumed to be readonly, because they are temporaries, it doesn't really make sense to

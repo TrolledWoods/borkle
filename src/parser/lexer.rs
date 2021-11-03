@@ -63,6 +63,9 @@ pub enum Keyword {
     Library,
     Alias,
     BuiltinFunction,
+    Read,
+    Write,
+    ReadWrite,
 }
 
 pub fn process_string(errors: &mut ErrorCtx, file: Ustr, string: &str) -> Result<TokenStream, ()> {
@@ -149,6 +152,9 @@ pub fn process_string(errors: &mut ErrorCtx, file: Ustr, string: &str) -> Result
                     "in" => TokenKind::Keyword(Keyword::In),
                     "import" => TokenKind::Keyword(Keyword::Import),
                     "library" => TokenKind::Keyword(Keyword::Library),
+                    "r" => TokenKind::Keyword(Keyword::Read),
+                    "w" => TokenKind::Keyword(Keyword::Write),
+                    "rw" => TokenKind::Keyword(Keyword::ReadWrite),
                     "_" => TokenKind::Keyword(Keyword::Underscore),
 
                     "f32" => TokenKind::Type(Type::new(TypeKind::F32)),

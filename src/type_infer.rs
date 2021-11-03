@@ -454,23 +454,23 @@ values: vec![],
         match &self.values[value].kind {
             Access(access) => {
                 format!(
-                    "{}{}{}",
+                    "{}{}",
                     match (access.needs_read, access.needs_write) {
                         (true, true) => "rw",
                         (true, false) => "r",
                         (false, true) => "w",
-                        (false, false) => "[]",
+                        (false, false) => "!!",
                     },
-                    match (access.read && !access.needs_read, access.write && !access.needs_write) {
-                        (true, true) => "+rw",
-                        (true, false) => "+r",
-                        (false, true) => "+w",
-                        (false, false) => "",
-                    },
+                    // match (access.read && !access.needs_read, access.write && !access.needs_write) {
+                    //     (true, true) => "+rw",
+                    //     (true, false) => "+r",
+                    //     (false, true) => "+w",
+                    //     (false, false) => "",
+                    // },
                     match (!access.read && access.needs_read, !access.write && access.needs_write) {
-                        (true, true) => "!rw",
-                        (true, false) => "!r",
-                        (false, true) => "!w",
+                        (true, true) => "-rw",
+                        (true, false) => "-r",
+                        (false, true) => "-w",
                         (false, false) => "",
                     },
                 )
