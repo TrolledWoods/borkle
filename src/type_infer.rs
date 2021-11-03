@@ -1,7 +1,7 @@
+use crate::types::{self, IntTypeKind};
 use std::collections::HashMap;
 use std::iter::repeat_with;
 use ustr::Ustr;
-use crate::types::{self, IntTypeKind};
 
 #[derive(Clone, Copy)]
 pub struct CompilerType(pub types::Type);
@@ -27,21 +27,30 @@ pub trait IntoType {
 
 impl IntoType for CompilerType {
     fn into_type(self, system: &mut TypeSystem) -> ValueId {
-        match self.0.0.kind {
+        match self.0 .0.kind {
             types::TypeKind::Int(int_type_kind) => Int(int_type_kind).into_type(system),
-            types::TypeKind::Empty => system.add(ValueKind::Type(Some((TypeKind::Empty, Some(Box::new([])))))),
-            types::TypeKind::Bool => system.add(ValueKind::Type(Some((TypeKind::Bool, Some(Box::new([])))))),
-            types::TypeKind::Reference { pointee, permits } =>
-                Ref(Access::new(permits.read(), permits.write()), CompilerType(pointee)).into_type(system),
-            types::TypeKind::Array(type_, length) =>
-                Array(CompilerType(type_), length).into_type(system),
+            types::TypeKind::Empty => {
+                system.add(ValueKind::Type(Some((TypeKind::Empty, Some(Box::new([]))))))
+            }
+            types::TypeKind::Bool => {
+                system.add(ValueKind::Type(Some((TypeKind::Bool, Some(Box::new([]))))))
+            }
+            types::TypeKind::Reference { pointee, permits } => Ref(
+                Access::new(permits.read(), permits.write()),
+                CompilerType(pointee),
+            )
+            .into_type(system),
+            types::TypeKind::Array(type_, length) => {
+                Array(CompilerType(type_), length).into_type(system)
+            }
             types::TypeKind::Struct(ref fields) => {
                 let field_names = fields.iter().map(|v| v.0).collect();
                 let field_types = fields
                     .iter()
                     .map(|v| CompilerType(v.1).into_type(system))
                     .collect();
-                let value = ValueKind::Type(Some((TypeKind::Struct(field_names), Some(field_types))));
+                let value =
+                    ValueKind::Type(Some((TypeKind::Struct(field_names), Some(field_types))));
                 system.add(value)
             }
             _ => todo!("This compiler type is not done yet"),
@@ -53,7 +62,10 @@ impl<T: IntoType, V: IntoValue> IntoType for Array<T, V> {
     fn into_type(self, system: &mut TypeSystem) -> ValueId {
         let inner_type = self.0.into_type(system);
         let inner_value = self.1.into_value(system);
-        system.add(ValueKind::Type(Some((TypeKind::Array, Some(Box::new([inner_type, inner_value]))))))
+        system.add(ValueKind::Type(Some((
+            TypeKind::Array,
+            Some(Box::new([inner_type, inner_value])),
+        ))))
     }
 }
 
@@ -71,7 +83,10 @@ impl IntoType for Empty {
 
 impl IntoType for Int {
     fn into_type(self, system: &mut TypeSystem) -> ValueId {
-        system.add(ValueKind::Type(Some((TypeKind::Int(self.0), Some(Box::new([]))))))
+        system.add(ValueKind::Type(Some((
+            TypeKind::Int(self.0),
+            Some(Box::new([])),
+        ))))
     }
 }
 
@@ -85,7 +100,10 @@ impl<T: IntoAccess, V: IntoType> IntoType for Ref<T, V> {
     fn into_type(self, system: &mut TypeSystem) -> ValueId {
         let inner_variance = self.0.into_variance(system);
         let inner_type = self.1.into_type(system);
-        system.add(ValueKind::Type(Some((TypeKind::Reference, Some(Box::new([inner_variance, inner_type]))))))
+        system.add(ValueKind::Type(Some((
+            TypeKind::Reference,
+            Some(Box::new([inner_variance, inner_type])),
+        ))))
     }
 }
 
@@ -176,9 +194,9 @@ impl Variance {
     fn to_string(&self) -> &'static str {
         match self {
             Self::Covariant => "<=",
-                Self::Variant => "=>",
-                Self::Invariant => "==",
-                Self::DontCare => "~~",
+            Self::Variant => "=>",
+            Self::Invariant => "==",
+            Self::DontCare => "~~",
         }
     }
 
@@ -189,31 +207,32 @@ impl Variance {
     fn apply_to(self, other: Variance) -> Variance {
         match (self, other) {
             (Variance::DontCare, _) => Variance::DontCare,
-                (Variance::Variant, c) => c,
-                (Variance::Covariant, c) => c.invert(),
-                (Variance::Invariant, _) => Variance::Invariant,
+            (Variance::Variant, c) => c,
+            (Variance::Covariant, c) => c.invert(),
+            (Variance::Invariant, _) => Variance::Invariant,
         }
     }
 
     fn combine(&mut self, other: Variance) {
         match (*self, other) {
             (Variance::DontCare, c) => *self = c,
-                (Variance::Covariant, Variance::Variant) | (Variance::Variant, Variance::Covariant) =>
-                    *self = Variance::Invariant,
-                (_, Variance::Invariant) => *self = Variance::Invariant,
-                (_, Variance::DontCare) |
-                    (Variance::Invariant, _) |
-                    (Variance::Variant, Variance::Variant) |
-                    (Variance::Covariant, Variance::Covariant) => {}
+            (Variance::Covariant, Variance::Variant) | (Variance::Variant, Variance::Covariant) => {
+                *self = Variance::Invariant
+            }
+            (_, Variance::Invariant) => *self = Variance::Invariant,
+            (_, Variance::DontCare)
+            | (Variance::Invariant, _)
+            | (Variance::Variant, Variance::Variant)
+            | (Variance::Covariant, Variance::Covariant) => {}
         }
     }
 
     fn invert(self) -> Variance {
         match self {
             Self::Covariant => Self::Variant,
-                Self::Variant => Self::Covariant,
-                Self::Invariant => Self::Invariant,
-                Self::DontCare => Self::DontCare,
+            Self::Variant => Self::Covariant,
+            Self::Invariant => Self::Invariant,
+            Self::DontCare => Self::DontCare,
         }
     }
 }
@@ -229,10 +248,10 @@ pub struct Access {
 impl Default for Access {
     fn default() -> Self {
         Self {
-read: true,
-          write: true,
-          needs_read: false,
-          needs_write: false,
+            read: true,
+            write: true,
+            needs_read: false,
+            needs_write: false,
         }
     }
 }
@@ -240,13 +259,13 @@ read: true,
 impl Access {
     pub fn new(read: bool, write: bool) -> Self {
         Self {
-read: read,
-          write: write,
-          needs_read: read,
-          needs_write: write,
+            read: read,
+            write: write,
+            needs_read: read,
+            needs_write: write,
         }
     }
-    
+
     pub fn needs(read: bool, write: bool) -> Self {
         Self {
             read: true,
@@ -312,7 +331,7 @@ impl ValueKind {
 pub type ValueId = usize;
 
 struct Value {
-kind: ValueKind,
+    kind: ValueKind,
 }
 
 impl From<ValueKind> for Value {
@@ -324,17 +343,41 @@ impl From<ValueKind> for Value {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 enum Constraint {
     /// Equal is almost equality, unless the is_variant field is set, then a will be variant to b.
-    Equal { a: ValueId, b: ValueId, variance: Variance },
-    EqualsField { a: (ValueId, usize), b: ValueId, variance: Variance },
-    EqualNamedField { a: (ValueId, Ustr), b: ValueId, variance: Variance },
+    Equal {
+        a: ValueId,
+        b: ValueId,
+        variance: Variance,
+    },
+    EqualsField {
+        a: (ValueId, usize),
+        b: ValueId,
+        variance: Variance,
+    },
+    EqualNamedField {
+        a: (ValueId, Ustr),
+        b: ValueId,
+        variance: Variance,
+    },
 }
 
 impl Constraint {
     fn apply_variance(self, from: Variance) -> Self {
         match self {
-            Self::Equal { a, b, variance } => Self::Equal { a, b, variance: from.apply_to(variance) },
-            Self::EqualsField { a, b, variance } => Self::EqualsField { a, b, variance: from.apply_to(variance) },
-            Self::EqualNamedField { a, b, variance } => Self::EqualNamedField { a, b, variance: from.apply_to(variance) },
+            Self::Equal { a, b, variance } => Self::Equal {
+                a,
+                b,
+                variance: from.apply_to(variance),
+            },
+            Self::EqualsField { a, b, variance } => Self::EqualsField {
+                a,
+                b,
+                variance: from.apply_to(variance),
+            },
+            Self::EqualNamedField { a, b, variance } => Self::EqualNamedField {
+                a,
+                b,
+                variance: from.apply_to(variance),
+            },
         }
     }
 
@@ -342,16 +385,20 @@ impl Constraint {
         if b > a {
             Self::Equal { a, b, variance }
         } else {
-            Self::Equal { a: b, b: a, variance: variance.invert() }
+            Self::Equal {
+                a: b,
+                b: a,
+                variance: variance.invert(),
+            }
         }
     }
 }
 
 #[derive(Debug)]
 pub struct Error {
-a: ValueId,
-       b: ValueId,
-       kind: ErrorKind,
+    a: ValueId,
+    b: ValueId,
+    kind: ErrorKind,
 }
 
 impl Error {
@@ -372,17 +419,23 @@ pub enum ErrorKind {
 
 struct VarianceConstraint {
     /// The variance between the two Access operations
-variance: Variance,
-              /// The variance "strength" applied in the last queueing of constraints. This is so we can make sure we don't
-              /// issue all the constraints several times unnecessarily.
-              last_variance_applied: Variance,
-              constraints: Vec<Constraint>,
+    variance: Variance,
+    /// The variance "strength" applied in the last queueing of constraints. This is so we can make sure we don't
+    /// issue all the constraints several times unnecessarily.
+    last_variance_applied: Variance,
+    constraints: Vec<Constraint>,
 }
 
-fn add_constraint(available_constraints: &mut HashMap<ValueId, Vec<Constraint>>, queued_constraints: &mut Vec<Constraint>, constraint: Constraint) {
+fn add_constraint(
+    available_constraints: &mut HashMap<ValueId, Vec<Constraint>>,
+    queued_constraints: &mut Vec<Constraint>,
+    constraint: Constraint,
+) {
     match constraint {
         Constraint::Equal { a, b, .. } => {
-            if a == b { return };
+            if a == b {
+                return;
+            };
 
             let vec = available_constraints.entry(a).or_insert_with(Vec::new);
             vec.push(constraint);
@@ -392,7 +445,8 @@ fn add_constraint(available_constraints: &mut HashMap<ValueId, Vec<Constraint>>,
 
             queued_constraints.push(constraint);
         }
-        Constraint::EqualsField { a: (a, _), .. } | Constraint::EqualNamedField { a: (a, _), .. } => {
+        Constraint::EqualsField { a: (a, _), .. }
+        | Constraint::EqualNamedField { a: (a, _), .. } => {
             let vec = available_constraints.entry(a).or_insert_with(Vec::new);
             vec.push(constraint);
 
@@ -404,39 +458,73 @@ fn add_constraint(available_constraints: &mut HashMap<ValueId, Vec<Constraint>>,
 pub struct TypeSystem {
     /// The first few values are always primitive values, with a fixed position, to make them trivial to create.
     /// 0 - Int
-values: Vec<Value>,
+    values: Vec<Value>,
 
-            /// When the access level of certain things determine the variance of constraints, those constraints are put into here.
-            variance_updates: HashMap<(ValueId, ValueId), VarianceConstraint>,
+    /// When the access level of certain things determine the variance of constraints, those constraints are put into here.
+    variance_updates: HashMap<(ValueId, ValueId), VarianceConstraint>,
 
-            available_constraints: HashMap<ValueId, Vec<Constraint>>,
-            queued_constraints: Vec<Constraint>,
+    available_constraints: HashMap<ValueId, Vec<Constraint>>,
+    queued_constraints: Vec<Constraint>,
 
-            errors: Vec<Error>,
+    errors: Vec<Error>,
 }
 
 impl TypeSystem {
     pub fn new() -> Self {
         Self {
-values: vec![],
-        variance_updates: HashMap::new(),
-        available_constraints: HashMap::new(),
-        queued_constraints: Vec::new(),
-        errors: Vec::new(),
+            values: vec![],
+            variance_updates: HashMap::new(),
+            available_constraints: HashMap::new(),
+            queued_constraints: Vec::new(),
+            errors: Vec::new(),
         }
     }
 
     pub fn set_equal(&mut self, a: ValueId, b: ValueId, variance: Variance) {
-        if a == b { return; }
-        add_constraint(&mut self.available_constraints, &mut self.queued_constraints, Constraint::equal(a, b, variance));
+        if a == b {
+            return;
+        }
+        add_constraint(
+            &mut self.available_constraints,
+            &mut self.queued_constraints,
+            Constraint::equal(a, b, variance),
+        );
     }
 
-    pub fn set_field_equal(&mut self, a: ValueId, field_index: usize, b: ValueId, variance: Variance) {
-        add_constraint(&mut self.available_constraints, &mut self.queued_constraints, Constraint::EqualsField { a: (a, field_index), b, variance });
+    pub fn set_field_equal(
+        &mut self,
+        a: ValueId,
+        field_index: usize,
+        b: ValueId,
+        variance: Variance,
+    ) {
+        add_constraint(
+            &mut self.available_constraints,
+            &mut self.queued_constraints,
+            Constraint::EqualsField {
+                a: (a, field_index),
+                b,
+                variance,
+            },
+        );
     }
 
-    pub fn set_field_name_equal(&mut self, a: ValueId, field_name: Ustr, b: ValueId, variance: Variance) {
-        add_constraint(&mut self.available_constraints, &mut self.queued_constraints, Constraint::EqualNamedField { a: (a, field_name), b, variance });
+    pub fn set_field_name_equal(
+        &mut self,
+        a: ValueId,
+        field_name: Ustr,
+        b: ValueId,
+        variance: Variance,
+    ) {
+        add_constraint(
+            &mut self.available_constraints,
+            &mut self.queued_constraints,
+            Constraint::EqualNamedField {
+                a: (a, field_name),
+                b,
+                variance,
+            },
+        );
     }
 
     pub fn solve(&mut self) {
@@ -450,7 +538,9 @@ values: vec![],
 
     pub fn value_to_str(&self, value: ValueId, rec: usize) -> String {
         use ValueKind::*;
-        if rec > 7 { return "...".to_string(); }
+        if rec > 7 {
+            return "...".to_string();
+        }
         match &self.values[value].kind {
             Access(access) => {
                 format!(
@@ -467,7 +557,10 @@ values: vec![],
                     //     (false, true) => "+w",
                     //     (false, false) => "",
                     // },
-                    match (!access.read && access.needs_read, !access.write && access.needs_write) {
+                    match (
+                        !access.read && access.needs_read,
+                        !access.write && access.needs_write
+                    ) {
                         (true, true) => "-rw",
                         (true, false) => "-r",
                         (false, true) => "-w",
@@ -480,32 +573,54 @@ values: vec![],
             Type(None) => "_".to_string(),
             Value(None) => "_(value)".to_string(),
             Value(Some((type_, None))) => format!("(_: {})", self.value_to_str(*type_, rec + 1)),
-            Value(Some((type_, Some(value)))) => format!("({}: {})", value, self.value_to_str(*type_, rec + 1)),
+            Value(Some((type_, Some(value)))) => {
+                format!("({}: {})", value, self.value_to_str(*type_, rec + 1))
+            }
             Type(Some((TypeKind::Int(int_type_kind), _))) => format!("{:?}", int_type_kind),
             Type(Some((kind, None))) => format!("{:?}", kind),
             Type(Some((TypeKind::Function, Some(c)))) => match &**c {
                 [return_, args @ ..] => format!(
                     "fn({}) -> {}",
-                    args.iter().map(|&v| self.value_to_str(v, rec + 1)).collect::<Vec<_>>().join(", "),
+                    args.iter()
+                        .map(|&v| self.value_to_str(v, rec + 1))
+                        .collect::<Vec<_>>()
+                        .join(", "),
                     self.value_to_str(*return_, rec + 1),
                 ),
                 _ => unreachable!("A function pointer type has to have at least a return type"),
             },
             Type(Some((TypeKind::Struct(names), Some(c)))) => {
-                let list = names.iter()
+                let list = names
+                    .iter()
                     .zip(c.iter())
-                    .map(|(name, type_)| format!("{}: {}", name, self.value_to_str(*type_, rec + 1)))
+                    .map(|(name, type_)| {
+                        format!("{}: {}", name, self.value_to_str(*type_, rec + 1))
+                    })
                     .collect::<Vec<_>>()
                     .join(", ");
                 format!("{{ {} }}", list)
             }
             Type(Some((TypeKind::Array, Some(c)))) => match &**c {
-                [type_, length] => format!("[{}; {}]", self.value_to_str(*type_, rec + 1), self.value_to_str(*length, rec + 1)),
+                [type_, length] => format!(
+                    "[{}; {}]",
+                    self.value_to_str(*type_, rec + 1),
+                    self.value_to_str(*length, rec + 1)
+                ),
                 _ => unreachable!("Arrays should only ever have two type parameters"),
             },
-            Type(Some((TypeKind::Tuple, Some(arr)))) => format!("({})", arr.iter().map(|&v| self.value_to_str(v, rec + 1)).collect::<Vec<_>>().join(", ")),
+            Type(Some((TypeKind::Tuple, Some(arr)))) => format!(
+                "({})",
+                arr.iter()
+                    .map(|&v| self.value_to_str(v, rec + 1))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
             Type(Some((TypeKind::Reference, Some(c)))) => match &**c {
-                [mutability, type_] => format!("&{} {}", self.value_to_str(*mutability, rec + 1), self.value_to_str(*type_, rec + 1)),
+                [mutability, type_] => format!(
+                    "&{} {}",
+                    self.value_to_str(*mutability, rec + 1),
+                    self.value_to_str(*type_, rec + 1)
+                ),
                 _ => unreachable!("References should only ever have one type parameter"),
             },
         }
@@ -513,14 +628,49 @@ values: vec![],
 
     fn constraint_to_string(&self, constraint: &Constraint) -> String {
         match *constraint {
-            Constraint::Equal { a: a_id, b: b_id, variance } => {
-                format!("{}({}) {} {}({})", a_id, self.value_to_str(a_id, 0), variance.to_string(), b_id, self.value_to_str(b_id, 0))
+            Constraint::Equal {
+                a: a_id,
+                b: b_id,
+                variance,
+            } => {
+                format!(
+                    "{}({}) {} {}({})",
+                    a_id,
+                    self.value_to_str(a_id, 0),
+                    variance.to_string(),
+                    b_id,
+                    self.value_to_str(b_id, 0)
+                )
             }
-            Constraint::EqualsField { a: (a_id, field_index), b: b_id, variance } => {
-                format!("{}({}).{} {} {}({})", a_id, self.value_to_str(a_id, 0), field_index, variance.to_string(), b_id, self.value_to_str(b_id, 0))
+            Constraint::EqualsField {
+                a: (a_id, field_index),
+                b: b_id,
+                variance,
+            } => {
+                format!(
+                    "{}({}).{} {} {}({})",
+                    a_id,
+                    self.value_to_str(a_id, 0),
+                    field_index,
+                    variance.to_string(),
+                    b_id,
+                    self.value_to_str(b_id, 0)
+                )
             }
-            Constraint::EqualNamedField { a: (a_id, field_name), b: b_id, variance } => {
-                format!("{}({}).{} {} {}({})", a_id, self.value_to_str(a_id, 0), field_name, variance.to_string(), b_id, self.value_to_str(b_id, 0))
+            Constraint::EqualNamedField {
+                a: (a_id, field_name),
+                b: b_id,
+                variance,
+            } => {
+                format!(
+                    "{}({}).{} {} {}({})",
+                    a_id,
+                    self.value_to_str(a_id, 0),
+                    field_name,
+                    variance.to_string(),
+                    b_id,
+                    self.value_to_str(b_id, 0)
+                )
             }
         }
     }
@@ -545,7 +695,12 @@ values: vec![],
             println!("There were errors:");
 
             for error in &self.errors {
-                println!("{}, {}\n{:?}", self.value_to_str(error.a, 0), self.value_to_str(error.b, 0), error.kind);
+                println!(
+                    "{}, {}\n{:?}",
+                    self.value_to_str(error.a, 0),
+                    self.value_to_str(error.b, 0),
+                    error.kind
+                );
             }
         }
     }
@@ -555,18 +710,36 @@ values: vec![],
         let mut b_progress = false;
 
         let mut add_constraint = |constraint: Constraint| {
-            add_constraint(&mut self.available_constraints, &mut self.queued_constraints, constraint);
+            add_constraint(
+                &mut self.available_constraints,
+                &mut self.queued_constraints,
+                constraint,
+            );
         };
 
         // @HACK: Later, we want arbitrary child-count constraints, and then this won't work.
         let (a_id, b_id) = match constraint {
-            Constraint::Equal { a: a_id, b: b_id, .. } => (a_id, b_id),
-            Constraint::EqualsField { a: (a_id, _), b: b_id, .. } => (a_id, b_id),
-            Constraint::EqualNamedField { a: (a_id, _), b: b_id, .. } => (a_id, b_id),
+            Constraint::Equal {
+                a: a_id, b: b_id, ..
+            } => (a_id, b_id),
+            Constraint::EqualsField {
+                a: (a_id, _),
+                b: b_id,
+                ..
+            } => (a_id, b_id),
+            Constraint::EqualNamedField {
+                a: (a_id, _),
+                b: b_id,
+                ..
+            } => (a_id, b_id),
         };
 
         match constraint {
-            Constraint::EqualNamedField { a: (a_id, field_name), b: b_id, variance } => {
+            Constraint::EqualNamedField {
+                a: (a_id, field_name),
+                b: b_id,
+                variance,
+            } => {
                 let a = &self.values[a_id].kind;
 
                 use ValueKind::*;
@@ -574,23 +747,43 @@ values: vec![],
                     Type(None) => {}
                     Type(Some((TypeKind::Struct(names), _))) => {
                         if let Some(pos) = names.iter().position(|&v| v == field_name) {
-                            add_constraint(Constraint::EqualsField { a: (a_id, pos), b: b_id, variance });
+                            add_constraint(Constraint::EqualsField {
+                                a: (a_id, pos),
+                                b: b_id,
+                                variance,
+                            });
                         } else {
-                            self.errors.push(Error::new(a_id, b_id, ErrorKind::NonexistantName(field_name)));
+                            self.errors.push(Error::new(
+                                a_id,
+                                b_id,
+                                ErrorKind::NonexistantName(field_name),
+                            ));
                             return;
                         }
                     }
                     Type(Some((_, _))) => {
-                        self.errors.push(Error::new(a_id, b_id, ErrorKind::NonexistantName(field_name)));
+                        self.errors.push(Error::new(
+                            a_id,
+                            b_id,
+                            ErrorKind::NonexistantName(field_name),
+                        ));
                         return;
                     }
                     Access(_) | Value(_) => {
-                        self.errors.push(Error::new(a_id, b_id, ErrorKind::ValueAndTypesIntermixed));
+                        self.errors.push(Error::new(
+                            a_id,
+                            b_id,
+                            ErrorKind::ValueAndTypesIntermixed,
+                        ));
                         return;
                     }
                 }
             }
-            Constraint::EqualsField { a: (a_id, field_index), b: b_id, variance } => {
+            Constraint::EqualsField {
+                a: (a_id, field_index),
+                b: b_id,
+                variance,
+            } => {
                 let a = &self.values[a_id].kind;
 
                 use ValueKind::*;
@@ -600,18 +793,32 @@ values: vec![],
                         if let Some(&field) = fields.get(field_index) {
                             add_constraint(Constraint::equal(field, b_id, variance));
                         } else {
-                            self.errors.push(Error::new(a_id, b_id, ErrorKind::IndexOutOfBounds(field_index)));
+                            self.errors.push(Error::new(
+                                a_id,
+                                b_id,
+                                ErrorKind::IndexOutOfBounds(field_index),
+                            ));
                             return;
                         }
                     }
                     Access(_) | Value(_) => {
-                        self.errors.push(Error::new(a_id, b_id, ErrorKind::ValueAndTypesIntermixed));
+                        self.errors.push(Error::new(
+                            a_id,
+                            b_id,
+                            ErrorKind::ValueAndTypesIntermixed,
+                        ));
                         return;
                     }
                 }
             }
-            Constraint::Equal { a: a_id, b: b_id, variance } => {
-                if a_id == b_id { return; }
+            Constraint::Equal {
+                a: a_id,
+                b: b_id,
+                variance,
+            } => {
+                if a_id == b_id {
+                    return;
+                }
 
                 debug_assert!(a_id < b_id);
 
@@ -620,8 +827,8 @@ values: vec![],
                 let a = &mut a_slice[a_id].kind;
                 let b = &mut b_slice[0].kind;
 
-                use ValueKind::*;
                 use ErrorKind::*;
+                use ValueKind::*;
                 match (a, b) {
                     // Nothing is known, keep the constraint
                     (Type(None), Type(None)) | (Type(Some((_, None))), Type(Some((_, None)))) => {
@@ -644,8 +851,8 @@ values: vec![],
 
                         match (a_fields, &mut a_progress, b_fields, &mut b_progress) {
                             (None, _, None, _) => return,
-                            (Some(known), _, unknown @ None, unknown_progress) |
-                            (unknown @ None, unknown_progress, Some(known), _) => {
+                            (Some(known), _, unknown @ None, unknown_progress)
+                            | (unknown @ None, unknown_progress, Some(known), _) => {
                                 *unknown_progress = true;
 
                                 if variance == Variance::Invariant {
@@ -656,7 +863,8 @@ values: vec![],
                                     // before writing to values. After that we have to recompute the references
                                     // since they may have moved if the vector grew (one of the cases where
                                     // the borrow checker was right!)
-                                    *unknown = Some((0..known.len()).map(|v| v + values_len).collect());
+                                    *unknown =
+                                        Some((0..known.len()).map(|v| v + values_len).collect());
                                     for &v in known.clone().iter() {
                                         let base_value = self.values[v].kind.to_unknown();
                                         self.values.push(base_value.into());
@@ -676,10 +884,11 @@ values: vec![],
                         };
 
                         if *base_a != *base_b || a_fields.len() != b_fields.len() {
-                            self.errors.push(Error::new(a_id, b_id, ErrorKind::IncompatibleTypes));
+                            self.errors
+                                .push(Error::new(a_id, b_id, ErrorKind::IncompatibleTypes));
                             return;
                         }
-                        
+
                         // Ugly special case for references. This would apply for anything that has a
                         // mutability parameter that controls the variance of another field, because that behaviour
                         // is quite messy and complex.
@@ -687,31 +896,53 @@ values: vec![],
                             // @Cleanup: This has to be done because a has to be less than b, otherwise
                             // the lookups don't work properly. However, this is messy. So it would be nice if it
                             // could be factored out to something else.
-                            let (a_access_id, a_inner, b_access_id, b_inner, variance) = if a_fields[0] < b_fields[0] {
-                                (a_fields[0], a_fields[1], b_fields[0], b_fields[1], variance)
-                            } else {
-                                (b_fields[0], b_fields[1], a_fields[0], a_fields[1], variance.invert())
-                            };
+                            let (a_access_id, a_inner, b_access_id, b_inner, variance) =
+                                if a_fields[0] < b_fields[0] {
+                                    (a_fields[0], a_fields[1], b_fields[0], b_fields[1], variance)
+                                } else {
+                                    (
+                                        b_fields[0],
+                                        b_fields[1],
+                                        a_fields[0],
+                                        a_fields[1],
+                                        variance.invert(),
+                                    )
+                                };
                             let &ValueKind::Access(a_access) = &self.values[a_access_id].kind else { panic!() };
                             let &ValueKind::Access(b_access) = &self.values[b_access_id].kind else { panic!() };
 
-                            let variance_constraint = self.variance_updates
+                            let variance_constraint = self
+                                .variance_updates
                                 .entry((a_access_id, b_access_id))
                                 .or_insert_with(|| VarianceConstraint {
                                     variance,
-                                    last_variance_applied: biggest_guaranteed_variance_of_operation(a_access, b_access, variance),
+                                    last_variance_applied: biggest_guaranteed_variance_of_operation(
+                                        a_access, b_access, variance,
+                                    ),
                                     constraints: Vec::new(),
                                 });
                             let constraint = Constraint::equal(a_inner, b_inner, variance);
-                            if !variance_constraint.constraints.iter().any(|v| v == &constraint) {
+                            if !variance_constraint
+                                .constraints
+                                .iter()
+                                .any(|v| v == &constraint)
+                            {
                                 variance_constraint.constraints.push(constraint);
-                                add_constraint(Constraint::equal(a_inner, b_inner, variance_constraint.last_variance_applied.apply_to(variance)));
+                                add_constraint(Constraint::equal(
+                                    a_inner,
+                                    b_inner,
+                                    variance_constraint.last_variance_applied.apply_to(variance),
+                                ));
                             }
                             add_constraint(Constraint::equal(a_access_id, b_access_id, variance));
                         } else if *base_a == TypeKind::Function {
                             add_constraint(Constraint::equal(a_fields[0], b_fields[0], variance));
                             for (&a_field, &b_field) in a_fields[1..].iter().zip(&b_fields[1..]) {
-                                add_constraint(Constraint::equal(a_field, b_field, variance.invert()));
+                                add_constraint(Constraint::equal(
+                                    a_field,
+                                    b_field,
+                                    variance.invert(),
+                                ));
                             }
                         } else {
                             // Now, we want to apply equality to all the fields as well.
@@ -726,23 +957,19 @@ values: vec![],
 
                     // @Cleanup: Clean up the whole value system.
                     // Nothing is known, keep the constraint
-                    (Value(None), Value(None)) | (Value(Some((_, None))), Value(Some((_, None)))) => {
+                    (Value(None), Value(None))
+                    | (Value(Some((_, None))), Value(Some((_, None)))) => {
                         return;
                     }
-                    (Value(Some(known)), Value(unknown @ None)) |
-                    (Value(unknown @ None), Value(Some(known))) => {
+                    (Value(Some(known)), Value(unknown @ None))
+                    | (Value(unknown @ None), Value(Some(known))) => {
                         a_progress = true;
                         b_progress = true;
                         *unknown = Some(*known);
                     }
-                    (
-                        Value(Some((type_a, unknown @ None))),
-                        Value(Some((type_b, Some(known))))
-                    ) |
-                    (
-                        Value(Some((type_a, Some(known)))),
-                        Value(Some((type_b, unknown @ None))),
-                    ) => {
+                    (Value(Some((type_a, unknown @ None))), Value(Some((type_b, Some(known)))))
+                    | (Value(Some((type_a, Some(known)))), Value(Some((type_b, unknown @ None)))) =>
+                    {
                         if *type_a != *type_b {
                             self.errors.push(Error::new(a_id, b_id, IncompatibleTypes));
                             return;
@@ -752,7 +979,10 @@ values: vec![],
                         a_progress = true;
                         b_progress = true;
                     }
-                    (Value(Some((type_a, Some(value_a)))), Value(Some((type_b, Some(value_b))))) => {
+                    (
+                        Value(Some((type_a, Some(value_a)))),
+                        Value(Some((type_b, Some(value_b)))),
+                    ) => {
                         if *type_a != *type_b {
                             self.errors.push(Error::new(a_id, b_id, IncompatibleTypes));
                         }
@@ -772,13 +1002,23 @@ values: vec![],
                         a_progress = old_a != *a;
                         b_progress = old_b != *b;
 
-                        if let Some(variance_constraint) = self.variance_updates.get_mut(&(a_id, b_id)) {
+                        if let Some(variance_constraint) =
+                            self.variance_updates.get_mut(&(a_id, b_id))
+                        {
                             variance_constraint.variance.combine(variance);
-                            run_variance_constraint(variance_constraint, a_id, b_id, &self.values, &mut self.available_constraints, &mut self.queued_constraints);
+                            run_variance_constraint(
+                                variance_constraint,
+                                a_id,
+                                b_id,
+                                &self.values,
+                                &mut self.available_constraints,
+                                &mut self.queued_constraints,
+                            );
                         }
                     }
                     _ => {
-                        self.errors.push(Error::new(a_id, b_id, MixingTypesAndValues));
+                        self.errors
+                            .push(Error::new(a_id, b_id, MixingTypesAndValues));
                     }
                 }
             }
@@ -791,7 +1031,7 @@ values: vec![],
                     .iter()
                     .flat_map(|v| v.iter())
                     .copied()
-                    .filter(|v| v != &constraint)
+                    .filter(|v| v != &constraint),
             );
         }
 
@@ -802,7 +1042,7 @@ values: vec![],
                     .iter()
                     .flat_map(|v| v.iter())
                     .copied()
-                    .filter(|v| v != &constraint)
+                    .filter(|v| v != &constraint),
             );
         }
     }
@@ -828,7 +1068,7 @@ values: vec![],
         self.values.push(ValueKind::Type(None).into());
         id
     }
-    
+
     pub fn add_value(&mut self, value: impl IntoValue) -> ValueId {
         value.into_value(self)
     }
@@ -842,7 +1082,11 @@ values: vec![],
     pub fn add_tuple(&mut self, length: usize) -> ValueId {
         let value = ValueKind::Type(Some((
             TypeKind::Tuple,
-            Some(repeat_with(|| self.add_unknown_type()).take(length).collect()),
+            Some(
+                repeat_with(|| self.add_unknown_type())
+                    .take(length)
+                    .collect(),
+            ),
         )));
         let id = self.values.len();
         self.values.push(value.into());
@@ -854,7 +1098,13 @@ values: vec![],
         let length = self.add_value(WithType(Int(IntTypeKind::Usize)));
 
         let id = self.values.len();
-        self.values.push(ValueKind::Type(Some((TypeKind::Array, Some(Box::new([inner_type, length]))))).into());
+        self.values.push(
+            ValueKind::Type(Some((
+                TypeKind::Array,
+                Some(Box::new([inner_type, length])),
+            )))
+            .into(),
+        );
         id
     }
 
@@ -884,17 +1134,25 @@ fn biggest_guaranteed_variance_of_operation(a: Access, b: Access, variance: Vari
     }
 }
 
-fn run_variance_constraint(constraint: &mut VarianceConstraint, a: ValueId, b: ValueId, values: &[Value], available_constraints: &mut HashMap<ValueId, Vec<Constraint>>, queued_constraints: &mut Vec<Constraint>) {
+fn run_variance_constraint(
+    constraint: &mut VarianceConstraint,
+    a: ValueId,
+    b: ValueId,
+    values: &[Value],
+    available_constraints: &mut HashMap<ValueId, Vec<Constraint>>,
+    queued_constraints: &mut Vec<Constraint>,
+) {
     let &ValueKind::Access(a_access) = &values[a].kind else { panic!() };
     let &ValueKind::Access(b_access) = &values[b].kind else { panic!() };
 
-    let new_variance = biggest_guaranteed_variance_of_operation(a_access, b_access, constraint.variance);
+    let new_variance =
+        biggest_guaranteed_variance_of_operation(a_access, b_access, constraint.variance);
 
     if new_variance != constraint.last_variance_applied {
         for &constraint in &constraint.constraints {
             add_constraint(
                 available_constraints,
-                queued_constraints, 
+                queued_constraints,
                 constraint.apply_variance(new_variance),
             );
         }

@@ -1,7 +1,7 @@
 use super::lexer::{Token, TokenKind};
 use crate::errors::ErrorCtx;
 use crate::location::Location;
-use crate::operators::{Operator, UnaryOp, BinaryOp};
+use crate::operators::{BinaryOp, Operator, UnaryOp};
 use ustr::Ustr;
 
 pub struct TokenStream {
@@ -73,17 +73,14 @@ impl TokenStream {
                         return None;
                     }
                 }
-                
+
                 let loc = token.loc;
                 if suffix.is_empty() {
                     self.next();
                 } else {
                     *string = suffix.into();
                 }
-                return Some((
-                    loc,
-                    op,
-                ));
+                return Some((loc, op));
             }
         }
         None

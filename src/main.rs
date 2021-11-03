@@ -1,5 +1,4 @@
 #![feature(let_else)]
-
 #![deny(rust_2018_idioms, clippy::all)]
 #![deny(mutable_borrow_reservation_conflict)]
 #![warn(clippy::pedantic)]
@@ -21,8 +20,6 @@
     clippy::cast_ptr_alignment,
 )]
 
-mod type_infer;
-mod random;
 mod c_backend;
 mod command_line_arguments;
 mod dependencies;
@@ -38,8 +35,10 @@ mod logging;
 mod operators;
 mod parser;
 mod program;
+mod random;
 mod self_buffer;
 mod thread_pool;
+mod type_infer;
 mod typer;
 mod types;
 

@@ -128,42 +128,137 @@ operator!(AccessOp {
 });
 
 const INT_OPERATIONS: &[[TypeKind; 3]] = &[
-    [TypeKind::Int(IntTypeKind::U8), TypeKind::Int(IntTypeKind::U8), TypeKind::Int(IntTypeKind::U8)],
-    [TypeKind::Int(IntTypeKind::U16), TypeKind::Int(IntTypeKind::U16), TypeKind::Int(IntTypeKind::U16)],
-    [TypeKind::Int(IntTypeKind::U32), TypeKind::Int(IntTypeKind::U32), TypeKind::Int(IntTypeKind::U32)],
-    [TypeKind::Int(IntTypeKind::U64), TypeKind::Int(IntTypeKind::U64), TypeKind::Int(IntTypeKind::U64)],
-    [TypeKind::Int(IntTypeKind::I8), TypeKind::Int(IntTypeKind::I8), TypeKind::Int(IntTypeKind::I8)],
-    [TypeKind::Int(IntTypeKind::I16), TypeKind::Int(IntTypeKind::I16), TypeKind::Int(IntTypeKind::I16)],
-    [TypeKind::Int(IntTypeKind::I32), TypeKind::Int(IntTypeKind::I32), TypeKind::Int(IntTypeKind::I32)],
-    [TypeKind::Int(IntTypeKind::I64), TypeKind::Int(IntTypeKind::I64), TypeKind::Int(IntTypeKind::I64)],
-    [TypeKind::Int(IntTypeKind::Isize), TypeKind::Int(IntTypeKind::Isize), TypeKind::Int(IntTypeKind::Isize)],
-    [TypeKind::Int(IntTypeKind::Usize), TypeKind::Int(IntTypeKind::Usize), TypeKind::Int(IntTypeKind::Usize)],
+    [
+        TypeKind::Int(IntTypeKind::U8),
+        TypeKind::Int(IntTypeKind::U8),
+        TypeKind::Int(IntTypeKind::U8),
+    ],
+    [
+        TypeKind::Int(IntTypeKind::U16),
+        TypeKind::Int(IntTypeKind::U16),
+        TypeKind::Int(IntTypeKind::U16),
+    ],
+    [
+        TypeKind::Int(IntTypeKind::U32),
+        TypeKind::Int(IntTypeKind::U32),
+        TypeKind::Int(IntTypeKind::U32),
+    ],
+    [
+        TypeKind::Int(IntTypeKind::U64),
+        TypeKind::Int(IntTypeKind::U64),
+        TypeKind::Int(IntTypeKind::U64),
+    ],
+    [
+        TypeKind::Int(IntTypeKind::I8),
+        TypeKind::Int(IntTypeKind::I8),
+        TypeKind::Int(IntTypeKind::I8),
+    ],
+    [
+        TypeKind::Int(IntTypeKind::I16),
+        TypeKind::Int(IntTypeKind::I16),
+        TypeKind::Int(IntTypeKind::I16),
+    ],
+    [
+        TypeKind::Int(IntTypeKind::I32),
+        TypeKind::Int(IntTypeKind::I32),
+        TypeKind::Int(IntTypeKind::I32),
+    ],
+    [
+        TypeKind::Int(IntTypeKind::I64),
+        TypeKind::Int(IntTypeKind::I64),
+        TypeKind::Int(IntTypeKind::I64),
+    ],
+    [
+        TypeKind::Int(IntTypeKind::Isize),
+        TypeKind::Int(IntTypeKind::Isize),
+        TypeKind::Int(IntTypeKind::Isize),
+    ],
+    [
+        TypeKind::Int(IntTypeKind::Usize),
+        TypeKind::Int(IntTypeKind::Usize),
+        TypeKind::Int(IntTypeKind::Usize),
+    ],
 ];
 
 const POINTER_OPERATIONS: &[[TypeKind; 3]] = &[
-    [TypeKind::VoidPtr, TypeKind::Int(IntTypeKind::Usize), TypeKind::VoidPtr],
-    [TypeKind::VoidPtr, TypeKind::Int(IntTypeKind::Isize), TypeKind::VoidPtr],
+    [
+        TypeKind::VoidPtr,
+        TypeKind::Int(IntTypeKind::Usize),
+        TypeKind::VoidPtr,
+    ],
+    [
+        TypeKind::VoidPtr,
+        TypeKind::Int(IntTypeKind::Isize),
+        TypeKind::VoidPtr,
+    ],
 ];
 
 const BOOLEAN_COMPARISONS: &[[TypeKind; 3]] = &[
-    [TypeKind::Int(IntTypeKind::U8 ), TypeKind::Int(IntTypeKind::U8),  TypeKind::Bool],
-    [TypeKind::Int(IntTypeKind::U16), TypeKind::Int(IntTypeKind::U16), TypeKind::Bool],
-    [TypeKind::Int(IntTypeKind::U32), TypeKind::Int(IntTypeKind::U32), TypeKind::Bool],
-    [TypeKind::Int(IntTypeKind::U64), TypeKind::Int(IntTypeKind::U64), TypeKind::Bool],
-    [TypeKind::Int(IntTypeKind::I8 ), TypeKind::Int(IntTypeKind::I8),  TypeKind::Bool],
-    [TypeKind::Int(IntTypeKind::I16), TypeKind::Int(IntTypeKind::I16), TypeKind::Bool],
-    [TypeKind::Int(IntTypeKind::I32), TypeKind::Int(IntTypeKind::I32), TypeKind::Bool],
-    [TypeKind::Int(IntTypeKind::I64), TypeKind::Int(IntTypeKind::I64), TypeKind::Bool],
-    [TypeKind::Int(IntTypeKind::Isize), TypeKind::Int(IntTypeKind::Isize), TypeKind::Bool],
-    [TypeKind::Int(IntTypeKind::Usize), TypeKind::Int(IntTypeKind::Usize), TypeKind::Bool],
+    [
+        TypeKind::Int(IntTypeKind::U8),
+        TypeKind::Int(IntTypeKind::U8),
+        TypeKind::Bool,
+    ],
+    [
+        TypeKind::Int(IntTypeKind::U16),
+        TypeKind::Int(IntTypeKind::U16),
+        TypeKind::Bool,
+    ],
+    [
+        TypeKind::Int(IntTypeKind::U32),
+        TypeKind::Int(IntTypeKind::U32),
+        TypeKind::Bool,
+    ],
+    [
+        TypeKind::Int(IntTypeKind::U64),
+        TypeKind::Int(IntTypeKind::U64),
+        TypeKind::Bool,
+    ],
+    [
+        TypeKind::Int(IntTypeKind::I8),
+        TypeKind::Int(IntTypeKind::I8),
+        TypeKind::Bool,
+    ],
+    [
+        TypeKind::Int(IntTypeKind::I16),
+        TypeKind::Int(IntTypeKind::I16),
+        TypeKind::Bool,
+    ],
+    [
+        TypeKind::Int(IntTypeKind::I32),
+        TypeKind::Int(IntTypeKind::I32),
+        TypeKind::Bool,
+    ],
+    [
+        TypeKind::Int(IntTypeKind::I64),
+        TypeKind::Int(IntTypeKind::I64),
+        TypeKind::Bool,
+    ],
+    [
+        TypeKind::Int(IntTypeKind::Isize),
+        TypeKind::Int(IntTypeKind::Isize),
+        TypeKind::Bool,
+    ],
+    [
+        TypeKind::Int(IntTypeKind::Usize),
+        TypeKind::Int(IntTypeKind::Usize),
+        TypeKind::Bool,
+    ],
 ];
 
-const BOOLEAN_META_OPERATORS: &[[TypeKind; 3]] = &[
-    [TypeKind::Bool, TypeKind::Bool, TypeKind::Bool],
-];
+const BOOLEAN_META_OPERATORS: &[[TypeKind; 3]] =
+    &[[TypeKind::Bool, TypeKind::Bool, TypeKind::Bool]];
 
-fn check_operations<'a>(matching_operators: impl Iterator<Item = &'a [TypeKind; 3]> + Clone, givens: [Option<Type>; 3]) -> Result<[Option<Type>; 3], ()> {
-    let mut ops = matching_operators.filter(|a| a.iter().zip(&givens).map(|(a, b)| b.map_or(true, |b| a == b.kind())).all(|v| v == true));
+fn check_operations<'a>(
+    matching_operators: impl Iterator<Item = &'a [TypeKind; 3]> + Clone,
+    givens: [Option<Type>; 3],
+) -> Result<[Option<Type>; 3], ()> {
+    let mut ops = matching_operators.filter(|a| {
+        a.iter()
+            .zip(&givens)
+            .map(|(a, b)| b.map_or(true, |b| a == b.kind()))
+            .all(|v| v == true)
+    });
     let output = ops.next().ok_or(())?;
 
     // The answer has to be unanimous(all output have to give the specific type), for the inferrence to
@@ -188,35 +283,20 @@ impl BinaryOp {
 
         match self {
             BinaryOp::Add | BinaryOp::Sub => {
-                check_operations(
-                    INT_OPERATIONS.iter().chain(POINTER_OPERATIONS),
-                    givens,
-                )
+                check_operations(INT_OPERATIONS.iter().chain(POINTER_OPERATIONS), givens)
             }
-            BinaryOp::Mult | BinaryOp::Div => {
-                check_operations(
-                    INT_OPERATIONS.iter(),
-                    givens,
-                )
-            }
+            BinaryOp::Mult | BinaryOp::Div => check_operations(INT_OPERATIONS.iter(), givens),
             BinaryOp::BitAnd | BinaryOp::BitOr => {
-                check_operations(
-                    INT_OPERATIONS.iter().chain(BOOLEAN_META_OPERATORS),
-                    givens,
-                )
+                check_operations(INT_OPERATIONS.iter().chain(BOOLEAN_META_OPERATORS), givens)
             }
-            BinaryOp::Equals | BinaryOp::NotEquals => {
-                check_operations(
-                    BOOLEAN_COMPARISONS.iter().chain(BOOLEAN_META_OPERATORS),
-                    givens,
-                )
-            }
-            BinaryOp::LargerThanEquals | BinaryOp::LargerThan | BinaryOp::LessThanEquals | BinaryOp::LessThan => {
-                check_operations(
-                    BOOLEAN_COMPARISONS.iter(),
-                    givens,
-                )
-            }
+            BinaryOp::Equals | BinaryOp::NotEquals => check_operations(
+                BOOLEAN_COMPARISONS.iter().chain(BOOLEAN_META_OPERATORS),
+                givens,
+            ),
+            BinaryOp::LargerThanEquals
+            | BinaryOp::LargerThan
+            | BinaryOp::LessThanEquals
+            | BinaryOp::LessThan => check_operations(BOOLEAN_COMPARISONS.iter(), givens),
             _ => unimplemented!("Operator not finished yet"),
         }
     }
@@ -295,7 +375,7 @@ impl BinaryOp {
                 *output.cast() = *a.cast::<usize>() != *b.cast::<usize>();
             },
 
-            (BinaryOp::LessThan, TypeKind::Reference { pointee: i1, .. }, TypeKind::Reference { pointee: i2, .. }) if i1 == i2 => 
+            (BinaryOp::LessThan, TypeKind::Reference { pointee: i1, .. }, TypeKind::Reference { pointee: i2, .. }) if i1 == i2 =>
                 *output.cast() = *a.cast::<*const u8>() < *b.cast::<*const u8>(),
             (BinaryOp::LessThan, TypeKind::Int(i1), TypeKind::Int(i2)) if i1 == i2 => {
                 all_int_types!(i1, output, (a, b), <)

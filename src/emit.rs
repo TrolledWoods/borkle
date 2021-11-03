@@ -1,10 +1,10 @@
 use crate::ir::{Member, Registers, Routine, UserDefinedRoutine, Value};
 use crate::locals::LocalVariables;
 use crate::operators::{BinaryOp, UnaryOp};
+use crate::parser::ast::{Ast, NodeId, NodeKind};
 use crate::program::{FunctionId, Program};
 use crate::thread_pool::ThreadContext;
-use crate::parser::ast::{Ast, NodeId, NodeKind};
-use crate::types::{IntTypeKind, Type, TypeKind, PtrPermits};
+use crate::types::{IntTypeKind, PtrPermits, Type, TypeKind};
 
 mod context;
 use context::Context;
@@ -558,7 +558,11 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, node: NodeId) -> Value {
             );
             to
         }
-        NodeKind::Binary { op: BinaryOp::Assign, left: lvalue, right: rvalue } => {
+        NodeKind::Binary {
+            op: BinaryOp::Assign,
+            left: lvalue,
+            right: rvalue,
+        } => {
             let to = emit_lvalue(ctx, false, *lvalue);
             let from = emit_node(ctx, *rvalue);
 
@@ -586,18 +590,22 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, node: NodeId) -> Value {
             to
         }
         NodeKind::ArrayLiteral(elements) => {
-            let internal_type = if let TypeKind::Array(internal, _) = ctx.ast.get(node).type_().kind() {
-                *internal
-            } else {
-                unreachable!()
-            };
+            let internal_type =
+                if let TypeKind::Array(internal, _) = ctx.ast.get(node).type_().kind() {
+                    *internal
+                } else {
+                    unreachable!()
+                };
 
             // This is a bit weird but it has to be checked here. The reason is we generate a temporary pointer to the elements
             // of the array, and this internal pointer does not account for the array being zero sized; i.e., getting a non zero
             // sized pointer from a zero sized type.
             if !elements.is_empty() && internal_type.size() > 0 {
                 let to = ctx.registers.create(ctx.ast.get(node).type_());
-                let ref_type = Type::new(TypeKind::Reference { pointee: internal_type, permits: PtrPermits::READ_WRITE });
+                let ref_type = Type::new(TypeKind::Reference {
+                    pointee: internal_type,
+                    permits: PtrPermits::READ_WRITE,
+                });
                 let reference = ctx.registers.create(ref_type);
                 ctx.emit_pointer_to_member_of_value(reference, to, Member::default());
                 for (i, element) in elements.iter().enumerate() {
@@ -643,7 +651,11 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, node: NodeId) -> Value {
             ctx.emit_unary(*op, to, from);
             to
         }
-        NodeKind::Declare { local: id, value, dummy_local_node: _ } => {
+        NodeKind::Declare {
+            local: id,
+            value,
+            dummy_local_node: _,
+        } => {
             let from = emit_node(ctx, *value);
             let to = ctx.registers.create(ctx.ast.get(*value).type_());
             ctx.locals.get_mut(*id).value = Some(to);
@@ -739,10 +751,7 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, node: NodeId) -> Value {
             }
             to
         }
-        NodeKind::TypeBound {
-            value,
-            bound: _,
-        } | NodeKind::Parenthesis(value) => {
+        NodeKind::TypeBound { value, bound: _ } | NodeKind::Parenthesis(value) => {
             emit_node(ctx, *value)
         }
         _ => unreachable!("This node should not reach emission"),
@@ -758,7 +767,9 @@ fn emit_lvalue<'a>(
         NodeKind::Member { name, of } => {
             let parent_value = emit_lvalue(ctx, can_reference_temporaries, *of);
 
-            let member = ctx.ast.get(*of)
+            let member = ctx
+                .ast
+                .get(*of)
                 .type_()
                 .member(*name)
                 .expect("This should have already been made sure to exist in the typer");

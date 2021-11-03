@@ -1,12 +1,12 @@
 use crate::dependencies::{DepKind, DependencyList, MemberDep};
 use crate::errors::ErrorCtx;
 use crate::literal::Literal;
-use crate::locals::{LocalVariables, Local};
+use crate::locals::{Local, LocalVariables};
 use crate::location::Location;
-use crate::operators::{BinaryOp, UnaryOp, Operator};
+use crate::operators::{BinaryOp, Operator, UnaryOp};
 use crate::program::{Program, ScopeId, Task};
-use crate::types::{Type, TypeKind, PtrPermits};
-pub use ast::{Node, NodeKind, NodeId, AstBuilder};
+use crate::types::{PtrPermits, Type, TypeKind};
+pub use ast::{AstBuilder, Node, NodeId, NodeKind};
 use context::{DataContext, ImperativeContext};
 use lexer::{Bracket, Keyword, Token, TokenKind};
 use std::path::{Path, PathBuf};
@@ -46,7 +46,8 @@ pub fn process_string(
                 let mut buffer = AstBuilder::new();
                 let mut dependencies = DependencyList::new();
                 let mut locals = LocalVariables::new();
-                let mut imperative = ImperativeContext::new(&mut dependencies, &mut locals, false, &[]);
+                let mut imperative =
+                    ImperativeContext::new(&mut dependencies, &mut locals, false, &[]);
                 imperative.evaluate_at_typing = true;
                 let node = named_type(&mut context, &mut imperative, &mut buffer, loc, name)?;
 
@@ -63,9 +64,10 @@ pub fn process_string(
                     name,
                 )?;
 
-                context
-                    .program
-                    .queue_task(dependencies, Task::TypeMember(id, crate::typer::YieldData::new(locals, tree)));
+                context.program.queue_task(
+                    dependencies,
+                    Task::TypeMember(id, crate::typer::YieldData::new(locals, tree)),
+                );
             }
             TokenKind::Keyword(Keyword::Library) => {
                 let name = context.tokens.expect_next(context.errors)?;
@@ -89,7 +91,8 @@ pub fn process_string(
                 let mut buffer = AstBuilder::new();
                 let mut dependencies = DependencyList::new();
                 let mut locals = LocalVariables::new();
-                let mut imperative = ImperativeContext::new(&mut dependencies, &mut locals, false, &[]);
+                let mut imperative =
+                    ImperativeContext::new(&mut dependencies, &mut locals, false, &[]);
                 let expr = expression(&mut context, &mut imperative, &mut buffer)?;
                 let tree = buffer.set_root(expr);
 
@@ -103,9 +106,10 @@ pub fn process_string(
                     context.scope,
                     "__entry_point".into(),
                 )?;
-                context
-                    .program
-                    .queue_task(dependencies, Task::TypeMember(id, crate::typer::YieldData::new(locals, tree)));
+                context.program.queue_task(
+                    dependencies,
+                    Task::TypeMember(id, crate::typer::YieldData::new(locals, tree)),
+                );
 
                 let mut entry_point = context.program.entry_point.lock();
                 if entry_point.is_some() {
@@ -161,8 +165,12 @@ fn constant(global: &mut DataContext<'_>) -> Result<(), ()> {
 
         let mut dependencies = DependencyList::new();
         let mut locals = LocalVariables::new();
-        let mut imperative =
-            ImperativeContext::new(&mut dependencies, &mut locals, false, &polymorphic_arguments);
+        let mut imperative = ImperativeContext::new(
+            &mut dependencies,
+            &mut locals,
+            false,
+            &polymorphic_arguments,
+        );
         let expr = expression(global, &mut imperative, &mut buffer)?;
         let tree = buffer.set_root(expr);
 
@@ -170,9 +178,10 @@ fn constant(global: &mut DataContext<'_>) -> Result<(), ()> {
             let id = global
                 .program
                 .define_member(global.errors, token.loc, global.scope, name)?;
-            global
-                .program
-                .queue_task(dependencies, Task::TypeMember(id, crate::typer::YieldData::new(locals, tree)));
+            global.program.queue_task(
+                dependencies,
+                Task::TypeMember(id, crate::typer::YieldData::new(locals, tree)),
+            );
         } else {
             let id = global.program.define_polymorphic_member(
                 global.errors,
@@ -218,9 +227,12 @@ fn expression_rec(
 ) -> Result<NodeId, ()> {
     let mut expr = value(global, imperative, buffer)?;
 
-    while let Some((loc, op)) = global.tokens.try_consume_operator_with_precedence(precedence) {
+    while let Some((loc, op)) = global
+        .tokens
+        .try_consume_operator_with_precedence(precedence)
+    {
         // @Improvement: Reimplement `has_to_be_alone`
-    
+
         if op == BinaryOp::TypeBound {
             let right = type_(global, imperative, buffer)?;
             expr = buffer.add(Node::new(
@@ -351,10 +363,7 @@ fn type_(
         TokenKind::Keyword(Keyword::Underscore) => {
             global.tokens.next();
 
-            Ok(buffer.add(Node::new(
-                loc,
-                NodeKind::ImplicitType,
-            )))
+            Ok(buffer.add(Node::new(loc, NodeKind::ImplicitType)))
         }
         TokenKind::Open(Bracket::Curly) => {
             global.tokens.next();
@@ -487,10 +496,7 @@ fn type_(
                     )))
                 } else {
                     let inner = type_(global, imperative, buffer)?;
-                    Ok(buffer.add(Node::new(
-                        loc,
-                        NodeKind::ReferenceType(inner, permits),
-                    )))
+                    Ok(buffer.add(Node::new(loc, NodeKind::ReferenceType(inner, permits))))
                 }
             } else {
                 global.error(
@@ -511,19 +517,10 @@ fn value(
     if let Some((loc, op)) = global.tokens.try_consume_operator() {
         if op == UnaryOp::Reference {
             let value = value(global, imperative, buffer)?;
-            Ok(buffer.add(Node::new(
-                loc,
-                NodeKind::Reference(value),
-            )))
+            Ok(buffer.add(Node::new(loc, NodeKind::Reference(value))))
         } else {
             let value = value(global, imperative, buffer)?;
-            Ok(buffer.add(Node::new(
-                loc,
-                NodeKind::Unary {
-                    operand: value,
-                    op,
-                },
-            )))
+            Ok(buffer.add(Node::new(loc, NodeKind::Unary { operand: value, op })))
         }
     } else {
         value_without_unaries(global, imperative, buffer)
@@ -608,7 +605,10 @@ fn value_without_unaries(
                 }
             };
 
-            buffer.add(Node::new(token.loc, NodeKind::BuiltinFunction(builtin_kind)))
+            buffer.add(Node::new(
+                token.loc,
+                NodeKind::BuiltinFunction(builtin_kind),
+            ))
         }
         TokenKind::Keyword(Keyword::Const) => {
             // @TODO: Prevent cross-referencing of variable values here!!!!!!!!!!!
@@ -620,19 +620,9 @@ fn value_without_unaries(
             imperative.in_const_expression = old_in_const_expr;
 
             if imperative.evaluate_at_typing {
-                buffer.add(Node::new(
-                    token.loc,
-                    NodeKind::ConstAtTyping {
-                        inner,
-                    },
-                ))
+                buffer.add(Node::new(token.loc, NodeKind::ConstAtTyping { inner }))
             } else {
-                buffer.add(Node::new(
-                    token.loc,
-                    NodeKind::ConstAtEvaluation {
-                        inner,
-                    },
-                ))
+                buffer.add(Node::new(token.loc, NodeKind::ConstAtEvaluation { inner }))
             }
         }
         TokenKind::Keyword(Keyword::Type) => {
@@ -802,12 +792,7 @@ fn value_without_unaries(
         }
         TokenKind::Keyword(Keyword::BitCast) => {
             let value = value(global, imperative, buffer)?;
-            buffer.add(Node::new(
-                token.loc,
-                NodeKind::BitCast {
-                    value,
-                },
-            ))
+            buffer.add(Node::new(token.loc, NodeKind::BitCast { value }))
         }
         TokenKind::Open(Bracket::Square) => {
             let mut args = Vec::new();
@@ -867,12 +852,7 @@ fn value_without_unaries(
                         global.tokens.next();
 
                         let deferring = expression(global, imperative, buffer)?;
-                        let defer = buffer.add(Node::new(
-                            loc,
-                            NodeKind::Defer {
-                                deferring,
-                            },
-                        ));
+                        let defer = buffer.add(Node::new(loc, NodeKind::Defer { deferring }));
                         contents.push(defer);
 
                         imperative.defer_depth += 1;
@@ -895,7 +875,8 @@ fn value_without_unaries(
                             let value = expression(global, imperative, buffer)?;
 
                             let id = imperative.insert_local(Local::new(token.loc, name));
-                            let dummy_local_node = buffer.add(Node::new(token.loc, NodeKind::Local(id)));
+                            let dummy_local_node =
+                                buffer.add(Node::new(token.loc, NodeKind::Local(id)));
                             imperative.locals.get_mut(id).uses.push(dummy_local_node);
 
                             let declaration = buffer.add(Node::new(
@@ -952,19 +933,16 @@ fn value_without_unaries(
                 global.tokens.next();
 
                 let (_, name) = global.tokens.expect_identifier(global.errors)?;
-                value = buffer.add(Node::new(
-                    loc,
-                    NodeKind::Member {
-                        of: value,
-                        name,
-                    },
-                ));
+                value = buffer.add(Node::new(loc, NodeKind::Member { of: value, name }));
             }
             TokenKind::Open(Bracket::Round) => {
                 global.tokens.next();
 
                 let (args, named_args) = function_arguments(global, imperative, buffer)?;
-                assert!(named_args.is_empty(), "Named arguments temporarily unsupported");
+                assert!(
+                    named_args.is_empty(),
+                    "Named arguments temporarily unsupported"
+                );
 
                 value = buffer.add(Node::new(
                     loc,
@@ -1015,16 +993,13 @@ fn function_type(
     let returns = if global.tokens.try_consume_operator_string("->").is_some() {
         type_(global, imperative, buffer)?
     } else {
-        buffer.add(Node::new(loc, NodeKind::LiteralType(TypeKind::Empty.into())))
+        buffer.add(Node::new(
+            loc,
+            NodeKind::LiteralType(TypeKind::Empty.into()),
+        ))
     };
 
-    Ok(buffer.add(Node::new(
-        loc,
-        NodeKind::FunctionType {
-            args,
-            returns,
-        },
-    )))
+    Ok(buffer.add(Node::new(loc, NodeKind::FunctionType { args, returns })))
 }
 
 fn function_arguments(
@@ -1228,19 +1203,26 @@ fn maybe_parse_polymorphic_arguments(
     Ok(args)
 }
 
-fn parse_pointer_permits(
-    global: &mut DataContext<'_>
-) -> Option<PtrPermits> {
+fn parse_pointer_permits(global: &mut DataContext<'_>) -> Option<PtrPermits> {
     match global.tokens.peek() {
-        Some(Token { kind: TokenKind::Keyword(Keyword::Write), .. }) => {
+        Some(Token {
+            kind: TokenKind::Keyword(Keyword::Write),
+            ..
+        }) => {
             global.tokens.next();
             Some(PtrPermits::WRITE)
         }
-        Some(Token { kind: TokenKind::Keyword(Keyword::Read), .. }) => {
+        Some(Token {
+            kind: TokenKind::Keyword(Keyword::Read),
+            ..
+        }) => {
             global.tokens.next();
             Some(PtrPermits::READ)
         }
-        Some(Token { kind: TokenKind::Keyword(Keyword::ReadWrite), .. }) => {
+        Some(Token {
+            kind: TokenKind::Keyword(Keyword::ReadWrite),
+            ..
+        }) => {
             global.tokens.next();
             Some(PtrPermits::READ_WRITE)
         }

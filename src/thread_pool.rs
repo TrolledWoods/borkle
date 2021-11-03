@@ -162,7 +162,7 @@ fn worker<'a>(alloc: &'a mut Bump, program: &'a Program) -> (ThreadContext<'a>, 
                 Task::Parse(meta_data, file) => {
                     profile::profile!("Parse");
                     parse_file(&mut errors, program, &file, meta_data);
-                },
+                }
                 Task::TypeMember(member_id, yield_info) => {
                     // If it's a polymorphic thing anything could have happened, honestly
                     if !program.member_is_typed(member_id) {
@@ -180,7 +180,9 @@ fn worker<'a>(alloc: &'a mut Bump, program: &'a Program) -> (ThreadContext<'a>, 
                                     NodeKind::Constant(_, Some(meta_data)) => {
                                         (&**meta_data).clone()
                                     }
-                                    NodeKind::ResolvedGlobal(_, meta_data) => (&**meta_data).clone(),
+                                    NodeKind::ResolvedGlobal(_, meta_data) => {
+                                        (&**meta_data).clone()
+                                    }
                                     _ => MemberMetaData::None,
                                 };
                                 let type_ = ast.get(ast.root).type_();
@@ -202,7 +204,10 @@ fn worker<'a>(alloc: &'a mut Bump, program: &'a Program) -> (ThreadContext<'a>, 
                                 }
                             }
                             Ok(Err((dependencies, yield_info))) => {
-                                program.queue_task(dependencies, Task::TypeMember(member_id, yield_info));
+                                program.queue_task(
+                                    dependencies,
+                                    Task::TypeMember(member_id, yield_info),
+                                );
                             }
                             Err(()) => {
                                 // TODO: Here we want to poison the Value parameter of the thing this
@@ -235,10 +240,11 @@ fn worker<'a>(alloc: &'a mut Bump, program: &'a Program) -> (ThreadContext<'a>, 
                                 // the type are also callable. FIXME: This doesn't work for function
                                 // pointers behind other pointers yet!
                                 let mut dependencies = DependencyList::new();
-                                for function_id in
-                                    unsafe { ast.get(ast.root).type_().get_function_ids(result.as_ptr()) }
-                                {
-                                    dependencies.add(ast.get(ast.root).loc, DepKind::Callable(function_id));
+                                for function_id in unsafe {
+                                    ast.get(ast.root).type_().get_function_ids(result.as_ptr())
+                                } {
+                                    dependencies
+                                        .add(ast.get(ast.root).loc, DepKind::Callable(function_id));
                                 }
 
                                 program
@@ -257,23 +263,30 @@ fn worker<'a>(alloc: &'a mut Bump, program: &'a Program) -> (ThreadContext<'a>, 
                                 // the type are also callable. FIXME: This doesn't work for function
                                 // pointers behind other pointers yet!
                                 let mut dependencies = DependencyList::new();
-                                for function_id in
-                                    unsafe { ast.get(ast.root).type_().get_function_ids(result.as_ptr()) }
-                                {
-                                    dependencies.add(ast.get(ast.root).loc, DepKind::Callable(function_id));
+                                for function_id in unsafe {
+                                    ast.get(ast.root).type_().get_function_ids(result.as_ptr())
+                                } {
+                                    dependencies
+                                        .add(ast.get(ast.root).loc, DepKind::Callable(function_id));
                                 }
 
                                 program
                                     .queue_task(dependencies, Task::FlagMemberCallable(member_id));
                             }
                             _ => {
-                                let (calling, routine) =
-                                    crate::emit::emit(&mut thread_context, program, locals, &ast, ast.root);
+                                let (calling, routine) = crate::emit::emit(
+                                    &mut thread_context,
+                                    program,
+                                    locals,
+                                    &ast,
+                                    ast.root,
+                                );
 
                                 let mut dependencies = DependencyList::new();
                                 for call in calling {
                                     // FIXME: This should include the location of the call
-                                    dependencies.add(ast.get(ast.root).loc, DepKind::Callable(call));
+                                    dependencies
+                                        .add(ast.get(ast.root).loc, DepKind::Callable(call));
                                 }
                                 program.queue_task(
                                     dependencies,
@@ -335,7 +348,13 @@ fn worker<'a>(alloc: &'a mut Bump, program: &'a Program) -> (ThreadContext<'a>, 
                         Ok(Err((dependencies, yield_data))) => {
                             program.queue_task(
                                 dependencies,
-                                Task::TypeFunction(function_id, yield_data, return_type, type_, poly_args),
+                                Task::TypeFunction(
+                                    function_id,
+                                    yield_data,
+                                    return_type,
+                                    type_,
+                                    poly_args,
+                                ),
                             );
                         }
                         Err(()) => {
