@@ -317,7 +317,7 @@ impl Access {
 fn combine_values(
     values: &mut Vec<MaybeMovedValue>,
     constraints: &mut Vec<Constraint>,
-    constraint_map: &mut HashMap<ValueId, Vec<ConstraintId>>,
+    available_constraints: &mut HashMap<ValueId, Vec<ConstraintId>>,
     from_id: ValueId,
     to_id: ValueId,
 ) {
@@ -327,7 +327,7 @@ fn combine_values(
     // @TODO: Combine the reasons for the values e.t.c.
 
     // Any constraints with the value should have the values id changed.
-    if let Some(affected_constraints) = constraint_map.get(&from_id) {
+    if let Some(affected_constraints) = available_constraints.get(&from_id) {
         for &affected_constraint_id in affected_constraints {
             let affected_constraint = &mut constraints[affected_constraint_id];
             for value in affected_constraint.values_mut() {
@@ -339,8 +339,7 @@ fn combine_values(
             affected_constraint.fix_order();
         }
     }
-}
-*/
+}*/
 
 pub enum ValueKind {
     Type(Option<(TypeKind, Option<Box<[ValueId]>>)>),
@@ -602,6 +601,21 @@ fn insert_constraint(
 
     Some(id)
 }
+
+/*
+/// Inserts a bunch of sub-equality constraints on all the fields of a type.
+fn insert_sub_equality_constraints(
+    constraints: &mut Vec<Constraint>,
+    available_constraints: &mut HashMap<ValueId, Vec<ConstraintId>>,
+    queued_constraints: &mut Vec<ConstraintId>,
+    type_kind: &TypeKind,
+    a_fields: &[ValueId],
+    b_fields: &[ValueId],
+    variance: Variance,
+) {
+    debug_assert_eq(a_fields.len(), b_fields.len());
+
+}*/
 
 fn insert_active_constraint(
     constraints: &mut Vec<Constraint>,
@@ -1018,6 +1032,38 @@ impl TypeSystem {
                         return;
                     }
                     (ValueKind::Type(a), ValueKind::Type(b)) => {
+                        /*if variance == Variance::Invariant {
+                            match (a, b) {
+                                (
+                                    Some((a_head, Some(a_fields))),
+                                    Some((b_head, Some(b_fields))),
+                                ) => {
+                                    if *a_head != *b_head || a_fields.len() != b_fields.len() {
+                                        self.errors
+                                            .push(Error::new(a_id, b_id, ErrorKind::IncompatibleTypes));
+                                        return;
+                                    }
+
+                                    for (&a_field, &b_field) in a_fields.iter().zip(&*b_fields) {
+                                        insert_active_constraint(
+                                            &mut self.constraints,
+                                            &mut self.available_constraints,
+                                            &mut self.queued_constraints,
+                                            Constraint
+                                    }
+
+                                    combine_values(
+                                        &mut self.values,
+                                        &mut self.constraints,
+                                        &mut self.available_constraints,
+                                        a_id,
+                                        b_id,
+                                    );
+                                }
+                            }
+                        } else {
+                        }*/
+
                         let ((_, a_fields), (_, b_fields)) = match (a, b) {
                             (None, None) => return,
                             (Some(a), b @ None) => {
@@ -1099,15 +1145,19 @@ impl TypeSystem {
                             let &ValueKind::Access(a_access) = &get_value(&self.values, a_access_id).kind else { panic!() };
                             let &ValueKind::Access(b_access) = &get_value(&self.values, b_access_id).kind else { panic!() };
 
+                            let guaranteed_variance = biggest_guaranteed_variance_of_operation(a_access, b_access, variance);
                             let variance_constraint = self
                                 .variance_updates
                                 .entry((a_access_id, b_access_id))
                                 .or_insert_with(|| VarianceConstraint {
                                     variance,
-                                    last_variance_applied: biggest_guaranteed_variance_of_operation(a_access, b_access, variance),
+                                    last_variance_applied: guaranteed_variance,
                                     constraints: Vec::new(),
                                 });
-                            let inner_constraint = Constraint::equal(a_inner, b_inner, variance_constraint.last_variance_applied.apply_to(variance));
+                            // We use guaranteed_variance instead of last_variance_applied here, since if they are different
+                            // it just means the VarianceConstraint has more work to do in the future to catch up, so we may as well
+                            // do that work right now, and save some work in the future.
+                            let inner_constraint = Constraint::equal(a_inner, b_inner, guaranteed_variance.apply_to(variance));
                             if let Some(inner_constraint_id) = insert_constraint(&mut self.constraints, &mut self.available_constraints, inner_constraint) {
                                 if !variance_constraint
                                     .constraints
@@ -1160,6 +1210,7 @@ impl TypeSystem {
                     }
 
                     // @Cleanup: Clean up the whole value system.
+                    // Shouldn't do it until I can test it though, right?
                     // Nothing is known, keep the constraint
                     (ValueKind::Value(None), ValueKind::Value(None))
                     | (ValueKind::Value(Some((_, None))), ValueKind::Value(Some((_, None)))) => {
@@ -1209,7 +1260,6 @@ impl TypeSystem {
                         if let Some(variance_constraint) =
                             self.variance_updates.get_mut(&(a_id, b_id))
                         {
-                            variance_constraint.variance.combine(variance);
                             run_variance_constraint(
                                 variance_constraint,
                                 a_id,
