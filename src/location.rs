@@ -1,6 +1,6 @@
 use ustr::Ustr;
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Location {
     pub file: Ustr,
     pub line: u32,

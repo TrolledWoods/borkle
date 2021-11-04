@@ -1,6 +1,8 @@
 use crate::types::{self, IntTypeKind};
+use crate::location::Location;
 use std::collections::HashMap;
 use std::iter::repeat_with;
+use std::mem;
 use ustr::Ustr;
 
 #[derive(Clone, Copy)]
@@ -308,7 +310,26 @@ impl Access {
     }
 }
 
+/*fn make_value_into_alias(
+    values: &mut Vec<Value>,
+    constraints: &mut Vec<Constraint>,
+    constraint_map: &mut HashMap<ValueId, Vec<ConstraintId>>,
+    from_id: ValueId,
+    to_id: ValueId,
+) {
+    let from = &mut values[from_id];
+    let old_kind = mem::replace(&mut from.kind, ValueKind::Alias(to_id));
+
+    // @TODO: Combine the reasons for the values e.t.c.
+
+    // Any constraints with the value should have the values id changed.
+    
+}*/
+
 pub enum ValueKind {
+    // /// This value was deemed redundant, actually points to this other value.
+    // Alias(ValueId),
+
     Type(Option<(TypeKind, Option<Box<[ValueId]>>)>),
 
     /// For now values can only be usize, but you could theoretically have any value.
@@ -328,10 +349,58 @@ impl ValueKind {
     }
 }
 
+/// This describes the reason why a value is the way it is.
+/// For example, why is this a reference? Why is this a function? e.t.c.
+/// This means we can give reasonable reporting when errors occur.
+#[derive(Clone, Copy, PartialEq, Eq)]
+struct ValueReason {
+    pub location: Location,
+    pub reason: &'static str,
+}
+
+#[derive(Default, Clone)]
+struct ValueReasons {
+    buffer: [Option<ValueReason>; 4],
+    /// A flag for if there were more reasons that we couldn't fit into the structure.
+    omitted_reasons: bool,
+}
+
+impl ValueReasons {
+    fn insert(&mut self, value: ValueReason) {
+        // @Robustness: We want a strict ordering so that errors are consistant, but temporarily this is fine.
+        let mut none_index = None;
+        for (i, v) in self.buffer.iter().enumerate() {
+            match v {
+                Some(v) if *v == value => return,
+                Some(_) => {},
+                None => {
+                    none_index.get_or_insert(i);
+                }
+            }
+        }
+
+        if let Some(index) = none_index {
+            self.buffer[index] = Some(value);
+        } else {
+            self.omitted_reasons = true;
+        }
+    }
+
+    fn take_reasons_from(&mut self, other: ValueReasons) {
+        for value in other.buffer.into_iter().filter_map(|v| v) {
+            self.insert(value);
+        }
+    }
+}
+
 pub type ValueId = usize;
 
 struct Value {
     kind: ValueKind,
+    // reaons: ValueReasons,
+    // /// If a value isn't known, it should generate an error, but if it's possible that it's not known because
+    // /// an error occured, we don't want to generate an error, which is why this flag exists.
+    // related_to_error: bool,
 }
 
 impl From<ValueKind> for Value {
@@ -346,56 +415,58 @@ type ConstraintId = usize;
 enum Constraint {
     /// Equal is almost equality, unless the is_variant field is set, then a will be variant to b.
     Equal {
-        a: ValueId,
-        b: ValueId,
+        values: [ValueId; 2],
         variance: Variance,
     },
     EqualsField {
-        a: (ValueId, usize),
-        b: ValueId,
+        values: [ValueId; 2],
+        index: usize,
         variance: Variance,
     },
     EqualNamedField {
-        a: (ValueId, Ustr),
-        b: ValueId,
+        values: [ValueId; 2],
+        index: Ustr,
         variance: Variance,
     },
 }
 
 impl Constraint {
-    fn apply_variance(self, from: Variance) -> Self {
+    fn apply_variance(mut self, from: Variance) -> Self {
+        if let Some(variance) = self.variance_mut() {
+            *variance = from.apply_to(*variance);
+        }
+
+        self
+    }
+
+    fn values(&self) -> &[ValueId] {
         match self {
-            Self::Equal { a, b, variance } => Self::Equal {
-                a,
-                b,
-                variance: from.apply_to(variance),
-            },
-            Self::EqualsField { a, b, variance } => Self::EqualsField {
-                a,
-                b,
-                variance: from.apply_to(variance),
-            },
-            Self::EqualNamedField { a, b, variance } => Self::EqualNamedField {
-                a,
-                b,
-                variance: from.apply_to(variance),
-            },
+            Self::Equal { values, .. } | Self::EqualsField { values, .. } | Self::EqualNamedField { values, .. } => {
+                &*values
+            }
         }
     }
 
-    fn variance_mut(&mut self) -> &mut Variance {
+    fn values_mut(&mut self) -> &mut [ValueId] {
         match self {
-            Self::Equal { variance, .. } | Self::EqualsField { variance, .. } | Self::EqualNamedField { variance, .. } => variance,
+            Self::Equal { values, .. } | Self::EqualsField { values, .. } | Self::EqualNamedField { values, .. } => {
+                &mut *values
+            }
+        }
+    }
+
+    fn variance_mut(&mut self) -> Option<&mut Variance> {
+        match self {
+            Self::Equal { variance, .. } | Self::EqualsField { variance, .. } | Self::EqualNamedField { variance, .. } => Some(variance),
         }
     }
 
     fn equal(a: ValueId, b: ValueId, variance: Variance) -> Self {
         if b > a {
-            Self::Equal { a, b, variance }
+            Self::Equal { values: [a, b], variance }
         } else {
             Self::Equal {
-                a: b,
-                b: a,
+                values: [b, a],
                 variance: variance.invert(),
             }
         }
@@ -447,7 +518,7 @@ fn insert_constraint(
     constraints.push(constraint);
 
     match constraint {
-        Constraint::Equal { a, b, .. } => {
+        Constraint::Equal { values: [a, b], .. } => {
             if a == b {
                 return None;
             };
@@ -458,8 +529,8 @@ fn insert_constraint(
             let vec = available_constraints.entry(b).or_insert_with(Vec::new);
             vec.push(id);
         }
-        Constraint::EqualsField { a: (a, _), .. }
-        | Constraint::EqualNamedField { a: (a, _), .. } => {
+        Constraint::EqualsField { values: [a, _], .. }
+        | Constraint::EqualNamedField { values: [a, _], .. } => {
             let vec = available_constraints.entry(a).or_insert_with(Vec::new);
             vec.push(id);
         }
@@ -484,7 +555,7 @@ fn insert_active_constraint(
     constraints.push(constraint);
 
     match constraint {
-        Constraint::Equal { a, b, .. } => {
+        Constraint::Equal { values: [a, b], .. } => {
             if a == b {
                 return;
             };
@@ -495,8 +566,8 @@ fn insert_active_constraint(
             let vec = available_constraints.entry(b).or_insert_with(Vec::new);
             vec.push(id);
         }
-        Constraint::EqualsField { a: (a, _), .. }
-        | Constraint::EqualNamedField { a: (a, _), .. } => {
+        Constraint::EqualsField { values: [a, _], .. }
+        | Constraint::EqualNamedField { values: [a, _], .. } => {
             let vec = available_constraints.entry(a).or_insert_with(Vec::new);
             vec.push(id);
         }
@@ -557,8 +628,8 @@ impl TypeSystem {
             &mut self.available_constraints,
             &mut self.queued_constraints,
             Constraint::EqualsField {
-                a: (a, field_index),
-                b,
+                values: [a, b],
+                index: field_index,
                 variance,
             },
         );
@@ -576,8 +647,8 @@ impl TypeSystem {
             &mut self.available_constraints,
             &mut self.queued_constraints,
             Constraint::EqualNamedField {
-                a: (a, field_name),
-                b,
+                values: [a, b],
+                index: field_name,
                 variance,
             },
         );
@@ -686,8 +757,7 @@ impl TypeSystem {
     fn constraint_to_string(&self, constraint: &Constraint) -> String {
         match *constraint {
             Constraint::Equal {
-                a: a_id,
-                b: b_id,
+                values: [a_id, b_id],
                 variance,
             } => {
                 format!(
@@ -700,8 +770,8 @@ impl TypeSystem {
                 )
             }
             Constraint::EqualsField {
-                a: (a_id, field_index),
-                b: b_id,
+                values: [a_id, b_id],
+                index: field_index,
                 variance,
             } => {
                 format!(
@@ -715,8 +785,8 @@ impl TypeSystem {
                 )
             }
             Constraint::EqualNamedField {
-                a: (a_id, field_name),
-                b: b_id,
+                values: [a_id, b_id],
+                index: field_name,
                 variance,
             } => {
                 format!(
@@ -766,30 +836,12 @@ impl TypeSystem {
     fn apply_constraint(&mut self, constraint_id: ConstraintId) {
         let constraint = self.constraints[constraint_id];
 
-        let mut a_progress = false;
-        let mut b_progress = false;
-
-        // @HACK: Later, we want arbitrary child-count constraints, and then this won't work.
-        let (a_id, b_id) = match constraint {
-            Constraint::Equal {
-                a: a_id, b: b_id, ..
-            } => (a_id, b_id),
-            Constraint::EqualsField {
-                a: (a_id, _),
-                b: b_id,
-                ..
-            } => (a_id, b_id),
-            Constraint::EqualNamedField {
-                a: (a_id, _),
-                b: b_id,
-                ..
-            } => (a_id, b_id),
-        };
+        let mut progress = [false; 8];
 
         match constraint {
             Constraint::EqualNamedField {
-                a: (a_id, field_name),
-                b: b_id,
+                values: [a_id, b_id],
+                index: field_name,
                 variance,
             } => {
                 let a = &self.values[a_id].kind;
@@ -804,8 +856,8 @@ impl TypeSystem {
                                 &mut self.available_constraints,
                                 &mut self.queued_constraints,
                                 Constraint::EqualsField {
-                                    a: (a_id, pos),
-                                    b: b_id,
+                                    values: [a_id, b_id],
+                                    index: pos,
                                     variance,
                                 },
                             );
@@ -837,8 +889,8 @@ impl TypeSystem {
                 }
             }
             Constraint::EqualsField {
-                a: (a_id, field_index),
-                b: b_id,
+                values: [a_id, b_id],
+                index: field_index,
                 variance,
             } => {
                 let a = &self.values[a_id].kind;
@@ -874,8 +926,7 @@ impl TypeSystem {
                 }
             }
             Constraint::Equal {
-                a: a_id,
-                b: b_id,
+                values: [a_id, b_id],
                 variance,
             } => {
                 if a_id == b_id {
@@ -900,18 +951,19 @@ impl TypeSystem {
                         let ((_, a_fields), (_, b_fields)) = match (a, b) {
                             (None, None) => return,
                             (Some(a), b @ None) => {
-                                b_progress = true;
+                                progress[1] = true;
                                 let b = b.insert((a.0.clone(), None));
                                 (a, b)
                             }
                             (a @ None, Some(b)) => {
-                                a_progress = true;
+                                progress[0] = true;
                                 (a.insert((b.0.clone(), None)), b)
                             }
                             (Some(a), Some(b)) => (a, b),
                         };
 
-                        match (a_fields, &mut a_progress, b_fields, &mut b_progress) {
+                        let [a_progress, b_progress, ..] = &mut progress;
+                        match (a_fields, a_progress, b_fields, b_progress) {
                             (None, _, None, _) => return,
                             (Some(known), _, unknown @ None, unknown_progress)
                             | (unknown @ None, unknown_progress, Some(known), _) => {
@@ -1041,8 +1093,8 @@ impl TypeSystem {
                     }
                     (Value(Some(known)), Value(unknown @ None))
                     | (Value(unknown @ None), Value(Some(known))) => {
-                        a_progress = true;
-                        b_progress = true;
+                        progress[0] = true;
+                        progress[1] = true;
                         *unknown = Some(*known);
                     }
                     (Value(Some((type_a, unknown @ None))), Value(Some((type_b, Some(known)))))
@@ -1054,8 +1106,8 @@ impl TypeSystem {
                         }
 
                         *unknown = Some(*known);
-                        a_progress = true;
-                        b_progress = true;
+                        progress[0] = true;
+                        progress[1] = true;
                     }
                     (
                         Value(Some((type_a, Some(value_a)))),
@@ -1069,16 +1121,16 @@ impl TypeSystem {
                             self.errors.push(Error::new(a_id, b_id, IncompatibleValues));
                         }
 
-                        a_progress = true;
-                        b_progress = true;
+                        progress[0] = true;
+                        progress[1] = true;
                     }
                     (Access(a), Access(b)) => {
                         let old_a = *a;
                         let old_b = *b;
                         a.combine_with(b, variance);
 
-                        a_progress = old_a != *a;
-                        b_progress = old_b != *b;
+                        progress[0] = old_a != *a;
+                        progress[1] = old_b != *b;
 
                         if let Some(variance_constraint) =
                             self.variance_updates.get_mut(&(a_id, b_id))
@@ -1103,26 +1155,17 @@ impl TypeSystem {
             }
         }
 
-        if a_progress {
-            self.queued_constraints.extend(
-                self.available_constraints
-                    .get(&a_id)
-                    .iter()
-                    .flat_map(|v| v.iter())
-                    .copied()
-                    .filter(|v| v != &constraint_id),
-            );
-        }
-
-        if b_progress {
-            self.queued_constraints.extend(
-                self.available_constraints
-                    .get(&b_id)
-                    .iter()
-                    .flat_map(|v| v.iter())
-                    .copied()
-                    .filter(|v| v != &constraint_id),
-            );
+        for (value_id, progress) in constraint.values().iter().zip(progress) {
+            if progress {
+                self.queued_constraints.extend(
+                    self.available_constraints
+                        .get(value_id)
+                        .iter()
+                        .flat_map(|v| v.iter())
+                        .copied()
+                        .filter(|v| v != &constraint_id),
+                );
+            }
         }
     }
 
@@ -1230,11 +1273,15 @@ fn run_variance_constraint(
 
     if new_variance != constraint.last_variance_applied {
         for &(constraint, variance) in &constraint.constraints {
-            let variance_mut = constraints[constraint].variance_mut();
-            let old = *variance_mut;
-            variance_mut.combine(new_variance.apply_to(variance));
-            if old != *variance_mut {
-                queued_constraints.push(constraint);
+            // If the constraint doesn't have a variance we don't even care, since it won't
+            // depend on this system anyways, and when it was inserted all the logic it could use would have been
+            // run already.
+            if let Some(variance_mut) = constraints[constraint].variance_mut() {
+                let old = *variance_mut;
+                variance_mut.combine(new_variance.apply_to(variance));
+                if old != *variance_mut {
+                    queued_constraints.push(constraint);
+                }
             }
         }
         constraint.last_variance_applied = new_variance;
