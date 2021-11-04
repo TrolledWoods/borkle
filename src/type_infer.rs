@@ -2,6 +2,7 @@ use crate::types::{self, IntTypeKind};
 use crate::location::Location;
 use std::collections::HashMap;
 use std::iter::repeat_with;
+use std::hint::unreachable_unchecked;
 use std::mem;
 use ustr::Ustr;
 
@@ -310,8 +311,11 @@ impl Access {
     }
 }
 
-/*fn make_value_into_alias(
-    values: &mut Vec<Value>,
+/*
+/// Combines two values into one.
+/// **this does not recurse**, so beware.
+fn combine_values(
+    values: &mut Vec<MaybeMovedValue>,
     constraints: &mut Vec<Constraint>,
     constraint_map: &mut HashMap<ValueId, Vec<ConstraintId>>,
     from_id: ValueId,
@@ -323,13 +327,22 @@ impl Access {
     // @TODO: Combine the reasons for the values e.t.c.
 
     // Any constraints with the value should have the values id changed.
-    
-}*/
+    if let Some(affected_constraints) = constraint_map.get(&from_id) {
+        for &affected_constraint_id in affected_constraints {
+            let affected_constraint = &mut constraints[affected_constraint_id];
+            for value in affected_constraint.values_mut() {
+                if *value == from_id {
+                    *value = to_id;
+                }
+            }
+
+            affected_constraint.fix_order();
+        }
+    }
+}
+*/
 
 pub enum ValueKind {
-    // /// This value was deemed redundant, actually points to this other value.
-    // Alias(ValueId),
-
     Type(Option<(TypeKind, Option<Box<[ValueId]>>)>),
 
     /// For now values can only be usize, but you could theoretically have any value.
@@ -397,7 +410,7 @@ pub type ValueId = usize;
 
 struct Value {
     kind: ValueKind,
-    // reaons: ValueReasons,
+    // reasons: ValueReasons,
     // /// If a value isn't known, it should generate an error, but if it's possible that it's not known because
     // /// an error occured, we don't want to generate an error, which is why this flag exists.
     // related_to_error: bool,
@@ -407,6 +420,11 @@ impl From<ValueKind> for Value {
     fn from(kind: ValueKind) -> Self {
         Self { kind }
     }
+}
+
+enum MaybeMovedValue {
+    Value(Value),
+    Moved(ValueId),
 }
 
 type ConstraintId = usize;
@@ -431,6 +449,21 @@ enum Constraint {
 }
 
 impl Constraint {
+    /// Fixes the order of the fields, or sets the constraint to Dead if it becomes redundant.
+    fn fix_order(&mut self) {
+        match self {
+            Self::Equal { values: [a, b], variance } => {
+                if a == b {
+                    *self = Constraint::Dead;
+                } else if a > b {
+                    mem::swap(a, b);
+                    *variance = variance.invert();
+                }
+            }
+            Self::EqualsField { .. } | Self::EqualNamedField { .. } | Self::Dead => {}
+        }
+    }
+
     fn apply_variance(mut self, from: Variance) -> Self {
         if let Some(variance) = self.variance_mut() {
             *variance = from.apply_to(*variance);
@@ -465,7 +498,9 @@ impl Constraint {
     }
 
     fn equal(a: ValueId, b: ValueId, variance: Variance) -> Self {
-        if b > a {
+        if a == b {
+            Self::Dead
+        } else if b > a {
             Self::Equal { values: [a, b], variance }
         } else {
             Self::Equal {
@@ -506,6 +541,31 @@ struct VarianceConstraint {
     /// issue all the constraints several times unnecessarily.
     last_variance_applied: Variance,
     constraints: Vec<(ConstraintId, Variance)>,
+}
+
+fn get_real_value_id(values: &Vec<MaybeMovedValue>, mut id: ValueId) -> ValueId {
+    while let MaybeMovedValue::Moved(new_id) = values[id] {
+        id = new_id;
+    }
+
+    id
+}
+
+fn get_value(values: &Vec<MaybeMovedValue>, mut id: ValueId) -> &Value {
+    let MaybeMovedValue::Value(v) = &values[get_real_value_id(values, id)] else {
+        // Safety: Because we called `get_real_value_id` we know that it's not an alias
+        unsafe { unreachable_unchecked() }
+    };
+    v
+}
+
+fn get_value_mut(values: &mut Vec<MaybeMovedValue>, mut id: ValueId) -> &mut Value {
+    let id = get_real_value_id(values, id);
+    let MaybeMovedValue::Value(v) = &mut values[id] else {
+        // Safety: Because we called `get_real_value_id` we know that it's not an alias
+        unsafe { unreachable_unchecked() }
+    };
+    v
 }
 
 fn insert_constraint(
@@ -584,7 +644,7 @@ fn insert_active_constraint(
 pub struct TypeSystem {
     /// The first few values are always primitive values, with a fixed position, to make them trivial to create.
     /// 0 - Int
-    values: Vec<Value>,
+    values: Vec<MaybeMovedValue>,
 
     constraints: Vec<Constraint>,
 
@@ -674,87 +734,90 @@ impl TypeSystem {
         if rec > 7 {
             return "...".to_string();
         }
-        match &self.values[value].kind {
-            Access(access) => {
-                format!(
-                    "{}{}",
-                    match (access.needs_read, access.needs_write) {
-                        (true, true) => "rw",
-                        (true, false) => "r",
-                        (false, true) => "w",
-                        (false, false) => "!!",
-                    },
-                    // match (access.read && !access.needs_read, access.write && !access.needs_write) {
-                    //     (true, true) => "+rw",
-                    //     (true, false) => "+r",
-                    //     (false, true) => "+w",
-                    //     (false, false) => "",
-                    // },
-                    match (
-                        !access.read && access.needs_read,
-                        !access.write && access.needs_write
-                    ) {
-                        (true, true) => "-rw",
-                        (true, false) => "-r",
-                        (false, true) => "-w",
-                        (false, false) => "",
-                    },
-                )
-            }
-            Type(Some((TypeKind::Bool, _))) => "bool".to_string(),
-            Type(Some((TypeKind::Empty, _))) => "Empty".to_string(),
-            Type(None) => "_".to_string(),
-            Value(None) => "_(value)".to_string(),
-            Value(Some((type_, None))) => format!("(_: {})", self.value_to_str(*type_, rec + 1)),
-            Value(Some((type_, Some(value)))) => {
-                format!("({}: {})", value, self.value_to_str(*type_, rec + 1))
-            }
-            Type(Some((TypeKind::Int(int_type_kind), _))) => format!("{:?}", int_type_kind),
-            Type(Some((kind, None))) => format!("{:?}", kind),
-            Type(Some((TypeKind::Function, Some(c)))) => match &**c {
-                [return_, args @ ..] => format!(
-                    "fn({}) -> {}",
-                    args.iter()
+        match &self.values[value] {
+            MaybeMovedValue::Moved(new_index) => format!("moved -> {}", new_index),
+            MaybeMovedValue::Value(v) => match &v.kind {
+                Access(access) => {
+                    format!(
+                        "{}{}",
+                        match (access.needs_read, access.needs_write) {
+                            (true, true) => "rw",
+                            (true, false) => "r",
+                            (false, true) => "w",
+                            (false, false) => "!!",
+                        },
+                        // match (access.read && !access.needs_read, access.write && !access.needs_write) {
+                        //     (true, true) => "+rw",
+                        //     (true, false) => "+r",
+                        //     (false, true) => "+w",
+                        //     (false, false) => "",
+                        // },
+                        match (
+                            !access.read && access.needs_read,
+                            !access.write && access.needs_write
+                        ) {
+                            (true, true) => "-rw",
+                            (true, false) => "-r",
+                            (false, true) => "-w",
+                            (false, false) => "",
+                        },
+                    )
+                }
+                Type(Some((TypeKind::Bool, _))) => "bool".to_string(),
+                Type(Some((TypeKind::Empty, _))) => "Empty".to_string(),
+                Type(None) => "_".to_string(),
+                Value(None) => "_(value)".to_string(),
+                Value(Some((type_, None))) => format!("(_: {})", self.value_to_str(*type_, rec + 1)),
+                Value(Some((type_, Some(value)))) => {
+                    format!("({}: {})", value, self.value_to_str(*type_, rec + 1))
+                }
+                Type(Some((TypeKind::Int(int_type_kind), _))) => format!("{:?}", int_type_kind),
+                Type(Some((kind, None))) => format!("{:?}", kind),
+                Type(Some((TypeKind::Function, Some(c)))) => match &**c {
+                    [return_, args @ ..] => format!(
+                        "fn({}) -> {}",
+                        args.iter()
+                            .map(|&v| self.value_to_str(v, rec + 1))
+                            .collect::<Vec<_>>()
+                            .join(", "),
+                        self.value_to_str(*return_, rec + 1),
+                    ),
+                    _ => unreachable!("A function pointer type has to have at least a return type"),
+                },
+                Type(Some((TypeKind::Struct(names), Some(c)))) => {
+                    let list = names
+                        .iter()
+                        .zip(c.iter())
+                        .map(|(name, type_)| {
+                            format!("{}: {}", name, self.value_to_str(*type_, rec + 1))
+                        })
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                    format!("{{ {} }}", list)
+                }
+                Type(Some((TypeKind::Array, Some(c)))) => match &**c {
+                    [type_, length] => format!(
+                        "[{}; {}]",
+                        self.value_to_str(*type_, rec + 1),
+                        self.value_to_str(*length, rec + 1)
+                    ),
+                    _ => unreachable!("Arrays should only ever have two type parameters"),
+                },
+                Type(Some((TypeKind::Tuple, Some(arr)))) => format!(
+                    "({})",
+                    arr.iter()
                         .map(|&v| self.value_to_str(v, rec + 1))
                         .collect::<Vec<_>>()
-                        .join(", "),
-                    self.value_to_str(*return_, rec + 1),
+                        .join(", ")
                 ),
-                _ => unreachable!("A function pointer type has to have at least a return type"),
-            },
-            Type(Some((TypeKind::Struct(names), Some(c)))) => {
-                let list = names
-                    .iter()
-                    .zip(c.iter())
-                    .map(|(name, type_)| {
-                        format!("{}: {}", name, self.value_to_str(*type_, rec + 1))
-                    })
-                    .collect::<Vec<_>>()
-                    .join(", ");
-                format!("{{ {} }}", list)
-            }
-            Type(Some((TypeKind::Array, Some(c)))) => match &**c {
-                [type_, length] => format!(
-                    "[{}; {}]",
-                    self.value_to_str(*type_, rec + 1),
-                    self.value_to_str(*length, rec + 1)
-                ),
-                _ => unreachable!("Arrays should only ever have two type parameters"),
-            },
-            Type(Some((TypeKind::Tuple, Some(arr)))) => format!(
-                "({})",
-                arr.iter()
-                    .map(|&v| self.value_to_str(v, rec + 1))
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            ),
-            Type(Some((TypeKind::Reference, Some(c)))) => match &**c {
-                [mutability, type_] => format!(
-                    "&{} {}",
-                    self.value_to_str(*mutability, rec + 1),
-                    self.value_to_str(*type_, rec + 1)
-                ),
-                _ => unreachable!("References should only ever have one type parameter"),
+                Type(Some((TypeKind::Reference, Some(c)))) => match &**c {
+                    [mutability, type_] => format!(
+                        "&{} {}",
+                        self.value_to_str(*mutability, rec + 1),
+                        self.value_to_str(*type_, rec + 1)
+                    ),
+                    _ => unreachable!("References should only ever have one type parameter"),
+                },
             },
         }
     }
@@ -851,7 +914,7 @@ impl TypeSystem {
                 index: field_name,
                 variance,
             } => {
-                let a = &self.values[a_id].kind;
+                let a = &get_value(&self.values, a_id).kind;
 
                 use ValueKind::*;
                 match a {
@@ -900,7 +963,7 @@ impl TypeSystem {
                 index: field_index,
                 variance,
             } => {
-                let a = &self.values[a_id].kind;
+                let a = &get_value(&self.values, a_id).kind;
 
                 use ValueKind::*;
                 match a {
@@ -936,25 +999,25 @@ impl TypeSystem {
                 values: [a_id, b_id],
                 variance,
             } => {
-                if a_id == b_id {
-                    return;
-                }
-
                 debug_assert!(a_id < b_id);
 
                 let values_len = self.values.len();
                 let (a_slice, b_slice) = self.values.split_at_mut(b_id);
-                let a = &mut a_slice[a_id].kind;
-                let b = &mut b_slice[0].kind;
+                // @Performance: Could be unreachable_unchecked in the future....
+                let MaybeMovedValue::Value(Value { kind: a, .. }) = &mut a_slice[a_id] else {
+                    unreachable!("It shouldn't be possible for the value of an equal constraint to be aliased")
+                };
+                let MaybeMovedValue::Value(Value { kind: b, .. }) = &mut b_slice[0] else {
+                    unreachable!("It shouldn't be possible for the value of an equal constraint to be aliased")
+                };
 
                 use ErrorKind::*;
-                use ValueKind::*;
                 match (a, b) {
                     // Nothing is known, keep the constraint
-                    (Type(None), Type(None)) | (Type(Some((_, None))), Type(Some((_, None)))) => {
+                    (ValueKind::Type(None), ValueKind::Type(None)) | (ValueKind::Type(Some((_, None))), ValueKind::Type(Some((_, None)))) => {
                         return;
                     }
-                    (Type(a), Type(b)) => {
+                    (ValueKind::Type(a), ValueKind::Type(b)) => {
                         let ((_, a_fields), (_, b_fields)) = match (a, b) {
                             (None, None) => return,
                             (Some(a), b @ None) => {
@@ -987,8 +1050,8 @@ impl TypeSystem {
                                     *unknown =
                                         Some((0..known.len()).map(|v| v + values_len).collect());
                                     for &v in known.clone().iter() {
-                                        let base_value = self.values[v].kind.to_unknown();
-                                        self.values.push(base_value.into());
+                                        let base_value = get_value_mut(&mut self.values, v).kind.to_unknown();
+                                        self.values.push(MaybeMovedValue::Value(base_value.into()));
                                     }
                                 }
                             }
@@ -997,9 +1060,13 @@ impl TypeSystem {
 
                         // @Duplicate code from above.
                         let (a_slice, b_slice) = self.values.split_at_mut(b_id);
-                        let a = &mut a_slice[a_id].kind;
-                        let b = &mut b_slice[0].kind;
-                        let (Type(Some((base_a, Some(a_fields)))), Type(Some((base_b, Some(b_fields))))) = (a, b) else {
+                        let MaybeMovedValue::Value(Value { kind: a, .. }) = &mut a_slice[a_id] else {
+                            unreachable!("It shouldn't be possible for the value of an equal constraint to be aliased")
+                        };
+                        let MaybeMovedValue::Value(Value { kind: b, .. }) = &mut b_slice[0] else {
+                            unreachable!("It shouldn't be possible for the value of an equal constraint to be aliased")
+                        };
+                        let (ValueKind::Type(Some((base_a, Some(a_fields)))), ValueKind::Type(Some((base_b, Some(b_fields))))) = (a, b) else {
                             // @Speed: Could be replaced with unreachable_unchecked in the real version.
                             unreachable!("Because of computations above, this is always true")
                         };
@@ -1029,8 +1096,8 @@ impl TypeSystem {
                                         variance.invert(),
                                     )
                                 };
-                            let &ValueKind::Access(a_access) = &self.values[a_access_id].kind else { panic!() };
-                            let &ValueKind::Access(b_access) = &self.values[b_access_id].kind else { panic!() };
+                            let &ValueKind::Access(a_access) = &get_value(&self.values, a_access_id).kind else { panic!() };
+                            let &ValueKind::Access(b_access) = &get_value(&self.values, b_access_id).kind else { panic!() };
 
                             let variance_constraint = self
                                 .variance_updates
@@ -1094,18 +1161,18 @@ impl TypeSystem {
 
                     // @Cleanup: Clean up the whole value system.
                     // Nothing is known, keep the constraint
-                    (Value(None), Value(None))
-                    | (Value(Some((_, None))), Value(Some((_, None)))) => {
+                    (ValueKind::Value(None), ValueKind::Value(None))
+                    | (ValueKind::Value(Some((_, None))), ValueKind::Value(Some((_, None)))) => {
                         return;
                     }
-                    (Value(Some(known)), Value(unknown @ None))
-                    | (Value(unknown @ None), Value(Some(known))) => {
+                    (ValueKind::Value(Some(known)), ValueKind::Value(unknown @ None))
+                    | (ValueKind::Value(unknown @ None), ValueKind::Value(Some(known))) => {
                         progress[0] = true;
                         progress[1] = true;
                         *unknown = Some(*known);
                     }
-                    (Value(Some((type_a, unknown @ None))), Value(Some((type_b, Some(known)))))
-                    | (Value(Some((type_a, Some(known)))), Value(Some((type_b, unknown @ None)))) =>
+                    (ValueKind::Value(Some((type_a, unknown @ None))), ValueKind::Value(Some((type_b, Some(known)))))
+                    | (ValueKind::Value(Some((type_a, Some(known)))), ValueKind::Value(Some((type_b, unknown @ None)))) =>
                     {
                         if *type_a != *type_b {
                             self.errors.push(Error::new(a_id, b_id, IncompatibleTypes));
@@ -1117,8 +1184,8 @@ impl TypeSystem {
                         progress[1] = true;
                     }
                     (
-                        Value(Some((type_a, Some(value_a)))),
-                        Value(Some((type_b, Some(value_b)))),
+                        ValueKind::Value(Some((type_a, Some(value_a)))),
+                        ValueKind::Value(Some((type_b, Some(value_b)))),
                     ) => {
                         if *type_a != *type_b {
                             self.errors.push(Error::new(a_id, b_id, IncompatibleTypes));
@@ -1131,7 +1198,7 @@ impl TypeSystem {
                         progress[0] = true;
                         progress[1] = true;
                     }
-                    (Access(a), Access(b)) => {
+                    (ValueKind::Access(a), ValueKind::Access(b)) => {
                         let old_a = *a;
                         let old_b = *b;
                         a.combine_with(b, variance);
@@ -1177,7 +1244,7 @@ impl TypeSystem {
     }
 
     pub fn params(&self, value: ValueId) -> Option<&[ValueId]> {
-        match self.values[value] {
+        match get_value(&self.values, value) {
             Value {
                 kind: ValueKind::Type(Some((_, ref params))),
                 ..
@@ -1188,14 +1255,12 @@ impl TypeSystem {
 
     pub fn add(&mut self, value: ValueKind) -> ValueId {
         let id = self.values.len();
-        self.values.push(value.into());
+        self.values.push(MaybeMovedValue::Value(value.into()));
         id
     }
 
     pub fn add_unknown_type(&mut self) -> ValueId {
-        let id = self.values.len();
-        self.values.push(ValueKind::Type(None).into());
-        id
+        self.add(ValueKind::Type(None).into())
     }
 
     pub fn add_value(&mut self, value: impl IntoValue) -> ValueId {
@@ -1203,38 +1268,7 @@ impl TypeSystem {
     }
 
     pub fn add_access(&mut self, access: Access) -> ValueId {
-        let id = self.values.len();
-        self.values.push(ValueKind::Access(access).into());
-        id
-    }
-
-    pub fn add_tuple(&mut self, length: usize) -> ValueId {
-        let value = ValueKind::Type(Some((
-            TypeKind::Tuple,
-            Some(
-                repeat_with(|| self.add_unknown_type())
-                    .take(length)
-                    .collect(),
-            ),
-        )));
-        let id = self.values.len();
-        self.values.push(value.into());
-        id
-    }
-
-    pub fn add_array(&mut self) -> ValueId {
-        let inner_type = self.add_unknown_type();
-        let length = self.add_value(WithType(Int(IntTypeKind::Usize)));
-
-        let id = self.values.len();
-        self.values.push(
-            ValueKind::Type(Some((
-                TypeKind::Array,
-                Some(Box::new([inner_type, length])),
-            )))
-            .into(),
-        );
-        id
+        self.add(ValueKind::Access(access).into())
     }
 
     pub fn add_type(&mut self, type_: impl IntoType) -> ValueId {
@@ -1267,13 +1301,13 @@ fn run_variance_constraint(
     constraint: &mut VarianceConstraint,
     a: ValueId,
     b: ValueId,
-    values: &[Value],
+    values: &Vec<MaybeMovedValue>,
     constraints: &mut Vec<Constraint>,
     available_constraints: &mut HashMap<ValueId, Vec<ConstraintId>>,
     queued_constraints: &mut Vec<ConstraintId>,
 ) {
-    let &ValueKind::Access(a_access) = &values[a].kind else { panic!() };
-    let &ValueKind::Access(b_access) = &values[b].kind else { panic!() };
+    let &ValueKind::Access(a_access) = &get_value(&values, a).kind else { panic!() };
+    let &ValueKind::Access(b_access) = &get_value(&values, b).kind else { panic!() };
 
     let new_variance =
         biggest_guaranteed_variance_of_operation(a_access, b_access, constraint.variance);
