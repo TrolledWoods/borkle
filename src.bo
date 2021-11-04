@@ -1,8 +1,5 @@
 const B = {
 
-    // let x = #0;
-    // let c = &x;
-    // *c = #0 : &rw u32;
     // *c = #0 : &r u32;
 
     // This probably compiles, and produces (a + b) * c.

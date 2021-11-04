@@ -311,7 +311,6 @@ impl Access {
     }
 }
 
-/*
 /// Combines two values into one.
 /// **this does not recurse**, so beware.
 fn combine_values(
@@ -321,25 +320,7 @@ fn combine_values(
     from_id: ValueId,
     to_id: ValueId,
 ) {
-    let from = &mut values[from_id];
-    let old_kind = mem::replace(&mut from.kind, ValueKind::Alias(to_id));
-
-    // @TODO: Combine the reasons for the values e.t.c.
-
-    // Any constraints with the value should have the values id changed.
-    if let Some(affected_constraints) = available_constraints.get(&from_id) {
-        for &affected_constraint_id in affected_constraints {
-            let affected_constraint = &mut constraints[affected_constraint_id];
-            for value in affected_constraint.values_mut() {
-                if *value == from_id {
-                    *value = to_id;
-                }
-            }
-
-            affected_constraint.fix_order();
-        }
-    }
-}*/
+}
 
 pub enum ValueKind {
     Type(Option<(TypeKind, Option<Box<[ValueId]>>)>),
@@ -572,6 +553,7 @@ fn insert_constraint(
     available_constraints: &mut HashMap<ValueId, Vec<ConstraintId>>,
     constraint: Constraint,
 ) -> Option<ConstraintId> {
+    // @Performance: We can do a faster lookup using available_constraints
     if let Some(id) = constraints.iter().position(|v| v == &constraint) {
         return Some(id);
     }
@@ -591,9 +573,12 @@ fn insert_constraint(
             let vec = available_constraints.entry(b).or_insert_with(Vec::new);
             vec.push(id);
         }
-        Constraint::EqualsField { values: [a, _], .. }
-        | Constraint::EqualNamedField { values: [a, _], .. } => {
+        Constraint::EqualsField { values: [a, b], .. }
+        | Constraint::EqualNamedField { values: [a, b], .. } => {
             let vec = available_constraints.entry(a).or_insert_with(Vec::new);
+            vec.push(id);
+
+            let vec = available_constraints.entry(b).or_insert_with(Vec::new);
             vec.push(id);
         }
         Constraint::Dead => {},
@@ -602,33 +587,20 @@ fn insert_constraint(
     Some(id)
 }
 
-/*
-/// Inserts a bunch of sub-equality constraints on all the fields of a type.
-fn insert_sub_equality_constraints(
-    constraints: &mut Vec<Constraint>,
-    available_constraints: &mut HashMap<ValueId, Vec<ConstraintId>>,
-    queued_constraints: &mut Vec<ConstraintId>,
-    type_kind: &TypeKind,
-    a_fields: &[ValueId],
-    b_fields: &[ValueId],
-    variance: Variance,
-) {
-    debug_assert_eq(a_fields.len(), b_fields.len());
-
-}*/
-
 fn insert_active_constraint(
     constraints: &mut Vec<Constraint>,
     available_constraints: &mut HashMap<ValueId, Vec<ConstraintId>>,
     queued_constraints: &mut Vec<ConstraintId>,
     constraint: Constraint,
 ) {
+    // @Performance: We can do a faster lookup using available_constraints
     // @TODO: We want to check for equality things with just different variances here too, but I think
     // I have to change how constraints are represented first as well.
     if let Some(_) = constraints.iter().position(|v| v == &constraint) {
         return;
     }
 
+    // We probably want to find a dead constraint to slot things into? Should we have a list of dead constraints that are available, or is that getting too overkill?
     let id = constraints.len();
     constraints.push(constraint);
 
@@ -644,9 +616,12 @@ fn insert_active_constraint(
             let vec = available_constraints.entry(b).or_insert_with(Vec::new);
             vec.push(id);
         }
-        Constraint::EqualsField { values: [a, _], .. }
-        | Constraint::EqualNamedField { values: [a, _], .. } => {
+        Constraint::EqualsField { values: [a, b], .. }
+        | Constraint::EqualNamedField { values: [a, b], .. } => {
             let vec = available_constraints.entry(a).or_insert_with(Vec::new);
+            vec.push(id);
+
+            let vec = available_constraints.entry(b).or_insert_with(Vec::new);
             vec.push(id);
         }
         Constraint::Dead => {},
@@ -684,6 +659,8 @@ impl TypeSystem {
     }
 
     pub fn set_equal(&mut self, a: ValueId, b: ValueId, variance: Variance) {
+        let a = get_real_value_id(&self.values, a);
+        let b = get_real_value_id(&self.values, b);
         if a == b {
             return;
         }
@@ -702,6 +679,8 @@ impl TypeSystem {
         b: ValueId,
         variance: Variance,
     ) {
+        let a = get_real_value_id(&self.values, a);
+        let b = get_real_value_id(&self.values, b);
         insert_active_constraint(
             &mut self.constraints,
             &mut self.available_constraints,
@@ -721,6 +700,8 @@ impl TypeSystem {
         b: ValueId,
         variance: Variance,
     ) {
+        let a = get_real_value_id(&self.values, a);
+        let b = get_real_value_id(&self.values, b);
         insert_active_constraint(
             &mut self.constraints,
             &mut self.available_constraints,
@@ -749,7 +730,7 @@ impl TypeSystem {
             return "...".to_string();
         }
         match &self.values[value] {
-            MaybeMovedValue::Moved(new_index) => format!("moved -> {}", new_index),
+            &MaybeMovedValue::Moved(new_index) => format!("(from {}) {}", new_index, self.value_to_str(new_index, rec + 1)),
             MaybeMovedValue::Value(v) => match &v.kind {
                 Access(access) => {
                     format!(
@@ -984,6 +965,7 @@ impl TypeSystem {
                     Type(None) | Type(Some((_, None))) => {}
                     Type(Some((_, Some(fields)))) => {
                         if let Some(&field) = fields.get(field_index) {
+                            let field = get_real_value_id(&self.values, field);
                             insert_active_constraint(
                                 &mut self.constraints,
                                 &mut self.available_constraints,
@@ -1027,16 +1009,32 @@ impl TypeSystem {
 
                 use ErrorKind::*;
                 match (a, b) {
-                    // Nothing is known, keep the constraint
-                    (ValueKind::Type(None), ValueKind::Type(None)) | (ValueKind::Type(Some((_, None))), ValueKind::Type(Some((_, None)))) => {
-                        return;
-                    }
                     (ValueKind::Type(a), ValueKind::Type(b)) => {
-                        /*if variance == Variance::Invariant {
-                            match (a, b) {
+                        if false && variance == Variance::Invariant {
+                            // @Performance: We can assume that it's not referenced.
+                            let ValueKind::Type(a) = &get_value(&self.values, a_id).kind else { unreachable!() };
+                            let ValueKind::Type(b) = &get_value(&self.values, b_id).kind else { unreachable!() };
+
+                            let (from_id, to_id) = match (a, a_id, b, b_id) {
+                                (None, from_id, None, to_id) |
+                                (Some(_), to_id, None, from_id) |
+                                (None, from_id, Some(_), to_id) => {
+                                    (from_id, to_id)
+                                }
+                                (Some((to_head, Some(_))), to_id, Some((from_head, None)), from_id) |
+                                (Some((from_head, None)), from_id, Some((to_head, Some(_))), to_id) |
+                                (Some((to_head, None)), to_id, Some((from_head, None)), from_id) => {
+                                    if *from_head != *to_head {
+                                        self.errors
+                                            .push(Error::new(a_id, b_id, ErrorKind::IncompatibleTypes));
+                                        return;
+                                    }
+
+                                    (from_id, to_id)
+                                }
                                 (
-                                    Some((a_head, Some(a_fields))),
-                                    Some((b_head, Some(b_fields))),
+                                    Some((a_head, Some(a_fields))), a_id,
+                                    Some((b_head, Some(b_fields))), b_id,
                                 ) => {
                                     if *a_head != *b_head || a_fields.len() != b_fields.len() {
                                         self.errors
@@ -1044,167 +1042,198 @@ impl TypeSystem {
                                         return;
                                     }
 
-                                    for (&a_field, &b_field) in a_fields.iter().zip(&*b_fields) {
+                                    for (&a_field, &b_field) in a_fields.iter().zip(b_fields.iter()) {
+                                        let a_field = get_real_value_id(&self.values, a_field);
+                                        let b_field = get_real_value_id(&self.values, b_field);
                                         insert_active_constraint(
                                             &mut self.constraints,
                                             &mut self.available_constraints,
                                             &mut self.queued_constraints,
-                                            Constraint
+                                            Constraint::equal(a_field, b_field, Variance::Invariant),
+                                        );
                                     }
 
-                                    combine_values(
-                                        &mut self.values,
+                                    (a_id, b_id)
+                                }
+                            };
+
+                            let from = &mut self.values[from_id];
+                            let MaybeMovedValue::Value(_) = mem::replace(from, MaybeMovedValue::Moved(to_id)) else {
+                                unreachable!("Cannot call combine_values on aliases")
+                            };
+
+                            // @TODO: Combine the reasons for the values e.t.c.
+
+                            // Any constraints with the value should have the values id changed.
+                            // This sets the current equality constraint to dead as well.
+                            if let Some(affected_constraints) = self.available_constraints.remove(&from_id) {
+                                for affected_constraint_id in affected_constraints {
+                                    let affected_constraint = &mut self.constraints[affected_constraint_id];
+                                    for value in affected_constraint.values_mut() {
+                                        if *value == from_id {
+                                            *value = to_id;
+                                            self.available_constraints
+                                                .entry(to_id)
+                                                .or_insert_with(Vec::new)
+                                                .push(affected_constraint_id);
+                                        }
+                                    }
+
+                                    affected_constraint.fix_order();
+
+                                    if !matches!(affected_constraint, Constraint::Dead) {
+                                        self.queued_constraints.push(affected_constraint_id);
+                                    }
+                                }
+                            }
+                        } else {
+                            let ((_, a_fields), (_, b_fields)) = match (a, b) {
+                                (None, None) => return,
+                                (Some(a), b @ None) => {
+                                    progress[1] = true;
+                                    let b = b.insert((a.0.clone(), None));
+                                    (a, b)
+                                }
+                                (a @ None, Some(b)) => {
+                                    progress[0] = true;
+                                    (a.insert((b.0.clone(), None)), b)
+                                }
+                                (Some(a), Some(b)) => (a, b),
+                            };
+
+                            let [a_progress, b_progress, ..] = &mut progress;
+                            match (a_fields, a_progress, b_fields, b_progress) {
+                                (None, _, None, _) => return,
+                                (Some(known), _, unknown @ None, unknown_progress)
+                                | (unknown @ None, unknown_progress, Some(known), _) => {
+                                    *unknown_progress = true;
+
+                                    if variance == Variance::Invariant {
+                                        // In the invariant case it's much simpler.
+                                        *unknown = Some(known.clone());
+                                    } else {
+                                        // We do this weird thing so we can utilize the mutable reference to unknown
+                                        // before writing to values. After that we have to recompute the references
+                                        // since they may have moved if the vector grew (one of the cases where
+                                        // the borrow checker was right!)
+                                        *unknown =
+                                            Some((0..known.len()).map(|v| v + values_len).collect());
+                                        for &v in known.clone().iter() {
+                                            let base_value = get_value_mut(&mut self.values, v).kind.to_unknown();
+                                            self.values.push(MaybeMovedValue::Value(base_value.into()));
+                                        }
+                                    }
+                                }
+                                (Some(_), _, Some(_), _) => {}
+                            };
+
+                            // @Duplicate code from above.
+                            let a = &get_value(&self.values, a_id).kind;
+                            let b = &get_value(&self.values, b_id).kind;
+                            let (ValueKind::Type(Some((base_a, Some(a_fields)))), ValueKind::Type(Some((base_b, Some(b_fields))))) = (a, b) else {
+                                // @Speed: Could be replaced with unreachable_unchecked in the real version.
+                                unreachable!("Because of computations above, this is always true")
+                            };
+
+                            if *base_a != *base_b || a_fields.len() != b_fields.len() {
+                                self.errors
+                                    .push(Error::new(a_id, b_id, ErrorKind::IncompatibleTypes));
+                                return;
+                            }
+
+                            // Ugly special case for references. This would apply for anything that has a
+                            // mutability parameter that controls the variance of another field, because that behaviour
+                            // is quite messy and complex.
+                            if *base_a == TypeKind::Reference {
+                                // @Cleanup: This has to be done because a has to be less than b, otherwise
+                                // the lookups don't work properly. However, this is messy. So it would be nice if it
+                                // could be factored out to something else.
+                                let (a_access_id, a_inner, b_access_id, b_inner, variance) =
+                                    if a_fields[0] < b_fields[0] {
+                                        (a_fields[0], a_fields[1], b_fields[0], b_fields[1], variance)
+                                    } else {
+                                        (
+                                            b_fields[0],
+                                            b_fields[1],
+                                            a_fields[0],
+                                            a_fields[1],
+                                            variance.invert(),
+                                        )
+                                    };
+
+                                let a_access_id = get_real_value_id(&self.values, a_access_id);
+                                let b_access_id = get_real_value_id(&self.values, b_access_id);
+                                let a_inner = get_real_value_id(&self.values, a_inner);
+                                let b_inner = get_real_value_id(&self.values, b_inner);
+
+                                let &ValueKind::Access(a_access) = &get_value(&self.values, a_access_id).kind else { panic!() };
+                                let &ValueKind::Access(b_access) = &get_value(&self.values, b_access_id).kind else { panic!() };
+
+                                let guaranteed_variance = biggest_guaranteed_variance_of_operation(a_access, b_access, variance);
+                                let variance_constraint = self
+                                    .variance_updates
+                                    .entry((a_access_id, b_access_id))
+                                    .or_insert_with(|| VarianceConstraint {
+                                        variance,
+                                        last_variance_applied: guaranteed_variance,
+                                        constraints: Vec::new(),
+                                    });
+                                // We use guaranteed_variance instead of last_variance_applied here, since if they are different
+                                // it just means the VarianceConstraint has more work to do in the future to catch up, so we may as well
+                                // do that work right now, and save some work in the future.
+                                let inner_constraint = Constraint::equal(a_inner, b_inner, guaranteed_variance.apply_to(variance));
+                                if let Some(inner_constraint_id) = insert_constraint(&mut self.constraints, &mut self.available_constraints, inner_constraint) {
+                                    if !variance_constraint
+                                        .constraints
+                                        .iter()
+                                        .any(|(v, _)| v == &inner_constraint_id)
+                                    {
+                                        variance_constraint.constraints.push((inner_constraint_id, variance));
+                                        self.queued_constraints.push(inner_constraint_id);
+                                    }
+                                }
+                                insert_active_constraint(
+                                    &mut self.constraints,
+                                    &mut self.available_constraints,
+                                    &mut self.queued_constraints,
+                                    Constraint::equal(a_access_id, b_access_id, variance),
+                                );
+                            } else if *base_a == TypeKind::Function {
+                                insert_active_constraint(
+                                    &mut self.constraints,
+                                    &mut self.available_constraints,
+                                    &mut self.queued_constraints,
+                                    Constraint::equal(get_real_value_id(&self.values, a_fields[0]),get_real_value_id(&self.values, b_fields[0]), variance),
+                                );
+                                for (&a_field, &b_field) in a_fields[1..].iter().zip(&b_fields[1..]) {
+                                    let a_field = get_real_value_id(&self.values, a_field);
+                                    let b_field = get_real_value_id(&self.values, b_field);
+                                    insert_active_constraint(
                                         &mut self.constraints,
                                         &mut self.available_constraints,
-                                        a_id,
-                                        b_id,
+                                        &mut self.queued_constraints,
+                                        Constraint::equal(
+                                            a_field,
+                                            b_field,
+                                            variance.invert(),
+                                        ),
                                     );
                                 }
-                            }
-                        } else {
-                        }*/
-
-                        let ((_, a_fields), (_, b_fields)) = match (a, b) {
-                            (None, None) => return,
-                            (Some(a), b @ None) => {
-                                progress[1] = true;
-                                let b = b.insert((a.0.clone(), None));
-                                (a, b)
-                            }
-                            (a @ None, Some(b)) => {
-                                progress[0] = true;
-                                (a.insert((b.0.clone(), None)), b)
-                            }
-                            (Some(a), Some(b)) => (a, b),
-                        };
-
-                        let [a_progress, b_progress, ..] = &mut progress;
-                        match (a_fields, a_progress, b_fields, b_progress) {
-                            (None, _, None, _) => return,
-                            (Some(known), _, unknown @ None, unknown_progress)
-                            | (unknown @ None, unknown_progress, Some(known), _) => {
-                                *unknown_progress = true;
-
-                                if variance == Variance::Invariant {
-                                    // In the invariant case it's much simpler.
-                                    *unknown = Some(known.clone());
-                                } else {
-                                    // We do this weird thing so we can utilize the mutable reference to unknown
-                                    // before writing to values. After that we have to recompute the references
-                                    // since they may have moved if the vector grew (one of the cases where
-                                    // the borrow checker was right!)
-                                    *unknown =
-                                        Some((0..known.len()).map(|v| v + values_len).collect());
-                                    for &v in known.clone().iter() {
-                                        let base_value = get_value_mut(&mut self.values, v).kind.to_unknown();
-                                        self.values.push(MaybeMovedValue::Value(base_value.into()));
-                                    }
+                            } else {
+                                // Now, we want to apply equality to all the fields as well.
+                                for (&a_field, &b_field) in a_fields.iter().zip(&**b_fields) {
+                                    let a_field = get_real_value_id(&self.values, a_field);
+                                    let b_field = get_real_value_id(&self.values, b_field);
+                                    // @Improvement: Later, variance should be definable in a much more generic way(for generic types).
+                                    // In a generic type, you could paramaterize the mutability of something, which might then influence
+                                    // the variance of other parameters.
+                                    insert_active_constraint(
+                                        &mut self.constraints,
+                                        &mut self.available_constraints,
+                                        &mut self.queued_constraints,
+                                        Constraint::equal(a_field, b_field, variance),
+                                    );
                                 }
-                            }
-                            (Some(_), _, Some(_), _) => {}
-                        };
-
-                        // @Duplicate code from above.
-                        let (a_slice, b_slice) = self.values.split_at_mut(b_id);
-                        let MaybeMovedValue::Value(Value { kind: a, .. }) = &mut a_slice[a_id] else {
-                            unreachable!("It shouldn't be possible for the value of an equal constraint to be aliased")
-                        };
-                        let MaybeMovedValue::Value(Value { kind: b, .. }) = &mut b_slice[0] else {
-                            unreachable!("It shouldn't be possible for the value of an equal constraint to be aliased")
-                        };
-                        let (ValueKind::Type(Some((base_a, Some(a_fields)))), ValueKind::Type(Some((base_b, Some(b_fields))))) = (a, b) else {
-                            // @Speed: Could be replaced with unreachable_unchecked in the real version.
-                            unreachable!("Because of computations above, this is always true")
-                        };
-
-                        if *base_a != *base_b || a_fields.len() != b_fields.len() {
-                            self.errors
-                                .push(Error::new(a_id, b_id, ErrorKind::IncompatibleTypes));
-                            return;
-                        }
-
-                        // Ugly special case for references. This would apply for anything that has a
-                        // mutability parameter that controls the variance of another field, because that behaviour
-                        // is quite messy and complex.
-                        if *base_a == TypeKind::Reference {
-                            // @Cleanup: This has to be done because a has to be less than b, otherwise
-                            // the lookups don't work properly. However, this is messy. So it would be nice if it
-                            // could be factored out to something else.
-                            let (a_access_id, a_inner, b_access_id, b_inner, variance) =
-                                if a_fields[0] < b_fields[0] {
-                                    (a_fields[0], a_fields[1], b_fields[0], b_fields[1], variance)
-                                } else {
-                                    (
-                                        b_fields[0],
-                                        b_fields[1],
-                                        a_fields[0],
-                                        a_fields[1],
-                                        variance.invert(),
-                                    )
-                                };
-                            let &ValueKind::Access(a_access) = &get_value(&self.values, a_access_id).kind else { panic!() };
-                            let &ValueKind::Access(b_access) = &get_value(&self.values, b_access_id).kind else { panic!() };
-
-                            let guaranteed_variance = biggest_guaranteed_variance_of_operation(a_access, b_access, variance);
-                            let variance_constraint = self
-                                .variance_updates
-                                .entry((a_access_id, b_access_id))
-                                .or_insert_with(|| VarianceConstraint {
-                                    variance,
-                                    last_variance_applied: guaranteed_variance,
-                                    constraints: Vec::new(),
-                                });
-                            // We use guaranteed_variance instead of last_variance_applied here, since if they are different
-                            // it just means the VarianceConstraint has more work to do in the future to catch up, so we may as well
-                            // do that work right now, and save some work in the future.
-                            let inner_constraint = Constraint::equal(a_inner, b_inner, guaranteed_variance.apply_to(variance));
-                            if let Some(inner_constraint_id) = insert_constraint(&mut self.constraints, &mut self.available_constraints, inner_constraint) {
-                                if !variance_constraint
-                                    .constraints
-                                    .iter()
-                                    .any(|(v, _)| v == &inner_constraint_id)
-                                {
-                                    variance_constraint.constraints.push((inner_constraint_id, variance));
-                                    self.queued_constraints.push(inner_constraint_id);
-                                }
-                            }
-                            insert_active_constraint(
-                                &mut self.constraints,
-                                &mut self.available_constraints,
-                                &mut self.queued_constraints,
-                                Constraint::equal(a_access_id, b_access_id, variance),
-                            );
-                        } else if *base_a == TypeKind::Function {
-                            insert_active_constraint(
-                                &mut self.constraints,
-                                &mut self.available_constraints,
-                                &mut self.queued_constraints,
-                                Constraint::equal(a_fields[0], b_fields[0], variance),
-                            );
-                            for (&a_field, &b_field) in a_fields[1..].iter().zip(&b_fields[1..]) {
-                                insert_active_constraint(
-                                    &mut self.constraints,
-                                    &mut self.available_constraints,
-                                    &mut self.queued_constraints,
-                                    Constraint::equal(
-                                        a_field,
-                                        b_field,
-                                        variance.invert(),
-                                    ),
-                                );
-                            }
-                        } else {
-                            // Now, we want to apply equality to all the fields as well.
-                            for (&a_field, &b_field) in a_fields.iter().zip(&**b_fields) {
-                                // @Improvement: Later, variance should be definable in a much more generic way(for generic types).
-                                // In a generic type, you could paramaterize the mutability of something, which might then influence
-                                // the variance of other parameters.
-                                insert_active_constraint(
-                                    &mut self.constraints,
-                                    &mut self.available_constraints,
-                                    &mut self.queued_constraints,
-                                    Constraint::equal(a_field, b_field, variance),
-                                );
                             }
                         }
                     }
