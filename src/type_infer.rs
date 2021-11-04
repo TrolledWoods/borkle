@@ -413,7 +413,6 @@ type ConstraintId = usize;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 enum Constraint {
-    /// Equal is almost equality, unless the is_variant field is set, then a will be variant to b.
     Equal {
         values: [ValueId; 2],
         variance: Variance,
@@ -428,6 +427,7 @@ enum Constraint {
         index: Ustr,
         variance: Variance,
     },
+    Dead,
 }
 
 impl Constraint {
@@ -444,6 +444,7 @@ impl Constraint {
             Self::Equal { values, .. } | Self::EqualsField { values, .. } | Self::EqualNamedField { values, .. } => {
                 &*values
             }
+            Self::Dead => &[],
         }
     }
 
@@ -452,12 +453,14 @@ impl Constraint {
             Self::Equal { values, .. } | Self::EqualsField { values, .. } | Self::EqualNamedField { values, .. } => {
                 &mut *values
             }
+            Self::Dead => &mut [],
         }
     }
 
     fn variance_mut(&mut self) -> Option<&mut Variance> {
         match self {
             Self::Equal { variance, .. } | Self::EqualsField { variance, .. } | Self::EqualNamedField { variance, .. } => Some(variance),
+            Self::Dead => None,
         }
     }
 
@@ -534,6 +537,7 @@ fn insert_constraint(
             let vec = available_constraints.entry(a).or_insert_with(Vec::new);
             vec.push(id);
         }
+        Constraint::Dead => {},
     }
 
     Some(id)
@@ -571,6 +575,7 @@ fn insert_active_constraint(
             let vec = available_constraints.entry(a).or_insert_with(Vec::new);
             vec.push(id);
         }
+        Constraint::Dead => {},
     }
 
     queued_constraints.push(id);
@@ -756,6 +761,7 @@ impl TypeSystem {
 
     fn constraint_to_string(&self, constraint: &Constraint) -> String {
         match *constraint {
+            Constraint::Dead => format!("< removed >"),
             Constraint::Equal {
                 values: [a_id, b_id],
                 variance,
@@ -839,6 +845,7 @@ impl TypeSystem {
         let mut progress = [false; 8];
 
         match constraint {
+            Constraint::Dead => {},
             Constraint::EqualNamedField {
                 values: [a_id, b_id],
                 index: field_name,
