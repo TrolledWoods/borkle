@@ -715,13 +715,23 @@ impl TypeSystem {
     }
 
     pub fn solve(&mut self) {
+        self.queued_constraints.sort_unstable_by_key(|v| matches!(&self.constraints[*v], Constraint::Equal { variance: Variance::Invariant, .. }));
+
+        self.print_state();
+
+        let mut i = 1;
         while let Some(available_id) = self.queued_constraints.pop() {
+            i += 1;
             // println!("Applied constraint: {}", self.constraint_to_string(&self.constraints[available_id]));
 
             self.apply_constraint(available_id);
 
             // self.print_state();
         }
+
+        self.print_state();
+
+        println!("-- Number of steps required: {}", i);
     }
 
     pub fn value_to_str(&self, value: ValueId, rec: usize) -> String {
@@ -1010,7 +1020,7 @@ impl TypeSystem {
                 use ErrorKind::*;
                 match (a, b) {
                     (ValueKind::Type(a), ValueKind::Type(b)) => {
-                        if false && variance == Variance::Invariant {
+                        if variance == Variance::Invariant {
                             // @Performance: We can assume that it's not referenced.
                             let ValueKind::Type(a) = &get_value(&self.values, a_id).kind else { unreachable!() };
                             let ValueKind::Type(b) = &get_value(&self.values, b_id).kind else { unreachable!() };

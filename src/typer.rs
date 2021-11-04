@@ -79,13 +79,8 @@ pub fn process_ast<'a>(
     let root = ctx.ast.root;
     build_constraints(&mut ctx, root);
 
-    eprintln!("\nState before solving:\n");
-    ctx.infer.print_state();
-
     ctx.infer.solve();
     ctx.infer.finish();
-    eprintln!("\nState after solving:\n");
-    ctx.infer.print_state();
 
     println!("\nLocals:\n");
     for local in ctx.locals.iter() {
