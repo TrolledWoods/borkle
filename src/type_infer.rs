@@ -25,36 +25,36 @@ pub struct Ref<V: IntoAccess, T: IntoType>(pub V, pub T);
 pub struct WithType<T: IntoType>(pub T);
 
 pub trait IntoType {
-    fn into_type(self, system: &mut TypeSystem) -> ValueId;
+    fn into_type(self, system: &mut TypeSystem, set: ValueSetId) -> ValueId;
 }
 
 impl IntoType for CompilerType {
-    fn into_type(self, system: &mut TypeSystem) -> ValueId {
+    fn into_type(self, system: &mut TypeSystem, set: ValueSetId) -> ValueId {
         match self.0 .0.kind {
-            types::TypeKind::Int(int_type_kind) => Int(int_type_kind).into_type(system),
+            types::TypeKind::Int(int_type_kind) => Int(int_type_kind).into_type(system, set),
             types::TypeKind::Empty => {
-                system.add(ValueKind::Type(Some((TypeKind::Empty, Some(Box::new([]))))))
+                system.add(ValueKind::Type(Some((TypeKind::Empty, Some(Box::new([]))))), set)
             }
             types::TypeKind::Bool => {
-                system.add(ValueKind::Type(Some((TypeKind::Bool, Some(Box::new([]))))))
+                system.add(ValueKind::Type(Some((TypeKind::Bool, Some(Box::new([]))))), set)
             }
             types::TypeKind::Reference { pointee, permits } => Ref(
                 Access::new(permits.read(), permits.write()),
                 CompilerType(pointee),
             )
-            .into_type(system),
+            .into_type(system, set),
             types::TypeKind::Array(type_, length) => {
-                Array(CompilerType(type_), length).into_type(system)
+                Array(CompilerType(type_), length).into_type(system, set)
             }
             types::TypeKind::Struct(ref fields) => {
                 let field_names = fields.iter().map(|v| v.0).collect();
                 let field_types = fields
                     .iter()
-                    .map(|v| CompilerType(v.1).into_type(system))
+                    .map(|v| CompilerType(v.1).into_type(system, set))
                     .collect();
                 let value =
                     ValueKind::Type(Some((TypeKind::Struct(field_names), Some(field_types))));
-                system.add(value)
+                system.add(value, set)
             }
             _ => todo!("This compiler type is not done yet"),
         }
@@ -62,103 +62,104 @@ impl IntoType for CompilerType {
 }
 
 impl<T: IntoType, V: IntoValue> IntoType for Array<T, V> {
-    fn into_type(self, system: &mut TypeSystem) -> ValueId {
-        let inner_type = self.0.into_type(system);
-        let inner_value = self.1.into_value(system);
+    fn into_type(self, system: &mut TypeSystem, set: ValueSetId) -> ValueId {
+        let inner_type = self.0.into_type(system, set);
+        let inner_value = self.1.into_value(system, set);
         system.add(ValueKind::Type(Some((
             TypeKind::Array,
             Some(Box::new([inner_type, inner_value])),
-        ))))
+        ))), set)
     }
 }
 
 impl IntoType for Var {
-    fn into_type(self, _: &mut TypeSystem) -> ValueId {
+    fn into_type(self, _: &mut TypeSystem, set: ValueSetId) -> ValueId {
         self.0
     }
 }
 
 impl IntoType for Empty {
-    fn into_type(self, system: &mut TypeSystem) -> ValueId {
-        system.add(ValueKind::Type(Some((TypeKind::Empty, Some(Box::new([]))))))
+    fn into_type(self, system: &mut TypeSystem, set: ValueSetId) -> ValueId {
+        system.add(ValueKind::Type(Some((TypeKind::Empty, Some(Box::new([]))))), set)
     }
 }
 
 impl IntoType for Int {
-    fn into_type(self, system: &mut TypeSystem) -> ValueId {
+    fn into_type(self, system: &mut TypeSystem, set: ValueSetId) -> ValueId {
         system.add(ValueKind::Type(Some((
             TypeKind::Int(self.0),
             Some(Box::new([])),
-        ))))
+        ))), set)
     }
 }
 
 impl IntoType for Unknown {
-    fn into_type(self, system: &mut TypeSystem) -> ValueId {
-        system.add_unknown_type()
+    fn into_type(self, system: &mut TypeSystem, set: ValueSetId) -> ValueId {
+        system.add(ValueKind::Type(None), set)
     }
 }
 
 impl<T: IntoAccess, V: IntoType> IntoType for Ref<T, V> {
-    fn into_type(self, system: &mut TypeSystem) -> ValueId {
-        let inner_variance = self.0.into_variance(system);
-        let inner_type = self.1.into_type(system);
+    fn into_type(self, system: &mut TypeSystem, set: ValueSetId) -> ValueId {
+        let inner_variance = self.0.into_variance(system, set);
+        let inner_type = self.1.into_type(system, set);
         system.add(ValueKind::Type(Some((
             TypeKind::Reference,
             Some(Box::new([inner_variance, inner_type])),
-        ))))
+        ))), set)
     }
 }
 
 pub trait IntoAccess {
-    fn into_variance(self, system: &mut TypeSystem) -> ValueId;
+    fn into_variance(self, system: &mut TypeSystem, set: ValueSetId) -> ValueId;
 }
 
 impl IntoAccess for Access {
-    fn into_variance(self, system: &mut TypeSystem) -> ValueId {
-        system.add_access(self)
+    fn into_variance(self, system: &mut TypeSystem, set: ValueSetId) -> ValueId {
+        system.add_access(self, set)
     }
 }
 
 impl IntoAccess for Var {
-    fn into_variance(self, _: &mut TypeSystem) -> ValueId {
+    fn into_variance(self, _: &mut TypeSystem, _: ValueSetId) -> ValueId {
         self.0
     }
 }
 
 impl IntoAccess for Unknown {
-    fn into_variance(self, system: &mut TypeSystem) -> ValueId {
-        system.add_access(Access::default())
+    fn into_variance(self, system: &mut TypeSystem, set: ValueSetId) -> ValueId {
+        system.add_access(Access::default(), set)
     }
 }
 
 pub trait IntoValue {
-    fn into_value(self, system: &mut TypeSystem) -> ValueId;
+    fn into_value(self, system: &mut TypeSystem, set: ValueSetId) -> ValueId;
 }
 
 impl<T: IntoType> IntoValue for WithType<T> {
-    fn into_value(self, system: &mut TypeSystem) -> ValueId {
-        let type_ = self.0.into_type(system);
-        system.add(ValueKind::Value(Some((type_, None))))
+    fn into_value(self, system: &mut TypeSystem, set: ValueSetId) -> ValueId {
+        let type_ = self.0.into_type(system, set);
+        system.add(ValueKind::Value(Some((type_, None))), set)
     }
 }
 
 impl IntoValue for usize {
-    fn into_value(self, system: &mut TypeSystem) -> ValueId {
-        let int_type = system.add_type(Int(IntTypeKind::Usize));
-        system.add(ValueKind::Value(Some((int_type, Some(self)))))
+    fn into_value(self, system: &mut TypeSystem, set: ValueSetId) -> ValueId {
+        let int_type = system.add_type(Int(IntTypeKind::Usize), set);
+        system.add(ValueKind::Value(Some((int_type, Some(self)))), set)
     }
 }
 
 impl IntoValue for Var {
-    fn into_value(self, _: &mut TypeSystem) -> ValueId {
+    // @Correctness: Should the set be added to the var here?
+    fn into_value(self, _: &mut TypeSystem, _set: ValueSetId) -> ValueId {
         self.0
     }
 }
 
 impl IntoValue for Unknown {
-    fn into_value(self, system: &mut TypeSystem) -> ValueId {
-        system.add(ValueKind::Value(None))
+    fn into_value(self, system: &mut TypeSystem, set: ValueSetId) -> ValueId {
+        system.add(ValueKind::Value(None), set)
     }
 }
 
@@ -390,16 +391,11 @@ pub type ValueId = usize;
 
 struct Value {
     kind: ValueKind,
+    value_sets: Vec<ValueSetId>,
     // reasons: ValueReasons,
     // /// If a value isn't known, it should generate an error, but if it's possible that it's not known because
     // /// an error occured, we don't want to generate an error, which is why this flag exists.
     // related_to_error: bool,
-}
-
-impl From<ValueKind> for Value {
-    fn from(kind: ValueKind) -> Self {
-        Self { kind }
-    }
 }
 
 enum MaybeMovedValue {
@@ -638,10 +634,22 @@ fn insert_active_constraint(
     queued_constraints.push(id);
 }
 
+pub type ValueSetId = usize;
+
+pub struct ValueSet {
+    pub uncomputed_values: i32,
+    pub has_errors: bool,
+
+    pub ast_node: crate::parser::ast::NodeId,
+    pub has_been_computed: bool,
+}
+
 pub struct TypeSystem {
     /// The first few values are always primitive values, with a fixed position, to make them trivial to create.
     /// 0 - Int
     values: Vec<MaybeMovedValue>,
+
+    value_sets: Vec<ValueSet>,
 
     constraints: Vec<Constraint>,
 
@@ -658,12 +666,24 @@ impl TypeSystem {
     pub fn new() -> Self {
         Self {
             values: vec![],
+            value_sets: Vec::new(),
             variance_updates: HashMap::new(),
             constraints: Vec::new(),
             available_constraints: HashMap::new(),
             queued_constraints: Vec::new(),
             errors: Vec::new(),
         }
+    }
+
+    pub fn add_value_set(&mut self, ast_node: crate::parser::ast::NodeId) -> ValueSetId {
+        let id = self.value_sets.len();
+        self.value_sets.push(ValueSet {
+            uncomputed_values: 0,
+            has_errors: false,
+            ast_node,
+            has_been_computed: false,
+        });
+        id
     }
 
     pub fn set_equal(&mut self, a: ValueId, b: ValueId, variance: Variance) {
@@ -1083,9 +1103,18 @@ impl TypeSystem {
                             };
 
                             let from = &mut self.values[from_id];
-                            let MaybeMovedValue::Value(_) = mem::replace(from, MaybeMovedValue::Moved(to_id)) else {
+                            let MaybeMovedValue::Value(from_value) = mem::replace(from, MaybeMovedValue::Moved(to_id)) else {
                                 unreachable!("Cannot call combine_values on aliases")
                             };
+
+                            // Combine the value sets together.
+                            // @Speed: Could be a direct access, since to_id isn't aliased
+                            let to_value = get_value_mut(&mut self.values, to_id);
+                            for value_set in from_value.value_sets {
+                                if let Err(index) = to_value.value_sets.binary_search(&value_set) {
+                                    to_value.value_sets.insert(index, value_set);
+                                }
+                            }
 
                             // @TODO: Combine the reasons for the values e.t.c.
 
@@ -1127,10 +1156,10 @@ impl TypeSystem {
                             };
 
                             let [a_progress, b_progress, ..] = &mut progress;
-                            match (a_fields, a_progress, b_fields, b_progress) {
-                                (None, _, None, _) => return,
-                                (Some(known), _, unknown @ None, unknown_progress)
-                                | (unknown @ None, unknown_progress, Some(known), _) => {
+                            match (a_fields, a_id, a_progress, b_fields, b_id, b_progress) {
+                                (None, _, _, None, _, _) => return,
+                                (Some(known), _, _, unknown @ None, unknown_id, unknown_progress)
+                                | (unknown @ None, unknown_id, unknown_progress, Some(known), _, _) => {
                                     *unknown_progress = true;
 
                                     if variance == Variance::Invariant {
@@ -1143,13 +1172,29 @@ impl TypeSystem {
                                         // the borrow checker was right!)
                                         *unknown =
                                             Some((0..known.len()).map(|v| v + values_len).collect());
-                                        for &v in known.clone().iter() {
-                                            let base_value = get_value_mut(&mut self.values, v).kind.to_unknown();
-                                            self.values.push(MaybeMovedValue::Value(base_value.into()));
+
+                                        let variant_fields = known.clone();
+
+                                        // @Speed: Could be a direct access of the value.
+                                        let base_value = get_value(&self.values, unknown_id);
+                                        // @Speed: Allocation :(
+                                        let base_value_sets = base_value.value_sets.clone();
+                                        for &value_set in base_value_sets.iter() {
+                                            self.value_sets[value_set].uncomputed_values += variant_fields.len() as i32 - 1;
+                                        }
+
+                                        for &v in variant_fields.iter() {
+                                            let variant_value = get_value(&self.values, v);
+                                            let kind = variant_value.kind.to_unknown();
+                                            let new_value = Value {
+                                                kind,
+                                                value_sets: base_value_sets.clone(),
+                                            };
+                                            self.values.push(MaybeMovedValue::Value(new_value));
                                         }
                                     }
                                 }
-                                (Some(_), _, Some(_), _) => {}
+                                (Some(_), _, _, Some(_), _, _) => {}
                             };
 
                             // @Duplicate code from above.
@@ -1357,26 +1402,54 @@ impl TypeSystem {
         }
     }
 
-    pub fn add(&mut self, value: ValueKind) -> ValueId {
+    pub fn add(&mut self, value: ValueKind, set: ValueSetId) -> ValueId {
         let id = self.values.len();
-        self.values.push(MaybeMovedValue::Value(value.into()));
+        // TODO: Support values here too.
+        if matches!(value, ValueKind::Type(None) | ValueKind::Type(Some((_, None)))) {
+            self.value_sets[set].uncomputed_values += 1;
+        }
+        self.values.push(MaybeMovedValue::Value(Value {
+            kind: value,
+            value_sets: vec![set],
+        }));
         id
     }
 
+    /// Adds a value set to a value. This value has to be an unknown type, otherwise it will panic
+    /// in debug mode. It also cannot be an alias. This is solely intended for use by the building
+    /// process of the typer.
+    pub fn set_value_set(&mut self, value_id: ValueId, value_set_id: ValueSetId) {
+        let MaybeMovedValue::Value(value) = &mut self.values[value_id] else {
+            unreachable!("Cannot call set_value_set on an alias")
+        };
+
+        // There can be no children, this function shouldn't have to recurse.
+        debug_assert!(matches!(value.kind, ValueKind::Type(None)));
+
+        // We don't want to worry about sorting or binary searching
+        debug_assert!(value.value_sets.is_empty());
+        value.value_sets = vec![value_set_id];
+    }
+
     pub fn add_unknown_type(&mut self) -> ValueId {
-        self.add(ValueKind::Type(None).into())
+        let id = self.values.len();
+        self.values.push(MaybeMovedValue::Value(Value {
+            kind: ValueKind::Type(None),
+            value_sets: Vec::new(),
+        }));
+        id
     }
 
-    pub fn add_value(&mut self, value: impl IntoValue) -> ValueId {
-        value.into_value(self)
+    pub fn add_value(&mut self, value: impl IntoValue, set: ValueSetId) -> ValueId {
+        value.into_value(self, set)
     }
 
-    pub fn add_access(&mut self, access: Access) -> ValueId {
-        self.add(ValueKind::Access(access).into())
+    pub fn add_access(&mut self, access: Access, set: ValueSetId) -> ValueId {
+        self.add(ValueKind::Access(access), set)
     }
 
-    pub fn add_type(&mut self, type_: impl IntoType) -> ValueId {
-        type_.into_type(self)
+    pub fn add_type(&mut self, type_: impl IntoType, set: ValueSetId) -> ValueId {
+        type_.into_type(self, set)
     }
 }
 

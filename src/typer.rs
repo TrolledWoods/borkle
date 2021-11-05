@@ -7,7 +7,7 @@ pub use crate::parser::{ast::Node, ast::NodeId, ast::NodeKind, Ast};
 use crate::program::constant::ConstantRef;
 use crate::program::{MemberMetaData, PolyOrMember, Program, Task};
 use crate::thread_pool::ThreadContext;
-use crate::type_infer::{self, Access, TypeSystem, Variance};
+use crate::type_infer::{self, Access, TypeSystem, Variance, ValueSetId};
 use crate::types::{IntTypeKind, PtrPermits, Type, TypeKind};
 use std::sync::Arc;
 
@@ -54,7 +54,6 @@ pub fn process_ast<'a>(
 
     // Create type inference variables for all variables and nodes, so that there's a way to talk about
     // all of them.
-    // @Performance: This can be done in a faster way
     eprintln!("Created type slots for ast nodes:");
     for node in &mut ast.nodes {
         node.type_infer_value_id = infer.add_unknown_type();
@@ -77,7 +76,8 @@ pub fn process_ast<'a>(
 
     // Build the tree relationship between the different types.
     let root = ctx.ast.root;
-    build_constraints(&mut ctx, root);
+    let root_value_set = ctx.infer.add_value_set(root);
+    build_constraints(&mut ctx, root, root_value_set);
 
     ctx.infer.solve();
     ctx.infer.finish();
@@ -94,20 +94,22 @@ pub fn process_ast<'a>(
     Err(())
 }
 
-fn build_constraints(ctx: &mut Context<'_, '_>, node_id: NodeId) -> type_infer::ValueId {
+fn build_constraints(ctx: &mut Context<'_, '_>, node_id: NodeId, set: ValueSetId) -> type_infer::ValueId {
     let node = ctx.ast.get(node_id);
     let node_type_id = node.type_infer_value_id;
+
+    ctx.infer.set_value_set(node_type_id, set);
 
     match node.kind {
         NodeKind::Uninit | NodeKind::Zeroed | NodeKind::ImplicitType => {}
         NodeKind::Empty => {
             // @Performance: We could set the type directly(because no inferrence has happened yet),
             // this is a roundabout way of doing things.
-            let temp = ctx.infer.add_type(type_infer::Empty);
+            let temp = ctx.infer.add_type(type_infer::Empty, set);
             ctx.infer.set_equal(node_type_id, temp, Variance::Invariant);
         }
         NodeKind::Member { of, name } => {
-            let of_type_id = build_constraints(ctx, of);
+            let of_type_id = build_constraints(ctx, of, set);
             ctx.infer
                 .set_field_name_equal(of_type_id, name, node_type_id, Variance::Invariant);
         }
@@ -121,19 +123,19 @@ fn build_constraints(ctx: &mut Context<'_, '_>, node_id: NodeId) -> type_infer::
             true_body,
             false_body,
         } => {
-            let condition_type_id = build_constraints(ctx, condition);
+            let condition_type_id = build_constraints(ctx, condition, set);
             // @Performance: This could be better, I really want a constraint for this kind of thing...
             let condition_type = ctx.infer.add(type_infer::ValueKind::Type(Some((
                 type_infer::TypeKind::Bool,
                 Some(Box::new([])),
-            ))));
+            ))), set);
             ctx.infer
                 .set_equal(condition_type_id, condition_type, Variance::Invariant);
 
-            let true_body_id = build_constraints(ctx, true_body);
+            let true_body_id = build_constraints(ctx, true_body, set);
             let false_body_id = match false_body {
-                Some(id) => build_constraints(ctx, id),
-                None => ctx.infer.add_type(type_infer::Empty),
+                Some(id) => build_constraints(ctx, id, set),
+                None => ctx.infer.add_type(type_infer::Empty, set),
             };
 
             ctx.infer
@@ -145,13 +147,13 @@ fn build_constraints(ctx: &mut Context<'_, '_>, node_id: NodeId) -> type_infer::
             op: UnaryOp::Dereference,
             operand,
         } => {
-            let operand_type_id = build_constraints(ctx, operand);
+            let operand_type_id = build_constraints(ctx, operand, set);
             // @Performance: It should be possible to constrain the type even here, but it's a little hairy.
             // Maybe a better approach would be just an "assignment" constraint, like "this type has to have this kind", or something
             let temp = ctx.infer.add_type(type_infer::Ref(
                 type_infer::Access::needs(true, false),
                 type_infer::Unknown,
-            ));
+            ), set);
             ctx.infer
                 .set_equal(operand_type_id, temp, Variance::Invariant);
             ctx.infer
@@ -166,18 +168,18 @@ fn build_constraints(ctx: &mut Context<'_, '_>, node_id: NodeId) -> type_infer::
             let args = args.to_vec();
 
             let mut function_type_ids = Vec::with_capacity(args.len() + 1);
-            let returns_type_id = build_constraints(ctx, returns);
+            let returns_type_id = build_constraints(ctx, returns, set);
             function_type_ids.push(returns_type_id);
 
             for (local_id, type_node) in args {
                 let local_type_id = ctx.locals.get(local_id).type_infer_value_id;
-                let type_id = build_constraints(ctx, type_node);
+                let type_id = build_constraints(ctx, type_node, set);
                 ctx.infer
                     .set_equal(type_id, local_type_id, Variance::Invariant);
                 function_type_ids.push(type_id);
             }
 
-            let body_type_id = build_constraints(ctx, body);
+            let body_type_id = build_constraints(ctx, body, set);
             ctx.infer
                 .set_equal(body_type_id, returns_type_id, Variance::Variant);
 
@@ -185,7 +187,7 @@ fn build_constraints(ctx: &mut Context<'_, '_>, node_id: NodeId) -> type_infer::
                 type_infer::TypeKind::Function,
                 Some(function_type_ids.into_boxed_slice()),
             )));
-            let infer_type_id = ctx.infer.add(infer_type);
+            let infer_type_id = ctx.infer.add(infer_type, set);
             ctx.infer
                 .set_equal(infer_type_id, node_type_id, Variance::Invariant);
         }
@@ -193,13 +195,13 @@ fn build_constraints(ctx: &mut Context<'_, '_>, node_id: NodeId) -> type_infer::
             // @Speed: Somewhat needless allocation
             let args = args.to_vec();
 
-            let calling_type_id = build_constraints(ctx, calling);
+            let calling_type_id = build_constraints(ctx, calling, set);
 
             ctx.infer
                 .set_field_equal(calling_type_id, 0, node_type_id, Variance::Invariant);
 
             for (i, &arg) in args.iter().enumerate() {
-                let arg_type_id = build_constraints(ctx, arg);
+                let arg_type_id = build_constraints(ctx, arg, set);
                 ctx.infer
                     .set_field_equal(calling_type_id, i + 1, arg_type_id, Variance::Covariant);
             }
@@ -207,7 +209,7 @@ fn build_constraints(ctx: &mut Context<'_, '_>, node_id: NodeId) -> type_infer::
             // Specify that the caller has to be a function type
             let infer_type =
                 type_infer::ValueKind::Type(Some((type_infer::TypeKind::Function, None)));
-            let type_id = ctx.infer.add(infer_type);
+            let type_id = ctx.infer.add(infer_type, set);
             ctx.infer
                 .set_equal(calling_type_id, type_id, Variance::Invariant);
         }
@@ -221,25 +223,25 @@ fn build_constraints(ctx: &mut Context<'_, '_>, node_id: NodeId) -> type_infer::
             left,
             right,
         } => {
-            let access = ctx.infer.add_access(Access::new(false, true));
-            let left_type_id = build_lvalue(ctx, left, access);
-            let right_type_id = build_constraints(ctx, right);
+            let access = ctx.infer.add_access(Access::new(false, true), set);
+            let left_type_id = build_lvalue(ctx, left, access, set);
+            let right_type_id = build_constraints(ctx, right, set);
 
             ctx.infer
                 .set_equal(left_type_id, right_type_id, Variance::Covariant);
 
             // @Performance: We could set the type directly(because no inferrence has happened yet),
             // this is a roundabout way of doing things.
-            let temp = ctx.infer.add_type(type_infer::Empty);
+            let temp = ctx.infer.add_type(type_infer::Empty, set);
             ctx.infer.set_equal(node_type_id, temp, Variance::Invariant);
         }
         NodeKind::Reference(operand) => {
-            let access = ctx.infer.add_access(type_infer::Access::default());
-            let inner = build_lvalue(ctx, operand, access);
+            let access = ctx.infer.add_access(type_infer::Access::default(), set);
+            let inner = build_lvalue(ctx, operand, access, set);
             let temp = ctx.infer.add_type(type_infer::Ref(
                 type_infer::Var(access),
                 type_infer::Var(inner),
-            ));
+            ), set);
             ctx.infer.set_equal(node_type_id, temp, Variance::Invariant);
         }
         NodeKind::Block {
@@ -249,30 +251,30 @@ fn build_constraints(ctx: &mut Context<'_, '_>, node_id: NodeId) -> type_infer::
             let last = *contents.last().unwrap();
             // @Performance: This isn't very fast, but it's fine for now
             for statement_id in contents[..contents.len() - 1].to_vec() {
-                build_constraints(ctx, statement_id);
+                build_constraints(ctx, statement_id, set);
             }
 
-            let last_type_id = build_constraints(ctx, last);
+            let last_type_id = build_constraints(ctx, last, set);
             ctx.infer
                 .set_equal(node_type_id, last_type_id, Variance::Invariant);
         }
         NodeKind::Parenthesis(inner) => {
-            let inner_type_id = build_constraints(ctx, inner);
+            let inner_type_id = build_constraints(ctx, inner, set);
             ctx.infer
                 .set_equal(inner_type_id, node_type_id, Variance::Variant);
         }
         NodeKind::TypeBound { value, bound } => {
-            let bound_type_id = build_constraints(ctx, bound);
+            let bound_type_id = build_constraints(ctx, bound, set);
             ctx.infer
                 .set_equal(node_type_id, bound_type_id, Variance::Invariant);
-            let value_type_id = build_constraints(ctx, value);
+            let value_type_id = build_constraints(ctx, value, set);
             ctx.infer
                 .set_equal(value_type_id, node_type_id, Variance::Variant);
         }
         NodeKind::LiteralType(type_) => {
             // @Performance: We could set the type directly(because no inferrence has happened yet),
             // this is a roundabout way of doing things.
-            let temp = ctx.infer.add_type(type_infer::CompilerType(type_));
+            let temp = ctx.infer.add_type(type_infer::CompilerType(type_), set);
             ctx.infer.set_equal(node_type_id, temp, Variance::Invariant);
         }
         NodeKind::FunctionType { ref args, returns } => {
@@ -280,11 +282,11 @@ fn build_constraints(ctx: &mut Context<'_, '_>, node_id: NodeId) -> type_infer::
             let args = args.to_vec();
 
             let mut function_type_ids = Vec::with_capacity(args.len() + 1);
-            let returns_type_id = build_constraints(ctx, returns);
+            let returns_type_id = build_constraints(ctx, returns, set);
             function_type_ids.push(returns_type_id);
 
             for type_node in args {
-                let type_id = build_constraints(ctx, type_node);
+                let type_id = build_constraints(ctx, type_node, set);
                 function_type_ids.push(type_id);
             }
 
@@ -292,7 +294,7 @@ fn build_constraints(ctx: &mut Context<'_, '_>, node_id: NodeId) -> type_infer::
                 type_infer::TypeKind::Function,
                 Some(function_type_ids.into_boxed_slice()),
             )));
-            let infer_type_id = ctx.infer.add(infer_type);
+            let infer_type_id = ctx.infer.add(infer_type, set);
             ctx.infer
                 .set_equal(infer_type_id, node_type_id, Variance::Invariant);
         }
@@ -302,22 +304,22 @@ fn build_constraints(ctx: &mut Context<'_, '_>, node_id: NodeId) -> type_infer::
             let fields = fields.iter().map(|v| v.1).collect::<Vec<_>>();
             let fields = fields
                 .into_iter()
-                .map(|v| build_constraints(ctx, v))
+                .map(|v| build_constraints(ctx, v, set))
                 .collect();
             // @Performance: This could directly set the type in theory
             let temp = ctx.infer.add(type_infer::ValueKind::Type(Some((
                 type_infer::TypeKind::Struct(names),
                 Some(fields),
-            ))));
+            ))), set);
             ctx.infer.set_equal(node_type_id, temp, Variance::Invariant);
         }
         // @Improvement: Reference type permits can be inferred as well, but that's not represented here.
         NodeKind::ReferenceType(inner, permits) => {
-            let inner = build_constraints(ctx, inner);
+            let inner = build_constraints(ctx, inner, set);
             let access = permits_to_access(permits);
             let temp = ctx
                 .infer
-                .add_type(type_infer::Ref(access, type_infer::Var(inner)));
+                .add_type(type_infer::Ref(access, type_infer::Var(inner)), set);
             ctx.infer.set_equal(node_type_id, temp, Variance::Invariant);
         }
         _ => unimplemented!(
@@ -344,13 +346,16 @@ fn build_lvalue(
     ctx: &mut Context<'_, '_>,
     node_id: NodeId,
     access: type_infer::ValueId,
+    set: ValueSetId,
 ) -> type_infer::ValueId {
     let node = ctx.ast.get(node_id);
     let node_type_id = node.type_infer_value_id;
 
+    ctx.infer.set_value_set(node_type_id, set);
+
     match node.kind {
         NodeKind::Member { of, name } => {
-            let of_type_id = build_lvalue(ctx, of, access);
+            let of_type_id = build_lvalue(ctx, of, access, set);
             ctx.infer
                 .set_field_name_equal(of_type_id, name, node_type_id, Variance::Invariant);
         }
@@ -360,7 +365,7 @@ fn build_lvalue(
                 .set_equal(local_type_id, node_type_id, Variance::Invariant);
         }
         NodeKind::Parenthesis(inner) => {
-            build_lvalue(ctx, inner, access);
+            build_lvalue(ctx, inner, access, set);
         }
         NodeKind::TypeBound { value, bound } => {
             // @Improvment: Here, both things are invariant. One of them could potentially be variant,
@@ -368,10 +373,10 @@ fn build_lvalue(
             // I could try integrating this variance with the `access` variance passed in here to make it
             // less restrictive. It would also be nice if it was consistant with how non lvalue typebounds work,
             // since right now that's an inconsistancy that's going to be weird if you trigger it.
-            let bound_type_id = build_constraints(ctx, bound);
+            let bound_type_id = build_constraints(ctx, bound, set);
             ctx.infer
                 .set_equal(node_type_id, bound_type_id, Variance::Invariant);
-            let value_type_id = build_lvalue(ctx, value, access);
+            let value_type_id = build_lvalue(ctx, value, access, set);
             ctx.infer
                 .set_equal(value_type_id, node_type_id, Variance::Invariant);
         }
@@ -379,13 +384,13 @@ fn build_lvalue(
             op: UnaryOp::Dereference,
             operand,
         } => {
-            let operand_type_id = build_constraints(ctx, operand);
+            let operand_type_id = build_constraints(ctx, operand, set);
             // @Performance: It should be possible to constrain the type even here, but it's a little hairy.
             // Maybe a better approach would be just an "assignment" constraint, like "this type has to have this kind", or something
             let temp = ctx.infer.add_type(type_infer::Ref(
                 type_infer::Var(access),
                 type_infer::Unknown,
-            ));
+            ), set);
             // @Correctness: I'm not sure that a variance here is correct in all
             // cases, but without it the inferrence isn't correct.
             // But I think it's correct, because essentially what this is saying is "this pointer needs
@@ -399,10 +404,10 @@ fn build_lvalue(
         _ => {
             // Make it a reference to a temporary instead. This forces the pointer to be readonly.
             // @Speed: This could be faster...
-            let access_strict = ctx.infer.add_access(type_infer::Access::new(true, false));
+            let access_strict = ctx.infer.add_access(type_infer::Access::new(true, false), set);
             ctx.infer
                 .set_equal(access_strict, access, Variance::Invariant);
-            return build_constraints(ctx, node_id);
+            return build_constraints(ctx, node_id, set);
         }
     }
 
