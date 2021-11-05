@@ -228,6 +228,9 @@ fn build_constraints(ctx: &mut Context<'_, '_>, node_id: NodeId, set: ValueSetId
             let temp = ctx.infer.add_type(type_infer::Empty, set);
             ctx.infer.set_equal(node_type_id, temp, Variance::Invariant);
         }
+        NodeKind::Literal(Literal::Int(_)) => {
+            // TODO: Actually add a constraint that checks that the type is an int, and that it's in bounds
+        }
         NodeKind::Member { of, name } => {
             let of_type_id = build_constraints(ctx, of, set);
             ctx.infer
@@ -515,8 +518,6 @@ fn build_lvalue(
     let node_loc = node.loc;
     let node_type_id = node.type_infer_value_id;
 
-    ctx.infer.set_value_set(node_type_id, set);
-
     match node.kind {
         NodeKind::Member { of, name } => {
             let of_type_id = build_lvalue(ctx, of, access, set);
@@ -580,6 +581,8 @@ fn build_lvalue(
             return build_constraints(ctx, node_id, set);
         }
     }
+
+    ctx.infer.set_value_set(node_type_id, set);
 
     node_type_id
 }

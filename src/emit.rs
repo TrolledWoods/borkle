@@ -1,4 +1,5 @@
 use crate::ir::{Member, Registers, Routine, UserDefinedRoutine, Value};
+use crate::literal::Literal;
 use crate::locals::LocalVariables;
 use crate::operators::{BinaryOp, UnaryOp};
 use crate::parser::ast::{Ast, NodeId, NodeKind};
@@ -374,6 +375,15 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, node: NodeId) -> Value {
 
             to
         }
+        NodeKind::Literal(Literal::Int(num)) => {
+            let node_type = ctx.ast.get(node).type_();
+            let bytes = num.to_le_bytes();
+
+            // This is terrifying, if node_type isn't an int this will blow up.
+            let buffer = ctx.program.insert_buffer(node_type, bytes.as_ptr());
+
+            Value::Global(buffer, node_type)
+        }
         NodeKind::Zeroed => {
             let to = ctx.registers.create(ctx.ast.get(node).type_());
             ctx.emit_set_to_zero(to);
@@ -635,10 +645,7 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, node: NodeId) -> Value {
                 ctx.registers.zst()
             }
         }
-        NodeKind::Unary {
-            op: UnaryOp::Reference,
-            operand,
-        } => {
+        NodeKind::Reference(operand) => {
             let to = ctx.registers.create(ctx.ast.get(node).type_());
             let from = emit_lvalue(ctx, true, *operand);
             match from {

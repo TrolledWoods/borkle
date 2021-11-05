@@ -1495,7 +1495,10 @@ impl TypeSystem {
     /// Adds a value set to a value. This value has to be an unknown type, otherwise it will panic
     /// in debug mode. It also cannot be an alias. This is solely intended for use by the building
     /// process of the typer.
+    #[track_caller]
     pub fn set_value_set(&mut self, value_id: ValueId, value_set_id: ValueSetId) {
+        println!("{}: put value {} in set {}", std::panic::Location::caller(), value_id, value_set_id);
+
         let MaybeMovedValue::Value(value) = &mut self.values[value_id] else {
             unreachable!("Cannot call set_value_set on an alias")
         };
