@@ -167,19 +167,22 @@ fn build_constraints(ctx: &mut Context<'_, '_>, node_id: NodeId, set: ValueSetId
             // @Speed: Somewhat needless allocation
             let args = args.to_vec();
 
+            let sub_set = ctx.infer.add_value_set(node_id);
+
             let mut function_type_ids = Vec::with_capacity(args.len() + 1);
-            let returns_type_id = build_constraints(ctx, returns, set);
+            let returns_type_id = build_constraints(ctx, returns, sub_set);
             function_type_ids.push(returns_type_id);
 
             for (local_id, type_node) in args {
                 let local_type_id = ctx.locals.get(local_id).type_infer_value_id;
-                let type_id = build_constraints(ctx, type_node, set);
+                let type_id = build_constraints(ctx, type_node, sub_set);
+                ctx.infer.set_value_set(local_type_id, sub_set);
                 ctx.infer
                     .set_equal(type_id, local_type_id, Variance::Invariant);
                 function_type_ids.push(type_id);
             }
 
-            let body_type_id = build_constraints(ctx, body, set);
+            let body_type_id = build_constraints(ctx, body, sub_set);
             ctx.infer
                 .set_equal(body_type_id, returns_type_id, Variance::Variant);
 
@@ -214,11 +217,26 @@ fn build_constraints(ctx: &mut Context<'_, '_>, node_id: NodeId, set: ValueSetId
                 .set_equal(calling_type_id, type_id, Variance::Invariant);
         }
         NodeKind::Declare {
-            local: _,
+            local,
             dummy_local_node: left,
             value: right,
+        } => {
+            // Set the set of the local to this type set
+            ctx.infer.set_value_set(ctx.locals.get(local).type_infer_value_id, set);
+
+            let access = ctx.infer.add_access(Some(Access::new(false, true)), set);
+            let left_type_id = build_lvalue(ctx, left, access, set);
+            let right_type_id = build_constraints(ctx, right, set);
+
+            ctx.infer
+                .set_equal(left_type_id, right_type_id, Variance::Covariant);
+
+            // @Performance: We could set the type directly(because no inferrence has happened yet),
+            // this is a roundabout way of doing things.
+            let temp = ctx.infer.add_type(type_infer::Empty, set);
+            ctx.infer.set_equal(node_type_id, temp, Variance::Invariant);
         }
-        | NodeKind::Binary {
+        NodeKind::Binary {
             op: BinaryOp::Assign,
             left,
             right,
