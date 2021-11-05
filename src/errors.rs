@@ -34,7 +34,7 @@ impl ErrorCtx {
 
     pub fn print(&self, file_contents: &UstrMap<String>) -> bool {
         for &(loc, ref message, ref info) in &self.errors {
-            println!("error:");
+            print!("ERROR: ");
             if let Some(loc) = loc {
                 print_loc(loc, message, file_contents);
             } else {
@@ -101,8 +101,12 @@ fn print_loc(loc: Location, message: &str, file_contents: &UstrMap<String>) {
                     print!(" ");
                 }
             }
-            println!("^");
-            println!("{}{}", " ".repeat(prefix.len() - 2), message);
+            if prefix.len() + message.len() <= 80 {
+                println!("^ {}", message);
+            } else {
+                println!("^");
+                println!("{}{}", " ".repeat(prefix.len() - 2), message);
+            }
         } else {
             println!("{} {}: {}", loc.file, loc.line, message);
         }

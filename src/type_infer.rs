@@ -1,9 +1,11 @@
 use crate::types::{self, IntTypeKind};
+use crate::errors::ErrorCtx;
 use crate::location::Location;
 use std::collections::HashMap;
 use std::iter::repeat_with;
 use std::hint::unreachable_unchecked;
 use std::mem;
+use std::sync::Arc;
 use ustr::Ustr;
 
 #[derive(Clone, Copy)]
@@ -25,36 +27,37 @@ pub struct Ref<V: IntoAccess, T: IntoType>(pub V, pub T);
 pub struct WithType<T: IntoType>(pub T);
 
 pub trait IntoType {
-    fn into_type(self, system: &mut TypeSystem, set: ValueSetId) -> ValueId;
+    fn into_type(self, system: &mut TypeSystem, set: ValueSetId, reason: Reason) -> ValueId;
 }
 
 impl IntoType for CompilerType {
-    fn into_type(self, system: &mut TypeSystem, set: ValueSetId) -> ValueId {
+    fn into_type(self, system: &mut TypeSystem, set: ValueSetId, reason: Reason) -> ValueId {
         match self.0 .0.kind {
-            types::TypeKind::Int(int_type_kind) => Int(int_type_kind).into_type(system, set),
+            types::TypeKind::Int(int_type_kind) => Int(int_type_kind).into_type(system, set, reason),
             types::TypeKind::Empty => {
-                system.add(ValueKind::Type(Some((TypeKind::Empty, Some(Box::new([]))))), set)
+                system.add(ValueKind::Type(Some((TypeKind::Empty, Some(Box::new([]))))), set, reason)
             }
             types::TypeKind::Bool => {
-                system.add(ValueKind::Type(Some((TypeKind::Bool, Some(Box::new([]))))), set)
+                system.add(ValueKind::Type(Some((TypeKind::Bool, Some(Box::new([]))))), set, reason)
             }
             types::TypeKind::Reference { pointee, permits } => Ref(
                 Access::new(permits.read(), permits.write()),
                 CompilerType(pointee),
             )
-            .into_type(system, set),
+            .into_type(system, set, reason),
             types::TypeKind::Array(type_, length) => {
-                Array(CompilerType(type_), length).into_type(system, set)
+                Array(CompilerType(type_), length).into_type(system, set, reason)
             }
             types::TypeKind::Struct(ref fields) => {
                 let field_names = fields.iter().map(|v| v.0).collect();
                 let field_types = fields
                     .iter()
-                    .map(|v| CompilerType(v.1).into_type(system, set))
+                    // @TODO: We should append the sub-expression used to the reason as well.
+                    .map(|v| CompilerType(v.1).into_type(system, set, reason.clone()))
                     .collect();
                 let value =
                     ValueKind::Type(Some((TypeKind::Struct(field_names), Some(field_types))));
-                system.add(value, set)
+                system.add(value, set, reason)
             }
             _ => todo!("This compiler type is not done yet"),
         }
@@ -62,104 +65,104 @@ impl IntoType for CompilerType {
 }
 
 impl<T: IntoType, V: IntoValue> IntoType for Array<T, V> {
-    fn into_type(self, system: &mut TypeSystem, set: ValueSetId) -> ValueId {
-        let inner_type = self.0.into_type(system, set);
-        let inner_value = self.1.into_value(system, set);
+    fn into_type(self, system: &mut TypeSystem, set: ValueSetId, reason: Reason) -> ValueId {
+        let inner_type = self.0.into_type(system, set, reason.clone());
+        let inner_value = self.1.into_value(system, set, reason.clone());
         system.add(ValueKind::Type(Some((
             TypeKind::Array,
             Some(Box::new([inner_type, inner_value])),
-        ))), set)
+        ))), set, reason)
     }
 }
 
 impl IntoType for Var {
-    fn into_type(self, _: &mut TypeSystem, set: ValueSetId) -> ValueId {
+    fn into_type(self, _: &mut TypeSystem, set: ValueSetId, reason: Reason) -> ValueId {
         self.0
     }
 }
 
 impl IntoType for Empty {
-    fn into_type(self, system: &mut TypeSystem, set: ValueSetId) -> ValueId {
-        system.add(ValueKind::Type(Some((TypeKind::Empty, Some(Box::new([]))))), set)
+    fn into_type(self, system: &mut TypeSystem, set: ValueSetId, reason: Reason) -> ValueId {
+        system.add(ValueKind::Type(Some((TypeKind::Empty, Some(Box::new([]))))), set, reason)
     }
 }
 
 impl IntoType for Int {
-    fn into_type(self, system: &mut TypeSystem, set: ValueSetId) -> ValueId {
+    fn into_type(self, system: &mut TypeSystem, set: ValueSetId, reason: Reason) -> ValueId {
         system.add(ValueKind::Type(Some((
             TypeKind::Int(self.0),
             Some(Box::new([])),
-        ))), set)
+        ))), set, reason)
     }
 }
 
 impl IntoType for Unknown {
-    fn into_type(self, system: &mut TypeSystem, set: ValueSetId) -> ValueId {
-        system.add(ValueKind::Type(None), set)
+    fn into_type(self, system: &mut TypeSystem, set: ValueSetId, reason: Reason) -> ValueId {
+        system.add_without_reason(ValueKind::Type(None), set)
     }
 }
 
 impl<T: IntoAccess, V: IntoType> IntoType for Ref<T, V> {
-    fn into_type(self, system: &mut TypeSystem, set: ValueSetId) -> ValueId {
-        let inner_variance = self.0.into_variance(system, set);
-        let inner_type = self.1.into_type(system, set);
+    fn into_type(self, system: &mut TypeSystem, set: ValueSetId, reason: Reason) -> ValueId {
+        let inner_variance = self.0.into_variance(system, set, reason.clone());
+        let inner_type = self.1.into_type(system, set, reason.clone());
         system.add(ValueKind::Type(Some((
             TypeKind::Reference,
             Some(Box::new([inner_variance, inner_type])),
-        ))), set)
+        ))), set, reason)
     }
 }
 
 pub trait IntoAccess {
-    fn into_variance(self, system: &mut TypeSystem, set: ValueSetId) -> ValueId;
+    fn into_variance(self, system: &mut TypeSystem, set: ValueSetId, reason: Reason) -> ValueId;
 }
 
 impl IntoAccess for Access {
-    fn into_variance(self, system: &mut TypeSystem, set: ValueSetId) -> ValueId {
-        system.add_access(Some(self), set)
+    fn into_variance(self, system: &mut TypeSystem, set: ValueSetId, reason: Reason) -> ValueId {
+        system.add_access(Some(self), set, reason)
     }
 }
 
 impl IntoAccess for Var {
-    fn into_variance(self, _: &mut TypeSystem, _: ValueSetId) -> ValueId {
+    fn into_variance(self, _: &mut TypeSystem, _: ValueSetId, reason: Reason) -> ValueId {
         self.0
     }
 }
 
 impl IntoAccess for Unknown {
-    fn into_variance(self, system: &mut TypeSystem, set: ValueSetId) -> ValueId {
-        system.add_access(None, set)
+    fn into_variance(self, system: &mut TypeSystem, set: ValueSetId, reason: Reason) -> ValueId {
+        system.add_access(None, set, reason)
     }
 }
 
 pub trait IntoValue {
-    fn into_value(self, system: &mut TypeSystem, set: ValueSetId) -> ValueId;
+    fn into_value(self, system: &mut TypeSystem, set: ValueSetId, reason: Reason) -> ValueId;
 }
 
 impl<T: IntoType> IntoValue for WithType<T> {
-    fn into_value(self, system: &mut TypeSystem, set: ValueSetId) -> ValueId {
-        let type_ = self.0.into_type(system, set);
-        system.add(ValueKind::Value(Some((type_, None))), set)
+    fn into_value(self, system: &mut TypeSystem, set: ValueSetId, reason: Reason) -> ValueId {
+        let type_ = self.0.into_type(system, set, reason.clone());
+        system.add(ValueKind::Value(Some((type_, None))), set, reason)
     }
 }
 
 impl IntoValue for usize {
-    fn into_value(self, system: &mut TypeSystem, set: ValueSetId) -> ValueId {
-        let int_type = system.add_type(Int(IntTypeKind::Usize), set);
-        system.add(ValueKind::Value(Some((int_type, Some(self)))), set)
+    fn into_value(self, system: &mut TypeSystem, set: ValueSetId, reason: Reason) -> ValueId {
+        let int_type = system.add_type(Int(IntTypeKind::Usize), set, reason.clone());
+        system.add(ValueKind::Value(Some((int_type, Some(self)))), set, reason)
     }
 }
 
 impl IntoValue for Var {
     // @Correctness: Should the set be added to the var here?
-    fn into_value(self, _: &mut TypeSystem, _set: ValueSetId) -> ValueId {
+    fn into_value(self, _: &mut TypeSystem, _set: ValueSetId, reason: Reason) -> ValueId {
         self.0
     }
 }
 
 impl IntoValue for Unknown {
-    fn into_value(self, system: &mut TypeSystem, set: ValueSetId) -> ValueId {
-        system.add(ValueKind::Value(None), set)
+    fn into_value(self, system: &mut TypeSystem, set: ValueSetId, reason: Reason) -> ValueId {
+        system.add(ValueKind::Value(None), set, reason)
     }
 }
 
@@ -344,21 +347,40 @@ impl ValueKind {
 /// This describes the reason why a value is the way it is.
 /// For example, why is this a reference? Why is this a function? e.t.c.
 /// This means we can give reasonable reporting when errors occur.
-#[derive(Clone, Copy, PartialEq, Eq)]
-struct ValueReason {
-    pub location: Location,
-    pub reason: &'static str,
+#[derive(Clone, PartialEq, Eq)]
+pub struct Reason {
+    pub loc: Location,
+    pub message: Arc<String>,
+}
+
+impl Reason {
+    pub fn new(loc: Location, message: impl ToString) -> Self {
+        Self {
+            loc,
+            message: Arc::new(message.to_string()),
+        }
+    }
 }
 
 #[derive(Default, Clone)]
-struct ValueReasons {
-    buffer: [Option<ValueReason>; 4],
+struct Reasons {
+    buffer: [Option<Reason>; 4],
     /// A flag for if there were more reasons that we couldn't fit into the structure.
     omitted_reasons: bool,
 }
 
-impl ValueReasons {
-    fn insert(&mut self, value: ValueReason) {
+impl Reasons {
+    fn with_one(value: Reason) -> Self {
+        let mut v = Self::default();
+        v.insert(value);
+        v
+    }
+
+    fn iter(&self) -> impl Iterator<Item = &Reason> {
+        self.buffer.iter().filter_map(|v| v.as_ref())
+    }
+
+    fn insert(&mut self, value: Reason) {
         // @Robustness: We want a strict ordering so that errors are consistant, but temporarily this is fine.
         let mut none_index = None;
         for (i, v) in self.buffer.iter().enumerate() {
@@ -378,8 +400,13 @@ impl ValueReasons {
         }
     }
 
-    fn take_reasons_from(&mut self, other: ValueReasons) {
-        for value in other.buffer.into_iter().filter_map(|v| v) {
+    fn combine(&mut self, other: &mut Reasons) {
+        self.take_reasons_from(other);
+        other.buffer = self.buffer.clone();
+    }
+
+    fn take_reasons_from(&mut self, other: &Reasons) {
+        for value in other.buffer.iter().filter_map(|v| v.clone()) {
             self.insert(value);
         }
     }
@@ -390,7 +417,7 @@ pub type ValueId = usize;
 struct Value {
     kind: ValueKind,
     value_sets: Vec<ValueSetId>,
-    // reasons: ValueReasons,
+    reasons: Reasons,
     // /// If a value isn't known, it should generate an error, but if it's possible that it's not known because
     // /// an error occured, we don't want to generate an error, which is why this flag exists.
     // related_to_error: bool,
@@ -675,6 +702,53 @@ impl TypeSystem {
         }
     }
 
+    pub fn output_errors(&self, errors: &mut ErrorCtx) {
+        for error in &self.errors {
+            match *error {
+                Error { a, b, kind: ErrorKind::IncompatibleTypes } => {
+                    let a_type = self.value_to_str(a, 7);
+                    let b_type = self.value_to_str(b, 7);
+
+                    let a = get_value(&self.values, a);
+                    let b = get_value(&self.values, b);
+
+                    let mut reasons = a.reasons.iter();
+                    if let Some(reason) = reasons.next() {
+                        errors.info(
+                            reason.loc,
+                            format!("'{}' because {}", a_type, reason.message),
+                        );
+                    }
+
+                    for reason in reasons {
+                        errors.info(
+                            reason.loc,
+                            format!(".. and because {}", reason.message),
+                        );
+                    }
+
+                    let mut reasons = b.reasons.iter();
+                    if let Some(reason) = reasons.next() {
+                        errors.info(
+                            reason.loc,
+                            format!("'{}' because {}", b_type, reason.message),
+                        );
+                    }
+
+                    for reason in reasons {
+                        errors.info(
+                            reason.loc,
+                            format!(".. and because {}", reason.message),
+                        );
+                    }
+
+                    errors.global_error(format!("Conflicting types '{}' and '{}'", a_type, b_type));
+                }
+                _ => errors.global_error(format!("Temporary type-inference error: {:?}", error)),
+            }
+        }
+    }
+
     pub fn value_sets(&self) -> impl Iterator<Item = ValueSetId> {
         0..self.value_sets.len()
     }
@@ -848,9 +922,9 @@ impl TypeSystem {
             return "...".to_string();
         }
         match &self.values[value] {
-            &MaybeMovedValue::Moved(new_index) => format!("(from {}) {}", new_index, self.value_to_str(new_index, rec + 1)),
+            &MaybeMovedValue::Moved(new_index) => self.value_to_str(new_index, rec),
             MaybeMovedValue::Value(v) => match &v.kind {
-                Access(None) => format!("?rw?"),
+                Access(None) => format!("_"),
                 Access(Some(access)) => {
                     format!(
                         "{}{}",
@@ -1253,6 +1327,7 @@ impl TypeSystem {
                                         let kind = variant_value.kind.to_unknown();
                                         let new_value = Value {
                                             kind,
+                                            reasons: Reasons::default(),
                                             value_sets: base_value_sets.clone(),
                                         };
                                         self.values.push(MaybeMovedValue::Value(new_value));
@@ -1369,6 +1444,20 @@ impl TypeSystem {
                                     );
                                 }
                             }
+
+                            // @Duplicate code: with stuff above.
+                            // @Performance: Could be unreachable_unchecked in the future....
+                            let (a_slice, b_slice) = self.values.split_at_mut(b_id);
+                            let MaybeMovedValue::Value(Value { reasons: a_reasons, .. }) = &mut a_slice[a_id] else {
+                                unreachable!("It shouldn't be possible for the value of an equal constraint to be aliased")
+                            };
+                            let MaybeMovedValue::Value(Value { reasons: b_reasons, .. }) = &mut b_slice[0] else {
+                                unreachable!("It shouldn't be possible for the value of an equal constraint to be aliased")
+                            };
+                            // Combine the error message reasons for why these values are the way they are.
+                            // It has to be down here so that it doesn't happen if there are any errors with the
+                            // equality.
+                            a_reasons.combine(b_reasons);
                         }
                     }
 
@@ -1479,7 +1568,7 @@ impl TypeSystem {
         }
     }
 
-    pub fn add(&mut self, value: ValueKind, set: ValueSetId) -> ValueId {
+    pub fn add(&mut self, value: ValueKind, set: ValueSetId, reason: Reason) -> ValueId {
         let id = self.values.len();
         // TODO: Support values here too.
         if matches!(value, ValueKind::Type(None) | ValueKind::Type(Some((_, None)))) {
@@ -1487,6 +1576,21 @@ impl TypeSystem {
         }
         self.values.push(MaybeMovedValue::Value(Value {
             kind: value,
+            reasons: Reasons::with_one(reason),
+            value_sets: vec![set],
+        }));
+        id
+    }
+
+    fn add_without_reason(&mut self, value: ValueKind, set: ValueSetId) -> ValueId {
+        // TODO: Support values here too.
+        if matches!(value, ValueKind::Type(None) | ValueKind::Type(Some((_, None)))) {
+            self.value_sets[set].uncomputed_values += 1;
+        }
+        let id = self.values.len();
+        self.values.push(MaybeMovedValue::Value(Value {
+            kind: ValueKind::Type(None),
+            reasons: Reasons::default(),
             value_sets: vec![set],
         }));
         id
@@ -1516,24 +1620,35 @@ impl TypeSystem {
         let id = self.values.len();
         self.values.push(MaybeMovedValue::Value(Value {
             kind: ValueKind::Type(None),
+            reasons: Reasons::default(),
             value_sets: Vec::new(),
         }));
         id
     }
 
-    pub fn add_value(&mut self, value: impl IntoValue, set: ValueSetId) -> ValueId {
-        value.into_value(self, set)
+    pub fn add_value(&mut self, value: impl IntoValue, set: ValueSetId, reason: Reason) -> ValueId {
+        value.into_value(self, set, reason)
     }
 
-    pub fn add_access(&mut self, access: Option<Access>, set: ValueSetId) -> ValueId {
+    pub fn add_empty_access(&mut self, set: ValueSetId) -> ValueId {
+        let id = self.values.len();
+        self.values.push(MaybeMovedValue::Value(Value {
+            kind: ValueKind::Access(None),
+            reasons: Reasons::default(),
+            value_sets: vec![set],
+        }));
+        id
+    }
+
+    pub fn add_access(&mut self, access: Option<Access>, set: ValueSetId, reason: Reason) -> ValueId {
         if access.is_none() {
             self.value_sets[set].uncomputed_values += 1;
         }
-        self.add(ValueKind::Access(access), set)
+        self.add(ValueKind::Access(access), set, reason)
     }
 
-    pub fn add_type(&mut self, type_: impl IntoType, set: ValueSetId) -> ValueId {
-        type_.into_type(self, set)
+    pub fn add_type(&mut self, type_: impl IntoType, set: ValueSetId, reason: Reason) -> ValueId {
+        type_.into_type(self, set, reason)
     }
 }
 
