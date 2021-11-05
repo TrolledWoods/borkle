@@ -409,7 +409,7 @@ enum MaybeMovedValue {
 
 type ConstraintId = usize;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy)]
 struct Constraint {
     kind: ConstraintKind,
 }
@@ -560,8 +560,9 @@ fn insert_constraint(
     available_constraints: &mut HashMap<ValueId, Vec<ConstraintId>>,
     constraint: Constraint,
 ) -> Option<ConstraintId> {
-    // @Performance: We can do a faster lookup using available_constraints
-    if let Some(id) = constraints.iter().position(|v| v == &constraint) {
+    // @Performance: We can do a faster lookup using available_constraints.
+    // We also want to join constraints together that are the exact same but with just different variances.
+    if let Some(id) = constraints.iter().position(|v| v.kind == constraint.kind) {
         return Some(id);
     }
 
@@ -603,7 +604,7 @@ fn insert_active_constraint(
     // @Performance: We can do a faster lookup using available_constraints
     // @TODO: We want to check for equality things with just different variances here too, but I think
     // I have to change how constraints are represented first as well.
-    if let Some(_) = constraints.iter().position(|v| v == &constraint) {
+    if let Some(_) = constraints.iter().position(|v| v.kind == constraint.kind) {
         return;
     }
 
