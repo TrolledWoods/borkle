@@ -9,7 +9,7 @@ pub struct Context<'a, 'b> {
     pub thread_context: &'a mut ThreadContext<'b>,
     pub instr: Vec<Instr>,
     pub registers: Registers,
-    pub locals: LocalVariables,
+    pub locals: &'a mut LocalVariables,
     pub program: &'b Program,
     pub label_locations: Vec<usize>,
     pub calling: Vec<FunctionId>,

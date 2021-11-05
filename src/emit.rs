@@ -13,9 +13,10 @@ use context::Context;
 pub fn emit<'a>(
     thread_context: &mut ThreadContext<'a>,
     program: &'a Program,
-    locals: LocalVariables,
+    locals: &mut LocalVariables,
     ast: &Ast,
     node: NodeId,
+    stack_frame_id: crate::type_infer::ValueSetId,
 ) -> (Vec<FunctionId>, UserDefinedRoutine) {
     let mut ctx = Context {
         thread_context,
@@ -32,8 +33,10 @@ pub fn emit<'a>(
 
     // Allocate registers for all the locals
     for local in ctx.locals.iter_mut() {
-        let value = ctx.registers.create(local.type_.unwrap());
-        local.value = Some(value);
+        if local.stack_frame_id == stack_frame_id {
+            let value = ctx.registers.create(local.type_.unwrap());
+            local.value = Some(value);
+        }
     }
 
     let result = emit_node(&mut ctx, node);
@@ -52,10 +55,12 @@ pub fn emit<'a>(
 pub fn emit_function_declaration<'a>(
     thread_context: &mut ThreadContext<'a>,
     program: &'a Program,
-    locals: LocalVariables,
+    locals: &mut LocalVariables,
     ast: &Ast,
+    node_id: NodeId,
     type_: Type,
     function_id: FunctionId,
+    stack_frame_id: crate::type_infer::ValueSetId,
 ) {
     let mut sub_ctx = Context {
         thread_context,
@@ -71,11 +76,13 @@ pub fn emit_function_declaration<'a>(
 
     // Allocate registers for all the locals
     for local in sub_ctx.locals.iter_mut() {
-        let value = sub_ctx.registers.create(local.type_.unwrap());
-        local.value = Some(value);
+        if local.stack_frame_id == stack_frame_id {
+            let value = sub_ctx.registers.create(local.type_.unwrap());
+            local.value = Some(value);
+        }
     }
 
-    let result = emit_node(&mut sub_ctx, ast.root);
+    let result = emit_node(&mut sub_ctx, node_id);
 
     let routine = Routine::UserDefined(UserDefinedRoutine {
         label_locations: sub_ctx.label_locations,
@@ -122,6 +129,9 @@ pub fn emit_function_declaration<'a>(
 
 fn emit_node<'a>(ctx: &mut Context<'a, '_>, node: NodeId) -> Value {
     match &ctx.ast.get(node).kind {
+        NodeKind::Empty => {
+            ctx.registers.zst()
+        }
         NodeKind::Break {
             label: label_id,
             num_defer_deduplications,
@@ -759,7 +769,7 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, node: NodeId) -> Value {
         NodeKind::TypeBound { value, bound: _ } | NodeKind::Parenthesis(value) => {
             emit_node(ctx, *value)
         }
-        _ => unreachable!("This node should not reach emission"),
+        c => unreachable!("This node should not reach emission: {:?}", c),
     }
 }
 

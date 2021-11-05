@@ -79,10 +79,79 @@ pub fn process_ast<'a>(
     let root_value_set = ctx.infer.add_value_set(root);
     build_constraints(&mut ctx, root, root_value_set);
 
-    ctx.infer.solve();
-    ctx.infer.finish();
+    loop {
+        ctx.infer.solve();
 
-    // @Temporary: Just to make it work for now
+        let mut progress = false;
+        for value_set_id in ctx.infer.value_sets() {
+            let value_set = ctx.infer.get_value_set_mut(value_set_id);
+            if value_set_id == 0 // <- We don't want the base node, it's a special case, since it can't be dealt with by emit_execution_context; it can be any node.
+            || value_set.has_errors
+            || value_set.has_been_computed
+            || value_set.uncomputed_values > 0 {
+                continue;
+            }
+
+            let related_nodes = std::mem::take(&mut value_set.related_nodes);
+            for &node_id in &related_nodes {
+                let node = ctx.ast.get_mut(node_id);
+                if node.type_.is_none() {
+                    node.type_ = Some(ctx.infer.value_to_compiler_type(node.type_infer_value_id));
+                }
+            }
+            for local in ctx.locals.iter_mut() {
+                if local.stack_frame_id == value_set_id {
+                    debug_assert!(local.type_.is_none());
+                    local.type_ = Some(ctx.infer.value_to_compiler_type(local.type_infer_value_id));
+                }
+            }
+            let value_set = ctx.infer.get_value_set_mut(value_set_id);
+            value_set.related_nodes = related_nodes;
+            value_set.has_been_computed = true;
+            let node_id = value_set.ast_node;
+
+            emit_execution_context(&mut ctx, node_id, value_set_id);
+
+            progress = true;
+        }
+
+        if !progress {
+            break;
+        }
+    }
+
+    println!("\nLocals:\n");
+    for local in ctx.locals.iter() {
+        println!(
+            "{}: {}",
+            local.name,
+            ctx.infer.value_to_str(local.type_infer_value_id, 0)
+        );
+    }
+    
+    if !ctx.infer.errors.is_empty() {
+        println!("There were typing errors:");
+        for error in &ctx.infer.errors {
+            println!("Error: {:?}", error);
+        }
+
+        return Err(());
+    }
+
+    let mut are_incomplete_sets = false;
+    for value_set_id in ctx.infer.value_sets() {
+        let value_set = ctx.infer.get_value_set_mut(value_set_id);
+        if value_set.has_errors || value_set.uncomputed_values > 0 {
+            println!("Set {} is uncomputable!", value_set_id);
+            are_incomplete_sets = true;
+        }
+    }
+
+    if are_incomplete_sets {
+        return Err(());
+    }
+
+    // @Temporary: Just to make it work for now, we should really only deal with the base set
     for node in &mut ctx.ast.nodes {
         if node.type_.is_none() {
             node.type_ = Some(ctx.infer.value_to_compiler_type(node.type_infer_value_id));
@@ -95,23 +164,61 @@ pub fn process_ast<'a>(
         }
     }
 
-    println!("\nLocals:\n");
-    for local in ctx.locals.iter() {
-        println!(
-            "{}: {}",
-            local.name,
-            ctx.infer.value_to_str(local.type_infer_value_id, 0)
-        );
-    }
-
     Ok(Ok((ctx.emit_deps, ctx.locals, ctx.ast)))
+}
+
+fn emit_execution_context(ctx: &mut Context<'_, '_>, node_id: NodeId, set: ValueSetId) {
+    let node = ctx.ast.get(node_id);
+    let node_loc = node.loc;
+    
+    match node.kind {
+        NodeKind::FunctionDeclarationInTyping { body, function_type, parent_set } => {
+            let type_ = ctx.infer.value_to_compiler_type(function_type);
+
+            let function_id = ctx.program.insert_function(node_loc);
+
+            // TODO: We want to only queue a task to emit the function later,
+            // right now we emit it immediately though. Probably the
+            // dependencies we emit aren't correct right now either.
+            crate::emit::emit_function_declaration(
+                ctx.thread_context,
+                ctx.program,
+                &mut ctx.locals,
+                &ctx.ast,
+                body,
+                type_,
+                function_id,
+                set,
+            );
+
+            let function_id_buffer = ctx
+                .program
+                .insert_buffer(type_, &function_id as *const _ as *const u8);
+
+            ctx.ast.get_mut(node_id).kind = NodeKind::Constant(
+                function_id_buffer,
+                None,
+                // Later, we probably want the meta data for the function
+                // included as well.
+                /*Some(Arc::new(MemberMetaData::Function {
+                    arg_names,
+                    default_values,
+                })),*/
+            );
+
+            ctx.infer.unlock_value_set(parent_set);
+        }
+        _ => unreachable!("A {:?} doesn't define an execution context", node.kind),
+    }
 }
 
 fn build_constraints(ctx: &mut Context<'_, '_>, node_id: NodeId, set: ValueSetId) -> type_infer::ValueId {
     let node = ctx.ast.get(node_id);
+    let node_loc = node.loc;
     let node_type_id = node.type_infer_value_id;
 
     ctx.infer.set_value_set(node_type_id, set);
+    ctx.infer.add_node_to_set(set, node_id);
 
     match node.kind {
         NodeKind::Uninit | NodeKind::Zeroed | NodeKind::ImplicitType => {}
@@ -127,9 +234,15 @@ fn build_constraints(ctx: &mut Context<'_, '_>, node_id: NodeId, set: ValueSetId
                 .set_field_name_equal(of_type_id, name, node_type_id, Variance::Invariant);
         }
         NodeKind::Local(local_id) => {
-            let local_type_id = ctx.locals.get(local_id).type_infer_value_id;
+            let local = ctx.locals.get(local_id);
+            let local_type_id = local.type_infer_value_id;
             ctx.infer
                 .set_equal(local_type_id, node_type_id, Variance::Invariant);
+
+            if local.stack_frame_id != set {
+                ctx.errors.error(node_loc, "Variable is defined in a different execution context, you cannot access it here, other than for its type". to_string());
+                ctx.infer.make_value_set_erroneous(set);
+            }
         }
         NodeKind::If {
             condition,
@@ -182,12 +295,18 @@ fn build_constraints(ctx: &mut Context<'_, '_>, node_id: NodeId, set: ValueSetId
 
             let sub_set = ctx.infer.add_value_set(node_id);
 
+            // The parent value set has to wait for this function declaration to be emitted until
+            // it can continue, so we lock it to make sure it doesn't get emitted before then.
+            ctx.infer.lock_value_set(set);
+
             let mut function_type_ids = Vec::with_capacity(args.len() + 1);
             let returns_type_id = build_constraints(ctx, returns, sub_set);
             function_type_ids.push(returns_type_id);
 
             for (local_id, type_node) in args {
-                let local_type_id = ctx.locals.get(local_id).type_infer_value_id;
+                let local = ctx.locals.get_mut(local_id);
+                local.stack_frame_id = sub_set;
+                let local_type_id = local.type_infer_value_id;
                 let type_id = build_constraints(ctx, type_node, sub_set);
                 ctx.infer.set_value_set(local_type_id, sub_set);
                 ctx.infer
@@ -203,9 +322,15 @@ fn build_constraints(ctx: &mut Context<'_, '_>, node_id: NodeId, set: ValueSetId
                 type_infer::TypeKind::Function,
                 Some(function_type_ids.into_boxed_slice()),
             )));
-            let infer_type_id = ctx.infer.add(infer_type, set);
+            let infer_type_id = ctx.infer.add(infer_type, sub_set);
             ctx.infer
                 .set_equal(infer_type_id, node_type_id, Variance::Invariant);
+
+            ctx.ast.get_mut(node_id).kind = NodeKind::FunctionDeclarationInTyping {
+                body,
+                function_type: infer_type_id,
+                parent_set: set,
+            };
         }
         NodeKind::FunctionCall { calling, ref args } => {
             // @Speed: Somewhat needless allocation
@@ -228,6 +353,11 @@ fn build_constraints(ctx: &mut Context<'_, '_>, node_id: NodeId, set: ValueSetId
             let type_id = ctx.infer.add(infer_type, set);
             ctx.infer
                 .set_equal(calling_type_id, type_id, Variance::Invariant);
+
+            ctx.ast.get_mut(node_id).kind = NodeKind::ResolvedFunctionCall {
+                calling,
+                args: args.into_iter().enumerate().collect(),
+            };
         }
         NodeKind::Declare {
             local,
@@ -235,7 +365,9 @@ fn build_constraints(ctx: &mut Context<'_, '_>, node_id: NodeId, set: ValueSetId
             value: right,
         } => {
             // Set the set of the local to this type set
-            ctx.infer.set_value_set(ctx.locals.get(local).type_infer_value_id, set);
+            let local = ctx.locals.get_mut(local);
+            local.stack_frame_id = set;
+            ctx.infer.set_value_set(local.type_infer_value_id, set);
 
             let access = ctx.infer.add_access(Some(Access::new(false, true)), set);
             let left_type_id = build_lvalue(ctx, left, access, set);
@@ -380,6 +512,7 @@ fn build_lvalue(
     set: ValueSetId,
 ) -> type_infer::ValueId {
     let node = ctx.ast.get(node_id);
+    let node_loc = node.loc;
     let node_type_id = node.type_infer_value_id;
 
     ctx.infer.set_value_set(node_type_id, set);
@@ -391,9 +524,15 @@ fn build_lvalue(
                 .set_field_name_equal(of_type_id, name, node_type_id, Variance::Invariant);
         }
         NodeKind::Local(local_id) => {
-            let local_type_id = ctx.locals.get(local_id).type_infer_value_id;
+            let local = ctx.locals.get(local_id);
+            let local_type_id = local.type_infer_value_id;
             ctx.infer
                 .set_equal(local_type_id, node_type_id, Variance::Invariant);
+
+            if local.stack_frame_id != set {
+                ctx.errors.error(node_loc, "Variable is defined in a different execution context, you cannot access it here, other than for its type".to_string());
+                ctx.infer.make_value_set_erroneous(set);
+            }
         }
         NodeKind::Parenthesis(inner) => {
             build_lvalue(ctx, inner, access, set);

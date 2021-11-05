@@ -95,163 +95,7 @@ impl AstBuilder {
 
         use NodeKind::*;
 
-        match node.kind {
-            Parenthesis(inner) => self.get_mut(inner).parent = Some(id),
-            Literal(_) => {}
-            ArrayLiteral(ref nodes) => {
-                for &node in nodes {
-                    self.get_mut(node).parent = Some(id);
-                }
-            }
-            BuiltinFunction(_) => {}
-
-            PolymorphicArgument(_) => {}
-            ConstAtTyping { inner } => self.get_mut(inner).parent = Some(id),
-            ConstAtEvaluation { inner } => self.get_mut(inner).parent = Some(id),
-
-            Global(_, _, ref nodes) => {
-                for &node in nodes {
-                    self.get_mut(node).parent = Some(id);
-                }
-            }
-            GlobalForTyping(_, _, ref nodes) => {
-                for &node in nodes {
-                    self.get_mut(node).parent = Some(id);
-                }
-            }
-
-            Constant(_, _) => {}
-            ResolvedGlobal(_, _) => {}
-
-            For {
-                iterator: _,
-                iteration_var: _,
-                iterating: condition,
-                body,
-                else_body,
-                label: _,
-            }
-            | While {
-                condition,
-                iteration_var: _,
-                body,
-                else_body,
-                label: _,
-            }
-            | If {
-                condition,
-                true_body: body,
-                false_body: else_body,
-            } => {
-                self.get_mut(condition).parent = Some(id);
-                self.get_mut(body).parent = Some(id);
-                else_body.map(|v| self.get_mut(v).parent = Some(id));
-            }
-            Member { of, name: _ } => self.get_mut(of).parent = Some(id),
-
-            FunctionDeclaration {
-                ref args,
-                returns,
-                body,
-            } => {
-                for &(_, arg) in args {
-                    self.get_mut(arg).parent = Some(id);
-                }
-                self.get_mut(returns).parent = Some(id);
-                self.get_mut(body).parent = Some(id);
-            }
-
-            BufferType(inner) | TypeAsValue(inner) => self.get_mut(inner).parent = Some(id),
-            NamedType {
-                name: _,
-                ref fields,
-                aliases: _,
-            }
-            | StructType { ref fields } => {
-                for &(_, field) in fields {
-                    self.get_mut(field).parent = Some(id);
-                }
-            }
-            ReferenceType(inner, _)
-            | Reference(inner)
-            | Defer { deferring: inner }
-            | BitCast { value: inner } => {
-                self.get_mut(inner).parent = Some(id);
-            }
-            ArrayType { len, members } => {
-                self.get_mut(len).parent = Some(id);
-                self.get_mut(members).parent = Some(id);
-            }
-            FunctionType { ref args, returns } => {
-                self.get_mut(returns).parent = Some(id);
-                for &arg in args {
-                    self.get_mut(arg).parent = Some(id);
-                }
-            }
-            LiteralType(_) | ImplicitType => {}
-
-            Unary { op: _, operand } => self.get_mut(operand).parent = Some(id),
-            Binary { op: _, left, right } => {
-                self.get_mut(left).parent = Some(id);
-                self.get_mut(right).parent = Some(id);
-            }
-
-            Break {
-                label: _,
-                num_defer_deduplications: _,
-                value,
-            } => self.get_mut(value).parent = Some(id),
-
-            FunctionCall { calling, ref args } => {
-                self.get_mut(calling).parent = Some(id);
-                for &arg in args {
-                    self.get_mut(arg).parent = Some(id);
-                }
-            }
-            ResolvedFunctionCall { calling, ref args } => {
-                self.get_mut(calling).parent = Some(id);
-                for &(_, arg) in args {
-                    self.get_mut(arg).parent = Some(id);
-                }
-            }
-
-            Block {
-                ref contents,
-                label: _,
-            } => {
-                for &arg in contents {
-                    self.get_mut(arg).parent = Some(id);
-                }
-            }
-            Empty | Uninit | Zeroed => {}
-
-            TypeBound { value, bound } => {
-                self.get_mut(value).parent = Some(id);
-                self.get_mut(bound).parent = Some(id);
-            }
-            Declare {
-                local: _,
-                dummy_local_node,
-                value,
-            } => {
-                self.get_mut(value).parent = Some(id);
-                self.get_mut(dummy_local_node).parent = Some(id);
-            }
-            Local(_) => {}
-
-            ArrayToBuffer { length: _, array } => {
-                self.get_mut(array).parent = Some(id);
-            }
-            BufferToVoid { buffer, inner: _ } => {
-                self.get_mut(buffer).parent = Some(id);
-            }
-            VoidToBuffer { any, inner: _ } => {
-                self.get_mut(any).parent = Some(id);
-            }
-            PtrToAny { ptr, type_: _ } => {
-                self.get_mut(ptr).parent = Some(id);
-            }
-        }
+        node.child_nodes(|v| self.get_mut(v).parent = Some(id));
 
         self.nodes.push(node);
         id
@@ -290,6 +134,173 @@ impl Node {
             type_: None,
             parent: None,
             type_infer_value_id: 0xffff_ffff,
+        }
+    }
+
+    // @TODO:
+    // We probably want to change it so it's easy to recurse through a tree
+    // in the future, but for now this is the best I can think of....
+    fn child_nodes(&self, mut v: impl FnMut(NodeId)) {
+        use NodeKind::*;
+        match self.kind {
+            Parenthesis(inner) => v(inner),
+            Literal(_) => {}
+            ArrayLiteral(ref nodes) => {
+                for &node in nodes {
+                    v(node);
+                }
+            }
+            BuiltinFunction(_) => {}
+
+            PolymorphicArgument(_) => {}
+            ConstAtTyping { inner } => v(inner),
+            ConstAtEvaluation { inner } => v(inner),
+
+            Global(_, _, ref nodes) => {
+                for &node in nodes {
+                    v(node);
+                }
+            }
+            GlobalForTyping(_, _, ref nodes) => {
+                for &node in nodes {
+                    v(node);
+                }
+            }
+
+            Constant(_, _) => {}
+            ResolvedGlobal(_, _) => {}
+
+            For {
+                iterator: _,
+                iteration_var: _,
+                iterating: condition,
+                body,
+                else_body,
+                label: _,
+            }
+            | While {
+                condition,
+                iteration_var: _,
+                body,
+                else_body,
+                label: _,
+            }
+            | If {
+                condition,
+                true_body: body,
+                false_body: else_body,
+            } => {
+                v(condition);
+                v(body);
+                else_body.map(|v2| v(v2));
+            }
+            Member { of, name: _ } => v(of),
+
+            FunctionDeclaration {
+                ref args,
+                returns,
+                body,
+            } => {
+                for &(_, arg) in args {
+                    v(arg);
+                }
+                v(returns);
+                v(body);
+            }
+            FunctionDeclarationInTyping { body, function_type: _, parent_set: _ } => {
+                v(body);
+            }
+
+            BufferType(inner) | TypeAsValue(inner) => v(inner),
+            NamedType {
+                name: _,
+                ref fields,
+                aliases: _,
+            }
+            | StructType { ref fields } => {
+                for &(_, field) in fields {
+                    v(field);
+                }
+            }
+            ReferenceType(inner, _)
+            | Reference(inner)
+            | Defer { deferring: inner }
+            | BitCast { value: inner } => {
+                v(inner);
+            }
+            ArrayType { len, members } => {
+                v(len);
+                v(members);
+            }
+            FunctionType { ref args, returns } => {
+                v(returns);
+                for &arg in args {
+                    v(arg);
+                }
+            }
+            LiteralType(_) | ImplicitType => {}
+
+            Unary { op: _, operand } => v(operand),
+            Binary { op: _, left, right } => {
+                v(left);
+                v(right);
+            }
+
+            Break {
+                label: _,
+                num_defer_deduplications: _,
+                value,
+            } => v(value),
+
+            FunctionCall { calling, ref args } => {
+                v(calling);
+                for &arg in args {
+                    v(arg);
+                }
+            }
+            ResolvedFunctionCall { calling, ref args } => {
+                v(calling);
+                for &(_, arg) in args {
+                    v(arg);
+                }
+            }
+
+            Block {
+                ref contents,
+                label: _,
+            } => {
+                for &arg in contents {
+                    v(arg);
+                }
+            }
+            Empty | Uninit | Zeroed => {}
+
+            TypeBound { value, bound } => {
+                v(value);
+                v(bound);
+            }
+            Declare {
+                local: _,
+                dummy_local_node,
+                value,
+            } => {
+                v(value);
+                v(dummy_local_node);
+            }
+            Local(_) => {}
+
+            ArrayToBuffer { length: _, array } => {
+                v(array);
+            }
+            BufferToVoid { buffer, inner: _ } => {
+                v(buffer);
+            }
+            VoidToBuffer { any, inner: _ } => {
+                v(any);
+            }
+            PtrToAny { ptr, type_: _ } => {
+                v(ptr);
+            }
         }
     }
 
@@ -348,6 +359,15 @@ pub enum NodeKind {
         args: Vec<(LocalId, NodeId)>,
         returns: NodeId,
         body: NodeId,
+    },
+    FunctionDeclarationInTyping {
+        body: NodeId,
+        /// A node containing the type of the value.
+        function_type: crate::type_infer::ValueId,
+        /// This is because function declaration create a constant in the
+        /// parent set, and we have to make sure that the parent set isn't
+        /// emitted before that constant is created.
+        parent_set: crate::type_infer::ValueSetId,
     },
 
     /// Any node within this node, is what I call a "type" node. These nodes, when typechecked, actually have their

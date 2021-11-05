@@ -11,13 +11,14 @@ pub use stack::{Stack, StackFrame, StackValue, StackValueMut};
 pub fn emit_and_run<'a>(
     thread_context: &mut crate::thread_pool::ThreadContext<'a>,
     program: &'a Program,
-    locals: crate::locals::LocalVariables,
+    mut locals: crate::locals::LocalVariables,
     ast: &crate::typer::Ast,
     node: crate::typer::NodeId,
+    stack_frame_id: crate::type_infer::ValueSetId,
 ) -> ConstantRef {
     let mut stack = Stack::new(2048);
     // FIXME: This does not take into account calling dependencies
-    let (_, routine) = crate::emit::emit(thread_context, program, locals, ast, node);
+    let (_, routine) = crate::emit::emit(thread_context, program, &mut locals, ast, node, stack_frame_id);
     let result = interp(program, &mut stack, &routine);
     program.insert_buffer(ast.get(node).type_(), result.as_ptr())
 }

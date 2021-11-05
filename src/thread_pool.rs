@@ -216,7 +216,7 @@ fn worker<'a>(alloc: &'a mut Bump, program: &'a Program) -> (ThreadContext<'a>, 
                         }
                     }
                 }
-                Task::EmitMember(member_id, locals, ast) => {
+                Task::EmitMember(member_id, mut locals, ast) => {
                     if !program.member_is_evaluated(member_id) {
                         profile::profile!("Task::EmitMember");
                         use crate::typer::NodeKind;
@@ -277,9 +277,11 @@ fn worker<'a>(alloc: &'a mut Bump, program: &'a Program) -> (ThreadContext<'a>, 
                                 let (calling, routine) = crate::emit::emit(
                                     &mut thread_context,
                                     program,
-                                    locals,
+                                    &mut locals,
                                     &ast,
                                     ast.root,
+                                    // @HACK: Here we assume that stack frame id number 0 is the parent one.
+                                    0,
                                 );
 
                                 let mut dependencies = DependencyList::new();
@@ -364,6 +366,8 @@ fn worker<'a>(alloc: &'a mut Bump, program: &'a Program) -> (ThreadContext<'a>, 
                     }
                 }
                 Task::EmitFunction(function_id, locals, ast, type_) => {
+                    todo!("Emitting a function is for now not supported")
+                    /*
                     program
                         .logger
                         .log(format_args!("emitting function '{:?}'", function_id));
@@ -375,7 +379,10 @@ fn worker<'a>(alloc: &'a mut Bump, program: &'a Program) -> (ThreadContext<'a>, 
                         &ast,
                         type_,
                         function_id,
+                        // 
+                        0,
                     );
+                    */
                 }
             }
 

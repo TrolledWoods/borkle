@@ -635,6 +635,8 @@ fn insert_active_constraint(
 pub type ValueSetId = usize;
 
 pub struct ValueSet {
+    pub related_nodes: Vec<crate::parser::ast::NodeId>,
+
     pub uncomputed_values: i32,
     pub has_errors: bool,
 
@@ -657,7 +659,7 @@ pub struct TypeSystem {
     available_constraints: HashMap<ValueId, Vec<ConstraintId>>,
     queued_constraints: Vec<ConstraintId>,
 
-    errors: Vec<Error>,
+    pub errors: Vec<Error>,
 }
 
 impl TypeSystem {
@@ -673,11 +675,40 @@ impl TypeSystem {
         }
     }
 
+    pub fn value_sets(&self) -> impl Iterator<Item = ValueSetId> {
+        0..self.value_sets.len()
+    }
+
+    pub fn get_value_set(&self, value_set: ValueSetId) -> &ValueSet {
+        &self.value_sets[value_set]
+    }
+
+    pub fn get_value_set_mut(&mut self, value_set: ValueSetId) -> &mut ValueSet {
+        &mut self.value_sets[value_set]
+    }
+
+    pub fn add_node_to_set(&mut self, value_set: ValueSetId, node: crate::parser::ast::NodeId) {
+        self.value_sets[value_set].related_nodes.push(node);
+    }
+
+    pub fn lock_value_set(&mut self, value_set: ValueSetId) {
+        self.value_sets[value_set].uncomputed_values += 1;
+    }
+
+    pub fn unlock_value_set(&mut self, value_set: ValueSetId) {
+        self.value_sets[value_set].uncomputed_values -= 1;
+    }
+
+    pub fn make_value_set_erroneous(&mut self, value_set: ValueSetId) {
+        self.value_sets[value_set].has_errors = true;
+    }
+
     pub fn add_value_set(&mut self, ast_node: crate::parser::ast::NodeId) -> ValueSetId {
         let id = self.value_sets.len();
         self.value_sets.push(ValueSet {
             uncomputed_values: 0,
             has_errors: false,
+            related_nodes: Vec::new(),
             ast_node,
             has_been_computed: false,
         });
