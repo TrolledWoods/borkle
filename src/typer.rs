@@ -223,7 +223,7 @@ fn build_constraints(ctx: &mut Context<'_, '_>, node_id: NodeId, set: ValueSetId
             left,
             right,
         } => {
-            let access = ctx.infer.add_access(Access::new(false, true), set);
+            let access = ctx.infer.add_access(Some(Access::new(false, true)), set);
             let left_type_id = build_lvalue(ctx, left, access, set);
             let right_type_id = build_constraints(ctx, right, set);
 
@@ -236,7 +236,7 @@ fn build_constraints(ctx: &mut Context<'_, '_>, node_id: NodeId, set: ValueSetId
             ctx.infer.set_equal(node_type_id, temp, Variance::Invariant);
         }
         NodeKind::Reference(operand) => {
-            let access = ctx.infer.add_access(type_infer::Access::default(), set);
+            let access = ctx.infer.add_access(None, set);
             let inner = build_lvalue(ctx, operand, access, set);
             let temp = ctx.infer.add_type(type_infer::Ref(
                 type_infer::Var(access),
@@ -404,7 +404,7 @@ fn build_lvalue(
         _ => {
             // Make it a reference to a temporary instead. This forces the pointer to be readonly.
             // @Speed: This could be faster...
-            let access_strict = ctx.infer.add_access(type_infer::Access::new(true, false), set);
+            let access_strict = ctx.infer.add_access(Some(type_infer::Access::new(true, false)), set);
             ctx.infer
                 .set_equal(access_strict, access, Variance::Invariant);
             return build_constraints(ctx, node_id, set);

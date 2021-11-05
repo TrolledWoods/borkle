@@ -116,7 +116,7 @@ pub trait IntoAccess {
 
 impl IntoAccess for Access {
     fn into_variance(self, system: &mut TypeSystem, set: ValueSetId) -> ValueId {
-        system.add_access(self, set)
+        system.add_access(Some(self), set)
     }
 }
 
@@ -128,7 +128,7 @@ impl IntoAccess for Var {
 
 impl IntoAccess for Unknown {
     fn into_variance(self, system: &mut TypeSystem, set: ValueSetId) -> ValueId {
-        system.add_access(Access::default(), set)
+        system.add_access(None, set)
     }
 }
 
@@ -330,7 +330,7 @@ pub enum ValueKind {
     Value(Option<(ValueId, Option<usize>)>),
 
     /// These are the only coerced values for now.
-    Access(Access),
+    Access(Option<Access>),
 }
 
 impl ValueKind {
@@ -338,7 +338,7 @@ impl ValueKind {
         match self {
             Self::Type(_) => Self::Type(None),
             Self::Value(_) => Self::Value(None),
-            Self::Access(_) => Self::Access(Access::default()),
+            Self::Access(_) => Self::Access(None),
         }
     }
 }
@@ -775,7 +775,8 @@ impl TypeSystem {
         match &self.values[value] {
             &MaybeMovedValue::Moved(new_index) => format!("(from {}) {}", new_index, self.value_to_str(new_index, rec + 1)),
             MaybeMovedValue::Value(v) => match &v.kind {
-                Access(access) => {
+                Access(None) => format!("?rw?"),
+                Access(Some(access)) => {
                     format!(
                         "{}{}",
                         match (access.needs_read, access.needs_write) {
@@ -1045,17 +1046,17 @@ impl TypeSystem {
                 let values_len = self.values.len();
                 let (a_slice, b_slice) = self.values.split_at_mut(b_id);
                 // @Performance: Could be unreachable_unchecked in the future....
-                let MaybeMovedValue::Value(Value { kind: a, .. }) = &mut a_slice[a_id] else {
+                let MaybeMovedValue::Value(Value { kind: a, value_sets: a_value_sets, .. }) = &mut a_slice[a_id] else {
                     unreachable!("It shouldn't be possible for the value of an equal constraint to be aliased")
                 };
-                let MaybeMovedValue::Value(Value { kind: b, .. }) = &mut b_slice[0] else {
+                let MaybeMovedValue::Value(Value { kind: b, value_sets: b_value_sets, .. }) = &mut b_slice[0] else {
                     unreachable!("It shouldn't be possible for the value of an equal constraint to be aliased")
                 };
 
                 use ErrorKind::*;
                 match (a, b) {
                     (ValueKind::Type(a), ValueKind::Type(b)) => {
-                        if variance == Variance::Invariant {
+                        if false && variance == Variance::Invariant {
                             // @Performance: We can assume that it's not referenced.
                             let ValueKind::Type(a) = &get_value(&self.values, a_id).kind else { unreachable!() };
                             let ValueKind::Type(b) = &get_value(&self.values, b_id).kind else { unreachable!() };
@@ -1107,7 +1108,7 @@ impl TypeSystem {
                                 unreachable!("Cannot call combine_values on aliases")
                             };
 
-                            // Combine the value sets together.
+                            // Combine the value sets together. (this should happen for children too!!!!!)
                             // @Speed: Could be a direct access, since to_id isn't aliased
                             let to_value = get_value_mut(&mut self.values, to_id);
                             for value_set in from_value.value_sets {
@@ -1162,36 +1163,31 @@ impl TypeSystem {
                                 | (unknown @ None, unknown_id, unknown_progress, Some(known), _, _) => {
                                     *unknown_progress = true;
 
-                                    if variance == Variance::Invariant {
-                                        // In the invariant case it's much simpler.
-                                        *unknown = Some(known.clone());
-                                    } else {
-                                        // We do this weird thing so we can utilize the mutable reference to unknown
-                                        // before writing to values. After that we have to recompute the references
-                                        // since they may have moved if the vector grew (one of the cases where
-                                        // the borrow checker was right!)
-                                        *unknown =
-                                            Some((0..known.len()).map(|v| v + values_len).collect());
+                                    // We do this weird thing so we can utilize the mutable reference to unknown
+                                    // before writing to values. After that we have to recompute the references
+                                    // since they may have moved if the vector grew (one of the cases where
+                                    // the borrow checker was right!)
+                                    *unknown =
+                                        Some((0..known.len()).map(|v| v + values_len).collect());
 
-                                        let variant_fields = known.clone();
+                                    let variant_fields = known.clone();
 
-                                        // @Speed: Could be a direct access of the value.
-                                        let base_value = get_value(&self.values, unknown_id);
-                                        // @Speed: Allocation :(
-                                        let base_value_sets = base_value.value_sets.clone();
-                                        for &value_set in base_value_sets.iter() {
-                                            self.value_sets[value_set].uncomputed_values += variant_fields.len() as i32 - 1;
-                                        }
+                                    // @Speed: Could be a direct access of the value.
+                                    let base_value = get_value(&self.values, unknown_id);
+                                    // @Speed: Allocation :(
+                                    let base_value_sets = base_value.value_sets.clone();
+                                    for &value_set in base_value_sets.iter() {
+                                        self.value_sets[value_set].uncomputed_values += variant_fields.len() as i32 - 1;
+                                    }
 
-                                        for &v in variant_fields.iter() {
-                                            let variant_value = get_value(&self.values, v);
-                                            let kind = variant_value.kind.to_unknown();
-                                            let new_value = Value {
-                                                kind,
-                                                value_sets: base_value_sets.clone(),
-                                            };
-                                            self.values.push(MaybeMovedValue::Value(new_value));
-                                        }
+                                    for &v in variant_fields.iter() {
+                                        let variant_value = get_value(&self.values, v);
+                                        let kind = variant_value.kind.to_unknown();
+                                        let new_value = Value {
+                                            kind,
+                                            value_sets: base_value_sets.clone(),
+                                        };
+                                        self.values.push(MaybeMovedValue::Value(new_value));
                                     }
                                 }
                                 (Some(_), _, _, Some(_), _, _) => {}
@@ -1239,7 +1235,7 @@ impl TypeSystem {
                                 let &ValueKind::Access(a_access) = &get_value(&self.values, a_access_id).kind else { panic!() };
                                 let &ValueKind::Access(b_access) = &get_value(&self.values, b_access_id).kind else { panic!() };
 
-                                let guaranteed_variance = biggest_guaranteed_variance_of_operation(a_access, b_access, variance);
+                                let guaranteed_variance = biggest_guaranteed_variance_of_operation(a_access.unwrap_or_default(), b_access.unwrap_or_default(), variance);
                                 let variance_constraint = self
                                     .variance_updates
                                     .entry((a_access_id, b_access_id))
@@ -1349,6 +1345,19 @@ impl TypeSystem {
                         progress[1] = true;
                     }
                     (ValueKind::Access(a), ValueKind::Access(b)) => {
+                        let a = a.get_or_insert_with(|| {
+                            for &set_id in a_value_sets.iter() {
+                                self.value_sets[set_id].uncomputed_values -= 1;
+                            }
+                            Access::default()
+                        });
+                        let b = b.get_or_insert_with(|| {
+                            for &set_id in b_value_sets.iter() {
+                                self.value_sets[set_id].uncomputed_values -= 1;
+                            }
+                            Access::default()
+                        });
+
                         let old_a = *a;
                         let old_b = *b;
                         a.combine_with(b, variance);
@@ -1429,6 +1438,7 @@ impl TypeSystem {
         // We don't want to worry about sorting or binary searching
         debug_assert!(value.value_sets.is_empty());
         value.value_sets = vec![value_set_id];
+        self.value_sets[value_set_id].uncomputed_values += 1;
     }
 
     pub fn add_unknown_type(&mut self) -> ValueId {
@@ -1444,7 +1454,10 @@ impl TypeSystem {
         value.into_value(self, set)
     }
 
-    pub fn add_access(&mut self, access: Access, set: ValueSetId) -> ValueId {
+    pub fn add_access(&mut self, access: Option<Access>, set: ValueSetId) -> ValueId {
+        if access.is_none() {
+            self.value_sets[set].uncomputed_values += 1;
+        }
         self.add(ValueKind::Access(access), set)
     }
 
@@ -1487,7 +1500,7 @@ fn run_variance_constraint(
     let &ValueKind::Access(b_access) = &get_value(&values, b).kind else { panic!() };
 
     let new_variance =
-        biggest_guaranteed_variance_of_operation(a_access, b_access, constraint.variance);
+        biggest_guaranteed_variance_of_operation(a_access.unwrap_or_default(), b_access.unwrap_or_default(), constraint.variance);
 
     if new_variance != constraint.last_variance_applied {
         for &(constraint, variance) in &constraint.constraints {

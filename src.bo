@@ -29,4 +29,6 @@ const B = {
     let hi = fn(x: _) -> _ { x };
     *c(hi) = x;
 
+    fn(a: _, b: _) {};
+
 };
