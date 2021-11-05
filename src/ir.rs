@@ -13,6 +13,10 @@ pub enum Instr {
         // FIXME: We don't really want a vector here, we want a more efficient datastructure
         args: Vec<Value>,
     },
+    SetToZero {
+        to: Value,
+        size: usize
+    },
     // value ++
     Increment {
         value: Value,

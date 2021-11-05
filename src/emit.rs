@@ -364,6 +364,11 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, node: NodeId) -> Value {
 
             to
         }
+        NodeKind::Zeroed => {
+            let to = ctx.registers.create(ctx.ast.get(node).type_());
+            ctx.emit_set_to_zero(to);
+            to
+        }
         NodeKind::Uninit => {
             // We don't need an instruction to initialize the memory, because it's uninit!
             ctx.registers.create(ctx.ast.get(node).type_())

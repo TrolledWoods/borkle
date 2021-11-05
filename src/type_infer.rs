@@ -174,8 +174,6 @@ pub enum TypeKind {
     Function,
     // element: type, length: int
     Array,
-    // (type, type, type, ....)
-    Tuple,
     // inner element: type
     Reference,
     // (type, type, type, type), in the same order as the strings.
@@ -686,6 +684,52 @@ impl TypeSystem {
         id
     }
 
+    pub fn value_is_in_set(&self, value_id: ValueId, set_id: ValueSetId) -> bool {
+        get_value(&self.values, value_id).value_sets.binary_search(&set_id).is_ok()
+    }
+
+    pub fn value_to_compiler_type(&self, value_id: ValueId) -> types::Type {
+        let ValueKind::Type(Some((type_kind, Some(type_args)))) = &get_value(&self.values, value_id).kind else {
+            panic!("Cannot call value_to_compiler_type on incomplete value")
+        };
+
+        match *type_kind {
+            TypeKind::Int(int_type_kind) => types::Type::new(types::TypeKind::Int(int_type_kind)),
+            TypeKind::Bool => types::Type::new(types::TypeKind::Bool),
+            TypeKind::Empty => types::Type::new(types::TypeKind::Empty),
+            TypeKind::Function => {
+                let [return_type, arg_types @ ..] = &**type_args else {
+                    unreachable!("Invalid function type")
+                };
+
+                let returns = self.value_to_compiler_type(*return_type);
+                let args = arg_types.iter().map(|v| self.value_to_compiler_type(*v)).collect();
+
+                types::Type::new(types::TypeKind::Function { args, returns })
+            }
+            TypeKind::Array => {
+                unimplemented!("Not yet, arrays")
+            },
+            TypeKind::Reference => {
+                let [mutability, pointee] = &**type_args else {
+                    unreachable!("Invalid reference type")
+                };
+
+                let ValueKind::Access(Some(access)) = &get_value(&self.values, *mutability).kind else {
+                    unreachable!("Requires access")
+                };
+
+                let pointee = self.value_to_compiler_type(*pointee);
+                let permits = types::PtrPermits::from_read_write(access.needs_read, access.needs_write);
+
+                types::Type::new(types::TypeKind::Reference { pointee, permits })
+            },
+            TypeKind::Struct(ref fields) => {
+                todo!("Not yet, structs!")
+            },
+        }
+    }
+
     pub fn set_equal(&mut self, a: ValueId, b: ValueId, variance: Variance) {
         let a = get_real_value_id(&self.values, a);
         let b = get_real_value_id(&self.values, b);
@@ -842,13 +886,6 @@ impl TypeSystem {
                     ),
                     _ => unreachable!("Arrays should only ever have two type parameters"),
                 },
-                Type(Some((TypeKind::Tuple, Some(arr)))) => format!(
-                    "({})",
-                    arr.iter()
-                        .map(|&v| self.value_to_str(v, rec + 1))
-                        .collect::<Vec<_>>()
-                        .join(", ")
-                ),
                 Type(Some((TypeKind::Reference, Some(c)))) => match &**c {
                     [mutability, type_] => format!(
                         "&{} {}",

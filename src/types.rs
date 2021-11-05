@@ -333,15 +333,19 @@ impl PtrPermits {
     pub const READ: Self = Self(0b10);
     pub const READ_WRITE: Self = Self(0b11);
 
+    pub fn from_read_write(read: bool, write: bool) -> Self {
+        Self((read as u8 * 0b10) & (write as u8 * 0b01))
+    }
+
     pub fn to_str(self) -> &'static str {
         if !self.write() && self.read() {
-            "const "
+            "r "
         } else if self.write() && !self.read() {
-            "let "
+            "w "
         } else if self.write() && self.read() {
-            ""
+            "rw "
         } else {
-            "null "
+            "!! "
         }
     }
 

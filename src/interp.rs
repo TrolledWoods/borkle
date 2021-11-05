@@ -47,6 +47,12 @@ fn interp_internal(program: &Program, stack: &mut StackFrame<'_>, routine: &User
                     instr_pointer = routine.label_locations[to.0];
                 }
             }
+            Instr::SetToZero { to, size } => {
+                let ptr = stack.get_mut(to).as_mut_ptr();
+                unsafe {
+                    std::ptr::write_bytes(ptr, 0, size);
+                }
+            }
             Instr::Jump { to } => {
                 instr_pointer = routine.label_locations[to.0];
             }

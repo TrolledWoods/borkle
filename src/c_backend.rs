@@ -234,6 +234,14 @@ pub fn routine_to_c(output: &mut String, routine: &Routine, arg_types: &[Type], 
                 write!(output, "    // {:?}\n", instr).unwrap();
                 output.push_str("    ");
                 match instr {
+                    Instr::SetToZero { to, size: _ } => {
+                        write!(
+                            output,
+                            "{} = {{0}};\n",
+                            c_format_value(to),
+                        )
+                        .unwrap();
+                    }
                     Instr::Call { to, pointer, args } => {
                         if to.size() != 0 {
                             write!(

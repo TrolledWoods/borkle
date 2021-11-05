@@ -38,6 +38,11 @@ impl Context<'_, '_> {
         self.instr.push(Instr::Jump { to });
     }
 
+    pub fn emit_set_to_zero(&mut self, to: Value) {
+        let size = to.type_().size();
+        self.instr.push(Instr::SetToZero { to, size });
+    }
+
     pub fn emit_member(&mut self, to: Value, of: Value, member: Member) {
         if to.size() != 0 {
             self.instr.push(Instr::Member { to, of, member });

@@ -82,6 +82,19 @@ pub fn process_ast<'a>(
     ctx.infer.solve();
     ctx.infer.finish();
 
+    // @Temporary: Just to make it work for now
+    for node in &mut ctx.ast.nodes {
+        if node.type_.is_none() {
+            node.type_ = Some(ctx.infer.value_to_compiler_type(node.type_infer_value_id));
+        }
+    }
+
+    for local in ctx.locals.iter_mut() {
+        if local.type_.is_none() {
+            local.type_ = Some(ctx.infer.value_to_compiler_type(local.type_infer_value_id));
+        }
+    }
+
     println!("\nLocals:\n");
     for local in ctx.locals.iter() {
         println!(
@@ -91,7 +104,7 @@ pub fn process_ast<'a>(
         );
     }
 
-    Err(())
+    Ok(Ok((ctx.emit_deps, ctx.locals, ctx.ast)))
 }
 
 fn build_constraints(ctx: &mut Context<'_, '_>, node_id: NodeId, set: ValueSetId) -> type_infer::ValueId {
