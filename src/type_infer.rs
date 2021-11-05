@@ -410,7 +410,12 @@ enum MaybeMovedValue {
 type ConstraintId = usize;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-enum Constraint {
+struct Constraint {
+    kind: ConstraintKind,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+enum ConstraintKind {
     Equal {
         values: [ValueId; 2],
         variance: Variance,
@@ -431,16 +436,16 @@ enum Constraint {
 impl Constraint {
     /// Fixes the order of the fields, or sets the constraint to Dead if it becomes redundant.
     fn fix_order(&mut self) {
-        match self {
-            Self::Equal { values: [a, b], variance } => {
+        match &mut self.kind {
+            ConstraintKind::Equal { values: [a, b], variance } => {
                 if a == b {
-                    *self = Constraint::Dead;
+                    self.kind = ConstraintKind::Dead;
                 } else if a > b {
                     mem::swap(a, b);
                     *variance = variance.invert();
                 }
             }
-            Self::EqualsField { .. } | Self::EqualNamedField { .. } | Self::Dead => {}
+            ConstraintKind::EqualsField { .. } | ConstraintKind::EqualNamedField { .. } | ConstraintKind::Dead => {}
         }
     }
 
@@ -453,41 +458,43 @@ impl Constraint {
     }
 
     fn values(&self) -> &[ValueId] {
-        match self {
-            Self::Equal { values, .. } | Self::EqualsField { values, .. } | Self::EqualNamedField { values, .. } => {
+        match &self.kind {
+            ConstraintKind::Equal { values, .. } | ConstraintKind::EqualsField { values, .. } | ConstraintKind::EqualNamedField { values, .. } => {
                 &*values
             }
-            Self::Dead => &[],
+            ConstraintKind::Dead => &[],
         }
     }
 
     fn values_mut(&mut self) -> &mut [ValueId] {
-        match self {
-            Self::Equal { values, .. } | Self::EqualsField { values, .. } | Self::EqualNamedField { values, .. } => {
+        match &mut self.kind {
+            ConstraintKind::Equal { values, .. } | ConstraintKind::EqualsField { values, .. } | ConstraintKind::EqualNamedField { values, .. } => {
                 &mut *values
             }
-            Self::Dead => &mut [],
+            ConstraintKind::Dead => &mut [],
         }
     }
 
     fn variance_mut(&mut self) -> Option<&mut Variance> {
-        match self {
-            Self::Equal { variance, .. } | Self::EqualsField { variance, .. } | Self::EqualNamedField { variance, .. } => Some(variance),
-            Self::Dead => None,
+        match &mut self.kind {
+            ConstraintKind::Equal { variance, .. } | ConstraintKind::EqualsField { variance, .. } | ConstraintKind::EqualNamedField { variance, .. } => Some(variance),
+            ConstraintKind::Dead => None,
         }
     }
 
     fn equal(a: ValueId, b: ValueId, variance: Variance) -> Self {
-        if a == b {
-            Self::Dead
+        let kind = if a == b {
+            ConstraintKind::Dead
         } else if b > a {
-            Self::Equal { values: [a, b], variance }
+            ConstraintKind::Equal { values: [a, b], variance }
         } else {
-            Self::Equal {
+            ConstraintKind::Equal {
                 values: [b, a],
                 variance: variance.invert(),
             }
-        }
+        };
+
+        Self { kind }
     }
 }
 
@@ -561,8 +568,8 @@ fn insert_constraint(
     let id = constraints.len();
     constraints.push(constraint);
 
-    match constraint {
-        Constraint::Equal { values: [a, b], .. } => {
+    match constraint.kind {
+        ConstraintKind::Equal { values: [a, b], .. } => {
             if a == b {
                 return None;
             };
@@ -573,15 +580,15 @@ fn insert_constraint(
             let vec = available_constraints.entry(b).or_insert_with(Vec::new);
             vec.push(id);
         }
-        Constraint::EqualsField { values: [a, b], .. }
-        | Constraint::EqualNamedField { values: [a, b], .. } => {
+        ConstraintKind::EqualsField { values: [a, b], .. }
+        | ConstraintKind::EqualNamedField { values: [a, b], .. } => {
             let vec = available_constraints.entry(a).or_insert_with(Vec::new);
             vec.push(id);
 
             let vec = available_constraints.entry(b).or_insert_with(Vec::new);
             vec.push(id);
         }
-        Constraint::Dead => {},
+        ConstraintKind::Dead => {},
     }
 
     Some(id)
@@ -604,8 +611,8 @@ fn insert_active_constraint(
     let id = constraints.len();
     constraints.push(constraint);
 
-    match constraint {
-        Constraint::Equal { values: [a, b], .. } => {
+    match constraint.kind {
+        ConstraintKind::Equal { values: [a, b], .. } => {
             if a == b {
                 return;
             };
@@ -616,15 +623,15 @@ fn insert_active_constraint(
             let vec = available_constraints.entry(b).or_insert_with(Vec::new);
             vec.push(id);
         }
-        Constraint::EqualsField { values: [a, b], .. }
-        | Constraint::EqualNamedField { values: [a, b], .. } => {
+        ConstraintKind::EqualsField { values: [a, b], .. }
+        | ConstraintKind::EqualNamedField { values: [a, b], .. } => {
             let vec = available_constraints.entry(a).or_insert_with(Vec::new);
             vec.push(id);
 
             let vec = available_constraints.entry(b).or_insert_with(Vec::new);
             vec.push(id);
         }
-        Constraint::Dead => {},
+        ConstraintKind::Dead => {},
     }
 
     queued_constraints.push(id);
@@ -685,10 +692,12 @@ impl TypeSystem {
             &mut self.constraints,
             &mut self.available_constraints,
             &mut self.queued_constraints,
-            Constraint::EqualsField {
-                values: [a, b],
-                index: field_index,
-                variance,
+            Constraint {
+                kind: ConstraintKind::EqualsField {
+                    values: [a, b],
+                    index: field_index,
+                    variance,
+                },
             },
         );
     }
@@ -706,16 +715,19 @@ impl TypeSystem {
             &mut self.constraints,
             &mut self.available_constraints,
             &mut self.queued_constraints,
-            Constraint::EqualNamedField {
-                values: [a, b],
-                index: field_name,
-                variance,
+            Constraint {
+                kind: ConstraintKind::EqualNamedField {
+                    values: [a, b],
+                    index: field_name,
+                    variance,
+                },
             },
         );
     }
 
     pub fn solve(&mut self) {
-        self.queued_constraints.sort_unstable_by_key(|v| matches!(&self.constraints[*v], Constraint::Equal { variance: Variance::Invariant, .. }));
+        // @Performance: I think this might be more performant than not sorting, but not 100% sure.
+        // self.queued_constraints.sort_unstable_by_key(|v| matches!(&self.constraints[*v], ConstraintKind::Equal { variance: Variance::Invariant, .. }));
 
         self.print_state();
 
@@ -828,9 +840,9 @@ impl TypeSystem {
     }
 
     fn constraint_to_string(&self, constraint: &Constraint) -> String {
-        match *constraint {
-            Constraint::Dead => format!("< removed >"),
-            Constraint::Equal {
+        match constraint.kind {
+            ConstraintKind::Dead => format!("< removed >"),
+            ConstraintKind::Equal {
                 values: [a_id, b_id],
                 variance,
             } => {
@@ -843,7 +855,7 @@ impl TypeSystem {
                     self.value_to_str(b_id, 0)
                 )
             }
-            Constraint::EqualsField {
+            ConstraintKind::EqualsField {
                 values: [a_id, b_id],
                 index: field_index,
                 variance,
@@ -858,7 +870,7 @@ impl TypeSystem {
                     self.value_to_str(b_id, 0)
                 )
             }
-            Constraint::EqualNamedField {
+            ConstraintKind::EqualNamedField {
                 values: [a_id, b_id],
                 index: field_name,
                 variance,
@@ -912,9 +924,9 @@ impl TypeSystem {
 
         let mut progress = [false; 8];
 
-        match constraint {
-            Constraint::Dead => {},
-            Constraint::EqualNamedField {
+        match constraint.kind {
+            ConstraintKind::Dead => {},
+            ConstraintKind::EqualNamedField {
                 values: [a_id, b_id],
                 index: field_name,
                 variance,
@@ -930,10 +942,12 @@ impl TypeSystem {
                                 &mut self.constraints,
                                 &mut self.available_constraints,
                                 &mut self.queued_constraints,
-                                Constraint::EqualsField {
-                                    values: [a_id, b_id],
-                                    index: pos,
-                                    variance,
+                                Constraint {
+                                    kind: ConstraintKind::EqualsField {
+                                        values: [a_id, b_id],
+                                        index: pos,
+                                        variance,
+                                    },
                                 },
                             );
                         } else {
@@ -963,7 +977,7 @@ impl TypeSystem {
                     }
                 }
             }
-            Constraint::EqualsField {
+            ConstraintKind::EqualsField {
                 values: [a_id, b_id],
                 index: field_index,
                 variance,
@@ -1001,7 +1015,7 @@ impl TypeSystem {
                     }
                 }
             }
-            Constraint::Equal {
+            ConstraintKind::Equal {
                 values: [a_id, b_id],
                 variance,
             } => {
@@ -1091,7 +1105,7 @@ impl TypeSystem {
 
                                     affected_constraint.fix_order();
 
-                                    if !matches!(affected_constraint, Constraint::Dead) {
+                                    if !matches!(affected_constraint.kind, ConstraintKind::Dead) {
                                         self.queued_constraints.push(affected_constraint_id);
                                     }
                                 }
