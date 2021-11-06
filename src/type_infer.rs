@@ -7,6 +7,7 @@ use std::iter::repeat_with;
 use std::mem;
 use std::sync::Arc;
 use ustr::Ustr;
+use crate::program::constant::ConstantRef;
 
 #[derive(Clone, Copy)]
 pub struct CompilerType(pub types::Type);
@@ -19,8 +20,6 @@ pub struct Var(pub usize);
 pub struct Unknown;
 #[derive(Clone, Copy)]
 pub struct Int(pub IntTypeKind);
-#[derive(Clone, Copy)]
-pub struct Array<T: IntoType, V: IntoValue>(pub T, pub V);
 #[derive(Clone, Copy)]
 pub struct Ref<V: IntoAccess, T: IntoType>(pub V, pub T);
 #[derive(Clone, Copy)]
@@ -52,7 +51,7 @@ impl IntoType for CompilerType {
             )
             .into_type(system, set, reason),
             types::TypeKind::Array(type_, length) => {
-                Array(CompilerType(type_), length).into_type(system, set, reason)
+                todo!("We need a function for turning a compiler type into an actionable type that also takes the program");
             }
             types::TypeKind::Struct(ref fields) => {
                 let field_names = fields.iter().map(|v| v.0).collect();
@@ -69,21 +68,6 @@ impl IntoType for CompilerType {
             }
             _ => todo!("This compiler type is not done yet"),
         }
-    }
-}
-
-impl<T: IntoType, V: IntoValue> IntoType for Array<T, V> {
-    fn into_type(self, system: &mut TypeSystem, set: ValueSetId, reason: Reason) -> ValueId {
-        let inner_type = self.0.into_type(system, set, reason.clone());
-        let inner_value = self.1.into_value(system, set, reason.clone());
-        system.add(
-            ValueKind::Type(Some(Type {
-                kind: TypeKind::Array,
-                args: Some(Box::new([inner_type, inner_value])),
-            })),
-            set,
-            reason,
-        )
     }
 }
 
@@ -169,14 +153,7 @@ pub trait IntoValue {
 impl<T: IntoType> IntoValue for WithType<T> {
     fn into_value(self, system: &mut TypeSystem, set: ValueSetId, reason: Reason) -> ValueId {
         let type_ = self.0.into_type(system, set, reason.clone());
-        system.add(ValueKind::Value(Some((type_, None))), set, reason)
-    }
-}
-
-impl IntoValue for usize {
-    fn into_value(self, system: &mut TypeSystem, set: ValueSetId, reason: Reason) -> ValueId {
-        let int_type = system.add_type(Int(IntTypeKind::Usize), set, reason.clone());
-        system.add(ValueKind::Value(Some((int_type, Some(self)))), set, reason)
+        system.add(ValueKind::Value(Some(Constant { type_, value: None })), set, reason)
     }
 }
 
@@ -395,6 +372,12 @@ impl Type {
 }
 
 #[derive(Debug)]
+pub struct Constant {
+    pub type_: ValueId,
+    pub value: Option<ConstantRef>,
+}
+
+#[derive(Debug)]
 pub enum ValueKind {
     Error {
         // @Cleanup: Maybe this level of type complexity should be extracted into a struct...
@@ -406,8 +389,9 @@ pub enum ValueKind {
 
     Type(Option<Type>),
 
+    // @Cleanup: Rename to Constant
     /// For now values can only be usize, but you could theoretically have any value.
-    Value(Option<(ValueId, Option<usize>)>),
+    Value(Option<Constant>),
 
     /// These are the only coerced values for now.
     Access(Option<Access>),
@@ -1112,6 +1096,26 @@ impl TypeSystem {
         println!("-- Number of steps required: {}", i);
     }
 
+    fn constant_to_str(&self, type_: ValueId, value: ConstantRef, rec: usize) -> String {
+        match &get_value(&self.values, type_).kind {
+            ValueKind::Type(Some(Type { kind: TypeKind::Int(int_kind), .. })) => {
+                let mut big_int = [0; 16];
+                let (size, _) = int_kind.size_align();
+                unsafe {
+                    std::ptr::copy_nonoverlapping(value.as_ptr(), big_int.as_mut_ptr(), size);
+                }
+                format!("{}", i128::from_le_bytes(big_int))
+            }
+            ValueKind::Type(_) => {
+                format!("(cannot format {})", self.value_to_str(type_, rec))
+            }
+            ValueKind::Error { .. } => {
+                format!("error!")
+            }
+            _ => unreachable!("Not a type!"),
+        }
+    }
+
     pub fn value_to_str(&self, value: ValueId, rec: usize) -> String {
         if rec > 7 {
             return "...".to_string();
@@ -1150,11 +1154,11 @@ impl TypeSystem {
                 ValueKind::Type(Some(Type { kind: TypeKind::Empty, .. })) => "Empty".to_string(),
                 ValueKind::Type(None) => "_".to_string(),
                 ValueKind::Value(None) => "_(value)".to_string(),
-                ValueKind::Value(Some((type_, None))) => {
+                ValueKind::Value(Some(Constant { type_, value: None, .. })) => {
                     format!("(_: {})", self.value_to_str(*type_, rec + 1))
                 }
-                ValueKind::Value(Some((type_, Some(value)))) => {
-                    format!("({}: {})", value, self.value_to_str(*type_, rec + 1))
+                ValueKind::Value(Some(Constant { type_, value: Some(value), .. })) => {
+                    format!("{}", self.constant_to_str(*type_, *value, rec + 1))
                 }
                 ValueKind::Type(Some(Type { kind: TypeKind::Int(int_type_kind), .. })) => {
                     format!("{:?}", int_type_kind)

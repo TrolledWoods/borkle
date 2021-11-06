@@ -238,6 +238,38 @@ fn build_constraints(
         NodeKind::Literal(Literal::Int(_)) => {
             // TODO: Actually add a constraint that checks that the type is an int, and that it's in bounds
         }
+        NodeKind::ArrayLiteral(ref args) => {
+            let inner_type = ctx.infer.add_unknown_type();
+
+            let args = args.clone();
+            for &arg in &args {
+                let arg_type_id = build_constraints(ctx, arg, set);
+                ctx.infer.set_equal(arg_type_id, inner_type, Variance::Variant);
+            }
+
+            let usize = ctx.infer.add_type(type_infer::Int(IntTypeKind::Usize), set, Reason::new(node_loc, "array lengths are usize"));
+            let length = ctx.program.insert_buffer(Type::new(TypeKind::Int(IntTypeKind::Usize)), args.len().to_le_bytes().as_ptr());
+
+            let variable_count = ctx.infer.add(
+                type_infer::ValueKind::Value(Some(type_infer::Constant {
+                    type_: usize,
+                    value: Some(length),
+                })),
+                set,
+                Reason::new(node_loc, format!("this array has {} elements", args.len())),
+            );
+
+            let array_type = ctx.infer.add(
+                type_infer::ValueKind::Type(Some(type_infer::Type {
+                    kind: type_infer::TypeKind::Array,
+                    args: Some(Box::new([inner_type, variable_count])),
+                })),
+                set,
+                Reason::new(node_loc, format!("of this array literal")),
+            );
+
+            ctx.infer.set_equal(node_type_id, array_type, Variance::Invariant);
+        }
         NodeKind::Member { of, name } => {
             let of_type_id = build_constraints(ctx, of, set);
             ctx.infer
