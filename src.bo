@@ -1,8 +1,8 @@
 #entry fn() -> u64 {
-    let array = [1, 2];
+    let array_2 = [9, 3, 2];
+    let array = [1, array_2._2];
 
     array._0 = 92;
-    array._1 = 999;
     array._1
 };
 

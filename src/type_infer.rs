@@ -1350,38 +1350,28 @@ impl TypeSystem {
                             return;
                         }
                     }
-                    ValueKind::Type(Some(Type { kind: TypeKind::Array, args, .. })) => {
-                        if let Some(args) = args {
-                            if let Some(number) = field_name.strip_prefix("_").and_then(|v| v.parse::<usize>().ok()) {
-                                if number >= args.len() {
-                                    self.errors.push(Error::new(
-                                        a_id,
-                                        b_id,
-                                        ErrorKind::NonexistantName(field_name),
-                                    ));
-                                    return;
-                                }
-
-                                insert_active_constraint(
-                                    &mut self.constraints,
-                                    &mut self.available_constraints,
-                                    &mut self.queued_constraints,
-                                    Constraint {
-                                        kind: ConstraintKind::EqualsField {
-                                            values: [a_id, b_id],
-                                            index: 0,
-                                            variance,
-                                        },
+                    ValueKind::Type(Some(Type { kind: TypeKind::Array, .. })) => {
+                        // @Correctness: We should have a check that the argument is in range
+                        if let Some(_) = field_name.strip_prefix("_").and_then(|v| v.parse::<usize>().ok()) {
+                            insert_active_constraint(
+                                &mut self.constraints,
+                                &mut self.available_constraints,
+                                &mut self.queued_constraints,
+                                Constraint {
+                                    kind: ConstraintKind::EqualsField {
+                                        values: [a_id, b_id],
+                                        index: 0,
+                                        variance,
                                     },
-                                );
-                            } else {
-                                self.errors.push(Error::new(
-                                    a_id,
-                                    b_id,
-                                    ErrorKind::NonexistantName(field_name),
-                                ));
-                                return;
-                            }
+                                },
+                            );
+                        } else {
+                            self.errors.push(Error::new(
+                                a_id,
+                                b_id,
+                                ErrorKind::NonexistantName(field_name),
+                            ));
+                            return;
                         }
                     }
                     ValueKind::Type(Some(_)) => {
