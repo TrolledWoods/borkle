@@ -472,7 +472,7 @@ fn build_constraints(
 
             let last_type_id = build_constraints(ctx, last, set);
             ctx.infer
-                .set_equal(node_type_id, last_type_id, Variance::Invariant);
+                .set_equal(node_type_id, last_type_id, Variance::Variant);
         }
         NodeKind::Parenthesis(inner) => {
             let inner_type_id = build_constraints(ctx, inner, set);
@@ -485,7 +485,7 @@ fn build_constraints(
                 .set_equal(node_type_id, bound_type_id, Variance::Invariant);
             let value_type_id = build_constraints(ctx, value, set);
             ctx.infer
-                .set_equal(value_type_id, node_type_id, Variance::Variant);
+                .set_equal(value_type_id, node_type_id, Variance::Invariant);
         }
         NodeKind::LiteralType(type_) => {
             // @Performance: We could set the type directly(because no inferrence has happened yet),

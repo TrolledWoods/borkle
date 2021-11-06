@@ -331,21 +331,21 @@ impl Access {
     pub fn combine_with(&mut self, other: &mut Self, variance: Variance) -> bool {
         match variance {
             Variance::Variant => {
-                option_take_reasons_from(&mut self.needs_read,    &other.needs_read) ||
-                option_take_reasons_from(&mut self.needs_write,   &other.needs_write) ||
-                option_take_reasons_from(&mut other.cannot_read,  &self.cannot_read) ||
+                option_take_reasons_from(&mut self.needs_read,    &other.needs_read) |
+                option_take_reasons_from(&mut self.needs_write,   &other.needs_write) |
+                option_take_reasons_from(&mut other.cannot_read,  &self.cannot_read) |
                 option_take_reasons_from(&mut other.cannot_write, &self.cannot_write)
             }
             Variance::Covariant => {
-                option_take_reasons_from(&mut other.needs_read,  &self.needs_read) ||
-                option_take_reasons_from(&mut other.needs_write, &self.needs_write) ||
-                option_take_reasons_from(&mut self.cannot_read,  &other.cannot_read) ||
+                option_take_reasons_from(&mut other.needs_read,  &self.needs_read) |
+                option_take_reasons_from(&mut other.needs_write, &self.needs_write) |
+                option_take_reasons_from(&mut self.cannot_read,  &other.cannot_read) |
                 option_take_reasons_from(&mut self.cannot_write, &other.cannot_write)
             }
             Variance::Invariant => {
-                option_combine_reasons(&mut self.needs_read,   &mut other.needs_read) ||
-                option_combine_reasons(&mut self.needs_write,  &mut other.needs_write) ||
-                option_combine_reasons(&mut self.cannot_read,  &mut other.cannot_read) ||
+                option_combine_reasons(&mut self.needs_read,   &mut other.needs_read) |
+                option_combine_reasons(&mut self.needs_write,  &mut other.needs_write) |
+                option_combine_reasons(&mut self.cannot_read,  &mut other.cannot_read) |
                 option_combine_reasons(&mut self.cannot_write, &mut other.cannot_write)
             }
             Variance::DontCare => false,
@@ -459,6 +459,10 @@ impl Reasons {
         v
     }
 
+    fn count(&self) -> usize {
+        self.iter().count()
+    }
+
     fn iter(&self) -> impl Iterator<Item = &Reason> {
         self.buffer.iter().filter_map(|v| v.as_ref())
     }
@@ -471,7 +475,7 @@ impl Reasons {
                 Some(v) if *v == value => return false,
                 Some(_) => {}
                 None => {
-                    none_index.get_or_insert(i);
+                    none_index = Some(i);
                 }
             }
         }
@@ -1110,6 +1114,7 @@ impl TypeSystem {
         let mut i = 1;
         while let Some(available_id) = self.queued_constraints.pop() {
             i += 1;
+
             // println!("Applied constraint: {}", self.constraint_to_string(&self.constraints[available_id]));
 
             self.apply_constraint(available_id);
@@ -1130,7 +1135,12 @@ impl TypeSystem {
             &MaybeMovedValue::Moved(new_index) => self.value_to_str(new_index, rec),
             MaybeMovedValue::Value(v) => match &v.kind {
                 ValueKind::Access(None) => format!("_"),
-                ValueKind::Error { .. } => "< error >".to_string(),
+                ValueKind::Error { access, .. } => format!("ERR({})",
+                    access.needs_read.as_ref().map_or(0, |v| v.count())
+                    + access.needs_write.as_ref().map_or(0, |v| v.count())
+                    + access.cannot_read.as_ref().map_or(0, |v| v.count())
+                    + access.cannot_write.as_ref().map_or(0, |v| v.count())
+                ),
                 ValueKind::Access(Some(access)) => {
                     format!(
                         "{}{}",
@@ -1265,9 +1275,9 @@ impl TypeSystem {
 
         println!("Queued constraints:");
 
-        for &constraint in &self.queued_constraints {
-            let constraint = &self.constraints[constraint];
-            println!("{}", self.constraint_to_string(constraint));
+        for &constraint_id in &self.queued_constraints {
+            let constraint = &self.constraints[constraint_id];
+            println!("({}) {}", constraint_id, self.constraint_to_string(constraint));
         }
         println!();
     }
@@ -1415,7 +1425,7 @@ impl TypeSystem {
                     | (_, non_error_id, ValueKind::Error { types: error_types, access: error_access }, error_id) => {
                         let mut error_types = mem::take(error_types);
                         let mut error_access = mem::take(error_access);
-                        let non_error = get_value(&self.values, non_error_id) else { unreachable!() };
+                        let non_error = get_value(&self.values, non_error_id);
 
                         for &v in &non_error.value_sets {
                             self.value_sets[v].has_errors = true;
@@ -1494,6 +1504,8 @@ impl TypeSystem {
                             }
                         }
 
+                        self.values[b_id] = MaybeMovedValue::Moved(a_id);
+
                         self.values[a_id] = MaybeMovedValue::Value(Value {
                             kind: ValueKind::Error { types: error_types, access: error_access },
                             // We already set all the value sets as having errors, so this should be fine.
@@ -1501,10 +1513,15 @@ impl TypeSystem {
                             reasons: Reasons::default(),
                         });
 
-                        self.values[b_id] = MaybeMovedValue::Moved(a_id);
-
-                        for &constraint in self.available_constraints.get(&a_id).into_iter().flatten() {
-                            self.queued_constraints.push(constraint);
+                        if let Some(available_constraints) = self.available_constraints.get_mut(&a_id) {
+                            available_constraints.retain(|&constraint| {
+                                if matches!(self.constraints[constraint].kind, ConstraintKind::Dead) {
+                                    false
+                                } else {
+                                    self.queued_constraints.push(constraint);
+                                    true
+                                }
+                            });
                         }
                     }
                     (ValueKind::Type(a), _, ValueKind::Type(b), _) => {
