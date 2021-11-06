@@ -47,7 +47,7 @@ impl IntoType for CompilerType {
                 reason,
             ),
             types::TypeKind::Reference { pointee, permits } => Ref(
-                Access::new(permits.read(), permits.write()),
+                Access::disallows((!permits.read()).then(|| reason.clone()), (!permits.write()).then(|| reason.clone())),
                 CompilerType(pointee),
             )
             .into_type(system, set, reason),
@@ -269,74 +269,113 @@ impl Variance {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub struct Access {
-    pub read: bool,
-    pub write: bool,
-    pub needs_read: bool,
-    pub needs_write: bool,
+    pub cannot_read: Option<Reasons>,
+    pub needs_read: Option<Reasons>,
+    pub cannot_write: Option<Reasons>,
+    pub needs_write: Option<Reasons>,
 }
 
 impl Default for Access {
     fn default() -> Self {
         Self {
-            read: true,
-            write: true,
-            needs_read: false,
-            needs_write: false,
+            cannot_read: None,
+            cannot_write: None,
+            needs_read: None,
+            needs_write: None,
         }
     }
 }
 
 impl Access {
-    pub fn new(read: bool, write: bool) -> Self {
+    pub fn needs_read(&self) -> bool {
+        self.needs_read.is_some()
+    }
+
+    pub fn needs_write(&self) -> bool {
+        self.needs_write.is_some()
+    }
+
+    pub fn specific(read: bool, write: bool, reason: Reason) -> Self {
         Self {
-            read: read,
-            write: write,
-            needs_read: read,
-            needs_write: write,
+            cannot_read: (!read).then(|| Reasons::with_one(reason.clone())),
+            cannot_write: (!write).then(|| Reasons::with_one(reason.clone())),
+            needs_read: read.then(|| Reasons::with_one(reason.clone())),
+            needs_write: write.then(|| Reasons::with_one(reason.clone())),
+        }
+    }
+    
+    pub fn disallows(cannot_read: Option<Reason>, cannot_write: Option<Reason>) -> Self {
+        Self {
+            cannot_read: cannot_read.map(Reasons::with_one),
+            cannot_write: cannot_write.map(Reasons::with_one),
+            needs_read: None,
+            needs_write: None,
         }
     }
 
-    pub fn needs(read: bool, write: bool) -> Self {
+    pub fn needs(needs_read: Option<Reason>, needs_write: Option<Reason>) -> Self {
         Self {
-            read: true,
-            write: true,
-            needs_read: read,
-            needs_write: write,
+            cannot_read: None,
+            cannot_write: None,
+            needs_read: needs_read.map(Reasons::with_one),
+            needs_write: needs_write.map(Reasons::with_one),
         }
     }
 
     pub fn is_complete(&self) -> bool {
-        self.read <= self.needs_read && self.write <= self.needs_write
+        self.cannot_read.is_none() <= self.needs_read.is_some() && self.cannot_write.is_none() <= self.needs_write.is_some()
     }
 
-    pub fn combine_with(&mut self, other: &mut Self, variance: Variance) {
+    pub fn combine_with(&mut self, other: &mut Self, variance: Variance) -> bool {
         match variance {
             Variance::Variant => {
-                other.read &= self.read;
-                other.write &= self.write;
-                self.needs_read |= other.needs_read;
-                self.needs_write |= other.needs_write;
+                option_take_reasons_from(&mut self.needs_read,    &other.needs_read) ||
+                option_take_reasons_from(&mut self.needs_write,   &other.needs_write) ||
+                option_take_reasons_from(&mut other.cannot_read,  &self.cannot_read) ||
+                option_take_reasons_from(&mut other.cannot_write, &self.cannot_write)
             }
             Variance::Covariant => {
-                self.read &= other.read;
-                self.write &= other.write;
-                other.needs_read |= self.needs_read;
-                other.needs_write |= self.needs_write;
+                option_take_reasons_from(&mut other.needs_read,  &self.needs_read) ||
+                option_take_reasons_from(&mut other.needs_write, &self.needs_write) ||
+                option_take_reasons_from(&mut self.cannot_read,  &other.cannot_read) ||
+                option_take_reasons_from(&mut self.cannot_write, &other.cannot_write)
             }
             Variance::Invariant => {
-                self.read &= other.read;
-                other.read = self.read;
-                self.write &= other.write;
-                other.write = self.write;
-                self.needs_read |= other.needs_read;
-                other.needs_read = self.needs_read;
-                self.needs_write |= other.needs_write;
-                other.needs_write = self.needs_write;
+                option_combine_reasons(&mut self.needs_read,   &mut other.needs_read) ||
+                option_combine_reasons(&mut self.needs_write,  &mut other.needs_write) ||
+                option_combine_reasons(&mut self.cannot_read,  &mut other.cannot_read) ||
+                option_combine_reasons(&mut self.cannot_write, &mut other.cannot_write)
             }
-            Variance::DontCare => {}
+            Variance::DontCare => false,
         }
+    }
+}
+
+fn option_combine_reasons(a: &mut Option<Reasons>, b: &mut Option<Reasons>) -> bool {
+    match (a, b) {
+        (None, None) => false,
+        (a @ None, Some(b)) => {
+            *a = Some(b.clone());
+            true
+        }
+        (Some(a), b @ None) => {
+            *b = Some(a.clone());
+            true
+        }
+        (Some(a), Some(b)) => a.combine(b),
+    }
+}
+
+fn option_take_reasons_from(to: &mut Option<Reasons>, from: &Option<Reasons>) -> bool {
+    match (to, from) {
+        (_, None) => false,
+        (to @ None, Some(from)) => {
+            *to = Some(from.clone());
+            true
+        }
+        (Some(to), Some(from)) => to.take_reasons_from(from),
     }
 }
 
@@ -423,12 +462,12 @@ impl Reasons {
         self.buffer.iter().filter_map(|v| v.as_ref())
     }
 
-    fn insert(&mut self, value: Reason) {
+    fn insert(&mut self, value: Reason) -> bool {
         // @Robustness: We want a strict ordering so that errors are consistant, but temporarily this is fine.
         let mut none_index = None;
         for (i, v) in self.buffer.iter().enumerate() {
             match v {
-                Some(v) if *v == value => return,
+                Some(v) if *v == value => return false,
                 Some(_) => {}
                 None => {
                     none_index.get_or_insert(i);
@@ -438,20 +477,26 @@ impl Reasons {
 
         if let Some(index) = none_index {
             self.buffer[index] = Some(value);
+            true
         } else {
+            let old = self.omitted_reasons;
             self.omitted_reasons = true;
+            old != true
         }
     }
 
-    fn combine(&mut self, other: &mut Reasons) {
-        self.take_reasons_from(other);
-        other.buffer = self.buffer.clone();
+    fn combine(&mut self, other: &mut Reasons) -> bool {
+        let a = self.take_reasons_from(other);
+        let b = other.take_reasons_from(self);
+        a || b
     }
 
-    fn take_reasons_from(&mut self, other: &Reasons) {
+    fn take_reasons_from(&mut self, other: &Reasons) -> bool {
+        let mut changed = false;
         for value in other.buffer.iter().filter_map(|v| v.clone()) {
-            self.insert(value);
+            changed |= self.insert(value);
         }
+        changed
     }
 }
 
@@ -967,8 +1012,7 @@ impl TypeSystem {
                 };
 
                 let pointee = self.value_to_compiler_type(*pointee);
-                let permits =
-                    types::PtrPermits::from_read_write(access.needs_read, access.needs_write);
+                let permits = types::PtrPermits::from_read_write(access.needs_read.is_some(), access.needs_write.is_some());
 
                 types::Type::new(types::TypeKind::Reference { pointee, permits })
             }
@@ -1071,15 +1115,15 @@ impl TypeSystem {
                 ValueKind::Access(Some(access)) => {
                     format!(
                         "{}{}",
-                        match (access.needs_read, access.needs_write) {
+                        match (access.needs_read.is_some(), access.needs_write.is_some()) {
                             (true, true) => "rw",
                             (true, false) => "r",
                             (false, true) => "w",
                             (false, false) => "!!",
                         },
                         match (
-                            !access.read && access.needs_read,
-                            !access.write && access.needs_write
+                            access.cannot_read.is_some() && access.needs_read.is_some(),
+                            access.cannot_write.is_some() && access.needs_write.is_some(),
                         ) {
                             (true, true) => "-rw",
                             (true, false) => "-r",
@@ -1727,12 +1771,12 @@ impl TypeSystem {
                                 let a_inner = get_real_value_id(&self.values, a_inner);
                                 let b_inner = get_real_value_id(&self.values, b_inner);
 
-                                let &ValueKind::Access(a_access) = &get_value(&self.values, a_access_id).kind else { panic!() };
-                                let &ValueKind::Access(b_access) = &get_value(&self.values, b_access_id).kind else { panic!() };
+                                let ValueKind::Access(a_access) = &get_value(&self.values, a_access_id).kind else { panic!() };
+                                let ValueKind::Access(b_access) = &get_value(&self.values, b_access_id).kind else { panic!() };
 
                                 let guaranteed_variance = biggest_guaranteed_variance_of_operation(
-                                    a_access.unwrap_or_default(),
-                                    b_access.unwrap_or_default(),
+                                    a_access,
+                                    b_access,
                                     variance,
                                 );
                                 let variance_constraint = self
@@ -1843,12 +1887,10 @@ impl TypeSystem {
                             Access::default()
                         });
 
-                        let old_a = *a;
-                        let old_b = *b;
-                        a.combine_with(b, variance);
+                        let different = a.combine_with(b, variance);
 
-                        progress[0] = old_a != *a;
-                        progress[1] = old_b != *b;
+                        progress[0] = different;
+                        progress[1] = different;
 
                         if let Some(variance_constraint) =
                             self.variance_updates.get_mut(&(a_id, b_id))
@@ -1994,12 +2036,15 @@ impl TypeSystem {
 ///
 /// Variances are seen as constraints, so if the operation _could_ be Invariant, this function may still return Covariant or
 /// Variant, because applying both Covariant "equality" and Invariant "equality" is the same as just applying Invariant "equality".
-fn biggest_guaranteed_variance_of_operation(a: Access, b: Access, variance: Variance) -> Variance {
+fn biggest_guaranteed_variance_of_operation(a: &Option<Access>, b: &Option<Access>, variance: Variance) -> Variance {
+    let (a_read, a_write) = a.as_ref().map_or((false, false), |v| (v.needs_read(), v.needs_write()));
+    let (b_read, b_write) = b.as_ref().map_or((false, false), |v| (v.needs_read(), v.needs_write()));
+
     let (needs_read, needs_write) = match variance {
-        Variance::Variant => (b.needs_read, b.needs_write),
-        Variance::Covariant => (a.needs_read, a.needs_write),
-        Variance::Invariant => (a.needs_read || b.needs_read, a.needs_write || b.needs_write),
-        Variance::DontCare => (a.needs_read && b.needs_read, a.needs_write && b.needs_write),
+        Variance::Variant => (b_read, b_write),
+        Variance::Covariant => (a_read, a_write),
+        Variance::Invariant => (a_read || b_read, a_write || b_write),
+        Variance::DontCare => (a_read && b_read, a_write && b_write),
     };
 
     match (needs_read, needs_write) {
@@ -2019,12 +2064,12 @@ fn run_variance_constraint(
     available_constraints: &mut HashMap<ValueId, Vec<ConstraintId>>,
     queued_constraints: &mut Vec<ConstraintId>,
 ) {
-    let &ValueKind::Access(a_access) = &get_value(&values, a).kind else { panic!() };
-    let &ValueKind::Access(b_access) = &get_value(&values, b).kind else { panic!() };
+    let ValueKind::Access(a_access) = &get_value(&values, a).kind else { panic!() };
+    let ValueKind::Access(b_access) = &get_value(&values, b).kind else { panic!() };
 
     let new_variance = biggest_guaranteed_variance_of_operation(
-        a_access.unwrap_or_default(),
-        b_access.unwrap_or_default(),
+        a_access,
+        b_access,
         constraint.variance,
     );
 

@@ -2,6 +2,7 @@ use crate::dependencies::{DepKind, DependencyList, MemberDep};
 use crate::errors::ErrorCtx;
 use crate::literal::Literal;
 use crate::locals::{LocalId, LocalVariables};
+use crate::location::Location;
 use crate::operators::{BinaryOp, UnaryOp};
 pub use crate::parser::{ast::Node, ast::NodeId, ast::NodeKind, Ast};
 use crate::program::constant::ConstantRef;
@@ -298,7 +299,10 @@ fn build_constraints(
             // @Performance: It should be possible to constrain the type even here, but it's a little hairy.
             // Maybe a better approach would be just an "assignment" constraint, like "this type has to have this kind", or something
             let temp = ctx.infer.add_type(
-                type_infer::Ref(type_infer::Access::needs(true, false), type_infer::Unknown),
+                type_infer::Ref(
+                    type_infer::Access::needs(Some(Reason::new(node_loc, "it was read from here")), None),
+                    type_infer::Unknown
+                ),
                 set,
                 Reason::new(node_loc, "it was dereferenced here"),
             );
@@ -403,7 +407,7 @@ fn build_constraints(
             ctx.infer.set_value_set(local.type_infer_value_id, set);
 
             let access = ctx.infer.add_access(
-                Some(Access::new(false, true)),
+                Some(Access::needs(None, Some(Reason::new(node_loc, "Temporary reason for declare until I simplify it")))),
                 set,
                 Reason::new(node_loc, "Temporary reason for declare until I simplify it"),
             );
@@ -424,7 +428,7 @@ fn build_constraints(
             right,
         } => {
             let access = ctx.infer.add_access(
-                Some(Access::new(false, true)),
+                Some(Access::needs(None, Some(Reason::new(node_loc, "it is assigned to here")))),
                 set,
                 Reason::new(
                     node_loc,
@@ -542,7 +546,7 @@ fn build_constraints(
             let inner = build_constraints(ctx, inner, set);
             // TODO: It would be nice to specify the location of the permit specification, so we can generate
             // an error that points to them specifically
-            let access = permits_to_access(permits);
+            let access = permits_to_access(node_loc, permits);
             let temp = ctx.infer.add_type(
                 type_infer::Ref(access, type_infer::Var(inner)),
                 set,
@@ -559,9 +563,9 @@ fn build_constraints(
     node_type_id
 }
 
-fn permits_to_access(permits: Option<PtrPermits>) -> type_infer::Access {
+fn permits_to_access(loc: Location, permits: Option<PtrPermits>) -> type_infer::Access {
     permits.map_or_else(Default::default, |v| {
-        type_infer::Access::new(v.read(), v.write())
+        type_infer::Access::specific(v.read(), v.write(), Reason::new(loc, "this value has these permissions"))
     })
 }
 
@@ -639,7 +643,7 @@ fn build_lvalue(
             // Make it a reference to a temporary instead. This forces the pointer to be readonly.
             // @Speed: This could be faster...
             let access_strict = ctx.infer.add_access(
-                Some(type_infer::Access::new(true, false)),
+                Some(type_infer::Access::disallows(None, Some(Reason::new(node_loc, "this isn't acceptable as an lvalue, so it's treated as a temporary value, and temporaries are read-only")))),
                 set,
                 Reason::new(node_loc, "this isn't acceptable as an lvalue, so it's treated as a temporary value, and temporaries are read-only"),
             );
