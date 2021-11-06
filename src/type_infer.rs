@@ -447,9 +447,7 @@ impl Reason {
 
 #[derive(Debug, Default, Clone)]
 pub struct Reasons {
-    buffer: [Option<Reason>; 4],
-    /// A flag for if there were more reasons that we couldn't fit into the structure.
-    omitted_reasons: bool,
+    buffer: Vec<Reason>,
 }
 
 impl Reasons {
@@ -464,30 +462,17 @@ impl Reasons {
     }
 
     fn iter(&self) -> impl Iterator<Item = &Reason> {
-        self.buffer.iter().filter_map(|v| v.as_ref())
+        self.buffer.iter()
     }
 
     fn insert(&mut self, value: Reason) -> bool {
         // @Robustness: We want a strict ordering so that errors are consistant, but temporarily this is fine.
-        let mut none_index = None;
-        for (i, v) in self.buffer.iter().enumerate() {
-            match v {
-                Some(v) if *v == value => return false,
-                Some(_) => {}
-                None => {
-                    none_index = Some(i);
-                }
-            }
+        if self.buffer.iter().any(|v| *v == value) {
+            return false;
         }
 
-        if let Some(index) = none_index {
-            self.buffer[index] = Some(value);
-            true
-        } else {
-            let old = self.omitted_reasons;
-            self.omitted_reasons = true;
-            old != true
-        }
+        self.buffer.push(value);
+        true
     }
 
     fn combine(&mut self, other: &mut Reasons) -> bool {
@@ -498,8 +483,8 @@ impl Reasons {
 
     fn take_reasons_from(&mut self, other: &Reasons) -> bool {
         let mut changed = false;
-        for value in other.buffer.iter().filter_map(|v| v.clone()) {
-            changed |= self.insert(value);
+        for value in other.iter() {
+            changed |= self.insert(value.clone());
         }
         changed
     }

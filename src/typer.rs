@@ -369,19 +369,23 @@ fn build_constraints(
             let calling_loc = ctx.ast.get(calling).loc;
             let calling_type_id = build_constraints(ctx, calling, set);
 
-            ctx.infer
-                .set_field_equal(calling_type_id, 0, node_type_id, Variance::Invariant);
+            let return_type = ctx.infer.add_unknown_type();
+            ctx.infer.set_equal(return_type, node_type_id, Variance::Invariant);
+
+            let mut typer_args = Vec::with_capacity(args.len() + 1);
+            typer_args.push(return_type);
 
             for (i, &arg) in args.iter().enumerate() {
+                let function_arg_type_id = ctx.infer.add_unknown_type();
                 let arg_type_id = build_constraints(ctx, arg, set);
-                ctx.infer
-                    .set_field_equal(calling_type_id, i + 1, arg_type_id, Variance::Covariant);
+                ctx.infer.set_equal(function_arg_type_id, arg_type_id, Variance::Covariant);
+                typer_args.push(function_arg_type_id);
             }
 
             // Specify that the caller has to be a function type
             let infer_type = type_infer::ValueKind::Type(Some(type_infer::Type {
                 kind: type_infer::TypeKind::Function,
-                args: None,
+                args: Some(typer_args.into_boxed_slice()),
             }));
             let type_id = ctx.infer.add(
                 infer_type,
