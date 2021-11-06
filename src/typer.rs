@@ -129,9 +129,7 @@ pub fn process_ast<'a>(
         );
     }
     
-    if !ctx.infer.errors.is_empty() {
-        ctx.infer.output_errors(ctx.errors);
-
+    if ctx.infer.output_errors(ctx.errors) {
         return Err(());
     }
 
@@ -356,7 +354,7 @@ fn build_constraints(ctx: &mut Context<'_, '_>, node_id: NodeId, set: ValueSetId
             // Specify that the caller has to be a function type
             let infer_type =
                 type_infer::ValueKind::Type(Some((type_infer::TypeKind::Function, None)));
-            let type_id = ctx.infer.add(infer_type, set, Reason::new(calling_loc, "it was called as a function"));
+            let type_id = ctx.infer.add(infer_type, set, Reason::new(calling_loc, "it was used in a function call here"));
             ctx.infer
                 .set_equal(calling_type_id, type_id, Variance::Invariant);
 
@@ -447,7 +445,7 @@ fn build_constraints(ctx: &mut Context<'_, '_>, node_id: NodeId, set: ValueSetId
         NodeKind::LiteralType(type_) => {
             // @Performance: We could set the type directly(because no inferrence has happened yet),
             // this is a roundabout way of doing things.
-            let temp = ctx.infer.add_type(type_infer::CompilerType(type_), set, Reason::new(node_loc, "this type"));
+            let temp = ctx.infer.add_type(type_infer::CompilerType(type_), set, Reason::new(node_loc, "of this type"));
             ctx.infer.set_equal(node_type_id, temp, Variance::Invariant);
         }
         NodeKind::FunctionType { ref args, returns } => {

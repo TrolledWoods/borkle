@@ -662,6 +662,36 @@ fn insert_active_constraint(
     queued_constraints.push(id);
 }
 
+fn type_kind_to_str(string: &mut String, type_kind: &TypeKind, num_args: Option<usize>) -> std::fmt::Result {
+    use std::fmt::Write;
+    match type_kind {
+        TypeKind::Int(int_type_kind) => write!(string, "{:?}", int_type_kind),
+        TypeKind::Bool => write!(string, "bool"),
+        TypeKind::Empty => write!(string, "Empty"),
+        TypeKind::Function => {
+            write!(string, "fn(")?;
+            if let Some(num_args) = num_args {
+                write!(string, "{}", vec!["_"; num_args - 1].join(", "))?;
+            } else {
+                write!(string, "...")?;
+            }
+            write!(string, ") -> _")
+        }
+        TypeKind::Struct(names) => {
+            write!(string, "{{ ")?;
+            for (i, name) in names.iter().enumerate() {
+                if i > 0 { write!(string, ", ")?; }
+                write!(string, "{}: _", name)?;
+            }
+            write!(string, " }}")
+        }
+        TypeKind::Array => {
+            todo!("Arrays suck!");
+        }
+        TypeKind::Reference => write!(string, "&_"),
+    }
+}
+
 pub type ValueSetId = usize;
 
 pub struct ValueSet {
@@ -705,8 +735,49 @@ impl TypeSystem {
         }
     }
 
-    pub fn output_errors(&self, errors: &mut ErrorCtx) {
+    pub fn output_errors(&self, errors: &mut ErrorCtx) -> bool {
+        let mut has_errors = false;
+        if self.value_sets.iter().any(|v| v.has_errors) {
+            has_errors = true;
+            use std::fmt::Write;
+            for value in &self.values {
+                if let MaybeMovedValue::Value(Value { kind: ValueKind::Error { types }, .. }) = value {
+                    for ((type_, num_args), reasons) in types.iter() {
+                        for (i, reason) in reasons.iter().enumerate() {
+                            let mut message = String::new();
+                            if i == 0 {
+                                message.push('\'');
+                                type_kind_to_str(&mut message, type_, *num_args).unwrap();
+                                message.push_str("' because ");
+                            } else {
+                                message.push_str(".. and because ");
+                            }
+                            message.push_str(&reason.message);
+                            errors.info(reason.loc, message);
+                        }
+                    }
+
+                    let mut message = String::new();
+                    message.push_str("Conflicting types ");
+                    for (i, ((type_, num_args), _)) in types.iter().enumerate() {
+                        if i > 0 && i + 1 == types.len() { 
+                            message.push_str(" and ");
+                        } else if i > 0 {
+                            message.push_str(", ");
+                        }
+
+                        message.push('\'');
+                        type_kind_to_str(&mut message, type_, *num_args).unwrap();
+                        message.push('\'');
+                    }
+                    errors.global_error(message);
+                }
+            }
+        }
+
         for error in &self.errors {
+            has_errors = true;
+
             match *error {
                 Error { a, b, kind: ErrorKind::IncompatibleTypes } => {
                     let a_type = self.value_to_str(a, 7);
@@ -750,6 +821,8 @@ impl TypeSystem {
                 _ => errors.global_error(format!("Temporary type-inference error: {:?}", error)),
             }
         }
+
+        has_errors
     }
 
     pub fn value_sets(&self) -> impl Iterator<Item = ValueSetId> {
@@ -1223,6 +1296,25 @@ impl TypeSystem {
                         // @Correctness: I want to figure out what to do with the children of errors, but for now I'm not going to worry
                         // too much about it.
                         match &non_error.kind {
+                            ValueKind::Error { types: other_error_types } => {
+                                // @Duplicate code with below, probably extract this into a function later
+                                for ((type_, args), other_reasons) in other_error_types {
+                                    let type_ = (type_.clone(), *args);
+
+                                    let mut found = false;
+                                    for (error_type, reasons) in &mut error_types {
+                                        if *error_type == type_ {
+                                            reasons.take_reasons_from(&other_reasons);
+                                            found = true;
+                                            break;
+                                        }
+                                    }
+
+                                    if !found {
+                                        error_types.push((type_, other_reasons.clone()));
+                                    }
+                                }
+                            }
                             ValueKind::Type(Some((type_, args))) => {
                                 let type_ = (type_.clone(), args.as_ref().map(|v| v.len()));
 
@@ -1266,6 +1358,8 @@ impl TypeSystem {
                                 }
                             }
                         }
+                        
+                        progress[0] = true;
 
                         self.values[a_id] = MaybeMovedValue::Value(Value {
                             kind: ValueKind::Error {
@@ -1365,7 +1459,7 @@ impl TypeSystem {
                                 }
                             }
                         } else {
-                            let ((_, a_fields), (_, b_fields)) = match (a, b) {
+                            let ((base_a, a_fields), (base_b, b_fields)) = match (a, b) {
                                 (None, None) => return,
                                 (Some(a), b @ None) => {
                                     progress[1] = true;
@@ -1378,6 +1472,62 @@ impl TypeSystem {
                                 }
                                 (Some(a), Some(b)) => (a, b),
                             };
+
+                            if *base_a != *base_b || a_fields.as_deref().zip(b_fields.as_deref()).map_or(false, |(a, b)| a.len() != b.len()) {
+                                let base_a = base_a.clone();
+                                let base_b = base_b.clone();
+
+                                let a_temp = (base_a.clone(), a_fields.as_ref().map(|v| v.len()));
+                                let b_temp = (base_b.clone(), b_fields.as_ref().map(|v| v.len()));
+
+                                let a = get_value(&self.values, a_id);
+                                let b = get_value(&self.values, b_id);
+
+                                let reasons = vec![
+                                    (a_temp, a.reasons.clone()),
+                                    (b_temp, b.reasons.clone()),
+                                ];
+
+                                for &v in a.value_sets.iter().chain(&b.value_sets) {
+                                    self.value_sets[v].has_errors = true;
+                                }
+
+                                // @Duplicate code with the invariance optimization below, we could probably join them
+                                // together somehow.
+                                // Any constraints with the value should have the values id changed.
+                                // This sets the current equality constraint to dead as well.
+                                if let Some(affected_constraints) = self.available_constraints.remove(&b_id) {
+                                    for affected_constraint_id in affected_constraints {
+                                        let affected_constraint = &mut self.constraints[affected_constraint_id];
+                                        for value in affected_constraint.values_mut() {
+                                            if *value == b_id {
+                                                *value = a_id;
+                                                self.available_constraints
+                                                    .entry(a_id)
+                                                    .or_insert_with(Vec::new)
+                                                    .push(affected_constraint_id);
+                                            }
+                                        }
+
+                                        affected_constraint.fix_order();
+
+                                        if !matches!(affected_constraint.kind, ConstraintKind::Dead) {
+                                            self.queued_constraints.push(affected_constraint_id);
+                                        }
+                                    }
+                                }
+
+                                self.values[a_id] = MaybeMovedValue::Value(Value {
+                                    kind: ValueKind::Error {
+                                        types: reasons,
+                                    },
+                                    value_sets: Vec::new(),
+                                    reasons: Reasons::default(),
+                                });
+                                self.values[b_id] = MaybeMovedValue::Moved(a_id);
+                                return;
+                            }
+
 
                             let [a_progress, b_progress, ..] = &mut progress;
                             match (a_fields, a_id, a_progress, b_fields, b_id, b_progress) {
@@ -1424,54 +1574,6 @@ impl TypeSystem {
                                 // @Speed: Could be replaced with unreachable_unchecked in the real version.
                                 unreachable!("Because of computations above, this is always true")
                             };
-
-                            if *base_a != *base_b || a_fields.len() != b_fields.len() {
-                                let base_a = base_a.clone();
-                                let base_b = base_b.clone();
-                                let reasons = vec![
-                                    ((base_a.clone(), Some(a_fields.len())), a.reasons.clone()),
-                                    ((base_b.clone(), Some(b_fields.len())), b.reasons.clone()),
-                                ];
-
-                                for &v in a.value_sets.iter().chain(&b.value_sets) {
-                                    self.value_sets[v].has_errors = true;
-                                }
-
-                                // @Duplicate code with the invariance optimization below, we could probably join them
-                                // together somehow.
-                                // Any constraints with the value should have the values id changed.
-                                // This sets the current equality constraint to dead as well.
-                                if let Some(affected_constraints) = self.available_constraints.remove(&b_id) {
-                                    for affected_constraint_id in affected_constraints {
-                                        let affected_constraint = &mut self.constraints[affected_constraint_id];
-                                        for value in affected_constraint.values_mut() {
-                                            if *value == b_id {
-                                                *value = a_id;
-                                                self.available_constraints
-                                                    .entry(a_id)
-                                                    .or_insert_with(Vec::new)
-                                                    .push(affected_constraint_id);
-                                            }
-                                        }
-
-                                        affected_constraint.fix_order();
-
-                                        if !matches!(affected_constraint.kind, ConstraintKind::Dead) {
-                                            self.queued_constraints.push(affected_constraint_id);
-                                        }
-                                    }
-                                }
-
-                                self.values[a_id] = MaybeMovedValue::Value(Value {
-                                    kind: ValueKind::Error {
-                                        types: reasons,
-                                    },
-                                    value_sets: Vec::new(),
-                                    reasons: Reasons::default(),
-                                });
-                                self.values[b_id] = MaybeMovedValue::Moved(a_id);
-                                return;
-                            }
 
                             // Ugly special case for references. This would apply for anything that has a
                             // mutability parameter that controls the variance of another field, because that behaviour
