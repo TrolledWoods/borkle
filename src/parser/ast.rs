@@ -1,4 +1,3 @@
-use crate::dependencies::DependencyList;
 use crate::literal::Literal;
 use crate::locals::{LabelId, LocalId, LocalVariables};
 use crate::location::Location;

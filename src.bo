@@ -2,15 +2,11 @@
 
 
 #entry fn() -> u64 {
-    let a = 9 : u32;
-    a = 5 : u64;
-    a = 5 : u32;
+    let a = 42 : u32;
     a
 
-    // let a1 = fn(a: fn(&_) -> &_, b: _) -> &_  { b };
-    // let a2 = fn(a: fn(&_) -> &_, b: _) -> &_  { a(b) };
-
-    // a1 : fn(fn(&rw _)->&_, _)->&r _;
+    // let a1 = fn(a: _, b: _) -> _  { b };
+    // let a2 = fn(a: _, b: _) -> _  { a(b) };
 
     // let c = #0;
     // let c_write = &c;
@@ -24,11 +20,9 @@
     //     };
     // };
 
-    // c_write: &fn(u32, _) -> &_;
-
     // write_to_pointer(c_write, a1, a2);
 
-    // let x = 44 : u32;
+    // let x = 44;
     // let c2 = 3;
     // let hi = fn(x: _) -> _ { x };
     // *c(hi, &c2) = x;

@@ -10,7 +10,6 @@ pub use ast::{AstBuilder, Node, NodeId, NodeKind};
 use context::{DataContext, ImperativeContext};
 use lexer::{Bracket, Keyword, Token, TokenKind};
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 use ustr::Ustr;
 
 pub mod ast;

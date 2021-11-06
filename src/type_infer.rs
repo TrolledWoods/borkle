@@ -242,7 +242,7 @@ impl Variance {
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Access {
     pub read: bool,
     pub write: bool,
@@ -313,18 +313,16 @@ impl Access {
     }
 }
 
-/// Combines two values into one.
-/// **this does not recurse**, so beware.
-fn combine_values(
-    values: &mut Vec<MaybeMovedValue>,
-    constraints: &mut Vec<Constraint>,
-    available_constraints: &mut HashMap<ValueId, Vec<ConstraintId>>,
-    from_id: ValueId,
-    to_id: ValueId,
-) {
-}
-
+#[derive(Debug)]
 pub enum ValueKind {
+    Error {
+        // @Cleanup: Maybe this level of type complexity should be extracted into a struct...
+        types: Vec<((TypeKind, Option<usize>), Reasons)>,
+        // Put access here too.
+        // access: Vec<(
+        // TODO: Put values in here, I can't test them right now anyway so it's pointless to try!
+    },
+
     Type(Option<(TypeKind, Option<Box<[ValueId]>>)>),
 
     /// For now values can only be usize, but you could theoretically have any value.
@@ -340,6 +338,9 @@ impl ValueKind {
             Self::Type(_) => Self::Type(None),
             Self::Value(_) => Self::Value(None),
             Self::Access(_) => Self::Access(None),
+            Self::Error { types } => Self::Error {
+                types: types.clone(),
+            },
         }
     }
 }
@@ -347,7 +348,7 @@ impl ValueKind {
 /// This describes the reason why a value is the way it is.
 /// For example, why is this a reference? Why is this a function? e.t.c.
 /// This means we can give reasonable reporting when errors occur.
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Reason {
     pub loc: Location,
     pub message: Arc<String>,
@@ -362,8 +363,8 @@ impl Reason {
     }
 }
 
-#[derive(Default, Clone)]
-struct Reasons {
+#[derive(Debug, Default, Clone)]
+pub struct Reasons {
     buffer: [Option<Reason>; 4],
     /// A flag for if there were more reasons that we couldn't fit into the structure.
     omitted_reasons: bool,
@@ -414,6 +415,7 @@ impl Reasons {
 
 pub type ValueId = usize;
 
+#[derive(Debug)]
 struct Value {
     kind: ValueKind,
     value_sets: Vec<ValueSetId>,
@@ -423,6 +425,7 @@ struct Value {
     // related_to_error: bool,
 }
 
+#[derive(Debug)]
 enum MaybeMovedValue {
     Value(Value),
     Moved(ValueId),
@@ -925,6 +928,7 @@ impl TypeSystem {
             &MaybeMovedValue::Moved(new_index) => self.value_to_str(new_index, rec),
             MaybeMovedValue::Value(v) => match &v.kind {
                 Access(None) => format!("_"),
+                Error { .. } => "< error >".to_string(),
                 Access(Some(access)) => {
                     format!(
                         "{}{}",
@@ -1097,10 +1101,14 @@ impl TypeSystem {
             } => {
                 let a = &get_value(&self.values, a_id).kind;
 
-                use ValueKind::*;
                 match a {
-                    Type(None) => {}
-                    Type(Some((TypeKind::Struct(names), _))) => {
+                    ValueKind::Error { types: _ } => {
+                        // TODO: Deal with this case somehow. I think that a good method would be just
+                        // to flag the child member as being dependant on an error, e.g. if we knew what this
+                        // type was it might be set, so just don't report incompleteness-errors on that value.
+                    }
+                    ValueKind::Type(None) => {}
+                    ValueKind::Type(Some((TypeKind::Struct(names), _))) => {
                         if let Some(pos) = names.iter().position(|&v| v == field_name) {
                             insert_active_constraint(
                                 &mut self.constraints,
@@ -1123,7 +1131,7 @@ impl TypeSystem {
                             return;
                         }
                     }
-                    Type(Some((_, _))) => {
+                    ValueKind::Type(Some((_, _))) => {
                         self.errors.push(Error::new(
                             a_id,
                             b_id,
@@ -1131,7 +1139,7 @@ impl TypeSystem {
                         ));
                         return;
                     }
-                    Access(_) | Value(_) => {
+                    ValueKind::Access(_) | ValueKind::Value(_) => {
                         self.errors.push(Error::new(
                             a_id,
                             b_id,
@@ -1148,10 +1156,16 @@ impl TypeSystem {
             } => {
                 let a = &get_value(&self.values, a_id).kind;
 
-                use ValueKind::*;
                 match a {
-                    Type(None) | Type(Some((_, None))) => {}
-                    Type(Some((_, Some(fields)))) => {
+                    ValueKind::Error { types: _ } => {
+                        // TODO: Deal with this case somehow. I think that a good method would be just
+                        // to flag the child member as being dependant on an error, e.g. if we knew what this
+                        // type was it might be set, so just don't report incompleteness-errors on that value.
+                        // Though, if the value was gotten from here............
+                        // then we should remove it. Bah! Do we need reasons to also cite sources now?
+                    }
+                    ValueKind::Type(None) | ValueKind::Type(Some((_, None))) => {}
+                    ValueKind::Type(Some((_, Some(fields)))) => {
                         if let Some(&field) = fields.get(field_index) {
                             let field = get_real_value_id(&self.values, field);
                             insert_active_constraint(
@@ -1169,7 +1183,7 @@ impl TypeSystem {
                             return;
                         }
                     }
-                    Access(_) | Value(_) => {
+                    ValueKind::Access(_) | ValueKind::Value(_) => {
                         self.errors.push(Error::new(
                             a_id,
                             b_id,
@@ -1189,15 +1203,82 @@ impl TypeSystem {
                 let (a_slice, b_slice) = self.values.split_at_mut(b_id);
                 // @Performance: Could be unreachable_unchecked in the future....
                 let MaybeMovedValue::Value(Value { kind: a, value_sets: a_value_sets, .. }) = &mut a_slice[a_id] else {
-                    unreachable!("It shouldn't be possible for the value of an equal constraint to be aliased")
+                    unreachable!("It shouldn't be possible for the value of an equal constraint to be aliased {:?}", self.values[a_id])
                 };
                 let MaybeMovedValue::Value(Value { kind: b, value_sets: b_value_sets, .. }) = &mut b_slice[0] else {
-                    unreachable!("It shouldn't be possible for the value of an equal constraint to be aliased")
+                    unreachable!("It shouldn't be possible for the value of an equal constraint to be aliased {:?}", self.values[b_id])
                 };
 
                 use ErrorKind::*;
-                match (a, b) {
-                    (ValueKind::Type(a), ValueKind::Type(b)) => {
+                match (a, a_id, b, b_id) {
+                    (ValueKind::Error { types: error_types }, error_id, _, non_error_id) |
+                    (_, non_error_id, ValueKind::Error { types: error_types }, error_id) => {
+                        let mut error_types = mem::take(error_types);
+                        let non_error = get_value(&self.values, non_error_id) else { unreachable!() };
+
+                        for &v in &non_error.value_sets {
+                            self.value_sets[v].has_errors = true;
+                        }
+
+                        // @Correctness: I want to figure out what to do with the children of errors, but for now I'm not going to worry
+                        // too much about it.
+                        match &non_error.kind {
+                            ValueKind::Type(Some((type_, args))) => {
+                                let type_ = (type_.clone(), args.as_ref().map(|v| v.len()));
+
+                                let mut found = false;
+                                for (error_type, reasons) in &mut error_types {
+                                    if *error_type == type_ {
+                                        reasons.take_reasons_from(&non_error.reasons);
+                                        found = true;
+                                        break;
+                                    }
+                                }
+
+                                if !found {
+                                    error_types.push((type_, non_error.reasons.clone()));
+                                }
+                            }
+                            _ => {}
+                        }
+
+                        // @Duplicate code with the invariance optimization below, we could probably join them
+                        // together somehow.
+                        // Any constraints with the value should have the values id changed.
+                        // This sets the current equality constraint to dead as well.
+                        if let Some(affected_constraints) = self.available_constraints.remove(&b_id) {
+                            for affected_constraint_id in affected_constraints {
+                                let affected_constraint = &mut self.constraints[affected_constraint_id];
+                                for value in affected_constraint.values_mut() {
+                                    if *value == b_id {
+                                        *value = a_id;
+                                        self.available_constraints
+                                            .entry(a_id)
+                                            .or_insert_with(Vec::new)
+                                            .push(affected_constraint_id);
+                                    }
+                                }
+
+                                affected_constraint.fix_order();
+
+                                if !matches!(affected_constraint.kind, ConstraintKind::Dead) {
+                                    self.queued_constraints.push(affected_constraint_id);
+                                }
+                            }
+                        }
+
+                        self.values[a_id] = MaybeMovedValue::Value(Value {
+                            kind: ValueKind::Error {
+                                types: error_types,
+                            },
+                            // We already set all the value sets as having errors, so this should be fine.
+                            value_sets: Vec::new(),
+                            reasons: Reasons::default(),
+                        });
+
+                        self.values[b_id] = MaybeMovedValue::Moved(a_id);
+                    }
+                    (ValueKind::Type(a), _, ValueKind::Type(b), _) => {
                         if false && variance == Variance::Invariant {
                             // @Performance: We can assume that it's not referenced.
                             let ValueKind::Type(a) = &get_value(&self.values, a_id).kind else { unreachable!() };
@@ -1337,16 +1418,58 @@ impl TypeSystem {
                             };
 
                             // @Duplicate code from above.
-                            let a = &get_value(&self.values, a_id).kind;
-                            let b = &get_value(&self.values, b_id).kind;
-                            let (ValueKind::Type(Some((base_a, Some(a_fields)))), ValueKind::Type(Some((base_b, Some(b_fields))))) = (a, b) else {
+                            let a = get_value(&self.values, a_id);
+                            let b = get_value(&self.values, b_id);
+                            let (ValueKind::Type(Some((base_a, Some(a_fields)))), ValueKind::Type(Some((base_b, Some(b_fields))))) = (&a.kind, &b.kind) else {
                                 // @Speed: Could be replaced with unreachable_unchecked in the real version.
                                 unreachable!("Because of computations above, this is always true")
                             };
 
                             if *base_a != *base_b || a_fields.len() != b_fields.len() {
-                                self.errors
-                                    .push(Error::new(a_id, b_id, ErrorKind::IncompatibleTypes));
+                                let base_a = base_a.clone();
+                                let base_b = base_b.clone();
+                                let reasons = vec![
+                                    ((base_a.clone(), Some(a_fields.len())), a.reasons.clone()),
+                                    ((base_b.clone(), Some(b_fields.len())), b.reasons.clone()),
+                                ];
+
+                                for &v in a.value_sets.iter().chain(&b.value_sets) {
+                                    self.value_sets[v].has_errors = true;
+                                }
+
+                                // @Duplicate code with the invariance optimization below, we could probably join them
+                                // together somehow.
+                                // Any constraints with the value should have the values id changed.
+                                // This sets the current equality constraint to dead as well.
+                                if let Some(affected_constraints) = self.available_constraints.remove(&b_id) {
+                                    for affected_constraint_id in affected_constraints {
+                                        let affected_constraint = &mut self.constraints[affected_constraint_id];
+                                        for value in affected_constraint.values_mut() {
+                                            if *value == b_id {
+                                                *value = a_id;
+                                                self.available_constraints
+                                                    .entry(a_id)
+                                                    .or_insert_with(Vec::new)
+                                                    .push(affected_constraint_id);
+                                            }
+                                        }
+
+                                        affected_constraint.fix_order();
+
+                                        if !matches!(affected_constraint.kind, ConstraintKind::Dead) {
+                                            self.queued_constraints.push(affected_constraint_id);
+                                        }
+                                    }
+                                }
+
+                                self.values[a_id] = MaybeMovedValue::Value(Value {
+                                    kind: ValueKind::Error {
+                                        types: reasons,
+                                    },
+                                    value_sets: Vec::new(),
+                                    reasons: Reasons::default(),
+                                });
+                                self.values[b_id] = MaybeMovedValue::Moved(a_id);
                                 return;
                             }
 
@@ -1461,47 +1584,8 @@ impl TypeSystem {
                         }
                     }
 
-                    // @Cleanup: Clean up the whole value system.
-                    // Shouldn't do it until I can test it though, right?
-                    // Nothing is known, keep the constraint
-                    (ValueKind::Value(None), ValueKind::Value(None))
-                    | (ValueKind::Value(Some((_, None))), ValueKind::Value(Some((_, None)))) => {
-                        return;
-                    }
-                    (ValueKind::Value(Some(known)), ValueKind::Value(unknown @ None))
-                    | (ValueKind::Value(unknown @ None), ValueKind::Value(Some(known))) => {
-                        progress[0] = true;
-                        progress[1] = true;
-                        *unknown = Some(*known);
-                    }
-                    (ValueKind::Value(Some((type_a, unknown @ None))), ValueKind::Value(Some((type_b, Some(known)))))
-                    | (ValueKind::Value(Some((type_a, Some(known)))), ValueKind::Value(Some((type_b, unknown @ None)))) =>
-                    {
-                        if *type_a != *type_b {
-                            self.errors.push(Error::new(a_id, b_id, IncompatibleTypes));
-                            return;
-                        }
-
-                        *unknown = Some(*known);
-                        progress[0] = true;
-                        progress[1] = true;
-                    }
-                    (
-                        ValueKind::Value(Some((type_a, Some(value_a)))),
-                        ValueKind::Value(Some((type_b, Some(value_b)))),
-                    ) => {
-                        if *type_a != *type_b {
-                            self.errors.push(Error::new(a_id, b_id, IncompatibleTypes));
-                        }
-
-                        if *value_a != *value_b {
-                            self.errors.push(Error::new(a_id, b_id, IncompatibleValues));
-                        }
-
-                        progress[0] = true;
-                        progress[1] = true;
-                    }
-                    (ValueKind::Access(a), ValueKind::Access(b)) => {
+                    (ValueKind::Value(_), _, ValueKind::Value(_), _) => todo!("Values aren't done"),
+                    (ValueKind::Access(a), _, ValueKind::Access(b), _) => {
                         let a = a.get_or_insert_with(|| {
                             for &set_id in a_value_sets.iter() {
                                 self.value_sets[set_id].uncomputed_values -= 1;
@@ -1537,6 +1621,7 @@ impl TypeSystem {
                         }
                     }
                     _ => {
+                        // TODO: We should generate an error value in this case.
                         self.errors
                             .push(Error::new(a_id, b_id, MixingTypesAndValues));
                     }
