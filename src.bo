@@ -1,12 +1,11 @@
-
-
-
 #entry fn() -> u64 {
-    let a1 = fn(a: u32, b: _) -> _  { b };
+    let a1 = fn(a: _, b: _) -> _  { b };
     let a2 = fn(a: _, b: _) -> _  { a(b) };
 
     let c = #0;
     let c_write = &c;
+
+    // c = a1 = a2;
 
     let write_to_pointer = fn(pointer: _, a: _, b: _) {
         let condition = #0;

@@ -235,13 +235,7 @@ pub fn routine_to_c(output: &mut String, routine: &Routine, arg_types: &[Type], 
                 output.push_str("    ");
                 match instr {
                     Instr::SetToZero { to, size } => {
-                        write!(
-                            output,
-                            "memset(&{}, 0, {});\n",
-                            c_format_value(to),
-                            size,
-                        )
-                        .unwrap();
+                        write!(output, "memset(&{}, 0, {});\n", c_format_value(to), size,).unwrap();
                     }
                     Instr::Call { to, pointer, args } => {
                         if to.size() != 0 {

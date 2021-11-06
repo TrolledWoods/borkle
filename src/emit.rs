@@ -130,9 +130,7 @@ pub fn emit_function_declaration<'a>(
 
 fn emit_node<'a>(ctx: &mut Context<'a, '_>, node: NodeId) -> Value {
     match &ctx.ast.get(node).kind {
-        NodeKind::Empty => {
-            ctx.registers.zst()
-        }
+        NodeKind::Empty => ctx.registers.zst(),
         NodeKind::Break {
             label: label_id,
             num_defer_deduplications,

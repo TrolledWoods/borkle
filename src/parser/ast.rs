@@ -206,7 +206,11 @@ impl Node {
                 v(returns);
                 v(body);
             }
-            FunctionDeclarationInTyping { body, function_type: _, parent_set: _ } => {
+            FunctionDeclarationInTyping {
+                body,
+                function_type: _,
+                parent_set: _,
+            } => {
                 v(body);
             }
 

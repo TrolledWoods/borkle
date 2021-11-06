@@ -15,7 +15,7 @@ pub enum Instr {
     },
     SetToZero {
         to: Value,
-        size: usize
+        size: usize,
     },
     // value ++
     Increment {

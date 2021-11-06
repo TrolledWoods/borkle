@@ -379,7 +379,7 @@ fn worker<'a>(alloc: &'a mut Bump, program: &'a Program) -> (ThreadContext<'a>, 
                         &ast,
                         type_,
                         function_id,
-                        // 
+                        //
                         0,
                     );
                     */
