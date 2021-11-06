@@ -92,6 +92,8 @@ pub fn process_ast<'a>(
                 continue;
             }
 
+            debug_assert_eq!(value_set.uncomputed_values, 0, "The number of uncomputed values cannot be less than zero");
+
             let related_nodes = std::mem::take(&mut value_set.related_nodes);
             for &node_id in &related_nodes {
                 let node = ctx.ast.get_mut(node_id);
@@ -239,7 +241,7 @@ fn build_constraints(
             // TODO: Actually add a constraint that checks that the type is an int, and that it's in bounds
         }
         NodeKind::ArrayLiteral(ref args) => {
-            let inner_type = ctx.infer.add_unknown_type();
+            let inner_type = ctx.infer.add_unknown_type_with_set(set);
 
             let args = args.clone();
             for &arg in &args {
@@ -710,6 +712,7 @@ fn build_lvalue(
     }
 
     ctx.infer.set_value_set(node_type_id, set);
+    ctx.infer.add_node_to_set(set, node_id);
 
     node_type_id
 }

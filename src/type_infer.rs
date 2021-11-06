@@ -1350,6 +1350,40 @@ impl TypeSystem {
                             return;
                         }
                     }
+                    ValueKind::Type(Some(Type { kind: TypeKind::Array, args, .. })) => {
+                        if let Some(args) = args {
+                            if let Some(number) = field_name.strip_prefix("_").and_then(|v| v.parse::<usize>().ok()) {
+                                if number >= args.len() {
+                                    self.errors.push(Error::new(
+                                        a_id,
+                                        b_id,
+                                        ErrorKind::NonexistantName(field_name),
+                                    ));
+                                    return;
+                                }
+
+                                insert_active_constraint(
+                                    &mut self.constraints,
+                                    &mut self.available_constraints,
+                                    &mut self.queued_constraints,
+                                    Constraint {
+                                        kind: ConstraintKind::EqualsField {
+                                            values: [a_id, b_id],
+                                            index: 0,
+                                            variance,
+                                        },
+                                    },
+                                );
+                            } else {
+                                self.errors.push(Error::new(
+                                    a_id,
+                                    b_id,
+                                    ErrorKind::NonexistantName(field_name),
+                                ));
+                                return;
+                            }
+                        }
+                    }
                     ValueKind::Type(Some(_)) => {
                         self.errors.push(Error::new(
                             a_id,
@@ -1921,7 +1955,7 @@ impl TypeSystem {
                             (Some(a), None) => {
                                 let a_type = a.type_;
                                 let value = a.value;
-                                if value.is_some() {
+                                if a.value.is_some() {
                                     for &set_id in b_value_sets.iter() {
                                         self.value_sets[set_id].uncomputed_values -= 1;
                                     }
@@ -1939,7 +1973,7 @@ impl TypeSystem {
                             (None, Some(b)) => {
                                 let b_type = b.type_;
                                 let value = b.value;
-                                if value.is_some() {
+                                if b.value.is_some() {
                                     for &set_id in a_value_sets.iter() {
                                         self.value_sets[set_id].uncomputed_values -= 1;
                                     }
@@ -1947,7 +1981,8 @@ impl TypeSystem {
                                 // @Correctness: Should this type be a part of the current value set?
                                 let type_ = self.add_unknown_type();
                                 // @Speed: We could make this an unchecked get
-                                get_unaliased_value_mut(&mut self.values, a_id).kind = ValueKind::Value(Some(Constant {
+                                let a = get_unaliased_value_mut(&mut self.values, a_id);
+                                a.kind = ValueKind::Value(Some(Constant {
                                     type_,
                                     value,
                                 }));
@@ -2070,10 +2105,12 @@ impl TypeSystem {
 
     pub fn add(&mut self, value: ValueKind, set: ValueSetId, reason: Reason) -> ValueId {
         let id = self.values.len();
-        // TODO: Support values here too.
         if matches!(
             value,
-            ValueKind::Type(None) | ValueKind::Type(Some(Type { args: None, .. }))
+            ValueKind::Type(None)
+            | ValueKind::Type(Some(Type { args: None, .. }))
+            | ValueKind::Value(None)
+            | ValueKind::Value(Some(Constant { value: None, .. }))
         ) {
             self.value_sets[set].uncomputed_values += 1;
         }
@@ -2086,16 +2123,18 @@ impl TypeSystem {
     }
 
     fn add_without_reason(&mut self, value: ValueKind, set: ValueSetId) -> ValueId {
-        // TODO: Support values here too.
         if matches!(
             value,
-            ValueKind::Type(None) | ValueKind::Type(Some(Type { args: None, .. }))
+            ValueKind::Type(None)
+            | ValueKind::Type(Some(Type { args: None, .. }))
+            | ValueKind::Value(None)
+            | ValueKind::Value(Some(Constant { value: None, .. }))
         ) {
             self.value_sets[set].uncomputed_values += 1;
         }
         let id = self.values.len();
         self.values.push(MaybeMovedValue::Value(Value {
-            kind: ValueKind::Type(None),
+            kind: value,
             reasons: Reasons::default(),
             value_sets: vec![set],
         }));
@@ -2117,6 +2156,17 @@ impl TypeSystem {
         debug_assert!(value.value_sets.is_empty());
         value.value_sets = vec![value_set_id];
         self.value_sets[value_set_id].uncomputed_values += 1;
+    }
+
+    pub fn add_unknown_type_with_set(&mut self, set: ValueSetId) -> ValueId {
+        let id = self.values.len();
+        self.value_sets[set].uncomputed_values += 1;
+        self.values.push(MaybeMovedValue::Value(Value {
+            kind: ValueKind::Type(None),
+            reasons: Reasons::default(),
+            value_sets: vec![set],
+        }));
+        id
     }
 
     pub fn add_unknown_type(&mut self) -> ValueId {

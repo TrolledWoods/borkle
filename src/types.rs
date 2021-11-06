@@ -455,6 +455,15 @@ impl TypeKind {
                     ),
                 ]
             }
+            TypeKind::Array(inner, length) => {
+                let mut members = Vec::with_capacity(length);
+                let mut pos = 0;
+                for i in 0..length {
+                    members.push((format!("_{}", i).into(), pos, inner));
+                    pos += inner.size();
+                }
+                members
+            }
             _ => Vec::new(),
         }
     }
