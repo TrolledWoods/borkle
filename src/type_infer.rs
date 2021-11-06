@@ -650,6 +650,16 @@ fn get_value_mut(values: &mut Vec<MaybeMovedValue>, mut id: ValueId) -> &mut Val
     v
 }
 
+fn get_unaliased_value_mut(values: &mut Vec<MaybeMovedValue>, mut id: ValueId) -> &mut Value {
+    let MaybeMovedValue::Value(v) = &mut values[id] else {
+        unreachable!("Value has to be unaliased")
+        // I'll do this in release mode later....
+        // // Safety: Because we called `get_real_value_id` we know that it's not an alias
+        // unsafe { unreachable_unchecked() }
+    };
+    v
+}
+
 fn insert_constraint(
     constraints: &mut Vec<Constraint>,
     available_constraints: &mut HashMap<ValueId, Vec<ConstraintId>>,
@@ -762,9 +772,7 @@ fn type_kind_to_str(
             }
             write!(string, " }}")
         }
-        TypeKind::Array => {
-            todo!("Arrays suck!");
-        }
+        TypeKind::Array => write!(string, "[_] _"),
         TypeKind::Reference => write!(string, "&_"),
     }
 }
@@ -992,7 +1000,19 @@ impl TypeSystem {
                 types::Type::new(types::TypeKind::Function { args, returns })
             }
             TypeKind::Array => {
-                unimplemented!("Not yet, arrays")
+                let [element_type, length] = &**type_args else {
+                    unreachable!("Invalid array type")
+                };
+
+                let element_type = self.value_to_compiler_type(*element_type);
+
+                let ValueKind::Value(Some(Constant { value: Some(length), .. })) = &get_value(&self.values, *length).kind else {
+                    unreachable!("Array length isn't a value")
+                };
+
+                let length = unsafe { usize::from_le_bytes(*length.as_ptr().cast::<[u8; 8]>()) };
+
+                types::Type::new(types::TypeKind::Array(element_type, length))
             }
             TypeKind::Reference => {
                 let [mutability, pointee] = &**type_args else {
@@ -1188,9 +1208,9 @@ impl TypeSystem {
                 }
                 ValueKind::Type(Some(Type { kind: TypeKind::Array, args: Some(c), .. })) => match &**c {
                     [type_, length] => format!(
-                        "[{}; {}]",
+                        "[{}] {}",
+                        self.value_to_str(*length, rec + 1),
                         self.value_to_str(*type_, rec + 1),
-                        self.value_to_str(*length, rec + 1)
                     ),
                     _ => unreachable!("Arrays should only ever have two type parameters"),
                 },
@@ -1895,7 +1915,74 @@ impl TypeSystem {
                         }
                     }
 
-                    (ValueKind::Value(_), _, ValueKind::Value(_), _) => todo!("Values aren't done"),
+                    (ValueKind::Value(a), _, ValueKind::Value(b), _) => {
+                        match (a, b) {
+                            (None, None) => {},
+                            (Some(a), None) => {
+                                let a_type = a.type_;
+                                let value = a.value;
+                                if value.is_some() {
+                                    for &set_id in b_value_sets.iter() {
+                                        self.value_sets[set_id].uncomputed_values -= 1;
+                                    }
+                                }
+                                // @Correctness: Should this type be a part of the current value set?
+                                let type_ = self.add_unknown_type();
+                                // @Speed: We could make this an unchecked get
+                                get_unaliased_value_mut(&mut self.values, b_id).kind = ValueKind::Value(Some(Constant {
+                                    type_,
+                                    value,
+                                }));
+                                self.set_equal(a_type, type_, variance);
+                                progress[1] = true;
+                            }
+                            (None, Some(b)) => {
+                                let b_type = b.type_;
+                                let value = b.value;
+                                if value.is_some() {
+                                    for &set_id in a_value_sets.iter() {
+                                        self.value_sets[set_id].uncomputed_values -= 1;
+                                    }
+                                }
+                                // @Correctness: Should this type be a part of the current value set?
+                                let type_ = self.add_unknown_type();
+                                // @Speed: We could make this an unchecked get
+                                get_unaliased_value_mut(&mut self.values, a_id).kind = ValueKind::Value(Some(Constant {
+                                    type_,
+                                    value,
+                                }));
+                                self.set_equal(type_, b_type, variance);
+                                progress[0] = true;
+                            }
+                            (Some(a), Some(b)) => {
+                                // @TODO: We want to also combine the reasons for the values here.
+                                match (&mut a.value, &mut b.value) {
+                                    (None, None) => {},
+                                    (Some(a_value), b_value @ None) => {
+                                        *b_value = Some(*a_value);
+                                        for &set_id in a_value_sets.iter() {
+                                            self.value_sets[set_id].uncomputed_values -= 1;
+                                        }
+                                        progress[1] = true;
+                                    }
+                                    (a_value @ None, Some(b_value)) => {
+                                        *a_value = Some(*b_value);
+                                        for &set_id in b_value_sets.iter() {
+                                            self.value_sets[set_id].uncomputed_values -= 1;
+                                        }
+                                        progress[1] = true;
+                                    }
+                                    (Some(a_value), Some(b_value)) => {
+                                        assert_eq!(a_value.as_ptr(), b_value.as_ptr(), "No value errors yet!");
+                                    }
+                                }
+
+                                let a_type = a.type_;
+                                let b_type = b.type_;
+                                self.set_equal(a_type, b_type, variance);
+                            }
+                        }
+                    }
                     (ValueKind::Access(a), _, ValueKind::Access(b), _) => {
                         let a = a.get_or_insert_with(|| {
                             for &set_id in a_value_sets.iter() {

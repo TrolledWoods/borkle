@@ -1,5 +1,10 @@
 #entry fn() -> u64 {
-    let a = [1, 2];
+    let a = 99;
+
+    let d = 2814824;
+    let b = [a, 2];
+    let c = [4, d];
+    c = b;
 
     a
 };
