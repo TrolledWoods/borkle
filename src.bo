@@ -1,19 +1,18 @@
-#entry fn() -> u64 {
-    let b = 42;
-    let a = &b : &r u32;
-    *a = 99;
+const help = fn() -> u64 {
+    let a = &32 : & !! _;
 
-    42
+    *a = 99;
+    *a = 42;
+    
+    *a
 };
 
 // #entry fn() -> u64 {
-//     let a1 = fn(a: _, b: _) -> _  { b };
-//     let a2 = fn(a: _, b: _) -> _  { a(b) };
+//     let a1 = fn(a: _, b: _) -> &r _  { b };
+//     let a2 = fn(a: _, b: _) -> &r _  { a(b) };
 // 
 //     let c = #0;
 //     let c_write = &c;
-// 
-//     c = a1 = a2;
 // 
 //     let write_to_pointer = fn(pointer: _, a: _, b: _) {
 //         let condition = #0;

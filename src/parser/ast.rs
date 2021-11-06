@@ -396,7 +396,7 @@ pub enum NodeKind {
         args: Vec<NodeId>,
         returns: NodeId,
     },
-    ReferenceType(NodeId, Option<PtrPermits>),
+    ReferenceType(NodeId, Option<(Location, PtrPermits)>),
     LiteralType(Type),
 
     Reference(NodeId),

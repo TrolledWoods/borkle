@@ -517,7 +517,7 @@ fn build_constraints(
             let infer_type_id = ctx.infer.add(
                 infer_type,
                 set,
-                Reason::new(node_loc, "this function type declaration"),
+                Reason::new(node_loc, "of this type"),
             );
             ctx.infer
                 .set_equal(infer_type_id, node_type_id, Variance::Invariant);
@@ -537,7 +537,7 @@ fn build_constraints(
                     args: Some(fields),
                 })),
                 set,
-                Reason::new(node_loc, "this struct declaration"),
+                Reason::new(node_loc, "of this type"),
             );
             ctx.infer.set_equal(node_type_id, temp, Variance::Invariant);
         }
@@ -546,11 +546,11 @@ fn build_constraints(
             let inner = build_constraints(ctx, inner, set);
             // TODO: It would be nice to specify the location of the permit specification, so we can generate
             // an error that points to them specifically
-            let access = permits_to_access(node_loc, permits);
+            let access = permits_to_access(permits);
             let temp = ctx.infer.add_type(
                 type_infer::Ref(access, type_infer::Var(inner)),
                 set,
-                Reason::new(node_loc, "this reference type"),
+                Reason::new(node_loc, "of this reference type"),
             );
             ctx.infer.set_equal(node_type_id, temp, Variance::Invariant);
         }
@@ -563,9 +563,29 @@ fn build_constraints(
     node_type_id
 }
 
-fn permits_to_access(loc: Location, permits: Option<PtrPermits>) -> type_infer::Access {
-    permits.map_or_else(Default::default, |v| {
-        type_infer::Access::specific(v.read(), v.write(), Reason::new(loc, "this value has these permissions"))
+fn permits_to_access(permits: Option<(Location, PtrPermits)>) -> type_infer::Access {
+    permits.map_or_else(Default::default, |(loc, v)| {
+        type_infer::Access::specific(
+            v.read(),
+            v.write(),
+            Reason::new(loc, if v.read() {
+                "it's defined as such here"
+            } else {
+                "these permissions don't include readability"
+            }),
+            Reason::new(
+                if v.read() && v.write() {
+                    loc.next_char()
+                } else {
+                    loc
+                },
+                if v.write() {
+                    "it's defined as such here"
+                } else {
+                    "these permissions don't include mutability"
+                },
+            )
+        )
     })
 }
 
@@ -627,7 +647,7 @@ fn build_lvalue(
             let temp = ctx.infer.add_type(
                 type_infer::Ref(type_infer::Var(access), type_infer::Unknown),
                 set,
-                Reason::new(node_loc, "this dereference tells us it's a reference"),
+                Reason::new(node_loc, "it is dereferenced here"),
             );
             // @Correctness: I'm not sure that a variance here is correct in all
             // cases, but without it the inferrence isn't correct.
@@ -643,7 +663,7 @@ fn build_lvalue(
             // Make it a reference to a temporary instead. This forces the pointer to be readonly.
             // @Speed: This could be faster...
             let access_strict = ctx.infer.add_access(
-                Some(type_infer::Access::disallows(None, Some(Reason::new(node_loc, "this isn't acceptable as an lvalue, so it's treated as a temporary value, and temporaries are read-only")))),
+                Some(type_infer::Access::disallows(None, Some(Reason::new(node_loc, "temporary values are read-only")))),
                 set,
                 Reason::new(node_loc, "this isn't acceptable as an lvalue, so it's treated as a temporary value, and temporaries are read-only"),
             );

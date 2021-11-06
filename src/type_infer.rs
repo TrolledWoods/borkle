@@ -297,12 +297,12 @@ impl Access {
         self.needs_write.is_some()
     }
 
-    pub fn specific(read: bool, write: bool, reason: Reason) -> Self {
+    pub fn specific(read: bool, write: bool, read_reason: Reason, write_reason: Reason) -> Self {
         Self {
-            cannot_read: (!read).then(|| Reasons::with_one(reason.clone())),
-            cannot_write: (!write).then(|| Reasons::with_one(reason.clone())),
-            needs_read: read.then(|| Reasons::with_one(reason.clone())),
-            needs_write: write.then(|| Reasons::with_one(reason.clone())),
+            cannot_read: (!read).then(|| Reasons::with_one(read_reason.clone())),
+            cannot_write: (!write).then(|| Reasons::with_one(write_reason.clone())),
+            needs_read: read.then(|| Reasons::with_one(read_reason.clone())),
+            needs_write: write.then(|| Reasons::with_one(write_reason.clone())),
         }
     }
     
@@ -883,10 +883,10 @@ impl TypeSystem {
                     }
 
                     if let (Some(needs), Some(cannot)) = (&access.needs_write, &access.cannot_write) {
-                        for (i, reason) in needs.iter().enumerate() {
+                        for (i, reason) in cannot.iter().enumerate() {
                             let mut message = String::new();
                             if i == 0 {
-                                message.push_str("Written to because ");
+                                message.push_str("Immutable because ");
                             } else {
                                 message.push_str(".. and because ");
                             }
@@ -894,10 +894,10 @@ impl TypeSystem {
                             errors.info(reason.loc, message);
                         }
 
-                        for (i, reason) in cannot.iter().enumerate() {
+                        for (i, reason) in needs.iter().enumerate() {
                             let mut message = String::new();
                             if i == 0 {
-                                message.push_str("Immutable because ");
+                                message.push_str("Needs mutability because ");
                             } else {
                                 message.push_str(".. and because ");
                             }
@@ -910,10 +910,10 @@ impl TypeSystem {
 
                     // @Duplicate code: Almost the exact same as the code above
                     if let (Some(needs), Some(cannot)) = (&access.needs_read, &access.cannot_read) {
-                        for (i, reason) in needs.iter().enumerate() {
+                        for (i, reason) in cannot.iter().enumerate() {
                             let mut message = String::new();
                             if i == 0 {
-                                message.push_str("Read from because ");
+                                message.push_str("Cannot read value because ");
                             } else {
                                 message.push_str(".. and because ");
                             }
@@ -921,10 +921,10 @@ impl TypeSystem {
                             errors.info(reason.loc, message);
                         }
 
-                        for (i, reason) in cannot.iter().enumerate() {
+                        for (i, reason) in needs.iter().enumerate() {
                             let mut message = String::new();
                             if i == 0 {
-                                message.push_str("Cannot read from because ");
+                                message.push_str("Read from because ");
                             } else {
                                 message.push_str(".. and because ");
                             }
@@ -1474,6 +1474,7 @@ impl TypeSystem {
                         // together somehow.
                         // Any constraints with the value should have the values id changed.
                         // This sets the current equality constraint to dead as well.
+                        // This does not queue them, since we queue the values once again later anyway
                         if let Some(affected_constraints) = self.available_constraints.remove(&b_id)
                         {
                             for affected_constraint_id in affected_constraints {
@@ -1490,14 +1491,8 @@ impl TypeSystem {
                                 }
 
                                 affected_constraint.fix_order();
-
-                                if !matches!(affected_constraint.kind, ConstraintKind::Dead) {
-                                    self.queued_constraints.push(affected_constraint_id);
-                                }
                             }
                         }
-
-                        progress[0] = true;
 
                         self.values[a_id] = MaybeMovedValue::Value(Value {
                             kind: ValueKind::Error { types: error_types, access: error_access },
@@ -1507,6 +1502,10 @@ impl TypeSystem {
                         });
 
                         self.values[b_id] = MaybeMovedValue::Moved(a_id);
+
+                        for &constraint in self.available_constraints.get(&a_id).into_iter().flatten() {
+                            self.queued_constraints.push(constraint);
+                        }
                     }
                     (ValueKind::Type(a), _, ValueKind::Type(b), _) => {
                         if false && variance == Variance::Invariant {
@@ -1797,20 +1796,12 @@ impl TypeSystem {
                                 let a_inner = get_real_value_id(&self.values, a_inner);
                                 let b_inner = get_real_value_id(&self.values, b_inner);
 
-                                let ValueKind::Access(a_access) = &get_value(&self.values, a_access_id).kind else { panic!() };
-                                let ValueKind::Access(b_access) = &get_value(&self.values, b_access_id).kind else { panic!() };
-
-                                let guaranteed_variance = biggest_guaranteed_variance_of_operation(
-                                    a_access,
-                                    b_access,
-                                    variance,
-                                );
                                 let variance_constraint = self
                                     .variance_updates
                                     .entry((a_access_id, b_access_id))
                                     .or_insert_with(|| VarianceConstraint {
                                         variance,
-                                        last_variance_applied: guaranteed_variance,
+                                        last_variance_applied: Variance::DontCare,
                                         constraints: Vec::new(),
                                     });
                                 // We use guaranteed_variance instead of last_variance_applied here, since if they are different
@@ -1819,7 +1810,7 @@ impl TypeSystem {
                                 let inner_constraint = Constraint::equal(
                                     a_inner,
                                     b_inner,
-                                    guaranteed_variance.apply_to(variance),
+                                    Variance::DontCare.apply_to(variance),
                                 );
                                 if let Some(inner_constraint_id) = insert_constraint(
                                     &mut self.constraints,
@@ -1918,7 +1909,9 @@ impl TypeSystem {
                         progress[0] = different;
                         progress[1] = different;
 
-                        if a.needs_write() && a.cannot_write.is_some() || a.needs_read() && a.cannot_read.is_some() {
+                        if a.needs_write() && a.cannot_write.is_some() || a.needs_read() && a.cannot_read.is_some()
+                        || b.needs_write() && b.cannot_write.is_some() || b.needs_read() && b.cannot_read.is_some() {
+                            a.combine_with(b, Variance::Invariant);
                             let access = a.clone();
                             let value = get_value_mut(&mut self.values, a_id);
                             for &value_set in &value.value_sets {

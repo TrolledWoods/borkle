@@ -45,12 +45,6 @@ mod types;
 fn main() {
     profile::begin();
 
-    let mut path = std::env::current_exe().unwrap();
-    path.pop();
-    path.pop();
-    path.pop();
-    let _ = std::env::set_current_dir(path);
-
     let time = std::time::Instant::now();
     let logger = logging::Logger::new();
 

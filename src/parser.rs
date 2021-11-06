@@ -1202,33 +1202,36 @@ fn maybe_parse_polymorphic_arguments(
     Ok(args)
 }
 
-fn parse_pointer_permits(global: &mut DataContext<'_>) -> Option<PtrPermits> {
+fn parse_pointer_permits(global: &mut DataContext<'_>) -> Option<(Location, PtrPermits)> {
     match global.tokens.peek() {
-        Some(Token {
+        Some(&Token {
             kind: TokenKind::Keyword(Keyword::Write),
+            loc,
             ..
         }) => {
             global.tokens.next();
-            Some(PtrPermits::WRITE)
+            Some((loc, PtrPermits::WRITE))
         }
-        Some(Token {
+        Some(&Token {
             kind: TokenKind::Keyword(Keyword::Read),
+            loc,
             ..
         }) => {
             global.tokens.next();
-            Some(PtrPermits::READ)
+            Some((loc, PtrPermits::READ))
         }
-        Some(Token {
+        Some(&Token {
             kind: TokenKind::Keyword(Keyword::ReadWrite),
+            loc,
             ..
         }) => {
             global.tokens.next();
-            Some(PtrPermits::READ_WRITE)
+            Some((loc, PtrPermits::READ_WRITE))
         }
         // Leave to be inferred.
         _ => {
-            if global.tokens.try_consume_operator_string("!!").is_some() {
-                Some(PtrPermits::NONE)
+            if let Some(loc) = global.tokens.try_consume_operator_string("!!") {
+                Some((loc, PtrPermits::NONE))
             } else {
                 None
             }
