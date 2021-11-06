@@ -1,30 +1,38 @@
 #entry fn() -> u64 {
-    let a1 = fn(a: _, b: _) -> _  { b };
-    let a2 = fn(a: _, b: _) -> _  { a(b) };
+    let b = 42;
+    let a = &b : &r u32;
+    *a = 99;
 
-    let c = #0;
-    let c_write = &c;
-
-    // c = a1 = a2;
-
-    let write_to_pointer = fn(pointer: _, a: _, b: _) {
-        let condition = #0;
-        if condition {
-            *pointer = a;
-        } else {
-            *pointer = b;
-        };
-    };
-
-    write_to_pointer(c_write, a1, a2);
-
-    let x = 44;
-    let c2 = 3;
-    let hi = fn(x: _) -> _ { x };
-    *c(hi, &c2) = x;
-
-    c2
+    42
 };
+
+// #entry fn() -> u64 {
+//     let a1 = fn(a: _, b: _) -> _  { b };
+//     let a2 = fn(a: _, b: _) -> _  { a(b) };
+// 
+//     let c = #0;
+//     let c_write = &c;
+// 
+//     c = a1 = a2;
+// 
+//     let write_to_pointer = fn(pointer: _, a: _, b: _) {
+//         let condition = #0;
+//         if condition {
+//             *pointer = a;
+//         } else {
+//             *pointer = b;
+//         };
+//     };
+// 
+//     write_to_pointer(c_write, a1, a2);
+// 
+//     let x = 44;
+//     let c2 = 3;
+//     let hi = fn(x: _) -> _ { x };
+//     *c(hi, &c2) = x;
+// 
+//     c2
+// };
 
 // const B = {
 // 

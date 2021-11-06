@@ -399,7 +399,7 @@ pub enum ValueKind {
     Error {
         // @Cleanup: Maybe this level of type complexity should be extracted into a struct...
         types: Vec<((TypeKind, Option<usize>), Reasons)>,
-        // Put access here too.
+        access: Access,
         // access: Vec<(
         // TODO: Put values in here, I can't test them right now anyway so it's pointless to try!
     },
@@ -419,8 +419,9 @@ impl ValueKind {
             Self::Type(_) => Self::Type(None),
             Self::Value(_) => Self::Value(None),
             Self::Access(_) => Self::Access(None),
-            Self::Error { types } => Self::Error {
+            Self::Error { types, access } => Self::Error {
                 types: types.clone(),
+                access: access.clone(),
             },
         }
     }
@@ -845,39 +846,94 @@ impl TypeSystem {
             use std::fmt::Write;
             for value in &self.values {
                 if let MaybeMovedValue::Value(Value {
-                    kind: ValueKind::Error { types },
+                    kind: ValueKind::Error { types, access },
                     ..
                 }) = value
                 {
-                    for ((type_, num_args), reasons) in types.iter() {
-                        for (i, reason) in reasons.iter().enumerate() {
+                    if !types.is_empty() {
+                        for ((type_, num_args), reasons) in types.iter() {
+                            for (i, reason) in reasons.iter().enumerate() {
+                                let mut message = String::new();
+                                if i == 0 {
+                                    message.push('\'');
+                                    type_kind_to_str(&mut message, type_, *num_args).unwrap();
+                                    message.push_str("' because ");
+                                } else {
+                                    message.push_str(".. and because ");
+                                }
+                                message.push_str(&reason.message);
+                                errors.info(reason.loc, message);
+                            }
+                        }
+
+                        let mut message = String::new();
+                        message.push_str("Conflicting types ");
+                        for (i, ((type_, num_args), _)) in types.iter().enumerate() {
+                            if i > 0 && i + 1 == types.len() {
+                                message.push_str(" and ");
+                            } else if i > 0 {
+                                message.push_str(", ");
+                            }
+
+                            message.push('\'');
+                            type_kind_to_str(&mut message, type_, *num_args).unwrap();
+                            message.push('\'');
+                        }
+                        errors.global_error(message);
+                    }
+
+                    if let (Some(needs), Some(cannot)) = (&access.needs_write, &access.cannot_write) {
+                        for (i, reason) in needs.iter().enumerate() {
                             let mut message = String::new();
                             if i == 0 {
-                                message.push('\'');
-                                type_kind_to_str(&mut message, type_, *num_args).unwrap();
-                                message.push_str("' because ");
+                                message.push_str("Written to because ");
                             } else {
                                 message.push_str(".. and because ");
                             }
                             message.push_str(&reason.message);
                             errors.info(reason.loc, message);
                         }
-                    }
 
-                    let mut message = String::new();
-                    message.push_str("Conflicting types ");
-                    for (i, ((type_, num_args), _)) in types.iter().enumerate() {
-                        if i > 0 && i + 1 == types.len() {
-                            message.push_str(" and ");
-                        } else if i > 0 {
-                            message.push_str(", ");
+                        for (i, reason) in cannot.iter().enumerate() {
+                            let mut message = String::new();
+                            if i == 0 {
+                                message.push_str("Immutable because ");
+                            } else {
+                                message.push_str(".. and because ");
+                            }
+                            message.push_str(&reason.message);
+                            errors.info(reason.loc, message);
                         }
 
-                        message.push('\'');
-                        type_kind_to_str(&mut message, type_, *num_args).unwrap();
-                        message.push('\'');
+                        errors.global_error("Tried writing to immutable value".to_string());
                     }
-                    errors.global_error(message);
+
+                    // @Duplicate code: Almost the exact same as the code above
+                    if let (Some(needs), Some(cannot)) = (&access.needs_read, &access.cannot_read) {
+                        for (i, reason) in needs.iter().enumerate() {
+                            let mut message = String::new();
+                            if i == 0 {
+                                message.push_str("Read from because ");
+                            } else {
+                                message.push_str(".. and because ");
+                            }
+                            message.push_str(&reason.message);
+                            errors.info(reason.loc, message);
+                        }
+
+                        for (i, reason) in cannot.iter().enumerate() {
+                            let mut message = String::new();
+                            if i == 0 {
+                                message.push_str("Cannot read from because ");
+                            } else {
+                                message.push_str(".. and because ");
+                            }
+                            message.push_str(&reason.message);
+                            errors.info(reason.loc, message);
+                        }
+
+                        errors.global_error("Tried reading from unreadable value".to_string());
+                    }
                 }
             }
         }
@@ -886,43 +942,6 @@ impl TypeSystem {
             has_errors = true;
 
             match *error {
-                Error {
-                    a,
-                    b,
-                    kind: ErrorKind::IncompatibleTypes,
-                } => {
-                    let a_type = self.value_to_str(a, 7);
-                    let b_type = self.value_to_str(b, 7);
-
-                    let a = get_value(&self.values, a);
-                    let b = get_value(&self.values, b);
-
-                    let mut reasons = a.reasons.iter();
-                    if let Some(reason) = reasons.next() {
-                        errors.info(
-                            reason.loc,
-                            format!("'{}' because {}", a_type, reason.message),
-                        );
-                    }
-
-                    for reason in reasons {
-                        errors.info(reason.loc, format!(".. and because {}", reason.message));
-                    }
-
-                    let mut reasons = b.reasons.iter();
-                    if let Some(reason) = reasons.next() {
-                        errors.info(
-                            reason.loc,
-                            format!("'{}' because {}", b_type, reason.message),
-                        );
-                    }
-
-                    for reason in reasons {
-                        errors.info(reason.loc, format!(".. and because {}", reason.message));
-                    }
-
-                    errors.global_error(format!("Conflicting types '{}' and '{}'", a_type, b_type));
-                }
                 _ => errors.global_error(format!("Temporary type-inference error: {:?}", error)),
             }
         }
@@ -1283,7 +1302,7 @@ impl TypeSystem {
                 let a = &get_value(&self.values, a_id).kind;
 
                 match a {
-                    ValueKind::Error { types: _ } => {
+                    ValueKind::Error { .. } => {
                         // TODO: Deal with this case somehow. I think that a good method would be just
                         // to flag the child member as being dependant on an error, e.g. if we knew what this
                         // type was it might be set, so just don't report incompleteness-errors on that value.
@@ -1338,7 +1357,7 @@ impl TypeSystem {
                 let a = &get_value(&self.values, a_id).kind;
 
                 match a {
-                    ValueKind::Error { types: _ } => {
+                    ValueKind::Error { .. } => {
                         // TODO: Deal with this case somehow. I think that a good method would be just
                         // to flag the child member as being dependant on an error, e.g. if we knew what this
                         // type was it might be set, so just don't report incompleteness-errors on that value.
@@ -1392,9 +1411,10 @@ impl TypeSystem {
 
                 use ErrorKind::*;
                 match (a, a_id, b, b_id) {
-                    (ValueKind::Error { types: error_types }, error_id, _, non_error_id)
-                    | (_, non_error_id, ValueKind::Error { types: error_types }, error_id) => {
+                    (ValueKind::Error { types: error_types, access: error_access }, error_id, _, non_error_id)
+                    | (_, non_error_id, ValueKind::Error { types: error_types, access: error_access }, error_id) => {
                         let mut error_types = mem::take(error_types);
+                        let mut error_access = mem::take(error_access);
                         let non_error = get_value(&self.values, non_error_id) else { unreachable!() };
 
                         for &v in &non_error.value_sets {
@@ -1406,6 +1426,7 @@ impl TypeSystem {
                         match &non_error.kind {
                             ValueKind::Error {
                                 types: other_error_types,
+                                access: other_error_access,
                             } => {
                                 // @Duplicate code with below, probably extract this into a function later
                                 for ((type_, args), other_reasons) in other_error_types {
@@ -1424,6 +1445,8 @@ impl TypeSystem {
                                         error_types.push((type_, other_reasons.clone()));
                                     }
                                 }
+
+                                error_access.combine_with(&mut other_error_access.clone(), Variance::Invariant);
                             }
                             ValueKind::Type(Some(Type { kind: type_, args })) => {
                                 let type_ = (type_.clone(), args.as_ref().map(|v| v.len()));
@@ -1440,6 +1463,9 @@ impl TypeSystem {
                                 if !found {
                                     error_types.push((type_, non_error.reasons.clone()));
                                 }
+                            }
+                            ValueKind::Access(Some(access)) => {
+                                error_access.combine_with(&mut access.clone(), Variance::Invariant);
                             }
                             _ => {}
                         }
@@ -1474,7 +1500,7 @@ impl TypeSystem {
                         progress[0] = true;
 
                         self.values[a_id] = MaybeMovedValue::Value(Value {
-                            kind: ValueKind::Error { types: error_types },
+                            kind: ValueKind::Error { types: error_types, access: error_access },
                             // We already set all the value sets as having errors, so this should be fine.
                             value_sets: Vec::new(),
                             reasons: Reasons::default(),
@@ -1671,7 +1697,7 @@ impl TypeSystem {
                                 }
 
                                 self.values[a_id] = MaybeMovedValue::Value(Value {
-                                    kind: ValueKind::Error { types: reasons },
+                                    kind: ValueKind::Error { types: reasons, access: Access::default() },
                                     value_sets: Vec::new(),
                                     reasons: Reasons::default(),
                                 });
@@ -1892,7 +1918,24 @@ impl TypeSystem {
                         progress[0] = different;
                         progress[1] = different;
 
-                        if let Some(variance_constraint) =
+                        if a.needs_write() && a.cannot_write.is_some() || a.needs_read() && a.cannot_read.is_some() {
+                            let access = a.clone();
+                            let value = get_value_mut(&mut self.values, a_id);
+                            for &value_set in &value.value_sets {
+                                self.value_sets[value_set].has_errors = true;
+                            }
+                            *value = Value {
+                                kind: ValueKind::Error {
+                                    types: Vec::new(),
+                                    access,
+                                },
+                                value_sets: Vec::new(),
+                                reasons: Reasons::default(),
+                            };
+                            // @HACK: I do this so I don't have to do some annoying manipulation more than necessary,
+                            // this should not actually be done.
+                            self.queued_constraints.push(constraint_id);
+                        } else if let Some(variance_constraint) =
                             self.variance_updates.get_mut(&(a_id, b_id))
                         {
                             run_variance_constraint(
