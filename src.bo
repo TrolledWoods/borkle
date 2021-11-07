@@ -1,14 +1,12 @@
-const compile_time_write = {
-    let put_string = #builtin_function stdout_write : fn([]r u8) -> usize;
+library "intrinsics.bo";
 
-    put_string("Hi, from compile time :D\n");
+const print = fn(string: [] u8) {
+    i_stdout_write(string);
+    i_stdout_flush();
 };
 
 #entry fn() -> u64 {
-
-    let put_string = #builtin_function stdout_write : fn([]r u8) -> usize;
-
-    put_string("Hello, world!\n");
+    print("Hello, world!\n");
 
     42
 };

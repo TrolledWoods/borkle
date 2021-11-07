@@ -288,8 +288,35 @@ fn build_constraints(
             );
             ctx.infer.set_equal(node_type_id, temp, Variance::Invariant);
         }
-        NodeKind::Global(scope_id, name, ref poly_params) => {
+        NodeKind::Global(scope, name, ref poly_params) => {
             assert_eq!(poly_params.len(), 0, "polymorphic things not supported yet");
+
+            let id = ctx.program.get_member_id(scope, name).expect("The dependency system should have made sure that this is defined");
+
+            let PolyOrMember::Member(id) = id else { todo!("Polymorphism!") };
+
+            // @TODO: Worry about whether we're in const context or not....
+            // if ctx.is_const {
+            //     ctx.deps.add(
+            //         parsed.loc,
+            //         DepKind::Member(id, MemberDep::ValueAndCallableIfFunction),
+            //     );
+            // } else {
+            // @FIXME: For some reason the Value dependency doesn't work????
+            ctx.emit_deps.add(node_loc, DepKind::Member(id, MemberDep::ValueAndCallableIfFunction));
+            // }
+
+            let (type_, meta_data) = ctx.program.get_member_meta_data(id);
+
+            let type_id = ctx.infer.add_type(
+                type_infer::CompilerType(type_),
+                set,
+                Reason::new(node_loc, "this global is of this type"),
+            );
+
+            ctx.infer.set_equal(node_type_id, type_id, Variance::Invariant);
+
+            ctx.ast.get_mut(node_id).kind = NodeKind::ResolvedGlobal(id, meta_data);
         }
         NodeKind::Literal(Literal::Int(_)) => {
             // TODO: Actually add a constraint that checks that the type is an int, and that it's in bounds
