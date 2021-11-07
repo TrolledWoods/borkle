@@ -75,24 +75,24 @@ pub fn process_ast<'a>(
 
     // Build the tree relationship between the different types.
     let root = ctx.ast.root;
-    let root_value_set = ctx.infer.add_value_set(root);
+    let root_value_set = ctx.infer.value_sets.add(root);
     build_constraints(&mut ctx, root, root_value_set);
 
     loop {
         ctx.infer.solve();
 
         let mut progress = false;
-        for value_set_id in ctx.infer.value_sets() {
-            let value_set = ctx.infer.get_value_set_mut(value_set_id);
+        for value_set_id in ctx.infer.value_sets.iter_ids() {
+            let value_set = ctx.infer.value_sets.get_mut(value_set_id);
             if value_set_id == 0 // <- We don't want the base node, it's a special case, since it can't be dealt with by emit_execution_context; it can be any node.
             || value_set.has_errors
             || value_set.has_been_computed
-            || value_set.uncomputed_values > 0
+            || value_set.uncomputed_values() > 0
             {
                 continue;
             }
 
-            debug_assert_eq!(value_set.uncomputed_values, 0, "The number of uncomputed values cannot be less than zero");
+            debug_assert_eq!(value_set.uncomputed_values(), 0, "The number of uncomputed values cannot be less than zero");
 
             let related_nodes = std::mem::take(&mut value_set.related_nodes);
             for &node_id in &related_nodes {
@@ -107,7 +107,7 @@ pub fn process_ast<'a>(
                     local.type_ = Some(ctx.infer.value_to_compiler_type(local.type_infer_value_id));
                 }
             }
-            let value_set = ctx.infer.get_value_set_mut(value_set_id);
+            let value_set = ctx.infer.value_sets.get_mut(value_set_id);
             value_set.related_nodes = related_nodes;
             value_set.has_been_computed = true;
             let node_id = value_set.ast_node;
@@ -136,9 +136,9 @@ pub fn process_ast<'a>(
     }
 
     let mut are_incomplete_sets = false;
-    for value_set_id in ctx.infer.value_sets() {
-        let value_set = ctx.infer.get_value_set_mut(value_set_id);
-        if value_set.has_errors || value_set.uncomputed_values > 0 {
+    for value_set_id in ctx.infer.value_sets.iter_ids() {
+        let value_set = ctx.infer.value_sets.get_mut(value_set_id);
+        if value_set.has_errors || value_set.uncomputed_values() > 0 {
             println!("Set {} is uncomputable!", value_set_id);
             are_incomplete_sets = true;
         }
@@ -207,7 +207,7 @@ fn emit_execution_context(ctx: &mut Context<'_, '_>, node_id: NodeId, set: Value
                 })),*/
             );
 
-            ctx.infer.unlock_value_set(parent_set);
+            ctx.infer.value_sets.unlock(parent_set);
         }
         _ => unreachable!("A {:?} doesn't define an execution context", node.kind),
     }
@@ -223,7 +223,7 @@ fn build_constraints(
     let node_type_id = node.type_infer_value_id;
 
     ctx.infer.set_value_set(node_type_id, set);
-    ctx.infer.add_node_to_set(set, node_id);
+    ctx.infer.value_sets.add_node_to_set(set, node_id);
 
     match node.kind {
         NodeKind::Uninit | NodeKind::Zeroed | NodeKind::ImplicitType => {}
@@ -285,7 +285,7 @@ fn build_constraints(
 
             if local.stack_frame_id != set {
                 ctx.errors.error(node_loc, "Variable is defined in a different execution context, you cannot access it here, other than for its type". to_string());
-                ctx.infer.make_value_set_erroneous(set);
+                ctx.infer.value_sets.get_mut(set).has_errors = true;
             }
         }
         NodeKind::If {
@@ -353,11 +353,11 @@ fn build_constraints(
             // @Speed: Somewhat needless allocation
             let args = args.to_vec();
 
-            let sub_set = ctx.infer.add_value_set(node_id);
+            let sub_set = ctx.infer.value_sets.add(node_id);
 
             // The parent value set has to wait for this function declaration to be emitted until
             // it can continue, so we lock it to make sure it doesn't get emitted before then.
-            ctx.infer.lock_value_set(set);
+            ctx.infer.value_sets.lock(set);
 
             let mut function_type_ids = Vec::with_capacity(args.len() + 1);
             let returns_type_id = build_constraints(ctx, returns, sub_set);
@@ -656,7 +656,7 @@ fn build_lvalue(
 
             if local.stack_frame_id != set {
                 ctx.errors.error(node_loc, "Variable is defined in a different execution context, you cannot access it here, other than for its type".to_string());
-                ctx.infer.make_value_set_erroneous(set);
+                ctx.infer.value_sets.get_mut(set).has_errors = true;
             }
         }
         NodeKind::Parenthesis(inner) => {
@@ -712,7 +712,7 @@ fn build_lvalue(
     }
 
     ctx.infer.set_value_set(node_type_id, set);
-    ctx.infer.add_node_to_set(set, node_id);
+    ctx.infer.value_sets.add_node_to_set(set, node_id);
 
     node_type_id
 }

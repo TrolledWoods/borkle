@@ -1,13 +1,27 @@
-#entry fn() -> u64 {
-    let array_2 = [9, 3, 2];
-    let array = [1, array_2._2];
 
-    array._0 = 92;
-    array._1
+// #entry fn() -> u64 {
+//     let array = [0, 1, 2, 3];
+//     let head_ptr = &array._0;
+// 
+//     let buffer = #0 : { ptr: &_; len: usize; };
+// 
+//     buffer.ptr = &array._0;
+//     buffer.len = 4;
+// 
+//     array._0
+// };
+
+#entry fn() -> u64 {
+    let first = fn(a: _) -> _ {
+        (*a)._0
+    };
+
+    let array = [1, 2];
+    first(&array)
 };
 
 // #entry fn() -> u64 {
-//     let a1 = fn(a: u32, b: _) -> &_  { &42 };
+//     let a1 = fn(a: _, b: _) -> &_  { &[42, 12] };
 //     let a2 = fn(a: _, b: _) -> &_  { a(b) };
 // 
 //     let c = #0;
@@ -24,12 +38,12 @@
 // 
 //     write_to_pointer(c_write, a1, a2);
 // 
-//     let x = 44;
-//     let c2 = 3;
+//     let x = [44, 99];
+//     let c2 = [3, 42];
 //     let hi = fn(x: _) -> _ { x };
 //     *c(hi, &c2) = x;
 // 
-//     c2
+//     c2._1
 // };
 
 // const B = {

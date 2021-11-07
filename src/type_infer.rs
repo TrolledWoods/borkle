@@ -9,6 +9,9 @@ use std::sync::Arc;
 use ustr::Ustr;
 use crate::program::constant::ConstantRef;
 
+mod value_sets;
+pub use value_sets::{ValueSets, ValueSetId, ValueSetHandles, ValueSet};
+
 #[derive(Clone, Copy)]
 pub struct CompilerType(pub types::Type);
 
@@ -479,7 +482,7 @@ pub type ValueId = usize;
 #[derive(Debug)]
 struct Value {
     kind: ValueKind,
-    value_sets: Vec<ValueSetId>,
+    value_sets: ValueSetHandles,
     reasons: Reasons,
     // /// If a value isn't known, it should generate an error, but if it's possible that it's not known because
     // /// an error occured, we don't want to generate an error, which is why this flag exists.
@@ -641,6 +644,16 @@ fn get_value(values: &Vec<MaybeMovedValue>, mut id: ValueId) -> &Value {
     v
 }
 
+fn get_unaliased_value(values: &Vec<MaybeMovedValue>, mut id: ValueId) -> &Value {
+    let MaybeMovedValue::Value(v) = &values[id] else {
+        unreachable!("Value has to be unaliased")
+        // I'll do this in release mode later....
+        // // Safety: Because we called `get_real_value_id` we know that it's not an alias
+        // unsafe { unreachable_unchecked() }
+    };
+    v
+}
+
 fn get_value_mut(values: &mut Vec<MaybeMovedValue>, mut id: ValueId) -> &mut Value {
     let id = get_real_value_id(values, id);
     let MaybeMovedValue::Value(v) = &mut values[id] else {
@@ -777,24 +790,12 @@ fn type_kind_to_str(
     }
 }
 
-pub type ValueSetId = usize;
-
-pub struct ValueSet {
-    pub related_nodes: Vec<crate::parser::ast::NodeId>,
-
-    pub uncomputed_values: i32,
-    pub has_errors: bool,
-
-    pub ast_node: crate::parser::ast::NodeId,
-    pub has_been_computed: bool,
-}
-
 pub struct TypeSystem {
     /// The first few values are always primitive values, with a fixed position, to make them trivial to create.
     /// 0 - Int
     values: Vec<MaybeMovedValue>,
 
-    value_sets: Vec<ValueSet>,
+    pub value_sets: ValueSets,
 
     constraints: Vec<Constraint>,
 
@@ -811,7 +812,7 @@ impl TypeSystem {
     pub fn new() -> Self {
         Self {
             values: vec![],
-            value_sets: Vec::new(),
+            value_sets: ValueSets::default(),
             variance_updates: HashMap::new(),
             constraints: Vec::new(),
             available_constraints: HashMap::new(),
@@ -930,51 +931,8 @@ impl TypeSystem {
         has_errors
     }
 
-    pub fn value_sets(&self) -> impl Iterator<Item = ValueSetId> {
-        0..self.value_sets.len()
-    }
-
-    pub fn get_value_set(&self, value_set: ValueSetId) -> &ValueSet {
-        &self.value_sets[value_set]
-    }
-
-    pub fn get_value_set_mut(&mut self, value_set: ValueSetId) -> &mut ValueSet {
-        &mut self.value_sets[value_set]
-    }
-
-    pub fn add_node_to_set(&mut self, value_set: ValueSetId, node: crate::parser::ast::NodeId) {
-        self.value_sets[value_set].related_nodes.push(node);
-    }
-
-    pub fn lock_value_set(&mut self, value_set: ValueSetId) {
-        self.value_sets[value_set].uncomputed_values += 1;
-    }
-
-    pub fn unlock_value_set(&mut self, value_set: ValueSetId) {
-        self.value_sets[value_set].uncomputed_values -= 1;
-    }
-
-    pub fn make_value_set_erroneous(&mut self, value_set: ValueSetId) {
-        self.value_sets[value_set].has_errors = true;
-    }
-
-    pub fn add_value_set(&mut self, ast_node: crate::parser::ast::NodeId) -> ValueSetId {
-        let id = self.value_sets.len();
-        self.value_sets.push(ValueSet {
-            uncomputed_values: 0,
-            has_errors: false,
-            related_nodes: Vec::new(),
-            ast_node,
-            has_been_computed: false,
-        });
-        id
-    }
-
     pub fn value_is_in_set(&self, value_id: ValueId, set_id: ValueSetId) -> bool {
-        get_value(&self.values, value_id)
-            .value_sets
-            .binary_search(&set_id)
-            .is_ok()
+        get_value(&self.values, value_id).value_sets.contains(set_id)
     }
 
     pub fn value_to_compiler_type(&self, value_id: ValueId) -> types::Type {
@@ -1445,24 +1403,21 @@ impl TypeSystem {
                 let values_len = self.values.len();
                 let (a_slice, b_slice) = self.values.split_at_mut(b_id);
                 // @Performance: Could be unreachable_unchecked in the future....
-                let MaybeMovedValue::Value(Value { kind: a, value_sets: a_value_sets, .. }) = &mut a_slice[a_id] else {
+                let MaybeMovedValue::Value(a_value) = &mut a_slice[a_id] else {
                     unreachable!("It shouldn't be possible for the value of an equal constraint to be aliased {:?}", self.values[a_id])
                 };
-                let MaybeMovedValue::Value(Value { kind: b, value_sets: b_value_sets, .. }) = &mut b_slice[0] else {
+                let MaybeMovedValue::Value(b_value) = &mut b_slice[0] else {
                     unreachable!("It shouldn't be possible for the value of an equal constraint to be aliased {:?}", self.values[b_id])
                 };
 
                 use ErrorKind::*;
-                match (a, a_id, b, b_id) {
-                    (ValueKind::Error { types: error_types, access: error_access }, error_id, _, non_error_id)
-                    | (_, non_error_id, ValueKind::Error { types: error_types, access: error_access }, error_id) => {
+                match (&mut *a_value, a_id, &mut *b_value, b_id) {
+                    (Value { kind: ValueKind::Error { types: error_types, access: error_access }, .. }, error_id, non_error, non_error_id)
+                    | (non_error, non_error_id, Value { kind: ValueKind::Error { types: error_types, access: error_access }, .. }, error_id) => {
                         let mut error_types = mem::take(error_types);
                         let mut error_access = mem::take(error_access);
-                        let non_error = get_value(&self.values, non_error_id);
 
-                        for &v in &non_error.value_sets {
-                            self.value_sets[v].has_errors = true;
-                        }
+                        non_error.value_sets.make_erroneous(&mut self.value_sets);
 
                         // @Correctness: I want to figure out what to do with the children of errors, but for now I'm not going to worry
                         // too much about it.
@@ -1541,8 +1496,8 @@ impl TypeSystem {
 
                         self.values[a_id] = MaybeMovedValue::Value(Value {
                             kind: ValueKind::Error { types: error_types, access: error_access },
-                            // We already set all the value sets as having errors, so this should be fine.
-                            value_sets: Vec::new(),
+                            // The value set of an error should be set as erroneous, so this should be ok.
+                            value_sets: ValueSetHandles::default(),
                             reasons: Reasons::default(),
                         });
 
@@ -1557,7 +1512,7 @@ impl TypeSystem {
                             });
                         }
                     }
-                    (ValueKind::Type(a), _, ValueKind::Type(b), _) => {
+                    (Value { kind: ValueKind::Type(a), .. }, _, Value { kind: ValueKind::Type(b), .. }, _) => {
                         if false && variance == Variance::Invariant {
                             // @Performance: We can assume that it's not referenced.
                             let ValueKind::Type(a) = &get_value(&self.values, a_id).kind else { unreachable!() };
@@ -1632,18 +1587,16 @@ impl TypeSystem {
                             };
 
                             let from = &mut self.values[from_id];
-                            let MaybeMovedValue::Value(from_value) = mem::replace(from, MaybeMovedValue::Moved(to_id)) else {
+                            let MaybeMovedValue::Value(mut from_value) = mem::replace(from, MaybeMovedValue::Moved(to_id)) else {
                                 unreachable!("Cannot call combine_values on aliases")
                             };
 
-                            // Combine the value sets together. (this should happen for children too!!!!!)
-                            // @Speed: Could be a direct access, since to_id isn't aliased
-                            let to_value = get_value_mut(&mut self.values, to_id);
-                            for value_set in from_value.value_sets {
-                                if let Err(index) = to_value.value_sets.binary_search(&value_set) {
-                                    to_value.value_sets.insert(index, value_set);
-                                }
-                            }
+                            // Combine the value sets together.
+                            // this should happen for children too!!!!! (maybe?)
+                            // to_id was a from a Constraint::Equal, so it's unaliased.
+                            get_unaliased_value_mut(&mut self.values, to_id)
+                                .value_sets
+                                .take_from(from_value.value_sets, &mut self.value_sets);
 
                             // @TODO: Combine the reasons for the values e.t.c.
 
@@ -1706,15 +1659,10 @@ impl TypeSystem {
                                 let a_temp = (base_a.clone(), a_type.args.as_ref().map(|v| v.len()));
                                 let b_temp = (base_b.clone(), b_type.args.as_ref().map(|v| v.len()));
 
-                                let a = get_value(&self.values, a_id);
-                                let b = get_value(&self.values, b_id);
+                                let reasons = vec![(a_temp, a_value.reasons.clone()), (b_temp, b_value.reasons.clone())];
 
-                                let reasons =
-                                    vec![(a_temp, a.reasons.clone()), (b_temp, b.reasons.clone())];
-
-                                for &v in a.value_sets.iter().chain(&b.value_sets) {
-                                    self.value_sets[v].has_errors = true;
-                                }
+                                a_value.value_sets.make_erroneous(&mut self.value_sets);
+                                b_value.value_sets.make_erroneous(&mut self.value_sets);
 
                                 // @Duplicate code with the invariance optimization below, we could probably join them
                                 // together somehow.
@@ -1747,7 +1695,7 @@ impl TypeSystem {
 
                                 self.values[a_id] = MaybeMovedValue::Value(Value {
                                     kind: ValueKind::Error { types: reasons, access: Access::default() },
-                                    value_sets: Vec::new(),
+                                    value_sets: ValueSetHandles::default(),
                                     reasons: Reasons::default(),
                                 });
                                 self.values[b_id] = MaybeMovedValue::Moved(a_id);
@@ -1785,13 +1733,8 @@ impl TypeSystem {
                                     let variant_fields = known.clone();
 
                                     // @Speed: Could be a direct access of the value.
-                                    let base_value = get_value(&self.values, unknown_id);
-                                    // @Speed: Allocation :(
-                                    let base_value_sets = base_value.value_sets.clone();
-                                    for &value_set in base_value_sets.iter() {
-                                        self.value_sets[value_set].uncomputed_values +=
-                                            variant_fields.len() as i32 - 1;
-                                    }
+                                    let base_value = get_unaliased_value_mut(&mut self.values, unknown_id);
+                                    let mut base_value_sets = base_value.value_sets.take();
 
                                     for &v in variant_fields.iter() {
                                         let variant_value = get_value(&self.values, v);
@@ -1799,10 +1742,12 @@ impl TypeSystem {
                                         let new_value = Value {
                                             kind,
                                             reasons: Reasons::default(),
-                                            value_sets: base_value_sets.clone(),
+                                            value_sets: base_value_sets.clone(&mut self.value_sets),
                                         };
                                         self.values.push(MaybeMovedValue::Value(new_value));
                                     }
+
+                                    base_value_sets.complete(&mut self.value_sets);
                                 }
                                 (Some(_), _, _, Some(_), _, _) => {}
                             };
@@ -1939,43 +1884,42 @@ impl TypeSystem {
                         }
                     }
 
-                    (ValueKind::Value(a), _, ValueKind::Value(b), _) => {
+                    (Value { kind: ValueKind::Value(a), value_sets: a_value_sets, .. }, _, Value { kind: ValueKind::Value(b), value_sets: b_value_sets, .. }, _) => {
                         match (a, b) {
                             (None, None) => {},
                             (Some(a), None) => {
                                 let a_type = a.type_;
                                 let value = a.value;
-                                if a.value.is_some() {
-                                    for &set_id in b_value_sets.iter() {
-                                        self.value_sets[set_id].uncomputed_values -= 1;
-                                    }
+                                if value.is_some() {
+                                    b_value_sets.complete(&mut self.value_sets);
                                 }
                                 // @Correctness: Should this type be a part of the current value set?
                                 let type_ = self.add_unknown_type();
-                                // @Speed: We could make this an unchecked get
-                                get_unaliased_value_mut(&mut self.values, b_id).kind = ValueKind::Value(Some(Constant {
+                                let Value { kind: ValueKind::Value(b), .. } = get_unaliased_value_mut(&mut self.values, b_id) else {
+                                    unreachable!("this was a value roughly 3 nanoseconds ago")
+                                };
+                                *b = Some(Constant {
                                     type_,
                                     value,
-                                }));
+                                });
                                 self.set_equal(a_type, type_, variance);
                                 progress[1] = true;
                             }
                             (None, Some(b)) => {
                                 let b_type = b.type_;
                                 let value = b.value;
-                                if b.value.is_some() {
-                                    for &set_id in a_value_sets.iter() {
-                                        self.value_sets[set_id].uncomputed_values -= 1;
-                                    }
+                                if value.is_some() {
+                                    a_value_sets.complete(&mut self.value_sets);
                                 }
                                 // @Correctness: Should this type be a part of the current value set?
                                 let type_ = self.add_unknown_type();
-                                // @Speed: We could make this an unchecked get
-                                let a = get_unaliased_value_mut(&mut self.values, a_id);
-                                a.kind = ValueKind::Value(Some(Constant {
+                                let Value { kind: ValueKind::Value(a), .. } = get_unaliased_value_mut(&mut self.values, a_id) else {
+                                    unreachable!("this was a value roughly 3 nanoseconds ago")
+                                };
+                                *a = Some(Constant {
                                     type_,
                                     value,
-                                }));
+                                });
                                 self.set_equal(type_, b_type, variance);
                                 progress[0] = true;
                             }
@@ -1985,16 +1929,12 @@ impl TypeSystem {
                                     (None, None) => {},
                                     (Some(a_value), b_value @ None) => {
                                         *b_value = Some(*a_value);
-                                        for &set_id in a_value_sets.iter() {
-                                            self.value_sets[set_id].uncomputed_values -= 1;
-                                        }
+                                        b_value_sets.complete(&mut self.value_sets);
                                         progress[1] = true;
                                     }
                                     (a_value @ None, Some(b_value)) => {
                                         *a_value = Some(*b_value);
-                                        for &set_id in b_value_sets.iter() {
-                                            self.value_sets[set_id].uncomputed_values -= 1;
-                                        }
+                                        b_value_sets.complete(&mut self.value_sets);
                                         progress[1] = true;
                                     }
                                     (Some(a_value), Some(b_value)) => {
@@ -2008,17 +1948,13 @@ impl TypeSystem {
                             }
                         }
                     }
-                    (ValueKind::Access(a), _, ValueKind::Access(b), _) => {
+                    (Value { kind: ValueKind::Access(a), value_sets: a_value_sets, .. }, _, Value { kind: ValueKind::Access(b), value_sets: b_value_sets, .. }, _) => {
                         let a = a.get_or_insert_with(|| {
-                            for &set_id in a_value_sets.iter() {
-                                self.value_sets[set_id].uncomputed_values -= 1;
-                            }
+                            a_value_sets.complete(&mut self.value_sets);
                             Access::default()
                         });
                         let b = b.get_or_insert_with(|| {
-                            for &set_id in b_value_sets.iter() {
-                                self.value_sets[set_id].uncomputed_values -= 1;
-                            }
+                            b_value_sets.complete(&mut self.value_sets);
                             Access::default()
                         });
 
@@ -2032,15 +1968,13 @@ impl TypeSystem {
                             a.combine_with(b, Variance::Invariant);
                             let access = a.clone();
                             let value = get_value_mut(&mut self.values, a_id);
-                            for &value_set in &value.value_sets {
-                                self.value_sets[value_set].has_errors = true;
-                            }
+                            value.value_sets.make_erroneous(&mut self.value_sets);
                             *value = Value {
                                 kind: ValueKind::Error {
                                     types: Vec::new(),
                                     access,
                                 },
-                                value_sets: Vec::new(),
+                                value_sets: ValueSetHandles::default(),
                                 reasons: Reasons::default(),
                             };
                             // @HACK: I do this so I don't have to do some annoying manipulation more than necessary,
@@ -2095,38 +2029,43 @@ impl TypeSystem {
 
     pub fn add(&mut self, value: ValueKind, set: ValueSetId, reason: Reason) -> ValueId {
         let id = self.values.len();
-        if matches!(
+        let value_sets = if matches!(
             value,
             ValueKind::Type(None)
             | ValueKind::Type(Some(Type { args: None, .. }))
             | ValueKind::Value(None)
             | ValueKind::Value(Some(Constant { value: None, .. }))
         ) {
-            self.value_sets[set].uncomputed_values += 1;
-        }
+            self.value_sets.with_one(set)
+        } else {
+            ValueSetHandles::default()
+        };
         self.values.push(MaybeMovedValue::Value(Value {
             kind: value,
             reasons: Reasons::with_one(reason),
-            value_sets: vec![set],
+            value_sets,
         }));
         id
     }
 
     fn add_without_reason(&mut self, value: ValueKind, set: ValueSetId) -> ValueId {
-        if matches!(
+        // @Cleanup: We could clean this up by having a concept of "complete" and "incomplete" values.
+        let value_sets = if matches!(
             value,
             ValueKind::Type(None)
             | ValueKind::Type(Some(Type { args: None, .. }))
             | ValueKind::Value(None)
             | ValueKind::Value(Some(Constant { value: None, .. }))
         ) {
-            self.value_sets[set].uncomputed_values += 1;
-        }
+            self.value_sets.with_one(set)
+        } else {
+            ValueSetHandles::default()
+        };
         let id = self.values.len();
         self.values.push(MaybeMovedValue::Value(Value {
             kind: value,
             reasons: Reasons::default(),
-            value_sets: vec![set],
+            value_sets,
         }));
         id
     }
@@ -2144,17 +2083,15 @@ impl TypeSystem {
 
         // We don't want to worry about sorting or binary searching
         debug_assert!(value.value_sets.is_empty());
-        value.value_sets = vec![value_set_id];
-        self.value_sets[value_set_id].uncomputed_values += 1;
+        value.value_sets = self.value_sets.with_one(value_set_id);
     }
 
     pub fn add_unknown_type_with_set(&mut self, set: ValueSetId) -> ValueId {
         let id = self.values.len();
-        self.value_sets[set].uncomputed_values += 1;
         self.values.push(MaybeMovedValue::Value(Value {
             kind: ValueKind::Type(None),
             reasons: Reasons::default(),
-            value_sets: vec![set],
+            value_sets: self.value_sets.with_one(set),
         }));
         id
     }
@@ -2164,7 +2101,7 @@ impl TypeSystem {
         self.values.push(MaybeMovedValue::Value(Value {
             kind: ValueKind::Type(None),
             reasons: Reasons::default(),
-            value_sets: Vec::new(),
+            value_sets: ValueSetHandles::default(),
         }));
         id
     }
@@ -2178,7 +2115,7 @@ impl TypeSystem {
         self.values.push(MaybeMovedValue::Value(Value {
             kind: ValueKind::Access(None),
             reasons: Reasons::default(),
-            value_sets: vec![set],
+            value_sets: self.value_sets.with_one(set),
         }));
         id
     }
@@ -2189,9 +2126,6 @@ impl TypeSystem {
         set: ValueSetId,
         reason: Reason,
     ) -> ValueId {
-        if access.is_none() {
-            self.value_sets[set].uncomputed_values += 1;
-        }
         self.add(ValueKind::Access(access), set, reason)
     }
 
