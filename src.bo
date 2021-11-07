@@ -1,24 +1,15 @@
 
-// #entry fn() -> u64 {
-//     let array = [0, 1, 2, 3];
-//     let head_ptr = &array._0;
-// 
-//     let buffer = #0 : { ptr: &_; len: usize; };
-// 
-//     buffer.ptr = &array._0;
-//     buffer.len = 4;
-// 
-//     array._0
-// };
 
 #entry fn() -> u64 {
-    let a = [1, 2];
-    a = [1, 2, 3];
+    let b = [42];
+    let c = [412, 941];
 
-    a._0
+    let a = [b, b, c, b, [842, 1239], [99], b, b, b, b, b];
+
+    a._0._0
 };
 
-// #entry fn() -> u64 {
+// const help = fn() -> u64 {
 //     let a1 = fn(a: _, b: _) -> &_  { &[42, 12] };
 //     let a2 = fn(a: _, b: _) -> &_  { a(b) };
 // 

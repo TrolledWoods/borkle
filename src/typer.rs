@@ -122,29 +122,31 @@ pub fn process_ast<'a>(
         }
     }
 
-    println!("\nLocals:\n");
-    for local in ctx.locals.iter() {
-        println!(
-            "{}: {}",
-            local.name,
-            ctx.infer.value_to_str(local.type_infer_value_id, 0)
-        );
-    }
+    // println!("\nLocals:\n");
+    // for local in ctx.locals.iter() {
+    //     println!(
+    //         "{}: {}",
+    //         local.name,
+    //         ctx.infer.value_to_str(local.type_infer_value_id, 0)
+    //     );
+    // }
 
     if ctx.infer.output_errors(ctx.errors) {
+        ctx.infer.flag_all_values_as_complete();
         return Err(());
     }
 
     let mut are_incomplete_sets = false;
     for value_set_id in ctx.infer.value_sets.iter_ids() {
-        let value_set = ctx.infer.value_sets.get_mut(value_set_id);
+        let value_set = ctx.infer.value_sets.get(value_set_id);
         if value_set.has_errors || value_set.uncomputed_values() > 0 {
-            println!("Set {} is uncomputable!", value_set_id);
+            ctx.errors.global_error(format!("Set {} is uncomputable! (uncomputability doesn't have a proper error yet, this is temporary)", value_set_id));
             are_incomplete_sets = true;
         }
     }
 
     if are_incomplete_sets {
+        ctx.infer.flag_all_values_as_complete();
         return Err(());
     }
 

@@ -410,6 +410,15 @@ pub enum ValueKind {
 }
 
 impl ValueKind {
+    fn is_complete(&self) -> bool {
+        matches!(
+            self,
+            ValueKind::Type(Some(Type { args: Some(_), .. }))
+            | ValueKind::Value(Some(Constant { value: Some(_), .. }))
+            | ValueKind::Access(Some(_))
+        )
+    }
+
     fn to_unknown(&self) -> Self {
         match self {
             Self::Type(_) => Self::Type(None),
@@ -831,6 +840,15 @@ impl TypeSystem {
         }
     }
 
+    /// Only to be used when generating incompleteness-errors
+    pub fn flag_all_values_as_complete(&mut self) {
+        for value in &mut self.values {
+            if let MaybeMovedValue::Value(value) = value {
+                value.value_sets.complete(&mut self.value_sets);
+            }
+        }
+    }
+
     pub fn output_errors(&self, errors: &mut ErrorCtx) -> bool {
         let mut has_errors = false;
         if self.value_sets.iter().any(|v| v.has_errors) {
@@ -893,7 +911,7 @@ impl TypeSystem {
                             }
 
                             let mut message = String::new();
-                            message.push_str("Conflicting values ");
+                            message.push_str("Conflicting constants ");
                             for (i, (constant_ref, _)) in values.iter().enumerate() {
                                 if i > 0 && i + 1 == types.len() {
                                     message.push_str(" and ");
@@ -1116,7 +1134,7 @@ impl TypeSystem {
 
         // self.print_state();
 
-        println!("-- Number of steps required: {}", i);
+        // println!("-- Number of steps required: {}", i);
     }
 
     fn constant_to_str(&self, type_: ValueId, value: ConstantRef, rec: usize) -> String {
@@ -1281,7 +1299,7 @@ impl TypeSystem {
     pub fn print_state(&self) {
         println!("Values:");
         for i in 0..self.values.len() {
-            println!("{}: {}", i, self.value_to_str(i, 0));
+            println!("{}: {}, {}", i, get_value(&self.values, i).value_sets.is_complete(), self.value_to_str(i, 0));
         }
         println!();
 
@@ -1457,13 +1475,14 @@ impl TypeSystem {
 
                 use ErrorKind::*;
                 match (&mut *a_value, a_id, &mut *b_value, b_id) {
-                    (Value { kind: ValueKind::Error { types: error_types, access: error_access, values: error_values }, .. }, error_id, non_error, non_error_id)
-                    | (non_error, non_error_id, Value { kind: ValueKind::Error { types: error_types, access: error_access, values: error_values }, .. }, error_id) => {
+                    (Value { kind: ValueKind::Error { types: error_types, access: error_access, values: error_values }, value_sets: error_value_sets, .. }, error_id, non_error, non_error_id)
+                    | (non_error, non_error_id, Value { kind: ValueKind::Error { types: error_types, access: error_access, values: error_values }, value_sets: error_value_sets, .. }, error_id) => {
                         let mut error_types = mem::take(error_types);
                         let mut error_access = mem::take(error_access);
                         let mut error_values = mem::take(error_values);
 
                         non_error.value_sets.make_erroneous(&mut self.value_sets);
+                        error_value_sets.make_erroneous(&mut self.value_sets);
 
                         // @Correctness: I want to figure out what to do with the children of errors, but for now I'm not going to worry
                         // too much about it.
@@ -1492,6 +1511,25 @@ impl TypeSystem {
                                 }
 
                                 error_access.combine_with(&mut other_error_access.clone(), Variance::Invariant);
+
+                                match (&mut error_values, &other_error_values) {
+                                    (None, None) => {}
+                                    (Some(_), None) => {}
+                                    (None, Some(other_error_values)) => error_values = Some(other_error_values.clone()),
+                                    (Some(error_values), Some(other_error_values)) => {
+                                        for (constant_ref, reasons) in &other_error_values.values {
+                                            if let Some((_, existing_reasons)) = error_values.values.iter_mut().find(|(v, _)| *v == *constant_ref) {
+                                                existing_reasons.take_reasons_from(reasons);
+                                            } else {
+                                                error_values.values.push((*constant_ref, reasons.clone()));
+                                            }
+                                        }
+
+                                        let error_values_type = error_values.type_;
+                                        let other_error_values_type = other_error_values.type_;
+                                        self.set_equal(error_values_type, other_error_values_type, variance);
+                                    }
+                                }
                             }
                             ValueKind::Type(Some(Type { kind: type_, args })) => {
                                 let type_ = (type_.clone(), args.as_ref().map(|v| v.len()));
@@ -1511,6 +1549,24 @@ impl TypeSystem {
                             }
                             ValueKind::Access(Some(access)) => {
                                 error_access.combine_with(&mut access.clone(), Variance::Invariant);
+                            }
+                            ValueKind::Value(Some(value)) => {
+                                if let Some(error_values) = &mut error_values {
+                                    let error_value_type = error_values.type_;
+                                    let value_type = value.type_;
+                                    
+                                    if let Some(constant_ref) = value.value {
+                                        if let Some((_, reasons)) = error_values.values.iter_mut().find(|(v, _)| *v == constant_ref) {
+                                            reasons.take_reasons_from(&non_error.reasons);
+                                        } else {
+                                            error_values.values.push((constant_ref, non_error.reasons.clone()));
+                                        }
+                                    }
+
+                                    self.set_equal(error_value_type, value_type, variance);
+                                } else {
+                                    unreachable!("For now, we cannot deal with errors between values and non-values");
+                                }
                             }
                             _ => {}
                         }
@@ -1543,8 +1599,8 @@ impl TypeSystem {
 
                         self.values[a_id] = MaybeMovedValue::Value(Value {
                             kind: ValueKind::Error { types: error_types, access: error_access, values: error_values },
-                            // The value set of an error should be set as erroneous, so this should be ok.
-                            value_sets: ValueSetHandles::default(),
+                            // The value sets of the errors are already set as erroneous, so it doesn't matter that this one is empty.
+                            value_sets: ValueSetHandles::already_complete(),
                             reasons: Reasons::default(),
                         });
 
@@ -1560,106 +1616,59 @@ impl TypeSystem {
                         }
                     }
                     (Value { kind: ValueKind::Type(a), .. }, _, Value { kind: ValueKind::Type(b), .. }, _) => {
-                        if false && variance == Variance::Invariant {
-                            // @Performance: We can assume that it's not referenced.
-                            let ValueKind::Type(a) = &get_value(&self.values, a_id).kind else { unreachable!() };
-                            let ValueKind::Type(b) = &get_value(&self.values, b_id).kind else { unreachable!() };
+                        let (a_type, b_type) = match (a, b) {
+                            (None, None) => return,
+                            (Some(a_type), b_type @ None) => {
+                                progress[1] = true;
+                                let b_type = b_type.insert(Type {
+                                    kind: a_type.kind.clone(),
+                                    args: None,
+                                });
+                                (a_type, b_type)
+                            }
+                            (a_type @ None, Some(b_type)) => {
+                                progress[0] = true;
+                                let a_type = a_type.insert(Type {
+                                    kind: b_type.kind.clone(),
+                                    args: None,
+                                });
+                                (a_type, b_type)
+                            }
+                            (Some(a_type), Some(b_type)) => (a_type, b_type),
+                        };
 
-                            let (from_id, to_id) = match (a, a_id, b, b_id) {
-                                (None, from_id, None, to_id)
-                                | (Some(_), to_id, None, from_id)
-                                | (None, from_id, Some(_), to_id) => (from_id, to_id),
-                                (
-                                    Some(Type { kind: to_head, args: Some(_), .. }),
-                                    to_id,
-                                    Some(Type { kind: from_head, args: None, .. }),
-                                    from_id,
-                                )
-                                | (
-                                    Some(Type { kind: from_head, args: None, .. }),
-                                    from_id,
-                                    Some(Type { kind: to_head, args: Some(_), .. }),
-                                    to_id,
-                                )
-                                | (
-                                    Some(Type { kind: to_head, args: None, .. }),
-                                    to_id,
-                                    Some(Type { kind: from_head, args: None, .. }),
-                                    from_id,
-                                ) => {
-                                    if *from_head != *to_head {
-                                        self.errors.push(Error::new(
-                                            a_id,
-                                            b_id,
-                                            ErrorKind::IncompatibleTypes,
-                                        ));
-                                        return;
-                                    }
+                        if a_type.kind != b_type.kind
+                            || a_type.args
+                                .as_ref()
+                                .zip(b_type.args.as_ref())
+                                .map_or(false, |(a, b)| a.len() != b.len())
+                        {
+                            let base_a = a_type.kind.clone();
+                            let base_b = b_type.kind.clone();
 
-                                    (from_id, to_id)
-                                }
-                                (
-                                    Some(Type { kind: a_head, args: Some(a_fields), .. }),
-                                    a_id,
-                                    Some(Type { kind: b_head, args: Some(b_fields), .. }),
-                                    b_id,
-                                ) => {
-                                    if *a_head != *b_head || a_fields.len() != b_fields.len() {
-                                        self.errors.push(Error::new(
-                                            a_id,
-                                            b_id,
-                                            ErrorKind::IncompatibleTypes,
-                                        ));
-                                        return;
-                                    }
+                            let a_temp = (base_a.clone(), a_type.args.as_ref().map(|v| v.len()));
+                            let b_temp = (base_b.clone(), b_type.args.as_ref().map(|v| v.len()));
 
-                                    for (&a_field, &b_field) in a_fields.iter().zip(b_fields.iter())
-                                    {
-                                        let a_field = get_real_value_id(&self.values, a_field);
-                                        let b_field = get_real_value_id(&self.values, b_field);
-                                        insert_active_constraint(
-                                            &mut self.constraints,
-                                            &mut self.available_constraints,
-                                            &mut self.queued_constraints,
-                                            Constraint::equal(
-                                                a_field,
-                                                b_field,
-                                                Variance::Invariant,
-                                            ),
-                                        );
-                                    }
+                            let reasons = vec![(a_temp, a_value.reasons.clone()), (b_temp, b_value.reasons.clone())];
 
-                                    (a_id, b_id)
-                                }
-                            };
+                            a_value.value_sets.make_erroneous(&mut self.value_sets);
+                            b_value.value_sets.make_erroneous(&mut self.value_sets);
 
-                            let from = &mut self.values[from_id];
-                            let MaybeMovedValue::Value(mut from_value) = mem::replace(from, MaybeMovedValue::Moved(to_id)) else {
-                                unreachable!("Cannot call combine_values on aliases")
-                            };
-
-                            // Combine the value sets together.
-                            // this should happen for children too!!!!! (maybe?)
-                            // to_id was a from a Constraint::Equal, so it's unaliased.
-                            get_unaliased_value_mut(&mut self.values, to_id)
-                                .value_sets
-                                .take_from(from_value.value_sets, &mut self.value_sets);
-
-                            // @TODO: Combine the reasons for the values e.t.c.
-
+                            // @Duplicate code with the invariance optimization below, we could probably join them
+                            // together somehow.
                             // Any constraints with the value should have the values id changed.
                             // This sets the current equality constraint to dead as well.
                             if let Some(affected_constraints) =
-                                self.available_constraints.remove(&from_id)
+                                self.available_constraints.remove(&b_id)
                             {
                                 for affected_constraint_id in affected_constraints {
                                     let affected_constraint =
                                         &mut self.constraints[affected_constraint_id];
                                     for value in affected_constraint.values_mut() {
-                                        if *value == from_id {
-                                            *value = to_id;
+                                        if *value == b_id {
+                                            *value = a_id;
                                             self.available_constraints
-                                                .entry(to_id)
+                                                .entry(a_id)
                                                 .or_insert_with(Vec::new)
                                                 .push(affected_constraint_id);
                                         }
@@ -1667,271 +1676,205 @@ impl TypeSystem {
 
                                     affected_constraint.fix_order();
 
-                                    if !matches!(affected_constraint.kind, ConstraintKind::Dead) {
+                                    if !matches!(affected_constraint.kind, ConstraintKind::Dead)
+                                    {
                                         self.queued_constraints.push(affected_constraint_id);
                                     }
                                 }
                             }
-                        } else {
-                            let (a_type, b_type) = match (a, b) {
-                                (None, None) => return,
-                                (Some(a_type), b_type @ None) => {
-                                    progress[1] = true;
-                                    let b_type = b_type.insert(Type {
-                                        kind: a_type.kind.clone(),
-                                        args: None,
-                                    });
-                                    (a_type, b_type)
-                                }
-                                (a_type @ None, Some(b_type)) => {
-                                    progress[0] = true;
-                                    let a_type = a_type.insert(Type {
-                                        kind: b_type.kind.clone(),
-                                        args: None,
-                                    });
-                                    (a_type, b_type)
-                                }
-                                (Some(a_type), Some(b_type)) => (a_type, b_type),
-                            };
 
-                            if a_type.kind != b_type.kind
-                                || a_type.args
-                                    .as_ref()
-                                    .zip(b_type.args.as_ref())
-                                    .map_or(false, |(a, b)| a.len() != b.len())
-                            {
-                                let base_a = a_type.kind.clone();
-                                let base_b = b_type.kind.clone();
-
-                                let a_temp = (base_a.clone(), a_type.args.as_ref().map(|v| v.len()));
-                                let b_temp = (base_b.clone(), b_type.args.as_ref().map(|v| v.len()));
-
-                                let reasons = vec![(a_temp, a_value.reasons.clone()), (b_temp, b_value.reasons.clone())];
-
-                                a_value.value_sets.make_erroneous(&mut self.value_sets);
-                                b_value.value_sets.make_erroneous(&mut self.value_sets);
-
-                                // @Duplicate code with the invariance optimization below, we could probably join them
-                                // together somehow.
-                                // Any constraints with the value should have the values id changed.
-                                // This sets the current equality constraint to dead as well.
-                                if let Some(affected_constraints) =
-                                    self.available_constraints.remove(&b_id)
-                                {
-                                    for affected_constraint_id in affected_constraints {
-                                        let affected_constraint =
-                                            &mut self.constraints[affected_constraint_id];
-                                        for value in affected_constraint.values_mut() {
-                                            if *value == b_id {
-                                                *value = a_id;
-                                                self.available_constraints
-                                                    .entry(a_id)
-                                                    .or_insert_with(Vec::new)
-                                                    .push(affected_constraint_id);
-                                            }
-                                        }
-
-                                        affected_constraint.fix_order();
-
-                                        if !matches!(affected_constraint.kind, ConstraintKind::Dead)
-                                        {
-                                            self.queued_constraints.push(affected_constraint_id);
-                                        }
-                                    }
-                                }
-
-                                self.values[a_id] = MaybeMovedValue::Value(Value {
-                                    kind: ValueKind::Error { types: reasons, access: Access::default(), values: None },
-                                    value_sets: ValueSetHandles::default(),
-                                    reasons: Reasons::default(),
-                                });
-                                self.values[b_id] = MaybeMovedValue::Moved(a_id);
-                                return;
-                            }
-
-                            let [a_progress, b_progress, ..] = &mut progress;
-                            match (&mut a_type.args, a_id, a_progress, &mut b_type.args, b_id, b_progress) {
-                                (None, _, _, None, _, _) => return,
-                                (
-                                    Some(known),
-                                    _,
-                                    _,
-                                    unknown @ None,
-                                    unknown_id,
-                                    unknown_progress,
-                                )
-                                | (
-                                    unknown @ None,
-                                    unknown_id,
-                                    unknown_progress,
-                                    Some(known),
-                                    _,
-                                    _,
-                                ) => {
-                                    *unknown_progress = true;
-
-                                    // We do this weird thing so we can utilize the mutable reference to unknown
-                                    // before writing to values. After that we have to recompute the references
-                                    // since they may have moved if the vector grew (one of the cases where
-                                    // the borrow checker was right!)
-                                    *unknown =
-                                        Some((0..known.len()).map(|v| v + values_len).collect());
-
-                                    let variant_fields = known.clone();
-
-                                    // @Speed: Could be a direct access of the value.
-                                    let base_value = get_unaliased_value_mut(&mut self.values, unknown_id);
-                                    let mut base_value_sets = base_value.value_sets.take();
-
-                                    for &v in variant_fields.iter() {
-                                        let variant_value = get_value(&self.values, v);
-                                        let kind = variant_value.kind.to_unknown();
-                                        let new_value = Value {
-                                            kind,
-                                            reasons: Reasons::default(),
-                                            value_sets: base_value_sets.clone(&mut self.value_sets),
-                                        };
-                                        self.values.push(MaybeMovedValue::Value(new_value));
-                                    }
-
-                                    base_value_sets.complete(&mut self.value_sets);
-                                }
-                                (Some(_), _, _, Some(_), _, _) => {}
-                            };
-
-                            // @Duplicate code from above.
-                            let a = get_value(&self.values, a_id);
-                            let b = get_value(&self.values, b_id);
-                            let (ValueKind::Type(Some(Type { kind: base_a, args: Some(a_fields), .. })), ValueKind::Type(Some(Type { kind: base_b, args: Some(b_fields), .. }))) = (&a.kind, &b.kind) else {
-                                // @Speed: Could be replaced with unreachable_unchecked in the real version.
-                                unreachable!("Because of computations above, this is always true")
-                            };
-
-                            // Ugly special case for references. This would apply for anything that has a
-                            // mutability parameter that controls the variance of another field, because that behaviour
-                            // is quite messy and complex.
-                            if *base_a == TypeKind::Reference {
-                                // @Cleanup: This has to be done because a has to be less than b, otherwise
-                                // the lookups don't work properly. However, this is messy. So it would be nice if it
-                                // could be factored out to something else.
-                                let (a_access_id, a_inner, b_access_id, b_inner, variance) =
-                                    if a_fields[0] < b_fields[0] {
-                                        (
-                                            a_fields[0],
-                                            a_fields[1],
-                                            b_fields[0],
-                                            b_fields[1],
-                                            variance,
-                                        )
-                                    } else {
-                                        (
-                                            b_fields[0],
-                                            b_fields[1],
-                                            a_fields[0],
-                                            a_fields[1],
-                                            variance.invert(),
-                                        )
-                                    };
-
-                                let a_access_id = get_real_value_id(&self.values, a_access_id);
-                                let b_access_id = get_real_value_id(&self.values, b_access_id);
-                                let a_inner = get_real_value_id(&self.values, a_inner);
-                                let b_inner = get_real_value_id(&self.values, b_inner);
-
-                                let variance_constraint = self
-                                    .variance_updates
-                                    .entry((a_access_id, b_access_id))
-                                    .or_insert_with(|| VarianceConstraint {
-                                        variance,
-                                        last_variance_applied: Variance::DontCare,
-                                        constraints: Vec::new(),
-                                    });
-                                // We use guaranteed_variance instead of last_variance_applied here, since if they are different
-                                // it just means the VarianceConstraint has more work to do in the future to catch up, so we may as well
-                                // do that work right now, and save some work in the future.
-                                let inner_constraint = Constraint::equal(
-                                    a_inner,
-                                    b_inner,
-                                    Variance::DontCare.apply_to(variance),
-                                );
-                                if let Some(inner_constraint_id) = insert_constraint(
-                                    &mut self.constraints,
-                                    &mut self.available_constraints,
-                                    inner_constraint,
-                                ) {
-                                    if !variance_constraint
-                                        .constraints
-                                        .iter()
-                                        .any(|(v, _)| v == &inner_constraint_id)
-                                    {
-                                        variance_constraint
-                                            .constraints
-                                            .push((inner_constraint_id, variance));
-                                        self.queued_constraints.push(inner_constraint_id);
-                                    }
-                                }
-                                insert_active_constraint(
-                                    &mut self.constraints,
-                                    &mut self.available_constraints,
-                                    &mut self.queued_constraints,
-                                    Constraint::equal(a_access_id, b_access_id, variance),
-                                );
-                            } else if *base_a == TypeKind::Function {
-                                insert_active_constraint(
-                                    &mut self.constraints,
-                                    &mut self.available_constraints,
-                                    &mut self.queued_constraints,
-                                    Constraint::equal(
-                                        get_real_value_id(&self.values, a_fields[0]),
-                                        get_real_value_id(&self.values, b_fields[0]),
-                                        variance,
-                                    ),
-                                );
-                                for (&a_field, &b_field) in a_fields[1..].iter().zip(&b_fields[1..])
-                                {
-                                    let a_field = get_real_value_id(&self.values, a_field);
-                                    let b_field = get_real_value_id(&self.values, b_field);
-                                    insert_active_constraint(
-                                        &mut self.constraints,
-                                        &mut self.available_constraints,
-                                        &mut self.queued_constraints,
-                                        Constraint::equal(a_field, b_field, variance.invert()),
-                                    );
-                                }
-                            } else {
-                                // Now, we want to apply equality to all the fields as well.
-                                for (&a_field, &b_field) in a_fields.iter().zip(&**b_fields) {
-                                    let a_field = get_real_value_id(&self.values, a_field);
-                                    let b_field = get_real_value_id(&self.values, b_field);
-                                    // @Improvement: Later, variance should be definable in a much more generic way(for generic types).
-                                    // In a generic type, you could paramaterize the mutability of something, which might then influence
-                                    // the variance of other parameters.
-                                    insert_active_constraint(
-                                        &mut self.constraints,
-                                        &mut self.available_constraints,
-                                        &mut self.queued_constraints,
-                                        Constraint::equal(a_field, b_field, variance),
-                                    );
-                                }
-                            }
-
-                            // @Duplicate code: with stuff above.
-                            // @Performance: Could be unreachable_unchecked in the future....
-                            let (a_slice, b_slice) = self.values.split_at_mut(b_id);
-                            let MaybeMovedValue::Value(Value { reasons: a_reasons, .. }) = &mut a_slice[a_id] else {
-                                unreachable!("It shouldn't be possible for the value of an equal constraint to be aliased")
-                            };
-                            let MaybeMovedValue::Value(Value { reasons: b_reasons, .. }) = &mut b_slice[0] else {
-                                unreachable!("It shouldn't be possible for the value of an equal constraint to be aliased")
-                            };
-                            // Combine the error message reasons for why these values are the way they are.
-                            // It has to be down here so that it doesn't happen if there are any errors with the
-                            // equality.
-                            a_reasons.combine(b_reasons);
+                            self.values[a_id] = MaybeMovedValue::Value(Value {
+                                kind: ValueKind::Error { types: reasons, access: Access::default(), values: None },
+                                value_sets: ValueSetHandles::already_complete(),
+                                reasons: Reasons::default(),
+                            });
+                            self.values[b_id] = MaybeMovedValue::Moved(a_id);
+                            return;
                         }
+
+                        let [a_progress, b_progress, ..] = &mut progress;
+                        match (&mut a_type.args, a_id, a_progress, &mut b_type.args, b_id, b_progress) {
+                            (None, _, _, None, _, _) => return,
+                            (
+                                Some(known),
+                                _,
+                                _,
+                                unknown @ None,
+                                unknown_id,
+                                unknown_progress,
+                            )
+                            | (
+                                unknown @ None,
+                                unknown_id,
+                                unknown_progress,
+                                Some(known),
+                                _,
+                                _,
+                            ) => {
+                                *unknown_progress = true;
+
+                                // We do this weird thing so we can utilize the mutable reference to unknown
+                                // before writing to values. After that we have to recompute the references
+                                // since they may have moved if the vector grew (one of the cases where
+                                // the borrow checker was right!)
+                                *unknown =
+                                    Some((0..known.len()).map(|v| v + values_len).collect());
+
+                                let variant_fields = known.clone();
+
+                                // @Speed: Could be a direct access of the value.
+                                let base_value = get_unaliased_value_mut(&mut self.values, unknown_id);
+                                let mut base_value_sets = base_value.value_sets.take();
+
+                                for &v in variant_fields.iter() {
+                                    let variant_value = get_value(&self.values, v);
+                                    let kind = variant_value.kind.to_unknown();
+                                    let new_value = Value {
+                                        kind,
+                                        reasons: Reasons::default(),
+                                        value_sets: base_value_sets.clone(&mut self.value_sets),
+                                    };
+                                    self.values.push(MaybeMovedValue::Value(new_value));
+                                }
+
+                                base_value_sets.complete(&mut self.value_sets);
+                                get_unaliased_value_mut(&mut self.values, unknown_id).value_sets.set_to(base_value_sets);
+                            }
+                            (Some(_), _, _, Some(_), _, _) => {}
+                        };
+
+                        // @Duplicate code from above.
+                        let a = get_value(&self.values, a_id);
+                        let b = get_value(&self.values, b_id);
+                        let (ValueKind::Type(Some(Type { kind: base_a, args: Some(a_fields), .. })), ValueKind::Type(Some(Type { kind: base_b, args: Some(b_fields), .. }))) = (&a.kind, &b.kind) else {
+                            // @Speed: Could be replaced with unreachable_unchecked in the real version.
+                            unreachable!("Because of computations above, this is always true")
+                        };
+
+                        // Ugly special case for references. This would apply for anything that has a
+                        // mutability parameter that controls the variance of another field, because that behaviour
+                        // is quite messy and complex.
+                        if *base_a == TypeKind::Reference {
+                            // @Cleanup: This has to be done because a has to be less than b, otherwise
+                            // the lookups don't work properly. However, this is messy. So it would be nice if it
+                            // could be factored out to something else.
+                            let (a_access_id, a_inner, b_access_id, b_inner, variance) =
+                                if a_fields[0] < b_fields[0] {
+                                    (
+                                        a_fields[0],
+                                        a_fields[1],
+                                        b_fields[0],
+                                        b_fields[1],
+                                        variance,
+                                    )
+                                } else {
+                                    (
+                                        b_fields[0],
+                                        b_fields[1],
+                                        a_fields[0],
+                                        a_fields[1],
+                                        variance.invert(),
+                                    )
+                                };
+
+                            let a_access_id = get_real_value_id(&self.values, a_access_id);
+                            let b_access_id = get_real_value_id(&self.values, b_access_id);
+                            let a_inner = get_real_value_id(&self.values, a_inner);
+                            let b_inner = get_real_value_id(&self.values, b_inner);
+
+                            let variance_constraint = self
+                                .variance_updates
+                                .entry((a_access_id, b_access_id))
+                                .or_insert_with(|| VarianceConstraint {
+                                    variance,
+                                    last_variance_applied: Variance::DontCare,
+                                    constraints: Vec::new(),
+                                });
+                            // We use guaranteed_variance instead of last_variance_applied here, since if they are different
+                            // it just means the VarianceConstraint has more work to do in the future to catch up, so we may as well
+                            // do that work right now, and save some work in the future.
+                            let inner_constraint = Constraint::equal(
+                                a_inner,
+                                b_inner,
+                                Variance::DontCare.apply_to(variance),
+                            );
+                            if let Some(inner_constraint_id) = insert_constraint(
+                                &mut self.constraints,
+                                &mut self.available_constraints,
+                                inner_constraint,
+                            ) {
+                                if !variance_constraint
+                                    .constraints
+                                    .iter()
+                                    .any(|(v, _)| v == &inner_constraint_id)
+                                {
+                                    variance_constraint
+                                        .constraints
+                                        .push((inner_constraint_id, variance));
+                                    self.queued_constraints.push(inner_constraint_id);
+                                }
+                            }
+                            insert_active_constraint(
+                                &mut self.constraints,
+                                &mut self.available_constraints,
+                                &mut self.queued_constraints,
+                                Constraint::equal(a_access_id, b_access_id, variance),
+                            );
+                        } else if *base_a == TypeKind::Function {
+                            insert_active_constraint(
+                                &mut self.constraints,
+                                &mut self.available_constraints,
+                                &mut self.queued_constraints,
+                                Constraint::equal(
+                                    get_real_value_id(&self.values, a_fields[0]),
+                                    get_real_value_id(&self.values, b_fields[0]),
+                                    variance,
+                                ),
+                            );
+                            for (&a_field, &b_field) in a_fields[1..].iter().zip(&b_fields[1..])
+                            {
+                                let a_field = get_real_value_id(&self.values, a_field);
+                                let b_field = get_real_value_id(&self.values, b_field);
+                                insert_active_constraint(
+                                    &mut self.constraints,
+                                    &mut self.available_constraints,
+                                    &mut self.queued_constraints,
+                                    Constraint::equal(a_field, b_field, variance.invert()),
+                                );
+                            }
+                        } else {
+                            // Now, we want to apply equality to all the fields as well.
+                            for (&a_field, &b_field) in a_fields.iter().zip(&**b_fields) {
+                                let a_field = get_real_value_id(&self.values, a_field);
+                                let b_field = get_real_value_id(&self.values, b_field);
+                                // @Improvement: Later, variance should be definable in a much more generic way(for generic types).
+                                // In a generic type, you could paramaterize the mutability of something, which might then influence
+                                // the variance of other parameters.
+                                insert_active_constraint(
+                                    &mut self.constraints,
+                                    &mut self.available_constraints,
+                                    &mut self.queued_constraints,
+                                    Constraint::equal(a_field, b_field, variance),
+                                );
+                            }
+                        }
+
+                        // @Duplicate code: with stuff above.
+                        // @Performance: Could be unreachable_unchecked in the future....
+                        let (a_slice, b_slice) = self.values.split_at_mut(b_id);
+                        let MaybeMovedValue::Value(Value { reasons: a_reasons, .. }) = &mut a_slice[a_id] else {
+                            unreachable!("It shouldn't be possible for the value of an equal constraint to be aliased")
+                        };
+                        let MaybeMovedValue::Value(Value { reasons: b_reasons, .. }) = &mut b_slice[0] else {
+                            unreachable!("It shouldn't be possible for the value of an equal constraint to be aliased")
+                        };
+                        // Combine the error message reasons for why these values are the way they are.
+                        // It has to be down here so that it doesn't happen if there are any errors with the
+                        // equality.
+                        a_reasons.combine(b_reasons);
                     }
 
-                    (Value { kind: ValueKind::Value(a), value_sets: a_value_sets, .. }, _, Value { kind: ValueKind::Value(b), value_sets: b_value_sets, .. }, _) => {
+                    (Value { kind: ValueKind::Value(a), value_sets: a_value_sets, reasons: a_reasons ,.. }, _, Value { kind: ValueKind::Value(b), value_sets: b_value_sets, reasons: b_reasons, .. }, _) => {
                         match (a, b) {
                             (None, None) => {},
                             (Some(a), None) => {
@@ -1939,6 +1882,10 @@ impl TypeSystem {
                                 let value = a.value;
                                 if value.is_some() {
                                     b_value_sets.complete(&mut self.value_sets);
+                                    if a_reasons.combine(b_reasons) {
+                                        progress[0] = true;
+                                        progress[1] = true;
+                                    }
                                 }
                                 // @Correctness: Should this type be a part of the current value set?
                                 let type_ = self.add_unknown_type();
@@ -1957,6 +1904,10 @@ impl TypeSystem {
                                 let value = b.value;
                                 if value.is_some() {
                                     a_value_sets.complete(&mut self.value_sets);
+                                    if a_reasons.combine(b_reasons) {
+                                        progress[0] = true;
+                                        progress[1] = true;
+                                    }
                                 }
                                 // @Correctness: Should this type be a part of the current value set?
                                 let type_ = self.add_unknown_type();
@@ -1971,6 +1922,9 @@ impl TypeSystem {
                                 progress[0] = true;
                             }
                             (Some(a), Some(b)) => {
+                                let a_type = a.type_;
+                                let b_type = b.type_;
+
                                 // @TODO: We want to also combine the reasons for the values here.
                                 match (&mut a.value, &mut b.value) {
                                     (None, None) => {},
@@ -1978,19 +1932,49 @@ impl TypeSystem {
                                         *b_value = Some(*a_value);
                                         b_value_sets.complete(&mut self.value_sets);
                                         progress[1] = true;
+                                        if a_reasons.combine(b_reasons) {
+                                            progress[0] = true;
+                                            progress[1] = true;
+                                        }
                                     }
                                     (a_value @ None, Some(b_value)) => {
                                         *a_value = Some(*b_value);
-                                        b_value_sets.complete(&mut self.value_sets);
+                                        a_value_sets.complete(&mut self.value_sets);
                                         progress[1] = true;
+                                        if a_reasons.combine(b_reasons) {
+                                            progress[0] = true;
+                                            progress[1] = true;
+                                        }
                                     }
-                                    (Some(a_value), Some(b_value)) => {
-                                        assert_eq!(a_value.as_ptr(), b_value.as_ptr(), "No value errors yet!");
+                                    (Some(a_constant), Some(b_constant)) => {
+                                        if *a_constant != *b_constant {
+                                            let a_constant = *a_constant;
+                                            let reasons = a_reasons.clone();
+                                            a_value.value_sets.make_erroneous(&mut self.value_sets);
+                                            *a_value = Value {
+                                                kind: ValueKind::Error {
+                                                    types: Vec::new(),
+                                                    access: Access::default(),
+                                                    values: Some(ValueError {
+                                                        type_: a_type,
+                                                        values: vec![(a_constant, reasons)],
+                                                    }),
+                                                },
+                                                value_sets: ValueSetHandles::already_complete(),
+                                                reasons: Reasons::default(),
+                                            };
+                                            // @HACK: I do this so I don't have to do some annoying manipulation more than necessary,
+                                            // this should not actually be done.
+                                            self.queued_constraints.push(constraint_id);
+                                        } else {
+                                            if a_reasons.combine(b_reasons) {
+                                                progress[0] = true;
+                                                progress[1] = true;
+                                            }
+                                        }
                                     }
                                 }
 
-                                let a_type = a.type_;
-                                let b_type = b.type_;
                                 self.set_equal(a_type, b_type, variance);
                             }
                         }
@@ -2022,7 +2006,7 @@ impl TypeSystem {
                                     access,
                                     values: None,
                                 },
-                                value_sets: ValueSetHandles::default(),
+                                value_sets: ValueSetHandles::already_complete(),
                                 reasons: Reasons::default(),
                             };
                             // @HACK: I do this so I don't have to do some annoying manipulation more than necessary,
@@ -2077,17 +2061,7 @@ impl TypeSystem {
 
     pub fn add(&mut self, value: ValueKind, set: ValueSetId, reason: Reason) -> ValueId {
         let id = self.values.len();
-        let value_sets = if matches!(
-            value,
-            ValueKind::Type(None)
-            | ValueKind::Type(Some(Type { args: None, .. }))
-            | ValueKind::Value(None)
-            | ValueKind::Value(Some(Constant { value: None, .. }))
-        ) {
-            self.value_sets.with_one(set)
-        } else {
-            ValueSetHandles::default()
-        };
+        let value_sets = self.value_sets.with_one(set, value.is_complete());
         self.values.push(MaybeMovedValue::Value(Value {
             kind: value,
             reasons: Reasons::with_one(reason),
@@ -2098,17 +2072,7 @@ impl TypeSystem {
 
     fn add_without_reason(&mut self, value: ValueKind, set: ValueSetId) -> ValueId {
         // @Cleanup: We could clean this up by having a concept of "complete" and "incomplete" values.
-        let value_sets = if matches!(
-            value,
-            ValueKind::Type(None)
-            | ValueKind::Type(Some(Type { args: None, .. }))
-            | ValueKind::Value(None)
-            | ValueKind::Value(Some(Constant { value: None, .. }))
-        ) {
-            self.value_sets.with_one(set)
-        } else {
-            ValueSetHandles::default()
-        };
+        let value_sets = self.value_sets.with_one(set, value.is_complete());
         let id = self.values.len();
         self.values.push(MaybeMovedValue::Value(Value {
             kind: value,
@@ -2130,8 +2094,7 @@ impl TypeSystem {
         debug_assert!(matches!(value.kind, ValueKind::Type(None)));
 
         // We don't want to worry about sorting or binary searching
-        debug_assert!(value.value_sets.is_empty());
-        value.value_sets = self.value_sets.with_one(value_set_id);
+        value.value_sets.set_to(self.value_sets.with_one(value_set_id, false));
     }
 
     pub fn add_unknown_type_with_set(&mut self, set: ValueSetId) -> ValueId {
@@ -2139,7 +2102,7 @@ impl TypeSystem {
         self.values.push(MaybeMovedValue::Value(Value {
             kind: ValueKind::Type(None),
             reasons: Reasons::default(),
-            value_sets: self.value_sets.with_one(set),
+            value_sets: self.value_sets.with_one(set, false),
         }));
         id
     }
@@ -2163,7 +2126,7 @@ impl TypeSystem {
         self.values.push(MaybeMovedValue::Value(Value {
             kind: ValueKind::Access(None),
             reasons: Reasons::default(),
-            value_sets: self.value_sets.with_one(set),
+            value_sets: self.value_sets.with_one(set, false),
         }));
         id
     }

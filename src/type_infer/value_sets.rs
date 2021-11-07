@@ -19,11 +19,14 @@ pub struct ValueSets {
 }
 
 impl ValueSets {
-    pub fn with_one(&mut self, set_id: ValueSetId) -> ValueSetHandles {
-        self.sets[set_id].uncomputed_values += 1;
+    pub fn with_one(&mut self, set_id: ValueSetId, is_complete: bool) -> ValueSetHandles {
+        if !is_complete {
+            self.sets[set_id].uncomputed_values += 1;
+        }
 
         ValueSetHandles {
-            sets: vec![set_id]
+            sets: vec![set_id],
+            is_complete,
         }
     }
 
@@ -92,11 +95,29 @@ impl ValueSet {
 #[derive(Debug, Default)]
 pub struct ValueSetHandles {
     sets: Vec<ValueSetId>,
+    is_complete: bool,
 }
 
 impl ValueSetHandles {
+    pub fn already_complete() -> Self {
+        Self {
+            sets: Vec::new(),
+            is_complete: true,
+        }
+    }
+
     pub fn is_empty(&self) -> bool {
         self.sets.is_empty()
+    }
+
+    /// Sets this set to another set. This is different from take_from, because
+    /// it assumes that this set is _empty_, and not complete.
+    pub fn set_to(&mut self, mut set: ValueSetHandles) {
+        debug_assert!(!self.is_complete, "Called set_to on completed value");
+        debug_assert!(self.sets.is_empty(), "Called set_to on non-empty value");
+        self.sets = std::mem::take(&mut set.sets);
+        self.is_complete = set.is_complete;
+        set.is_complete = true;
     }
 
     // @Temporary thing for making it easier to migrate to the new system.
@@ -104,6 +125,7 @@ impl ValueSetHandles {
     pub fn take(&mut self) -> Self {
         Self {
             sets: std::mem::take(&mut self.sets),
+            is_complete: self.is_complete,
         }
     }
 
@@ -112,16 +134,28 @@ impl ValueSetHandles {
         // because if the sets are erroneous they shouldn't get completed anyway.
         // @Correctness: Should we decrement the counters though? Maybe it's useful to see if all nodes
         // have finished emitting errors, though that doesn't quite work, with the way that errors propagate.
-        for set in self.sets.drain(..) {
+        for &set in &self.sets {
             value_sets.sets[set].has_errors = true;
         }
+
+        self.is_complete = true;
     }
 
     pub fn take_from(&mut self, mut other: ValueSetHandles, value_sets: &mut ValueSets) {
-        for set in other.sets.drain(..) {
-            if !self.insert_without_tracking(set) {
-                // It already existed in self, so the number of total dependants is reduced.
-                value_sets.sets[set].uncomputed_values -= 1;
+        debug_assert!(!self.is_complete, "Cannot add more sets after completed");
+        if !other.is_complete {
+            for set in other.sets.drain(..) {
+                if !self.insert_without_tracking(set) {
+                    // It already existed in self, so the number of total dependants is reduced.
+                    value_sets.sets[set].uncomputed_values -= 1;
+                }
+            }
+        } else {
+            for set in other.sets.drain(..) {
+                if self.insert_without_tracking(set) {
+                    // It didn't exist in self. Since the other set is complete, the values there aren't uncomputed.
+                    value_sets.sets[set].uncomputed_values += 1;
+                }
             }
         }
     }
@@ -142,15 +176,26 @@ impl ValueSetHandles {
         }
         Self {
             sets,
+            is_complete: false,
         }
+    }
+
+    pub fn is_complete(&self) -> bool {
+        self.is_complete
     }
 
     // @Cleanup: It would be nice for complete to take ownership of self,
     // but I'm not going to do that for now.
     pub fn complete(&mut self, value_sets: &mut ValueSets) {
-        for set in self.sets.drain(..) {
+        // Should this assert be here? Is it necessary
+        // debug_assert!(!self.is_complete, "Cannot complete a set twice");
+        if self.is_complete { return; }
+
+        for &set in &self.sets {
             value_sets.sets[set].uncomputed_values -= 1;
         }
+
+        self.is_complete = true;
     }
 
     pub fn contains(&self, id: ValueSetId) -> bool {
@@ -158,10 +203,11 @@ impl ValueSetHandles {
     }
 }
 
+// @Correctness: This crashes during incompleteness errors as well, because, they are incomplete. We should probably mass-flag all values as complete when generating incompleteness errors.
 impl Drop for ValueSetHandles {
     fn drop(&mut self) {
-        if !self.sets.is_empty() {
-            unreachable!("A value set cannot be dropped non-empty");
+        if !self.is_complete {
+            unreachable!("A value set cannot be dropped non-completed");
         }
     }
 }
