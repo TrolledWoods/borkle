@@ -1,14 +1,18 @@
 library "intrinsics.bo";
 
-#entry fn() -> u64 {
-    print("Hello, world!\n");
-
-    42
+const const_time_print = {
+    print("Hello from compile time!\n");
 };
 
 const print = fn(string: [] u8) {
     i_stdout_write(string);
     i_stdout_flush();
+};
+
+#entry fn() -> u64 {
+    print("Hello, world!\n");
+
+    42
 };
 
 // const help = fn() -> u64 {

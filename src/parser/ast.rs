@@ -1,5 +1,6 @@
 use crate::literal::Literal;
 use crate::dependencies::DependencyList;
+use crate::execution_time::ExecutionTime;
 use crate::locals::{LabelId, LocalId, LocalVariables};
 use crate::location::Location;
 use crate::operators::{BinaryOp, UnaryOp};
@@ -214,6 +215,7 @@ impl Node {
                 parent_set: _,
                 emit_deps: _,
                 function_id: _,
+                time: _,
             } => {
                 v(body);
             }
@@ -382,6 +384,7 @@ pub enum NodeKind {
         parent_set: crate::type_infer::ValueSetId,
         emit_deps: DependencyList,
         function_id: FunctionId,
+        time: ExecutionTime,
     },
 
     /// Any node within this node, is what I call a "type" node. These nodes, when typechecked, actually have their

@@ -1,6 +1,7 @@
 use crate::dependencies::{DepKind, DependencyList, MemberDep};
 use crate::errors::ErrorCtx;
 use crate::literal::Literal;
+use crate::execution_time::ExecutionTime;
 use crate::locals::{LocalId, LocalVariables};
 use crate::location::Location;
 use crate::operators::{BinaryOp, UnaryOp};
@@ -38,6 +39,7 @@ struct Context<'a, 'b> {
     emit_deps: &'a mut DependencyList,
     ast: &'a mut Ast,
     infer: &'a mut TypeSystem,
+    runs: ExecutionTime,
 }
 
 pub fn process_ast<'a>(
@@ -72,6 +74,7 @@ pub fn process_ast<'a>(
         emit_deps: &mut emit_deps,
         ast: &mut ast,
         infer: &mut infer,
+        runs: ExecutionTime::RuntimeFunc,
     };
 
     // Build the tree relationship between the different types.
@@ -181,36 +184,38 @@ fn emit_execution_context(ctx: &mut Context<'_, '_>, node_id: NodeId, set: Value
             parent_set,
             emit_deps,
             function_id,
+            time,
         } => {
             let type_ = ctx.infer.value_to_compiler_type(function_type);
 
-            // TODO: We want to check if we're in typing or not
-            // if typing_type_function {
-            // crate::emit::emit_function_declaration(
-            //     ctx.thread_context,
-            //     ctx.program,
-            //     &mut ctx.locals,
-            //     &ctx.ast,
-            //     body,
-            //     type_,
-            //     function_id,
-            //     set,
-            // );
-            // } else {
-            // The callable dependency was already added by the creator
-            // of this node, because we can't know which dependency list
-            // it should be added to at this point.
-            ctx.program.queue_task(
-                emit_deps,
-                Task::EmitFunction(
-                    ctx.locals.clone(),
-                    ctx.ast.clone(),
-                    body,
-                    type_,
-                    function_id,
-                    set,
-                ),
-            );
+            match time {
+                ExecutionTime::Never => return,
+                ExecutionTime::RuntimeFunc | ExecutionTime::Emission => {
+                    ctx.program.queue_task(
+                        emit_deps,
+                        Task::EmitFunction(
+                            ctx.locals.clone(),
+                            ctx.ast.clone(),
+                            body,
+                            type_,
+                            function_id,
+                            set,
+                        ),
+                    );
+                }
+                ExecutionTime::Typing => {
+                    crate::emit::emit_function_declaration(
+                        ctx.thread_context,
+                        ctx.program,
+                        &mut ctx.locals,
+                        &ctx.ast,
+                        body,
+                        type_,
+                        function_id,
+                        set,
+                    );
+                }
+            }
             // }
 
             let function_id_buffer = ctx
@@ -320,17 +325,6 @@ fn build_constraints(
 
             let PolyOrMember::Member(id) = id else { todo!("Polymorphism!") };
 
-            // @TODO: Worry about whether we're in const context or not....
-            // if ctx.is_const {
-            //     ctx.deps.add(
-            //         parsed.loc,
-            //         DepKind::Member(id, MemberDep::ValueAndCallableIfFunction),
-            //     );
-            // } else {
-            // @FIXME: For some reason the Value dependency doesn't work????
-            ctx.emit_deps.add(node_loc, DepKind::Member(id, MemberDep::ValueAndCallableIfFunction));
-            // }
-
             let (type_, meta_data) = ctx.program.get_member_meta_data(id);
 
             let type_id = ctx.infer.add_type(
@@ -340,6 +334,21 @@ fn build_constraints(
             );
 
             ctx.infer.set_equal(node_type_id, type_id, Variance::Invariant);
+
+            match ctx.runs {
+                // This will never be emitted anyway so it doesn't matter if the value isn't accessible.
+                ExecutionTime::Never => {},
+                ExecutionTime::RuntimeFunc => {
+                    ctx.emit_deps.add(node_loc, DepKind::Member(id, MemberDep::Value));
+                }
+                ExecutionTime::Emission => {
+                    ctx.emit_deps.add(node_loc, DepKind::Member(id, MemberDep::ValueAndCallableIfFunction));
+                }
+                ExecutionTime::Typing => {
+                    // The parser should have already made sure the value is accessible. We will run this node
+                    // through the emitter anyway though, so we don't have to make it into a constant or something.
+                }
+            }
 
             ctx.ast.get_mut(node_id).kind = NodeKind::ResolvedGlobal(id, meta_data);
         }
@@ -516,6 +525,7 @@ fn build_constraints(
                 emit_deps: &mut emit_deps,
                 ast: ctx.ast,
                 infer: ctx.infer,
+                runs: ctx.runs.combine(ExecutionTime::RuntimeFunc),
             };
 
             let sub_set = sub_ctx.infer.value_sets.add(node_id);
@@ -565,6 +575,7 @@ fn build_constraints(
                 parent_set: set,
                 emit_deps,
                 function_id,
+                time: ctx.runs,
             };
         }
         NodeKind::FunctionCall { calling, ref args } => {

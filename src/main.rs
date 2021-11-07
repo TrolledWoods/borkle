@@ -23,6 +23,7 @@
 mod c_backend;
 mod command_line_arguments;
 mod dependencies;
+mod execution_time;
 mod emit;
 mod errors;
 mod id;
