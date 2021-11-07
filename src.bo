@@ -1,12 +1,6 @@
 
-
 #entry fn() -> u64 {
-    let b = [42];
-    let c = [412, 941];
-
-    let a = [b, b, c, b, [842, 1239], [99], b, b, b, b, b];
-
-    a._0._0
+    42
 };
 
 // const help = fn() -> u64 {
@@ -33,43 +27,4 @@
 //     *c(hi, &c2) = x;
 // 
 //     c2._1
-// };
-
-// const B = {
-// 
-//     // *c = #0 : &r u32;
-// 
-//     // This probably compiles, and produces (a + b) * c.
-//     // Busted!! Please fix
-//     // let a = a + b : u32 * c;
-// 
-//     // let a = #0;
-//     // let a_write = &a;
-//     // *a_write = #0 : u32;
-// 
-//     // #0 : u32
-// 
-//    let a1 = fn(a: fn(&_) -> &_) -> &_  { #0 };
-//    let a2 = fn(a: fn(&_) -> &_) -> &_  { a(#0) };
-//
-//    a1 : fn(fn(&rw _)->&_)->&rw _;
-//
-//    let c = #0;
-//    let c_write = &c;
-//
-//    let condition = #0;
-//    if condition {
-//        *c_write = a1;
-//    } else {
-//        *c_write = a2;
-//    };
-//
-//    let x = #0 : u32;
-//    let hi = fn(x: _) -> _ { x };
-//    *c(hi) = x;
-// 
-//     fn(a: _, b: u32) {
-//         a = b
-//     };
-// 
 // };

@@ -1050,7 +1050,12 @@ impl TypeSystem {
                 types::Type::new(types::TypeKind::Reference { pointee, permits })
             }
             TypeKind::Struct(ref fields) => {
-                todo!("Not yet, structs!")
+                let fields = fields
+                    .iter()
+                    .zip(type_args.iter())
+                    .map(|(&name, &v)| (name, self.value_to_compiler_type(v)))
+                    .collect::<Vec<_>>();
+                types::Type::new(types::TypeKind::Struct(fields))
             }
         }
     }
