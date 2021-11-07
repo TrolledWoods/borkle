@@ -1,14 +1,14 @@
 library "intrinsics.bo";
 
-const print = fn(string: [] u8) {
-    i_stdout_write(string);
-    i_stdout_flush();
-};
-
 #entry fn() -> u64 {
     print("Hello, world!\n");
 
     42
+};
+
+const print = fn(string: [] u8) {
+    i_stdout_write(string);
+    i_stdout_flush();
 };
 
 // const help = fn() -> u64 {

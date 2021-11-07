@@ -330,7 +330,9 @@ fn worker<'a>(alloc: &'a mut Bump, program: &'a Program) -> (ThreadContext<'a>, 
                         }
                     }
                 }
-                Task::TypeFunction(function_id, yield_data, return_type, type_, poly_args) => {
+                Task::TypeFunction { .. } => {
+                    todo!("Figure out if I can remove this task, shouldn't be necesasry anymore");
+                    /*
                     program
                         .logger
                         .log(format_args!("typing function '{:?}'", function_id));
@@ -364,10 +366,9 @@ fn worker<'a>(alloc: &'a mut Bump, program: &'a Program) -> (ThreadContext<'a>, 
                             // Task is associated with.
                         }
                     }
+                    */
                 }
-                Task::EmitFunction(function_id, locals, ast, type_) => {
-                    todo!("Emitting a function is for now not supported")
-                    /*
+                Task::EmitFunction(mut locals, ast, node_id, type_, function_id, stack_frame_id) => {
                     program
                         .logger
                         .log(format_args!("emitting function '{:?}'", function_id));
@@ -375,14 +376,13 @@ fn worker<'a>(alloc: &'a mut Bump, program: &'a Program) -> (ThreadContext<'a>, 
                     crate::emit::emit_function_declaration(
                         &mut thread_context,
                         program,
-                        locals,
+                        &mut locals,
                         &ast,
+                        node_id,
                         type_,
                         function_id,
-                        //
-                        0,
+                        stack_frame_id,
                     );
-                    */
                 }
             }
 

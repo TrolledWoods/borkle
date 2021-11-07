@@ -1,9 +1,10 @@
 use crate::literal::Literal;
+use crate::dependencies::DependencyList;
 use crate::locals::{LabelId, LocalId, LocalVariables};
 use crate::location::Location;
 use crate::operators::{BinaryOp, UnaryOp};
 use crate::program::constant::ConstantRef;
-use crate::program::{BuiltinFunction, MemberId, MemberMetaData, ScopeId};
+use crate::program::{FunctionId, BuiltinFunction, MemberId, MemberMetaData, ScopeId};
 use crate::types::{PtrPermits, Type};
 use std::fmt;
 use std::sync::Arc;
@@ -211,6 +212,8 @@ impl Node {
                 body,
                 function_type: _,
                 parent_set: _,
+                emit_deps: _,
+                function_id: _,
             } => {
                 v(body);
             }
@@ -377,6 +380,8 @@ pub enum NodeKind {
         /// parent set, and we have to make sure that the parent set isn't
         /// emitted before that constant is created.
         parent_set: crate::type_infer::ValueSetId,
+        emit_deps: DependencyList,
+        function_id: FunctionId,
     },
 
     /// Any node within this node, is what I call a "type" node. These nodes, when typechecked, actually have their

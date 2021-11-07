@@ -11,6 +11,7 @@ use crate::thread_pool::ThreadContext;
 use crate::type_infer::{self, Access, Reason, TypeSystem, ValueSetId, Variance};
 use crate::types::{IntTypeKind, PtrPermits, Type, TypeKind};
 use std::sync::Arc;
+use std::mem;
 
 pub struct YieldData {
     emit_deps: DependencyList,
@@ -32,11 +33,11 @@ struct Context<'a, 'b> {
     thread_context: &'a mut ThreadContext<'b>,
     errors: &'a mut ErrorCtx,
     program: &'b Program,
-    locals: LocalVariables,
+    locals: &'a mut LocalVariables,
     /// Dependencies necessary for being able to emit code for this output.
-    emit_deps: DependencyList,
-    ast: Ast,
-    infer: TypeSystem,
+    emit_deps: &'a mut DependencyList,
+    ast: &'a mut Ast,
+    infer: &'a mut TypeSystem,
 }
 
 pub fn process_ast<'a>(
@@ -61,14 +62,16 @@ pub fn process_ast<'a>(
         local.type_infer_value_id = infer.add_unknown_type();
     }
 
+    let mut emit_deps = from.emit_deps;
+
     let mut ctx = Context {
         thread_context,
         errors,
         program,
-        locals,
-        emit_deps: from.emit_deps,
-        ast,
-        infer,
+        locals: &mut locals,
+        emit_deps: &mut emit_deps,
+        ast: &mut ast,
+        infer: &mut infer,
     };
 
     // Build the tree relationship between the different types.
@@ -161,41 +164,63 @@ pub fn process_ast<'a>(
         }
     }
 
-    Ok(Ok((ctx.emit_deps, ctx.locals, ctx.ast)))
+    Ok(Ok((emit_deps, locals, ast)))
 }
 
 fn emit_execution_context(ctx: &mut Context<'_, '_>, node_id: NodeId, set: ValueSetId) {
-    let node = ctx.ast.get(node_id);
+    let node = ctx.ast.get_mut(node_id);
     let node_loc = node.loc;
 
-    match node.kind {
+    // @Hack: We replace the kind with a temporary, since all the nodes here are only for this function,
+    // and have to replaced for emission anyway.
+    let kind = std::mem::replace(&mut node.kind, NodeKind::Empty);
+    match kind {
         NodeKind::FunctionDeclarationInTyping {
             body,
             function_type,
             parent_set,
+            emit_deps,
+            function_id,
         } => {
             let type_ = ctx.infer.value_to_compiler_type(function_type);
 
-            let function_id = ctx.program.insert_function(node_loc);
-
-            // TODO: We want to only queue a task to emit the function later,
-            // right now we emit it immediately though. Probably the
-            // dependencies we emit aren't correct right now either.
-            crate::emit::emit_function_declaration(
-                ctx.thread_context,
-                ctx.program,
-                &mut ctx.locals,
-                &ctx.ast,
-                body,
-                type_,
-                function_id,
-                set,
+            // TODO: We want to check if we're in typing or not
+            // if typing_type_function {
+            // crate::emit::emit_function_declaration(
+            //     ctx.thread_context,
+            //     ctx.program,
+            //     &mut ctx.locals,
+            //     &ctx.ast,
+            //     body,
+            //     type_,
+            //     function_id,
+            //     set,
+            // );
+            // } else {
+            // The callable dependency was already added by the creator
+            // of this node, because we can't know which dependency list
+            // it should be added to at this point.
+            ctx.program.queue_task(
+                emit_deps,
+                Task::EmitFunction(
+                    ctx.locals.clone(),
+                    ctx.ast.clone(),
+                    body,
+                    type_,
+                    function_id,
+                    set,
+                ),
             );
+            // }
 
             let function_id_buffer = ctx
                 .program
                 .insert_buffer(type_, &function_id as *const _ as *const u8);
 
+            // @Improvement: We could technically emit this constant
+            // node _before_ queueing/emitting the function. It doesn't
+            // really have a point though and makes things more complicated
+            // when you start thinking about the typing-time functions.
             ctx.ast.get_mut(node_id).kind = NodeKind::Constant(
                 function_id_buffer,
                 None,
@@ -481,28 +506,41 @@ fn build_constraints(
             // @Speed: Somewhat needless allocation
             let args = args.to_vec();
 
-            let sub_set = ctx.infer.value_sets.add(node_id);
+            let mut emit_deps = DependencyList::new();
+
+            let mut sub_ctx = Context {
+                thread_context: ctx.thread_context,
+                errors: ctx.errors,
+                program: ctx.program,
+                locals: ctx.locals,
+                emit_deps: &mut emit_deps,
+                ast: ctx.ast,
+                infer: ctx.infer,
+            };
+
+            let sub_set = sub_ctx.infer.value_sets.add(node_id);
 
             // The parent value set has to wait for this function declaration to be emitted until
             // it can continue, so we lock it to make sure it doesn't get emitted before then.
-            ctx.infer.value_sets.lock(set);
+            sub_ctx.infer.value_sets.lock(set);
 
             let mut function_type_ids = Vec::with_capacity(args.len() + 1);
-            let returns_type_id = build_constraints(ctx, returns, sub_set);
+            let returns_type_id = build_constraints(&mut sub_ctx, returns, sub_set);
             function_type_ids.push(returns_type_id);
 
             for (local_id, type_node) in args {
-                let local = ctx.locals.get_mut(local_id);
+                let local = sub_ctx.locals.get_mut(local_id);
                 local.stack_frame_id = sub_set;
                 let local_type_id = local.type_infer_value_id;
-                let type_id = build_constraints(ctx, type_node, sub_set);
-                ctx.infer.set_value_set(local_type_id, sub_set);
-                ctx.infer
+                let type_id = build_constraints(&mut sub_ctx, type_node, sub_set);
+                sub_ctx.infer.set_value_set(local_type_id, sub_set);
+                sub_ctx.infer
                     .set_equal(type_id, local_type_id, Variance::Invariant);
                 function_type_ids.push(type_id);
             }
 
-            let body_type_id = build_constraints(ctx, body, sub_set);
+            let body_type_id = build_constraints(&mut sub_ctx, body, sub_set);
+
             ctx.infer
                 .set_equal(body_type_id, returns_type_id, Variance::Variant);
 
@@ -518,10 +556,15 @@ fn build_constraints(
             ctx.infer
                 .set_equal(infer_type_id, node_type_id, Variance::Invariant);
 
+            let function_id = ctx.program.insert_function(node_loc);
+            ctx.emit_deps.add(node_loc, DepKind::Callable(function_id));
+
             ctx.ast.get_mut(node_id).kind = NodeKind::FunctionDeclarationInTyping {
                 body,
                 function_type: infer_type_id,
                 parent_set: set,
+                emit_deps,
+                function_id,
             };
         }
         NodeKind::FunctionCall { calling, ref args } => {

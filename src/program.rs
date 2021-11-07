@@ -1227,10 +1227,12 @@ pub enum Task {
         Vec<(Type, ConstantRef)>,
     ),
     EmitFunction(
-        FunctionId,
         crate::locals::LocalVariables,
         crate::typer::Ast,
+        crate::parser::ast::NodeId,
         Type,
+        FunctionId,
+        crate::type_infer::ValueSetId,
     ),
 }
 
@@ -1247,7 +1249,7 @@ impl fmt::Debug for Task {
             Task::EvaluateMember(id, _) => write!(f, "evaluate_member({:?})", id),
             Task::FlagMemberCallable(id) => write!(f, "flag_member_callable({:?})", id),
             Task::TypeFunction(id, _, _, _, _) => write!(f, "type_function({:?})", id),
-            Task::EmitFunction(id, _, _, _) => write!(f, "emit_function({:?})", id),
+            Task::EmitFunction(_, _, _, _, id, _) => write!(f, "emit_function({:?})", id),
         }
     }
 }
