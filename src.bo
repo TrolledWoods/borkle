@@ -12,12 +12,10 @@
 // };
 
 #entry fn() -> u64 {
-    let first = fn(a: _) -> _ {
-        (*a)._0
-    };
+    let a = [1, 2];
+    a = [1, 2, 3];
 
-    let array = [1, 2];
-    first(&array)
+    a._0
 };
 
 // #entry fn() -> u64 {

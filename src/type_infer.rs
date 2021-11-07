@@ -380,14 +380,23 @@ pub struct Constant {
     pub value: Option<ConstantRef>,
 }
 
+#[derive(Clone, Debug)]
+pub struct ValueError {
+    /// We only store a single type here, because the types are going to be set as equal anyway,
+    /// and generate their own error if they don't match.
+    ///
+    /// If it's not an error, the types of all values should match, and can therefore be compared.
+    type_: ValueId,
+    values: Vec<(ConstantRef, Reasons)>,
+}
+
 #[derive(Debug)]
 pub enum ValueKind {
     Error {
         // @Cleanup: Maybe this level of type complexity should be extracted into a struct...
         types: Vec<((TypeKind, Option<usize>), Reasons)>,
         access: Access,
-        // access: Vec<(
-        // TODO: Put values in here, I can't test them right now anyway so it's pointless to try!
+        values: Option<ValueError>,
     },
 
     Type(Option<Type>),
@@ -406,9 +415,10 @@ impl ValueKind {
             Self::Type(_) => Self::Type(None),
             Self::Value(_) => Self::Value(None),
             Self::Access(_) => Self::Access(None),
-            Self::Error { types, access } => Self::Error {
+            Self::Error { types, access, values } => Self::Error {
                 types: types.clone(),
                 access: access.clone(),
+                values: values.clone(),
             },
         }
     }
@@ -828,7 +838,7 @@ impl TypeSystem {
             use std::fmt::Write;
             for value in &self.values {
                 if let MaybeMovedValue::Value(Value {
-                    kind: ValueKind::Error { types, access },
+                    kind: ValueKind::Error { types, access, values },
                     ..
                 }) = value
                 {
@@ -862,6 +872,41 @@ impl TypeSystem {
                             message.push('\'');
                         }
                         errors.global_error(message);
+                    }
+
+                    if let Some(ValueError { type_, values }) = values {
+                        if !matches!(get_value(&self.values, *type_).kind, ValueKind::Error { .. }) {
+                            for (constant_ref, reasons) in values.iter() {
+                                for (i, reason) in reasons.iter().enumerate() {
+                                    let mut message = String::new();
+                                    if i == 0 {
+                                        message.push('\'');
+                                        message.push_str(&self.constant_to_str(*type_, *constant_ref, 0));
+
+                                        message.push_str("' because ");
+                                    } else {
+                                        message.push_str(".. and because ");
+                                    }
+                                    message.push_str(&reason.message);
+                                    errors.info(reason.loc, message);
+                                }
+                            }
+
+                            let mut message = String::new();
+                            message.push_str("Conflicting values ");
+                            for (i, (constant_ref, _)) in values.iter().enumerate() {
+                                if i > 0 && i + 1 == types.len() {
+                                    message.push_str(" and ");
+                                } else if i > 0 {
+                                    message.push_str(", ");
+                                }
+
+                                message.push('\'');
+                                message.push_str(&self.constant_to_str(*type_, *constant_ref, 0));
+                                message.push('\'');
+                            }
+                            errors.global_error(message);
+                        }
                     }
 
                     if let (Some(needs), Some(cannot)) = (&access.needs_write, &access.cannot_write) {
@@ -1412,10 +1457,11 @@ impl TypeSystem {
 
                 use ErrorKind::*;
                 match (&mut *a_value, a_id, &mut *b_value, b_id) {
-                    (Value { kind: ValueKind::Error { types: error_types, access: error_access }, .. }, error_id, non_error, non_error_id)
-                    | (non_error, non_error_id, Value { kind: ValueKind::Error { types: error_types, access: error_access }, .. }, error_id) => {
+                    (Value { kind: ValueKind::Error { types: error_types, access: error_access, values: error_values }, .. }, error_id, non_error, non_error_id)
+                    | (non_error, non_error_id, Value { kind: ValueKind::Error { types: error_types, access: error_access, values: error_values }, .. }, error_id) => {
                         let mut error_types = mem::take(error_types);
                         let mut error_access = mem::take(error_access);
+                        let mut error_values = mem::take(error_values);
 
                         non_error.value_sets.make_erroneous(&mut self.value_sets);
 
@@ -1425,6 +1471,7 @@ impl TypeSystem {
                             ValueKind::Error {
                                 types: other_error_types,
                                 access: other_error_access,
+                                values: other_error_values,
                             } => {
                                 // @Duplicate code with below, probably extract this into a function later
                                 for ((type_, args), other_reasons) in other_error_types {
@@ -1495,7 +1542,7 @@ impl TypeSystem {
                         self.values[b_id] = MaybeMovedValue::Moved(a_id);
 
                         self.values[a_id] = MaybeMovedValue::Value(Value {
-                            kind: ValueKind::Error { types: error_types, access: error_access },
+                            kind: ValueKind::Error { types: error_types, access: error_access, values: error_values },
                             // The value set of an error should be set as erroneous, so this should be ok.
                             value_sets: ValueSetHandles::default(),
                             reasons: Reasons::default(),
@@ -1694,7 +1741,7 @@ impl TypeSystem {
                                 }
 
                                 self.values[a_id] = MaybeMovedValue::Value(Value {
-                                    kind: ValueKind::Error { types: reasons, access: Access::default() },
+                                    kind: ValueKind::Error { types: reasons, access: Access::default(), values: None },
                                     value_sets: ValueSetHandles::default(),
                                     reasons: Reasons::default(),
                                 });
@@ -1973,6 +2020,7 @@ impl TypeSystem {
                                 kind: ValueKind::Error {
                                     types: Vec::new(),
                                     access,
+                                    values: None,
                                 },
                                 value_sets: ValueSetHandles::default(),
                                 reasons: Reasons::default(),
