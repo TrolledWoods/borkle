@@ -36,7 +36,23 @@ pub trait IntoType {
 
 impl IntoType for CompilerType {
     fn into_type(self, system: &mut TypeSystem, set: ValueSetId, reason: Reason) -> ValueId {
-        match self.0 .0.kind {
+        match *self.0.kind() {
+            types::TypeKind::Function { ref args, returns } => {
+                let mut new_args = Vec::with_capacity(args.len() + 1);
+
+                // @TODO: We should append the sub-expression used to the reason as well.
+                new_args.push(CompilerType(returns).into_type(system, set, reason.clone()));
+
+                for &arg in args {
+                    new_args.push(CompilerType(arg).into_type(system, set, reason.clone()));
+                }
+
+                let value = ValueKind::Type(Some(Type {
+                    kind: TypeKind::Function,
+                    args: Some(new_args.into_boxed_slice()),
+                }));
+                system.add(value, set, reason)
+            }
             types::TypeKind::Int(int_type_kind) => {
                 Int(int_type_kind).into_type(system, set, reason)
             }

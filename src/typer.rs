@@ -209,6 +209,57 @@ fn emit_execution_context(ctx: &mut Context<'_, '_>, node_id: NodeId, set: Value
 
             ctx.infer.value_sets.unlock(parent_set);
         }
+        NodeKind::BuiltinFunctionInTyping {
+            function,
+            type_,
+            parent_set,
+        } => {
+            let type_ = ctx.infer.value_to_compiler_type(type_);
+
+            let function_id = ctx.program.insert_defined_function(
+                node_loc,
+                Vec::new(),
+                crate::ir::Routine::Builtin(function),
+            );
+
+            let TypeKind::Function { args, returns } = type_.kind() else { unreachable!("Defined as a function before, the type inferrence system is busted if this is reached") };
+
+            // FIXME: This is duplicated in emit, could there be a nice way to deduplicate them?
+            if ctx.program.arguments.release {
+                crate::c_backend::function_declaration(
+                    &mut ctx.thread_context.c_headers,
+                    crate::c_backend::c_format_function(function_id),
+                    args,
+                    *returns,
+                );
+
+                ctx.thread_context.c_headers.push_str(";\n");
+
+                crate::c_backend::function_declaration(
+                    &mut ctx.thread_context.c_declarations,
+                    crate::c_backend::c_format_function(function_id),
+                    args,
+                    *returns,
+                );
+                ctx.thread_context.c_declarations.push_str(" {\n");
+
+                let routine = ctx.program.get_routine(function_id).unwrap();
+                crate::c_backend::routine_to_c(
+                    &mut ctx.thread_context.c_declarations,
+                    &routine,
+                    args,
+                    *returns,
+                );
+                ctx.thread_context.c_declarations.push_str("}\n");
+            }
+
+            ctx.ast.get_mut(node_id).kind = NodeKind::Constant(
+                ctx.program.insert_buffer(type_, &function_id as *const _ as *const u8),
+                None,
+            );
+
+            ctx.infer.value_sets.unlock(parent_set);
+        }
         _ => unreachable!("A {:?} doesn't define an execution context", node.kind),
     }
 }
@@ -237,8 +288,36 @@ fn build_constraints(
             );
             ctx.infer.set_equal(node_type_id, temp, Variance::Invariant);
         }
+        NodeKind::Global(scope_id, name, ref poly_params) => {
+            assert_eq!(poly_params.len(), 0, "polymorphic things not supported yet");
+        }
         NodeKind::Literal(Literal::Int(_)) => {
             // TODO: Actually add a constraint that checks that the type is an int, and that it's in bounds
+        }
+        NodeKind::BuiltinFunction(function) => {
+            let sub_set = ctx.infer.value_sets.add(node_id);
+
+            // The parent value set has to wait for this function declaration to be emitted until
+            // it can continue, so we lock it to make sure it doesn't get emitted before then.
+            ctx.infer.value_sets.lock(set);
+
+            let infer_type = type_infer::ValueKind::Type(Some(type_infer::Type {
+                kind: type_infer::TypeKind::Function,
+                args: None,
+            }));
+            let infer_type_id = ctx.infer.add(
+                infer_type,
+                sub_set,
+                Reason::new(node_loc, "this builtin function is a function (surprising!)"),
+            );
+            ctx.infer
+                .set_equal(infer_type_id, node_type_id, Variance::Invariant);
+
+            ctx.ast.get_mut(node_id).kind = NodeKind::BuiltinFunctionInTyping {
+                function,
+                type_: infer_type_id,
+                parent_set: set,
+            };
         }
         NodeKind::ArrayLiteral(ref args) => {
             let inner_type = ctx.infer.add_unknown_type_with_set(set);

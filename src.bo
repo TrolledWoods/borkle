@@ -1,13 +1,16 @@
-
 #entry fn() -> u64 {
-    let array = [1, 2, 3, 4];
 
-    let x = #0 : []r u64;
-    x.ptr = &array._0;
-    x.len = 4;
-    *x.ptr = 99;
+    let put_string = #builtin_function stdout_write : fn([]r u8) -> usize;
 
-    *x.ptr
+    let array = [72, 101, 108, 108, 111, 32, 119, 111, 114, 108, 100, 33, 10];
+
+    let buffer = #0;
+    buffer.ptr = &array._0;
+    buffer.len = 13;
+
+    put_string(buffer);
+
+    42
 };
 
 // const help = fn() -> u64 {

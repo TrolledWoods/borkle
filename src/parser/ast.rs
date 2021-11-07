@@ -150,6 +150,7 @@ impl Node {
                 }
             }
             BuiltinFunction(_) => {}
+            BuiltinFunctionInTyping { .. } => {}
 
             PolymorphicArgument(_) => {}
             ConstAtTyping { inner } => v(inner),
@@ -317,6 +318,11 @@ pub enum NodeKind {
     Literal(Literal),
     ArrayLiteral(Vec<NodeId>),
     BuiltinFunction(BuiltinFunction),
+    BuiltinFunctionInTyping {
+        function: BuiltinFunction,
+        type_: crate::type_infer::ValueId,
+        parent_set: crate::type_infer::ValueSetId,
+    },
 
     PolymorphicArgument(usize),
     ConstAtTyping {
