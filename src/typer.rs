@@ -172,12 +172,37 @@ pub fn process_ast<'a>(
 
 fn emit_execution_context(ctx: &mut Context<'_, '_>, node_id: NodeId, set: ValueSetId) {
     let node = ctx.ast.get_mut(node_id);
+    let node_type_id = node.type_infer_value_id;
     let node_loc = node.loc;
 
     // @Hack: We replace the kind with a temporary, since all the nodes here are only for this function,
     // and have to replaced for emission anyway.
     let kind = std::mem::replace(&mut node.kind, NodeKind::Empty);
     match kind {
+        NodeKind::ArrayTypeInTyping { len, length_value } => {
+            let constant_ref = crate::interp::emit_and_run(
+                ctx.thread_context,
+                ctx.program,
+                &mut ctx.locals,
+                &ctx.ast,
+                len,
+                set,
+            );
+
+            // @Hack: We get the usize from the variable so we don't have to add a reason for it
+            let usize = ctx.ast.get(len).type_infer_value_id;
+            let variable_count = ctx.infer.add(
+                type_infer::ValueKind::Value(Some(type_infer::Constant {
+                    type_: usize,
+                    value: Some(constant_ref),
+                })),
+                // This value is already complete, so the set doesn't matter
+                set,
+                Reason::new(ctx.ast.get(len).loc, "the number of elements specified here"),
+            );
+            
+            ctx.infer.set_equal(variable_count, length_value, Variance::Invariant);
+        }
         NodeKind::FunctionDeclarationInTyping {
             body,
             function_type,
@@ -318,7 +343,8 @@ fn build_constraints(
             );
             ctx.infer.set_equal(node_type_id, temp, Variance::Invariant);
         }
-        NodeKind::Global(scope, name, ref poly_params) => {
+        // @Cleanup: We could unify these two nodes probably
+        NodeKind::Global(scope, name, ref poly_params) | NodeKind::GlobalForTyping(scope, name, ref poly_params) => {
             assert_eq!(poly_params.len(), 0, "polymorphic things not supported yet");
 
             let id = ctx.program.get_member_id(scope, name).expect("The dependency system should have made sure that this is defined");
@@ -330,7 +356,7 @@ fn build_constraints(
             let type_id = ctx.infer.add_type(
                 type_infer::CompilerType(type_),
                 set,
-                Reason::new(node_loc, "this global is of this type"),
+                Reason::new(node_loc, format!("this global is '{}'", type_)),
             );
 
             ctx.infer.set_equal(node_type_id, type_id, Variance::Invariant);
@@ -439,13 +465,20 @@ fn build_constraints(
             ctx.infer
                 .set_field_name_equal(of_type_id, name, node_type_id, Variance::Invariant);
         }
+        NodeKind::TypeOf(inner) => {
+            let old = ctx.runs;
+            ctx.runs = ctx.runs.combine(ExecutionTime::Never);
+            let type_ = build_constraints(ctx, inner, set);
+            ctx.runs = old;
+            ctx.infer.set_equal(node_type_id, type_, Variance::Invariant);
+        }
         NodeKind::Local(local_id) => {
             let local = ctx.locals.get(local_id);
             let local_type_id = local.type_infer_value_id;
             ctx.infer
                 .set_equal(local_type_id, node_type_id, Variance::Invariant);
 
-            if local.stack_frame_id != set {
+            if ctx.runs != ExecutionTime::Never && local.stack_frame_id != set {
                 ctx.errors.error(node_loc, "Variable is defined in a different execution context, you cannot access it here, other than for its type". to_string());
                 ctx.infer.value_sets.get_mut(set).has_errors = true;
             }
@@ -506,6 +539,61 @@ fn build_constraints(
                 .set_equal(operand_type_id, temp, Variance::Invariant);
             ctx.infer
                 .set_field_equal(temp, 1, node_type_id, Variance::Invariant);
+        }
+        NodeKind::ArrayType { len, members } => {
+            let mut sub_ctx = Context {
+                thread_context: ctx.thread_context,
+                errors: ctx.errors,
+                program: ctx.program,
+                locals: ctx.locals,
+                emit_deps: ctx.emit_deps,
+                ast: ctx.ast,
+                infer: ctx.infer,
+                runs: ctx.runs.combine(ExecutionTime::Typing),
+            };
+            let sub_set = sub_ctx.infer.value_sets.add(node_id);
+
+            let len_type_id = build_constraints(&mut sub_ctx, len, sub_set);
+            let member_type_id = build_constraints(ctx, members, set);
+
+            let usize_type = ctx.infer.add_type(
+                type_infer::Int(IntTypeKind::Usize),
+                set,
+                Reason::new(node_loc, "array lengths are usize"),
+            );
+
+            ctx.infer.set_equal(usize_type, len_type_id, Variance::Invariant);
+
+            // @Cleanup: Adding without reason is a little bit scary, should we just add unknown instead?
+            // @Performance: We can add some checks to see if the length calculation is actually simple
+            // We don't check that it's part of the same set, because this is
+            // all to compute a type; if we figure out a valid set of types
+            // for the main thing but not for the array length, that's fine,
+            // even if we create an error later the types matched for a moment,
+            // enough to emit code.
+            let length_value = ctx.infer.add_without_reason(
+                type_infer::ValueKind::Value(Some(type_infer::Constant {
+                    type_: usize_type,
+                    value: None,
+                })),
+                set,
+            );
+
+            let array_type = ctx.infer.add(
+                type_infer::ValueKind::Type(Some(type_infer::Type {
+                    kind: type_infer::TypeKind::Array,
+                    args: Some(Box::new([member_type_id, length_value])),
+                })),
+                set,
+                Reason::new(node_loc, format!("of this array type")),
+            );
+
+            ctx.ast.get_mut(node_id).kind = NodeKind::ArrayTypeInTyping {
+                len,
+                length_value,
+            };
+
+            ctx.infer.set_equal(node_type_id, array_type, Variance::Invariant);
         }
         NodeKind::FunctionDeclaration {
             ref args,

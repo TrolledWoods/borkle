@@ -11,7 +11,7 @@ pub use stack::{Stack, StackFrame, StackValue, StackValueMut};
 pub fn emit_and_run<'a>(
     thread_context: &mut crate::thread_pool::ThreadContext<'a>,
     program: &'a Program,
-    mut locals: crate::locals::LocalVariables,
+    locals: &mut crate::locals::LocalVariables,
     ast: &crate::typer::Ast,
     node: crate::typer::NodeId,
     stack_frame_id: crate::type_infer::ValueSetId,
@@ -21,7 +21,7 @@ pub fn emit_and_run<'a>(
     let (_, routine) = crate::emit::emit(
         thread_context,
         program,
-        &mut locals,
+        locals,
         ast,
         node,
         stack_frame_id,

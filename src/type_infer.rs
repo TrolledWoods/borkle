@@ -2208,7 +2208,7 @@ impl TypeSystem {
         id
     }
 
-    fn add_without_reason(&mut self, value: ValueKind, set: ValueSetId) -> ValueId {
+    pub fn add_without_reason(&mut self, value: ValueKind, set: ValueSetId) -> ValueId {
         // @Cleanup: We could clean this up by having a concept of "complete" and "incomplete" values.
         let value_sets = self.value_sets.with_one(set, value.is_complete());
         let id = self.values.len();

@@ -1,7 +1,32 @@
 library "intrinsics.bo";
 
-const const_time_print = {
-    print("Hello from compile time!\n");
+const create_3 = fn() -> usize {
+    print("Created a 3 :)\n");
+    3
+};
+
+#entry fn() -> u64 {
+    let value = 96;
+
+    let wrap_in_array = fn(a: _) -> [create_3()] typeof a { #0 };
+
+    let silly_struct = #0;
+    silly_struct : {
+        a: u64;
+        b: typeof &silly_struct.c;
+        c: typeof wrap_in_array(silly_struct.a);
+    };
+
+    let a_function = fn(a: typeof value, b: typeof a) -> typeof wrap_in_array(value) {
+        let thing = #0;
+        thing._1 = a;
+        thing._2 = b;
+        thing
+    };
+
+    print("Hello world!\n");
+
+    a_function(42, 12)._1
 };
 
 const print = fn(string: [] u8) {
@@ -9,11 +34,6 @@ const print = fn(string: [] u8) {
     i_stdout_flush();
 };
 
-#entry fn() -> u64 {
-    print("Hello, world!\n");
-
-    42
-};
 
 // const help = fn() -> u64 {
 //     let a1 = fn(a: _, b: _) -> &_  { &[42, 12] };

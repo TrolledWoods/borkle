@@ -66,6 +66,7 @@ pub enum Keyword {
     Read,
     Write,
     ReadWrite,
+    TypeOf,
 }
 
 pub fn process_string(errors: &mut ErrorCtx, file: Ustr, string: &str) -> Result<TokenStream, ()> {
@@ -150,6 +151,7 @@ pub fn process_string(errors: &mut ErrorCtx, file: Ustr, string: &str) -> Result
                     "while" => TokenKind::Keyword(Keyword::While),
                     "for" => TokenKind::Keyword(Keyword::For),
                     "in" => TokenKind::Keyword(Keyword::In),
+                    "typeof" => TokenKind::Keyword(Keyword::TypeOf),
                     "import" => TokenKind::Keyword(Keyword::Import),
                     "library" => TokenKind::Keyword(Keyword::Library),
                     "r" => TokenKind::Keyword(Keyword::Read),

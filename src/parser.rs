@@ -332,6 +332,19 @@ fn type_(
     let token = global.tokens.expect_peek(global.errors)?;
     let loc = token.loc;
     match token.kind {
+        TokenKind::Keyword(Keyword::TypeOf) => {
+            global.tokens.next();
+
+            // @TODO: We want to tell the parser about
+            // the fact that we don't actually need the values of anything
+            // in here, so that it doesn't fetch them unnecessarily
+            let inner = value(global, imperative, buffer)?;
+
+            Ok(buffer.add(Node::new(
+                loc,
+                NodeKind::TypeOf(inner),
+            )))
+        }
         TokenKind::Identifier(name) => {
             global.tokens.next();
 

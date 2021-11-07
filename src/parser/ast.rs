@@ -151,6 +151,7 @@ impl Node {
                     v(node);
                 }
             }
+            TypeOf(inner) => v(inner),
             BuiltinFunction(_) => {}
             BuiltinFunctionInTyping { .. } => {}
 
@@ -240,6 +241,9 @@ impl Node {
             ArrayType { len, members } => {
                 v(len);
                 v(members);
+            }
+            ArrayTypeInTyping { len, length_value: _ } => {
+                v(len);
             }
             FunctionType { ref args, returns } => {
                 v(returns);
@@ -387,6 +391,8 @@ pub enum NodeKind {
         time: ExecutionTime,
     },
 
+    TypeOf(NodeId),
+
     /// Any node within this node, is what I call a "type" node. These nodes, when typechecked, actually have their
     /// type set as their value instead of their type; their type is just "Type". The reason for that is that they're
     /// essentially a form of compile time execution, but so common that they use this system instead of the bytecode
@@ -404,6 +410,10 @@ pub enum NodeKind {
     ArrayType {
         len: NodeId,
         members: NodeId,
+    },
+    ArrayTypeInTyping {
+        len: NodeId,
+        length_value: crate::type_infer::ValueSetId,
     },
     FunctionType {
         args: Vec<NodeId>,
