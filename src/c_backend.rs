@@ -544,11 +544,11 @@ pub fn append_c_type_headers(output: &mut String) {
             TypeKind::AnyPtr => {
                 write!(output, "struct{{\n  void *ptr;\n  uint64_t type_;\n}}",).unwrap();
             }
-            TypeKind::Buffer(internal) => {
+            TypeKind::Buffer { pointee, .. } => {
                 write!(
                     output,
                     "struct{{\n  {} ptr;\n  uint64_t len;\n}}",
-                    c_format_pointer_type(*internal),
+                    c_format_pointer_type(*pointee),
                 )
                 .unwrap();
             }

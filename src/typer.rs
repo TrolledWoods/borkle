@@ -12,8 +12,6 @@ use crate::type_infer::{self, Access, Reason, TypeSystem, ValueSetId, Variance};
 use crate::types::{IntTypeKind, PtrPermits, Type, TypeKind};
 use std::sync::Arc;
 
-mod infer;
-
 pub struct YieldData {
     emit_deps: DependencyList,
     locals: LocalVariables,
@@ -581,14 +579,21 @@ fn build_constraints(
             );
             ctx.infer.set_equal(node_type_id, temp, Variance::Invariant);
         }
-        // @Improvement: Reference type permits can be inferred as well, but that's not represented here.
         NodeKind::ReferenceType(inner, permits) => {
             let inner = build_constraints(ctx, inner, set);
-            // TODO: It would be nice to specify the location of the permit specification, so we can generate
-            // an error that points to them specifically
             let access = permits_to_access(permits);
             let temp = ctx.infer.add_type(
                 type_infer::Ref(access, type_infer::Var(inner)),
+                set,
+                Reason::new(node_loc, "of this reference type"),
+            );
+            ctx.infer.set_equal(node_type_id, temp, Variance::Invariant);
+        }
+        NodeKind::BufferType(inner, permits) => {
+            let inner = build_constraints(ctx, inner, set);
+            let access = permits_to_access(permits);
+            let temp = ctx.infer.add_type(
+                type_infer::Buffer(access, type_infer::Var(inner)),
                 set,
                 Reason::new(node_loc, "of this reference type"),
             );

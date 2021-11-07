@@ -419,8 +419,9 @@ fn type_(
                             NodeKind::LiteralType(TypeKind::VoidBuffer.into()),
                         )))
                     } else {
+                        let permits = parse_pointer_permits(global);
                         let inner = type_(global, imperative, buffer)?;
-                        Ok(buffer.add(Node::new(loc, NodeKind::BufferType(inner))))
+                        Ok(buffer.add(Node::new(loc, NodeKind::BufferType(inner, permits))))
                     }
                 }
                 _ => {

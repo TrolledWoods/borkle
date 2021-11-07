@@ -213,7 +213,7 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, node: NodeId) -> Value {
                     }
                     _ => unreachable!(),
                 },
-                TypeKind::Buffer(_) => {
+                TypeKind::Buffer { .. } => {
                     ctx.emit_member(
                         start,
                         iterating_value,

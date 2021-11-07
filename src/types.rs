@@ -98,7 +98,7 @@ impl Type {
             is_unique,
             aliases,
             members: kind.get_members(types),
-            is_pointer_to_zst: matches!(kind, TypeKind::Reference { pointee: inner, .. } | TypeKind::Buffer(inner) if inner.size() == 0),
+            is_pointer_to_zst: matches!(kind, TypeKind::Reference { pointee: inner, .. } | TypeKind::Buffer { pointee: inner, .. } if inner.size() == 0),
             call_scheme: kind.call_scheme(),
             is_never_type,
             size,
@@ -261,7 +261,7 @@ impl Display for TypeKind {
             Self::Int(int) => int.fmt(fmt),
             Self::Bool => write!(fmt, "bool"),
             Self::Reference { pointee, permits } => write!(fmt, "&{}{}", permits.to_str(), pointee),
-            Self::Buffer(internal) => write!(fmt, "[] {}", internal),
+            Self::Buffer { pointee, permits } => write!(fmt, "[]{} {}", permits.to_str(), pointee),
             Self::Array(internal, length) => write!(fmt, "[{}] {}", length, internal),
             Self::Function { args, returns } => {
                 write!(fmt, "fn(")?;
@@ -378,7 +378,7 @@ pub enum TypeKind {
     Int(IntTypeKind),
     Array(Type, usize),
     Reference { pointee: Type, permits: PtrPermits },
-    Buffer(Type),
+    Buffer { pointee: Type, permits: PtrPermits },
     Function { args: Vec<Type>, returns: Type },
     Struct(Vec<(Ustr, Type)>),
 }
@@ -396,7 +396,7 @@ impl TypeKind {
             | TypeKind::F32
             | TypeKind::Bool
             | TypeKind::Int(_) => {}
-            TypeKind::Buffer(inner)
+            TypeKind::Buffer { pointee: inner, .. }
             | TypeKind::Array(inner, _)
             | TypeKind::Range(inner)
             | TypeKind::Reference { pointee: inner, .. } => on_inner(*inner),
@@ -417,12 +417,12 @@ impl TypeKind {
 
     fn get_members(&self, types: &mut Vec<&'static TypeData>) -> Vec<(Ustr, usize, Type)> {
         match *self {
-            TypeKind::Buffer(inner) => {
+            TypeKind::Buffer { pointee, permits } => {
                 let ptr_type = Type::new_without_lock(
                     types,
                     TypeKind::Reference {
-                        pointee: inner,
-                        permits: PtrPermits::READ_WRITE,
+                        pointee,
+                        permits,
                     },
                 );
                 let usize_type = Type::new_without_lock(types, TypeKind::Int(IntTypeKind::Usize));
@@ -497,7 +497,7 @@ impl TypeKind {
             Self::Type => (8, 8),
             Self::Empty => (0, 1),
             Self::VoidPtr | Self::F64 | Self::Reference { .. } | Self::Function { .. } => (8, 8),
-            Self::AnyPtr | Self::VoidBuffer | Self::Buffer(_) => (16, 8),
+            Self::AnyPtr | Self::VoidBuffer | Self::Buffer { .. } => (16, 8),
             Self::F32 => (4, 4),
             Self::Bool => (1, 1),
             Self::Range(inner) => {
@@ -544,14 +544,9 @@ impl TypeKind {
             | Self::VoidPtr
             | Self::AnyPtr
             | Self::Bool => {}
-            Self::Reference { pointee, .. } => {
+            Self::Reference { pointee, .. } | Self::Buffer { pointee, .. } => {
                 if pointee.size() > 0 {
                     pointers.push((0, PointerInType::Pointer(*pointee)));
-                }
-            }
-            Self::Buffer(internal) => {
-                if internal.size() > 0 {
-                    pointers.push((0, PointerInType::Buffer(*internal)));
                 }
             }
             Self::VoidBuffer => {

@@ -1,6 +1,13 @@
 
 #entry fn() -> u64 {
-    42
+    let array = [1, 2, 3, 4];
+
+    let x = #0 : []r u64;
+    x.ptr = &array._0;
+    x.len = 4;
+    *x.ptr = 99;
+
+    *x.ptr
 };
 
 // const help = fn() -> u64 {

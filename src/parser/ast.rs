@@ -214,7 +214,7 @@ impl Node {
                 v(body);
             }
 
-            BufferType(inner) | TypeAsValue(inner) => v(inner),
+            BufferType(inner, _) | TypeAsValue(inner) => v(inner),
             NamedType {
                 name: _,
                 ref fields,
@@ -387,7 +387,6 @@ pub enum NodeKind {
     StructType {
         fields: Vec<(Ustr, NodeId)>,
     },
-    BufferType(NodeId),
     ArrayType {
         len: NodeId,
         members: NodeId,
@@ -396,6 +395,7 @@ pub enum NodeKind {
         args: Vec<NodeId>,
         returns: NodeId,
     },
+    BufferType(NodeId, Option<(Location, PtrPermits)>),
     ReferenceType(NodeId, Option<(Location, PtrPermits)>),
     LiteralType(Type),
 

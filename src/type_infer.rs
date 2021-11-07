@@ -26,6 +26,8 @@ pub struct Int(pub IntTypeKind);
 #[derive(Clone, Copy)]
 pub struct Ref<V: IntoAccess, T: IntoType>(pub V, pub T);
 #[derive(Clone, Copy)]
+pub struct Buffer<V: IntoAccess, T: IntoType>(pub V, pub T);
+#[derive(Clone, Copy)]
 pub struct WithType<T: IntoType>(pub T);
 
 pub trait IntoType {
@@ -48,6 +50,11 @@ impl IntoType for CompilerType {
                 set,
                 reason,
             ),
+            types::TypeKind::Buffer { pointee, permits } => Buffer(
+                Access::disallows((!permits.read()).then(|| reason.clone()), (!permits.write()).then(|| reason.clone())),
+                CompilerType(pointee),
+            )
+            .into_type(system, set, reason),
             types::TypeKind::Reference { pointee, permits } => Ref(
                 Access::disallows((!permits.read()).then(|| reason.clone()), (!permits.write()).then(|| reason.clone())),
                 CompilerType(pointee),
@@ -109,6 +116,21 @@ impl IntoType for Int {
 impl IntoType for Unknown {
     fn into_type(self, system: &mut TypeSystem, set: ValueSetId, reason: Reason) -> ValueId {
         system.add_without_reason(ValueKind::Type(None), set)
+    }
+}
+
+impl<T: IntoAccess, V: IntoType> IntoType for Buffer<T, V> {
+    fn into_type(self, system: &mut TypeSystem, set: ValueSetId, reason: Reason) -> ValueId {
+        let inner_variance = self.0.into_variance(system, set, reason.clone());
+        let inner_type = self.1.into_type(system, set, reason.clone());
+        system.add(
+            ValueKind::Type(Some(Type {
+                kind: TypeKind::Buffer,
+                args: Some(Box::new([inner_variance, inner_type])),
+            })),
+            set,
+            reason,
+        )
     }
 }
 
@@ -184,8 +206,10 @@ pub enum TypeKind {
     Function,
     // element: type, length: int
     Array,
-    // inner element: type
+    // mutability, type
     Reference,
+    // mutability, type
+    Buffer,
     // (type, type, type, type), in the same order as the strings.
     Struct(Box<[Ustr]>),
 }
@@ -806,6 +830,7 @@ fn type_kind_to_str(
         }
         TypeKind::Array => write!(string, "[_] _"),
         TypeKind::Reference => write!(string, "&_"),
+        TypeKind::Buffer => write!(string, "[] _"),
     }
 }
 
@@ -1035,6 +1060,20 @@ impl TypeSystem {
 
                 types::Type::new(types::TypeKind::Array(element_type, length))
             }
+            TypeKind::Buffer => {
+                let [mutability, pointee] = &**type_args else {
+                    unreachable!("Invalid reference type")
+                };
+
+                let ValueKind::Access(Some(access)) = &get_value(&self.values, *mutability).kind else {
+                    unreachable!("Requires access")
+                };
+
+                let pointee = self.value_to_compiler_type(*pointee);
+                let permits = types::PtrPermits::from_read_write(access.needs_read.is_some(), access.needs_write.is_some());
+
+                types::Type::new(types::TypeKind::Buffer { pointee, permits })
+            }
             TypeKind::Reference => {
                 let [mutability, pointee] = &**type_args else {
                     unreachable!("Invalid reference type")
@@ -1240,13 +1279,21 @@ impl TypeSystem {
                     ),
                     _ => unreachable!("Arrays should only ever have two type parameters"),
                 },
+                ValueKind::Type(Some(Type { kind: TypeKind::Buffer, args: Some(c), .. })) => match &**c {
+                    [mutability, type_] => format!(
+                        "[]{} {}",
+                        self.value_to_str(*mutability, rec + 1),
+                        self.value_to_str(*type_, rec + 1)
+                    ),
+                    _ => unreachable!("Buffers should only ever have two type parameters"),
+                },
                 ValueKind::Type(Some(Type { kind: TypeKind::Reference, args: Some(c), .. })) => match &**c {
                     [mutability, type_] => format!(
                         "&{} {}",
                         self.value_to_str(*mutability, rec + 1),
                         self.value_to_str(*type_, rec + 1)
                     ),
-                    _ => unreachable!("References should only ever have one type parameter"),
+                    _ => unreachable!("References should only ever have two type parameters"),
                 },
             },
         }
@@ -1344,15 +1391,85 @@ impl TypeSystem {
                 index: field_name,
                 variance,
             } => {
-                let a = &get_value(&self.values, a_id).kind;
+                let a = get_value(&self.values, a_id);
 
-                match a {
+                match &a.kind {
                     ValueKind::Error { .. } => {
                         // TODO: Deal with this case somehow. I think that a good method would be just
                         // to flag the child member as being dependant on an error, e.g. if we knew what this
                         // type was it might be set, so just don't report incompleteness-errors on that value.
                     }
                     ValueKind::Type(None) => {}
+                    ValueKind::Type(Some(Type { kind: TypeKind::Buffer, args, .. })) => {
+                        match &*field_name {
+                            "ptr" => {
+                                if let Some(args) = args {
+                                    let &[mutability, pointee] = &args[..] else {
+                                        unreachable!("All buffer types should have two arguments")
+                                    };
+
+                                    // @Performance: This is mega-spam of values, we want to later cache this value
+                                    // so we don't have to re-add it over and over.
+                                    let new_value_id = self.values.len();
+                                    let mut value_sets = a.value_sets.clone(&mut self.value_sets);
+                                    // We know what the type is, we can complete it immediately :^)
+                                    value_sets.complete(&mut self.value_sets);
+                                    // @TODO: We want EqualNamedField constraints to store locations, since these constraints
+                                    // are very tightly linked with where they're created, as opposed to Equal.
+                                    // And then we can generate a good reason here.
+                                    // These reasons aren't correct at all....
+                                    let reasons = a.reasons.clone();
+                                    self.values.push(MaybeMovedValue::Value(Value {
+                                        kind: ValueKind::Type(Some(Type {
+                                            kind: TypeKind::Reference,
+                                            args: Some(Box::new([mutability, pointee])),
+                                        })),
+                                        value_sets,
+                                        reasons,
+                                    }));
+
+                                    self.set_equal(new_value_id, b_id, variance);
+
+                                    // @HACK: To prevent spam
+                                    self.constraints[constraint_id].kind = ConstraintKind::Dead;
+                                }
+                            }
+                            "len" => {
+                                // @Performance: This is mega-spam of values, we want to later cache this value
+                                // so we don't have to re-add it over and over.
+
+                                let new_value_id = self.values.len();
+                                let mut value_sets = a.value_sets.clone(&mut self.value_sets);
+                                value_sets.complete(&mut self.value_sets);
+                                // @TODO: We want EqualNamedField constraints to store locations, since these constraints
+                                // are very tightly linked with where they're created, as opposed to Equal.
+                                // And then we can generate a good reason here.
+                                // These reasons aren't correct at all....
+                                let mut reasons = a.reasons.clone();
+                                self.values.push(MaybeMovedValue::Value(Value {
+                                    kind: ValueKind::Type(Some(Type {
+                                        kind: TypeKind::Bool,
+                                        args: Some(Box::new([])),
+                                    })),
+                                    value_sets,
+                                    reasons,
+                                }));
+
+                                self.set_equal(new_value_id, b_id, variance);
+
+                                // @HACK: To prevent spam
+                                self.constraints[constraint_id].kind = ConstraintKind::Dead;
+                            }
+                            _ => {
+                                self.errors.push(Error::new(
+                                    a_id,
+                                    b_id,
+                                    ErrorKind::NonexistantName(field_name),
+                                ));
+                                return;
+                            }
+                        }
+                    }
                     ValueKind::Type(Some(Type { kind: TypeKind::Struct(names), .. })) => {
                         if let Some(pos) = names.iter().position(|&v| v == field_name) {
                             insert_active_constraint(
