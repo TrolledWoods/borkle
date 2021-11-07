@@ -116,7 +116,7 @@ operator!(BinaryOp {
     Add = ("+", 100),
     Sub = ("-", 100),
     Mult = ("*", 101),
-    Div = ("/", 102),
+    Div = ("/", 101),
     BitAnd = ("&", 7),
     BitOr = ("|", 7),
 

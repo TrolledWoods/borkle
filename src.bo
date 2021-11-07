@@ -1,14 +1,14 @@
+const compile_time_write = {
+    let put_string = #builtin_function stdout_write : fn([]r u8) -> usize;
+
+    put_string("Hi, from compile time :D\n");
+};
+
 #entry fn() -> u64 {
 
     let put_string = #builtin_function stdout_write : fn([]r u8) -> usize;
 
-    let array = [72, 101, 108, 108, 111, 32, 119, 111, 114, 108, 100, 33, 10];
-
-    let buffer = #0;
-    buffer.ptr = &array._0;
-    buffer.len = 13;
-
-    put_string(buffer);
+    put_string("Hello, world!\n");
 
     42
 };

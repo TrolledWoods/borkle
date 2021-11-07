@@ -294,6 +294,28 @@ fn build_constraints(
         NodeKind::Literal(Literal::Int(_)) => {
             // TODO: Actually add a constraint that checks that the type is an int, and that it's in bounds
         }
+        NodeKind::Literal(Literal::String(ref data)) => {
+            let infer_type = ctx.infer.add_type(
+                type_infer::Buffer(
+                    type_infer::Access::disallows(None, Some(Reason::new(node_loc, "string literals cannot be written to"))),
+                    type_infer::Int(IntTypeKind::U8),
+                ),
+                set,
+                Reason::new(node_loc, "of this string literal"),
+            );
+            ctx.infer.set_equal(node_type_id, infer_type, Variance::Invariant);
+
+            let u8_type = Type::new(TypeKind::Int(IntTypeKind::U8));
+            let type_ = Type::new(TypeKind::Buffer { permits: PtrPermits::READ, pointee: u8_type });
+            let ptr = ctx.program.insert_buffer(
+                type_,
+                &crate::types::BufferRepr {
+                    ptr: data.as_ptr() as *mut _,
+                    length: data.len(),
+                } as *const _ as *const _,
+            );
+            ctx.ast.get_mut(node_id).kind = NodeKind::Constant(ptr, None);
+        }
         NodeKind::BuiltinFunction(function) => {
             let sub_set = ctx.infer.value_sets.add(node_id);
 

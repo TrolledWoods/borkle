@@ -544,9 +544,14 @@ impl TypeKind {
             | Self::VoidPtr
             | Self::AnyPtr
             | Self::Bool => {}
-            Self::Reference { pointee, .. } | Self::Buffer { pointee, .. } => {
+            Self::Reference { pointee, .. }  => {
                 if pointee.size() > 0 {
                     pointers.push((0, PointerInType::Pointer(*pointee)));
+                }
+            }
+            Self::Buffer { pointee, .. } => {
+                if pointee.size() > 0 {
+                    pointers.push((0, PointerInType::Buffer(*pointee)));
                 }
             }
             Self::VoidBuffer => {
