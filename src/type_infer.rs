@@ -1889,10 +1889,10 @@ impl TypeSystem {
                             unreachable!("Because of computations above, this is always true")
                         };
 
-                        // Ugly special case for references. This would apply for anything that has a
+                        // Ugly special case for references and buffers. This would apply for anything that has a
                         // mutability parameter that controls the variance of another field, because that behaviour
                         // is quite messy and complex.
-                        if *base_a == TypeKind::Reference {
+                        if *base_a == TypeKind::Reference || *base_a == TypeKind::Buffer {
                             // @Cleanup: This has to be done because a has to be less than b, otherwise
                             // the lookups don't work properly. However, this is messy. So it would be nice if it
                             // could be factored out to something else.

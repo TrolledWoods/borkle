@@ -1,62 +1,25 @@
 library "intrinsics.bo";
 
-const create_3 = fn() -> usize {
-    print("Created a 3 :)\n");
-    3
-};
-
 #entry fn() -> u64 {
-    let value = 96;
-
-    let wrap_in_array = fn(a: _) -> [create_3()] typeof a { #0 };
-
-    let silly_struct = #0;
-    silly_struct : {
-        a: u64;
-        b: typeof &silly_struct.c;
-        c: typeof wrap_in_array(silly_struct.a);
+    let convert_to_mutable = fn(read_only: []r u8) -> []rw u8 {
+        let mutable_buffer = #0 : []rw u8;
+        let write_buffer = #uninit : []rw []rw u8;
+        write_buffer.ptr = &mutable_buffer;
+        // Casting from a '[]w []rw' u8 to a '[]w []r u8' This cast is invalid!
+        let casted = write_buffer : []w []r u8;
+        *casted.ptr = read_only;
+        mutable_buffer
     };
 
-    let a_function = fn(a: typeof value, b: typeof a) -> typeof wrap_in_array(value) {
-        let thing = #0;
-        thing._1 = a;
-        thing._2 = b;
-        thing
-    };
+    let mutable = convert_to_mutable("Hello!\n");
+    *mutable.ptr = 69;
 
-    print("Hello world!\n");
+    print("Hello!\n");
 
-    a_function(42, 12)._1
+    42
 };
 
 const print = fn(string: [] u8) {
     i_stdout_write(string);
     i_stdout_flush();
 };
-
-
-// const help = fn() -> u64 {
-//     let a1 = fn(a: _, b: _) -> &_  { &[42, 12] };
-//     let a2 = fn(a: _, b: _) -> &_  { a(b) };
-// 
-//     let c = #0;
-//     let c_write = &c;
-// 
-//     let write_to_pointer = fn(pointer: _, a: _, b: _) {
-//         let condition = #0;
-//         if condition {
-//             *pointer = a;
-//         } else {
-//             *pointer = b;
-//         };
-//     };
-// 
-//     write_to_pointer(c_write, a1, a2);
-// 
-//     let x = [44, 99];
-//     let c2 = [3, 42];
-//     let hi = fn(x: _) -> _ { x };
-//     *c(hi, &c2) = x;
-// 
-//     c2._1
-// };
