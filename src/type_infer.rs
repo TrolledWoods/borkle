@@ -1662,10 +1662,12 @@ impl TypeSystem {
                 let values_len = self.values.len();
                 let (a_slice, b_slice) = self.values.split_at_mut(b_id);
                 // @Performance: Could be unreachable_unchecked in the future....
-                let MaybeMovedValue::Value(a_value) = &mut a_slice[a_id] else {
+                let a_maybe_moved_value = &mut a_slice[a_id];
+                let MaybeMovedValue::Value(a_value) = &mut *a_maybe_moved_value else {
                     unreachable!("It shouldn't be possible for the value of an equal constraint to be aliased {:?}", self.values[a_id])
                 };
-                let MaybeMovedValue::Value(b_value) = &mut b_slice[0] else {
+                let b_maybe_moved_value = &mut b_slice[0];
+                let MaybeMovedValue::Value(b_value) = &mut *b_maybe_moved_value else {
                     unreachable!("It shouldn't be possible for the value of an equal constraint to be aliased {:?}", self.values[b_id])
                 };
 
@@ -1721,9 +1723,12 @@ impl TypeSystem {
                                             }
                                         }
 
-                                        let error_values_type = error_values.type_;
-                                        let other_error_values_type = other_error_values.type_;
-                                        self.set_equal(error_values_type, other_error_values_type, variance);
+                                        insert_active_constraint(
+                                            &mut self.constraints,
+                                            &mut self.available_constraints,
+                                            &mut self.queued_constraints,
+                                            Constraint::equal(error_values.type_, other_error_values.type_, variance),
+                                        );
                                     }
                                 }
                             }
@@ -1748,9 +1753,6 @@ impl TypeSystem {
                             }
                             ValueKind::Value(Some(value)) => {
                                 if let Some(error_values) = &mut error_values {
-                                    let error_value_type = error_values.type_;
-                                    let value_type = value.type_;
-                                    
                                     if let Some(constant_ref) = value.value {
                                         if let Some((_, reasons)) = error_values.values.iter_mut().find(|(v, _)| *v == constant_ref) {
                                             reasons.take_reasons_from(&non_error.reasons);
@@ -1759,7 +1761,12 @@ impl TypeSystem {
                                         }
                                     }
 
-                                    self.set_equal(error_value_type, value_type, variance);
+                                    insert_active_constraint(
+                                        &mut self.constraints,
+                                        &mut self.available_constraints,
+                                        &mut self.queued_constraints,
+                                        Constraint::equal(error_values.type_, value.type_, variance),
+                                    );
                                 } else {
                                     unreachable!("For now, we cannot deal with errors between values and non-values");
                                 }
@@ -1791,14 +1798,14 @@ impl TypeSystem {
                             }
                         }
 
-                        self.values[b_id] = MaybeMovedValue::Moved(a_id);
-
-                        self.values[a_id] = MaybeMovedValue::Value(Value {
+                        *a_value = Value {
                             kind: ValueKind::Error { types: error_types, access: error_access, values: error_values },
                             // The value sets of the errors are already set as erroneous, so it doesn't matter that this one is empty.
                             value_sets: ValueSetHandles::already_complete(),
                             reasons: Reasons::default(),
-                        });
+                        };
+
+                        *b_maybe_moved_value = MaybeMovedValue::Moved(a_id);
 
                         if let Some(available_constraints) = self.available_constraints.get_mut(&a_id) {
                             available_constraints.retain(|&constraint| {
@@ -2074,9 +2081,7 @@ impl TypeSystem {
                         match (a, b) {
                             (None, None) => {},
                             (Some(a), None) => {
-                                let a_type = a.type_;
-                                let value = a.value;
-                                if value.is_some() {
+                                if a.value.is_some() {
                                     b_value_sets.complete(&mut self.value_sets);
                                     if a_reasons.combine(b_reasons) {
                                         progress[0] = true;
@@ -2084,15 +2089,23 @@ impl TypeSystem {
                                     }
                                 }
                                 // @Correctness: Should this type be a part of the current value set?
-                                let type_ = self.add_unknown_type();
-                                let Value { kind: ValueKind::Value(b), .. } = get_unaliased_value_mut(&mut self.values, b_id) else {
-                                    unreachable!("this was a value roughly 3 nanoseconds ago")
-                                };
+                                let type_ = self.values.len();
                                 *b = Some(Constant {
                                     type_,
                                     value,
                                 });
-                                self.set_equal(a_type, type_, variance);
+                                insert_active_constraint(
+                                    &mut self.constraints,
+                                    &mut self.available_constraints,
+                                    &mut self.queued_constraints,
+                                    Constraint::equal(a.type_, b.type_, variance),
+                                );
+
+                                // @HACK! We assume that no values were added in between here, and that the id of
+                                // the inserted type is the same. This isn't too unreasonable, because we never
+                                // borrow `self.values`
+                                self.add_unknown_type();
+                                    
                                 progress[1] = true;
                             }
                             (None, Some(b)) => {

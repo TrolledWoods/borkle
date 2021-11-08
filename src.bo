@@ -1,21 +1,15 @@
 library "intrinsics.bo";
 
-#entry fn() -> _ { 'block
-    let a = 9 : u64;
+#entry fn() -> u64 {
+    let var = bool_to_string(1 == (1 : u8));
 
-    defer print("Deferred first\n");
-    {
-        {
-            defer print("Deferred second\n");
-        };
-        defer print("Deferred third\n");
-        break 'block 5 + 4 : typeof (a + 1);
-    };
+    print(var);
+    print("\n");
 
-    break 'block 35;
-
-    2 + 6
+    5
 };
+
+const bool_to_string=fn(v:_)->_ if v"true"else"false";
 
 const print = fn(string: [] u8) {
     i_stdout_write(string);
