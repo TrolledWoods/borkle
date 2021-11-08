@@ -381,6 +381,19 @@ fn build_constraints(
         NodeKind::Literal(Literal::Int(_)) => {
             // TODO: Actually add a constraint that checks that the type is an int, and that it's in bounds
         }
+        NodeKind::Defer { deferring } => {
+            build_constraints(ctx, deferring, set);
+            let empty_id = ctx.infer.add_type(
+                type_infer::Empty,
+                set,
+                Reason::new(
+                    node_loc,
+                    "this if evaluates to Empty because it doesn't have an else clause",
+                ),
+            );
+
+            ctx.infer.set_equal(node_type_id, empty_id, Variance::Invariant);
+        }
         NodeKind::Literal(Literal::String(ref data)) => {
             let infer_type = ctx.infer.add_type(
                 type_infer::Buffer(
@@ -775,8 +788,14 @@ fn build_constraints(
         }
         NodeKind::Block {
             ref contents,
-            label: _,
+            label,
         } => {
+            if let Some(label) = label {
+                let label = ctx.locals.get_label_mut(label);
+                label.type_infer_value_id = node_type_id;
+                label.stack_frame_id = set;
+            }
+
             let last = *contents.last().unwrap();
             // @Performance: This isn't very fast, but it's fine for now
             for statement_id in contents[..contents.len() - 1].to_vec() {
@@ -786,6 +805,25 @@ fn build_constraints(
             let last_type_id = build_constraints(ctx, last, set);
             ctx.infer
                 .set_equal(node_type_id, last_type_id, Variance::Invariant);
+        }
+        NodeKind::Break {
+            label,
+            num_defer_deduplications: _,
+            value,
+        } => {
+            let label = ctx.locals.get_label(label);
+            if ctx.runs != ExecutionTime::Never && label.stack_frame_id != set {
+                ctx.errors.error(node_loc, "Variable is defined in a different execution context, you cannot access it here, other than for its type".to_string());
+                ctx.infer.value_sets.get_mut(set).has_errors = true;
+            }
+
+            let label_type_id = label.type_infer_value_id;
+
+            let value_type_id = build_constraints(ctx, value, set);
+            ctx.infer.set_equal(value_type_id, label_type_id, Variance::Variant);
+
+            let temp = ctx.infer.add_type(type_infer::Empty, set, Reason::new(node_loc, "declaration return empty, however this reason should never be noticable by a user"));
+            ctx.infer.set_equal(node_type_id, temp, Variance::Invariant);
         }
         NodeKind::Parenthesis(inner) => {
             let inner_type_id = build_constraints(ctx, inner, set);

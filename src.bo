@@ -1,12 +1,20 @@
 library "intrinsics.bo";
 
-#entry fn() -> u64 {
-    let thing = 1;
+#entry fn() -> _ { 'block
+    let a = 9 : u64;
 
-    let x = 0;
-    x = x + thing;
-    x = x + thing;
-    x
+    defer print("Deferred first\n");
+    {
+        {
+            defer print("Deferred second\n");
+        };
+        defer print("Deferred third\n");
+        break 'block 5 + 4 : typeof (a + 1);
+    };
+
+    break 'block 35;
+
+    2 + 6
 };
 
 const print = fn(string: [] u8) {
