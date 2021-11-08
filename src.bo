@@ -1,22 +1,12 @@
 library "intrinsics.bo";
 
 #entry fn() -> u64 {
-    let convert_to_mutable = fn(read_only: []r u8) -> []rw u8 {
-        let mutable_buffer = #0 : []rw u8;
-        let write_buffer = #uninit : []rw []rw u8;
-        write_buffer.ptr = &mutable_buffer;
-        // Casting from a '[]w []rw' u8 to a '[]w []r u8' This cast is invalid!
-        let casted = write_buffer : []w []r u8;
-        *casted.ptr = read_only;
-        mutable_buffer
-    };
+    let thing = 1;
 
-    let mutable = convert_to_mutable("Hello!\n");
-    *mutable.ptr = 69;
-
-    print("Hello!\n");
-
-    42
+    let x = 0;
+    x = x + thing;
+    x = x + thing;
+    x
 };
 
 const print = fn(string: [] u8) {

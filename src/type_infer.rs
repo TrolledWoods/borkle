@@ -1,5 +1,6 @@
 use crate::errors::ErrorCtx;
 use crate::location::Location;
+use crate::operators::BinaryOp;
 use crate::types::{self, IntTypeKind};
 use std::collections::HashMap;
 use std::hint::unreachable_unchecked;
@@ -563,6 +564,10 @@ struct Constraint {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 enum ConstraintKind {
+    BinaryOp {
+        op: BinaryOp,
+        values: [ValueId; 3],
+    },
     Equal {
         values: [ValueId; 2],
         variance: Variance,
@@ -597,6 +602,7 @@ impl Constraint {
             }
             ConstraintKind::EqualsField { .. }
             | ConstraintKind::EqualNamedField { .. }
+            | ConstraintKind::BinaryOp { .. }
             | ConstraintKind::Dead => {}
         }
     }
@@ -614,6 +620,7 @@ impl Constraint {
             ConstraintKind::Equal { values, .. }
             | ConstraintKind::EqualsField { values, .. }
             | ConstraintKind::EqualNamedField { values, .. } => &*values,
+            ConstraintKind::BinaryOp { values, .. } => &*values,
             ConstraintKind::Dead => &[],
         }
     }
@@ -623,6 +630,7 @@ impl Constraint {
             ConstraintKind::Equal { values, .. }
             | ConstraintKind::EqualsField { values, .. }
             | ConstraintKind::EqualNamedField { values, .. } => &mut *values,
+            ConstraintKind::BinaryOp { values, .. } => &mut *values,
             ConstraintKind::Dead => &mut [],
         }
     }
@@ -632,7 +640,7 @@ impl Constraint {
             ConstraintKind::Equal { variance, .. }
             | ConstraintKind::EqualsField { variance, .. }
             | ConstraintKind::EqualNamedField { variance, .. } => Some(variance),
-            ConstraintKind::Dead => None,
+            ConstraintKind::Dead | ConstraintKind::BinaryOp { .. } => None,
         }
     }
 
@@ -670,6 +678,7 @@ impl Error {
 
 #[derive(Debug)]
 pub enum ErrorKind {
+    NonexistantOperation,
     MixingTypesAndValues,
     IncompatibleTypes,
     IncompatibleValues,
@@ -751,22 +760,13 @@ fn insert_constraint(
             if a == b {
                 return None;
             };
-
-            let vec = available_constraints.entry(a).or_insert_with(Vec::new);
-            vec.push(id);
-
-            let vec = available_constraints.entry(b).or_insert_with(Vec::new);
-            vec.push(id);
         }
-        ConstraintKind::EqualsField { values: [a, b], .. }
-        | ConstraintKind::EqualNamedField { values: [a, b], .. } => {
-            let vec = available_constraints.entry(a).or_insert_with(Vec::new);
-            vec.push(id);
+        _ => {}
+    }
 
-            let vec = available_constraints.entry(b).or_insert_with(Vec::new);
-            vec.push(id);
-        }
-        ConstraintKind::Dead => {}
+    for &value in constraint.values() {
+        let vec = available_constraints.entry(value).or_insert_with(Vec::new);
+        vec.push(id);
     }
 
     Some(id)
@@ -794,22 +794,13 @@ fn insert_active_constraint(
             if a == b {
                 return;
             };
-
-            let vec = available_constraints.entry(a).or_insert_with(Vec::new);
-            vec.push(id);
-
-            let vec = available_constraints.entry(b).or_insert_with(Vec::new);
-            vec.push(id);
         }
-        ConstraintKind::EqualsField { values: [a, b], .. }
-        | ConstraintKind::EqualNamedField { values: [a, b], .. } => {
-            let vec = available_constraints.entry(a).or_insert_with(Vec::new);
-            vec.push(id);
+        _ => {}
+    }
 
-            let vec = available_constraints.entry(b).or_insert_with(Vec::new);
-            vec.push(id);
-        }
-        ConstraintKind::Dead => {}
+    for &value in constraint.values() {
+        let vec = available_constraints.entry(value).or_insert_with(Vec::new);
+        vec.push(id);
     }
 
     queued_constraints.push(id);
@@ -1114,6 +1105,23 @@ impl TypeSystem {
             }
         }
     }
+    
+    pub fn set_op_equal(&mut self, op: BinaryOp, a: ValueId, b: ValueId, result: ValueId) {
+        let a = get_real_value_id(&self.values, a);
+        let b = get_real_value_id(&self.values, b);
+        let result = get_real_value_id(&self.values, result);
+        insert_active_constraint(
+            &mut self.constraints,
+            &mut self.available_constraints,
+            &mut self.queued_constraints,
+            Constraint {
+                kind: ConstraintKind::BinaryOp {
+                    values: [a, b, result],
+                    op,
+                },
+            },
+        );
+    }
 
     pub fn set_equal(&mut self, a: ValueId, b: ValueId, variance: Variance) {
         let a = get_real_value_id(&self.values, a);
@@ -1318,6 +1326,15 @@ impl TypeSystem {
     fn constraint_to_string(&self, constraint: &Constraint) -> String {
         match constraint.kind {
             ConstraintKind::Dead => format!("< removed >"),
+            ConstraintKind::BinaryOp { values: [a, b, result], op } => {
+                format!(
+                    "{} {:?} {} == {}",
+                    self.value_to_str(a, 0),
+                    op,
+                    self.value_to_str(b, 0),
+                    self.value_to_str(result, 0),
+                )
+            }
             ConstraintKind::Equal {
                 values: [a_id, b_id],
                 variance,
@@ -1402,6 +1419,47 @@ impl TypeSystem {
 
         match constraint.kind {
             ConstraintKind::Dead => {}
+            ConstraintKind::BinaryOp {
+                values: [a_id, b_id, result_id],
+                op,
+            } => {
+                let a = get_value(&self.values, a_id);
+                let b = get_value(&self.values, b_id);
+                let result = get_value(&self.values, result_id);
+
+                match op {
+                    BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mult | BinaryOp::Div | BinaryOp::BitAnd | BinaryOp::BitOr => {
+                        // Temporary: No type validation, just equality :)
+                        self.set_equal(a_id, b_id, Variance::Invariant);
+                        self.set_equal(a_id, result_id, Variance::Invariant);
+
+                        self.constraints[constraint_id].kind = ConstraintKind::Dead;
+                    }
+                    BinaryOp::And | BinaryOp::Or => {
+                        // Temporary: No type validation, just equality :)
+                        self.set_equal(a_id, b_id, Variance::Invariant);
+                        self.set_equal(a_id, result_id, Variance::Invariant);
+                    }
+                    BinaryOp::Equals | BinaryOp::NotEquals | BinaryOp::LargerThanEquals | BinaryOp::LargerThan | BinaryOp::LessThanEquals | BinaryOp::LessThan => {
+                        let id = self.values.len();
+                        self.values.push(MaybeMovedValue::Value(Value {
+                            kind: ValueKind::Type(Some(Type {
+                                kind: TypeKind::Bool,
+                                args: Some(Box::new([])),
+                            })),
+                            value_sets: ValueSetHandles::already_complete(),
+                            reasons: Reasons::default(),
+                        }));
+
+
+                        self.set_equal(result_id, id, Variance::Invariant);
+                        self.set_equal(a_id, b_id, Variance::DontCare);
+
+                        self.constraints[constraint_id].kind = ConstraintKind::Dead;
+                    }
+                    _ => unimplemented!("Operator {:?} not supported in type inferrence yet", op),
+                }
+            }
             ConstraintKind::EqualNamedField {
                 values: [a_id, b_id],
                 index: field_name,

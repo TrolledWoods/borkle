@@ -758,6 +758,11 @@ fn build_constraints(
             );
             ctx.infer.set_equal(node_type_id, temp, Variance::Invariant);
         }
+        NodeKind::Binary { op, left, right } => {
+            let left = build_constraints(ctx, left, set);
+            let right = build_constraints(ctx, right, set);
+            ctx.infer.set_op_equal(op, left, right, node_type_id);
+        }
         NodeKind::Reference(operand) => {
             let access = ctx.infer.add_empty_access(set);
             let inner = build_lvalue(ctx, operand, access, set);
