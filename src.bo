@@ -9,7 +9,7 @@ library "intrinsics.bo";
     5
 };
 
-const bool_to_string=fn(v:_)->_ if v"true"else"false";
+const bool_to_string = fn(v: bool) -> []r u8  if v "true" else "false";
 
 const print = fn(string: [] u8) {
     i_stdout_write(string);

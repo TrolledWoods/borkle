@@ -13,6 +13,72 @@ use crate::program::constant::ConstantRef;
 mod value_sets;
 pub use value_sets::{ValueSets, ValueSetId, ValueSetHandles, ValueSet};
 
+pub trait IntoBoxSlice<T> {
+    fn into_box_slice(self) -> Option<Box<[T]>>;
+}
+
+impl<T> IntoBoxSlice<T> for Box<[T]> {
+    fn into_box_slice(self) -> Option<Box<[T]>> {
+        Some(self)
+    }
+}
+
+impl<'a, T: Copy> IntoBoxSlice<T> for &'a [T] {
+    fn into_box_slice(self) -> Option<Box<[T]>> {
+        Some(self.to_vec().into_boxed_slice())
+    }
+}
+
+impl<T, const N: usize> IntoBoxSlice<T> for [T; N] {
+    fn into_box_slice(self) -> Option<Box<[T]>> {
+        Some(Box::new(self))
+    }
+}
+
+impl<T> IntoBoxSlice<T> for () {
+    fn into_box_slice(self) -> Option<Box<[T]>> {
+        None
+    }
+}
+
+pub trait IntoValueSet {
+    fn add_set(self, value_sets: &mut ValueSets, already_complete: bool) -> ValueSetHandles;
+}
+
+impl IntoValueSet for &ValueSetHandles {
+    fn add_set(self, value_sets: &mut ValueSets, already_complete: bool) -> ValueSetHandles {
+        self.clone(value_sets, already_complete)
+    }
+}
+
+impl IntoValueSet for ValueSetId {
+    fn add_set(self, value_sets: &mut ValueSets, already_complete: bool) -> ValueSetHandles {
+        value_sets.with_one(self, already_complete)
+    }
+}
+
+pub trait IntoReason {
+    fn reasonify(self) -> Reasons;
+}
+
+impl IntoReason for Reason {
+    fn reasonify(self) -> Reasons {
+        Reasons::with_one(self)
+    }
+}
+
+impl IntoReason for Reasons {
+    fn reasonify(self) -> Reasons {
+        self
+    }
+}
+
+impl IntoReason for () {
+    fn reasonify(self) -> Reasons {
+        Reasons::default()
+    }
+}
+
 #[derive(Clone, Copy)]
 pub struct CompilerType(pub types::Type);
 
@@ -37,64 +103,7 @@ pub trait IntoType {
 
 impl IntoType for CompilerType {
     fn into_type(self, system: &mut TypeSystem, set: ValueSetId, reason: Reason) -> ValueId {
-        match *self.0.kind() {
-            types::TypeKind::Function { ref args, returns } => {
-                let mut new_args = Vec::with_capacity(args.len() + 1);
-
-                // @TODO: We should append the sub-expression used to the reason as well.
-                new_args.push(CompilerType(returns).into_type(system, set, reason.clone()));
-
-                for &arg in args {
-                    new_args.push(CompilerType(arg).into_type(system, set, reason.clone()));
-                }
-
-                let value = ValueKind::Type(Some(Type {
-                    kind: TypeKind::Function,
-                    args: Some(new_args.into_boxed_slice()),
-                }));
-                system.add(value, set, reason)
-            }
-            types::TypeKind::Int(int_type_kind) => {
-                Int(int_type_kind).into_type(system, set, reason)
-            }
-            types::TypeKind::Empty => system.add(
-                ValueKind::Type(Some(Type::primitive(TypeKind::Empty))),
-                set,
-                reason,
-            ),
-            types::TypeKind::Bool => system.add(
-                ValueKind::Type(Some(Type::primitive(TypeKind::Bool))),
-                set,
-                reason,
-            ),
-            types::TypeKind::Buffer { pointee, permits } => Buffer(
-                Access::disallows((!permits.read()).then(|| reason.clone()), (!permits.write()).then(|| reason.clone())),
-                CompilerType(pointee),
-            )
-            .into_type(system, set, reason),
-            types::TypeKind::Reference { pointee, permits } => Ref(
-                Access::disallows((!permits.read()).then(|| reason.clone()), (!permits.write()).then(|| reason.clone())),
-                CompilerType(pointee),
-            )
-            .into_type(system, set, reason),
-            types::TypeKind::Array(type_, length) => {
-                todo!("We need a function for turning a compiler type into an actionable type that also takes the program");
-            }
-            types::TypeKind::Struct(ref fields) => {
-                let field_names = fields.iter().map(|v| v.0).collect();
-                let field_types = fields
-                    .iter()
-                    // @TODO: We should append the sub-expression used to the reason as well.
-                    .map(|v| CompilerType(v.1).into_type(system, set, reason.clone()))
-                    .collect();
-                let value = ValueKind::Type(Some(Type {
-                    kind: TypeKind::Struct(field_names),
-                    args: Some(field_types),
-                }));
-                system.add(value, set, reason)
-            }
-            _ => todo!("This compiler type is not done yet"),
-        }
+        system.add_compiler_type(self.0, set, reason)
     }
 }
 
@@ -1485,9 +1494,7 @@ impl TypeSystem {
                                     // @Performance: This is mega-spam of values, we want to later cache this value
                                     // so we don't have to re-add it over and over.
                                     let new_value_id = self.values.len();
-                                    let mut value_sets = a.value_sets.clone(&mut self.value_sets);
-                                    // We know what the type is, we can complete it immediately :^)
-                                    value_sets.complete(&mut self.value_sets);
+                                    let mut value_sets = a.value_sets.clone(&mut self.value_sets, true);
                                     // @TODO: We want EqualNamedField constraints to store locations, since these constraints
                                     // are very tightly linked with where they're created, as opposed to Equal.
                                     // And then we can generate a good reason here.
@@ -1513,8 +1520,7 @@ impl TypeSystem {
                                 // so we don't have to re-add it over and over.
 
                                 let new_value_id = self.values.len();
-                                let mut value_sets = a.value_sets.clone(&mut self.value_sets);
-                                value_sets.complete(&mut self.value_sets);
+                                let mut value_sets = a.value_sets.clone(&mut self.value_sets, true);
                                 // @TODO: We want EqualNamedField constraints to store locations, since these constraints
                                 // are very tightly linked with where they're created, as opposed to Equal.
                                 // And then we can generate a good reason here.
@@ -1935,7 +1941,7 @@ impl TypeSystem {
                                     let new_value = Value {
                                         kind,
                                         reasons: Reasons::default(),
-                                        value_sets: base_value_sets.clone(&mut self.value_sets),
+                                        value_sets: base_value_sets.clone(&mut self.value_sets, false),
                                     };
                                     self.values.push(MaybeMovedValue::Value(new_value));
                                 }
@@ -2078,7 +2084,7 @@ impl TypeSystem {
                     }
 
                     (Value { kind: ValueKind::Value(a), value_sets: a_value_sets, reasons: a_reasons ,.. }, _, Value { kind: ValueKind::Value(b), value_sets: b_value_sets, reasons: b_reasons, .. }, _) => {
-                        match (a, b) {
+                        match (&mut *a, &mut *b) {
                             (None, None) => {},
                             (Some(a), None) => {
                                 if a.value.is_some() {
@@ -2089,16 +2095,19 @@ impl TypeSystem {
                                     }
                                 }
                                 // @Correctness: Should this type be a part of the current value set?
-                                let type_ = self.values.len();
+                                // @Cleanup: This is from a self.values.len() call further up, no elements have been
+                                // added because of the borrow checker. But the fact that the call has to be up there
+                                // is also because of the borrow checker!!!
+                                let type_ = values_len;
                                 *b = Some(Constant {
                                     type_,
-                                    value,
+                                    value: a.value,
                                 });
                                 insert_active_constraint(
                                     &mut self.constraints,
                                     &mut self.available_constraints,
                                     &mut self.queued_constraints,
-                                    Constraint::equal(a.type_, b.type_, variance),
+                                    Constraint::equal(a.type_, type_, variance),
                                 );
 
                                 // @HACK! We assume that no values were added in between here, and that the id of
@@ -2109,9 +2118,7 @@ impl TypeSystem {
                                 progress[1] = true;
                             }
                             (None, Some(b)) => {
-                                let b_type = b.type_;
-                                let value = b.value;
-                                if value.is_some() {
+                                if b.value.is_some() {
                                     a_value_sets.complete(&mut self.value_sets);
                                     if a_reasons.combine(b_reasons) {
                                         progress[0] = true;
@@ -2119,15 +2126,25 @@ impl TypeSystem {
                                     }
                                 }
                                 // @Correctness: Should this type be a part of the current value set?
-                                let type_ = self.add_unknown_type();
-                                let Value { kind: ValueKind::Value(a), .. } = get_unaliased_value_mut(&mut self.values, a_id) else {
-                                    unreachable!("this was a value roughly 3 nanoseconds ago")
-                                };
+                                // @Cleanup: This is from a self.values.len() call further up, no elements have been
+                                // added because of the borrow checker. But the fact that the call has to be up there
+                                // is also because of the borrow checker!!!
+                                let type_ = values_len;
                                 *a = Some(Constant {
                                     type_,
-                                    value,
+                                    value: b.value,
                                 });
-                                self.set_equal(type_, b_type, variance);
+                                insert_active_constraint(
+                                    &mut self.constraints,
+                                    &mut self.available_constraints,
+                                    &mut self.queued_constraints,
+                                    Constraint::equal(type_, b.type_, variance),
+                                );
+
+                                // @HACK! We assume that no values were added in between here, and that the id of
+                                // the inserted type is the same. This isn't too unreasonable, because we never
+                                // borrow `self.values`
+                                self.add_unknown_type();
                                 progress[0] = true;
                             }
                             (Some(a), Some(b)) => {
@@ -2312,6 +2329,71 @@ impl TypeSystem {
             kind: ValueKind::Type(None),
             reasons: Reasons::default(),
             value_sets: self.value_sets.with_one(set, false),
+        }));
+        id
+    }
+
+    pub fn add_compiler_type(&mut self, type_: types::Type, set: ValueSetId, reason: Reason) -> ValueId {
+        match *type_.kind() {
+            types::TypeKind::Function { ref args, returns } => {
+                let mut new_args = Vec::with_capacity(args.len() + 1);
+
+                // @TODO: We should append the sub-expression used to the reason as well.
+                new_args.push(self.add_compiler_type(returns, set, reason.clone()));
+
+                for &arg in args {
+                    new_args.push(self.add_compiler_type(arg, set, reason.clone()));
+                }
+
+                self.add_t(TypeKind::Function, &new_args[..], set, reason)
+            }
+            types::TypeKind::Int(int_type_kind) => {
+                self.add_t(TypeKind::Int(int_type_kind), [], set, reason)
+            }
+            types::TypeKind::Empty => self.add_t(TypeKind::Empty, [], set, reason),
+            types::TypeKind::Bool  => self.add_t(TypeKind::Bool, [], set, reason),
+            types::TypeKind::Buffer { pointee, permits } => {
+                // @Cleanup: This is ugly!
+                let permits = self.add_access(Some(Access::disallows((!permits.read()).then(|| reason.clone()), (!permits.write()).then(|| reason.clone()))), set, reason.clone());
+                let pointee = self.add_compiler_type(pointee, set, reason.clone());
+
+                self.add_t(TypeKind::Buffer, [permits, pointee], set, reason)
+            }
+            types::TypeKind::Reference { pointee, permits } => {
+                // @Cleanup: This is ugly!
+                let permits = self.add_access(Some(Access::disallows((!permits.read()).then(|| reason.clone()), (!permits.write()).then(|| reason.clone()))), set, reason.clone());
+                let pointee = self.add_compiler_type(pointee, set, reason.clone());
+
+                self.add_t(TypeKind::Reference, [permits, pointee], set, reason)
+            }
+            types::TypeKind::Array(type_, length) => {
+                todo!("We need a function for turning a compiler type into an actionable type that also takes the program");
+            }
+            types::TypeKind::Struct(ref fields) => {
+                let field_names = fields.iter().map(|&(v, _)| v).collect();
+                let field_types: Box<[_]> = fields
+                    .iter()
+                    // @TODO: We should append the sub-expression used to the reason as well.
+                    .map(|&(_, v)| self.add_compiler_type(v, set, reason.clone()))
+                    .collect();
+                self.add_t(TypeKind::Struct(field_names), field_types, set, reason)
+            }
+            _ => todo!("This compiler type is not done yet"),
+        }
+    }
+
+    fn add_t(&mut self, kind: TypeKind, args: impl IntoBoxSlice<ValueId>, set: impl IntoValueSet, reason: impl IntoReason) -> ValueId {
+        let args = args.into_box_slice();
+        let is_complete = args.is_some();
+        let value_sets = set.add_set(&mut self.value_sets, is_complete);
+        let id = self.values.len();
+        self.values.push(MaybeMovedValue::Value(Value {
+            kind: ValueKind::Type(Some(Type {
+                kind,
+                args,
+            })),
+            value_sets,
+            reasons: reason.reasonify(),
         }));
         id
     }

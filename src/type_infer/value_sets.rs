@@ -169,14 +169,18 @@ impl ValueSetHandles {
         }
     }
 
-    pub fn clone(&self, value_sets: &mut ValueSets) -> Self {
+    pub fn clone(&self, value_sets: &mut ValueSets, already_complete: bool) -> Self {
         let sets = self.sets.clone();
-        for &set in &sets {
-            value_sets.sets[set].uncomputed_values += 1;
+        // We need all these already_complete flags, because make_erroneous needs to know all the
+        // sets, so it can set all the ones that matter to erroneous.
+        if !already_complete {
+            for &set in &sets {
+                value_sets.sets[set].uncomputed_values += 1;
+            }
         }
         Self {
             sets,
-            is_complete: false,
+            is_complete: already_complete,
         }
     }
 
