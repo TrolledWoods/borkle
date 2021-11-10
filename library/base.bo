@@ -1,0 +1,11 @@
+library "intrinsics.bo";
+
+const true = 1 > (0 : u8);
+const false = 1 < (0 : u8);
+
+const assert = i_assert;
+
+const print = fn(string: [] u8) {
+    i_stdout_write(string);
+    i_stdout_flush();
+};

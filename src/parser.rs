@@ -602,6 +602,7 @@ fn value_without_unaries(
             let (name_loc, name) = global.tokens.expect_identifier(global.errors)?;
 
             let builtin_kind = match name.as_str() {
+                "assert" => BuiltinFunction::Assert,
                 "mem_copy" => BuiltinFunction::MemCopy,
                 "mem_copy_nonoverlapping" => BuiltinFunction::MemCopyNonOverlapping,
                 "alloc" => BuiltinFunction::Alloc,
@@ -1021,41 +1022,14 @@ fn function_arguments(
     buffer: &mut AstBuilder,
 ) -> Result<(NodeList, NamedNodeList), ()> {
     let mut args = Vec::new();
-    let mut named_args = Vec::new();
     loop {
         if global.tokens.try_consume(&TokenKind::Close(Bracket::Round)) {
             break;
         }
 
-        match (
-            global.tokens.peek().map(|t| &t.kind),
-            global.tokens.peek_nth(1).map(|t| &t.kind),
-        ) {
-            (Some(&TokenKind::Identifier(name)), Some(TokenKind::Operator(operator)))
-                if operator.starts_with('=') =>
-            {
-                // Named argument
-                global.tokens.next();
-                global.tokens.try_consume_operator_string("=").unwrap();
+        let arg = expression(global, imperative, buffer)?;
 
-                let arg = expression(global, imperative, buffer)?;
-
-                named_args.push((name, arg));
-            }
-            _ => {
-                let arg = expression(global, imperative, buffer)?;
-
-                if !named_args.is_empty() {
-                    global.error(
-                        buffer.get(arg).loc,
-                        "You cannot have unnamed arguments after named arguments".to_string(),
-                    );
-                    return Err(());
-                }
-
-                args.push(arg);
-            }
-        }
+        args.push(arg);
 
         let token = global.tokens.expect_next(global.errors)?;
         match token.kind {
@@ -1068,7 +1042,7 @@ fn function_arguments(
         }
     }
 
-    Ok((args, named_args))
+    Ok((args, vec![]))
 }
 
 /// Parses a function declaration, although doesn't expect the 'fn' keyword to be included because

@@ -622,7 +622,7 @@ impl Program {
         let id = self
             .poly_members
             .write()
-            .push(PolyMember::new(name, locals, ast, num_args));
+            .push(PolyMember::new(loc, name, locals, ast, num_args));
 
         self.bind_member_to_name(errors, scope_id, name, loc, PolyOrMember::Poly(id), true)?;
         Ok(id)
@@ -756,7 +756,7 @@ impl Program {
         scope_id: ScopeId,
         name: Ustr,
     ) -> Result<MemberId, ()> {
-        let id = self.members.write().push(Member::new(name, false));
+        let id = self.members.write().push(Member::new(loc, name, false));
 
         self.bind_member_to_name(errors, scope_id, name, loc, PolyOrMember::Member(id), true)?;
         Ok(id)
@@ -1057,6 +1057,7 @@ impl Function {
 struct PolyMember {
     name: Ustr,
 
+    loc: Location,
     ast: Arc<(crate::locals::LocalVariables, crate::parser::Ast)>,
     num_args: usize,
 
@@ -1074,12 +1075,14 @@ struct PolyMember {
 
 impl PolyMember {
     fn new(
+        loc: Location,
         name: Ustr,
         locals: crate::locals::LocalVariables,
         ast: crate::parser::Ast,
         num_args: usize,
     ) -> Self {
         Self {
+            loc,
             name,
             num_args,
             ast: Arc::new((locals, ast)),
@@ -1104,6 +1107,7 @@ impl PolyMember {
 struct Member {
     is_monomorphised: bool,
 
+    loc: Location,
     name: Ustr,
     type_: DependableOption<(Type, Arc<MemberMetaData>)>,
     value: DependableOption<ConstantRef>,
@@ -1130,9 +1134,10 @@ struct Member {
 }
 
 impl Member {
-    fn new(name: Ustr, is_monomorphised: bool) -> Self {
+    fn new(loc: Location, name: Ustr, is_monomorphised: bool) -> Self {
         Self {
             is_monomorphised,
+            loc,
             name,
             type_: DependableOption::None(default()),
             value: DependableOption::None(default()),
@@ -1198,6 +1203,8 @@ pub enum BuiltinFunction {
     StdoutWrite,
     StdoutFlush,
     StdinGetLine,
+
+    Assert,
 
     MemCopy,
     MemCopyNonOverlapping,

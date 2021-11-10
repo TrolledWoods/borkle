@@ -1,3 +1,4 @@
+const i_assert              = #builtin_function assert                  : fn(bool);
 const i_stdout_write        = #builtin_function stdout_write            : fn([]r u8) -> usize;
 const i_stdout_flush        = #builtin_function stdout_flush            : fn();
 const i_stdin_getline       = #builtin_function stdin_get_line          : fn() -> []rw u8;

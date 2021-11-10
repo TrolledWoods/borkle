@@ -65,7 +65,7 @@ fn main() {
                 .expect("The main source file couldn't be canonicalized"),
         );
 
-        let (mut c_output, errors) = thread_pool::run(&mut program, options.num_threads);
+        let (mut c_output, mut errors) = thread_pool::run(&mut program, options.num_threads);
 
         let files = program.file_contents();
         if !errors.print(files) {
@@ -127,9 +127,20 @@ fn main() {
                 if let ir::Routine::UserDefined(routine) = &*routine {
                     let mut stack = interp::Stack::new(1 << 16);
 
-                    let result = interp::interp(&program, &mut stack, routine);
+                    // @Improvement: We want to put the entry point in here.
+                    match interp::interp(&program, &mut stack, routine, &mut vec![]) {
+                        Ok(result) => println!("[main returned: {}]", unsafe { result.read::<u64>() }),
+                        Err(call_stack) => {
+                            errors.clear();
+                            for &caller in call_stack.iter().rev().skip(1) {
+                                errors.info(caller, "".to_string());
+                            }
 
-                    println!("[main returned: {}]", unsafe { result.read::<u64>() });
+                            errors.error(*call_stack.last().unwrap(), "Assert failed!".to_string());
+                            let files = program.file_contents();
+                            errors.print(files);
+                        }
+                    }
                 } else {
                     println!("ERROR: For now, the entry point cannot be a built in function");
                 }

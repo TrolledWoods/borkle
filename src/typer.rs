@@ -180,28 +180,39 @@ fn emit_execution_context(ctx: &mut Context<'_, '_>, node_id: NodeId, set: Value
     let kind = std::mem::replace(&mut node.kind, NodeKind::Empty);
     match kind {
         NodeKind::ArrayTypeInTyping { len, length_value } => {
-            let constant_ref = crate::interp::emit_and_run(
+            match crate::interp::emit_and_run(
                 ctx.thread_context,
                 ctx.program,
                 &mut ctx.locals,
                 &ctx.ast,
                 len,
                 set,
-            );
+                &mut vec![node_loc],
+            ) {
+                Ok(constant_ref) => {
+                    // @Hack: We get the usize from the variable so we don't have to add a reason for it
+                    let usize = ctx.ast.get(len).type_infer_value_id;
+                    let variable_count = ctx.infer.add(
+                        type_infer::ValueKind::Value(Some(type_infer::Constant {
+                            type_: usize,
+                            value: Some(constant_ref),
+                        })),
+                        // This value is already complete, so the set doesn't matter
+                        set,
+                        Reason::new(ctx.ast.get(len).loc, "the number of elements specified here"),
+                    );
+                    
+                    ctx.infer.set_equal(variable_count, length_value, Variance::Invariant);
+                }
+                Err(call_stack) => {
+                    for &caller in call_stack.iter().rev().skip(1) {
+                        ctx.errors.info(caller, "".to_string());
+                    }
 
-            // @Hack: We get the usize from the variable so we don't have to add a reason for it
-            let usize = ctx.ast.get(len).type_infer_value_id;
-            let variable_count = ctx.infer.add(
-                type_infer::ValueKind::Value(Some(type_infer::Constant {
-                    type_: usize,
-                    value: Some(constant_ref),
-                })),
-                // This value is already complete, so the set doesn't matter
-                set,
-                Reason::new(ctx.ast.get(len).loc, "the number of elements specified here"),
-            );
-            
-            ctx.infer.set_equal(variable_count, length_value, Variance::Invariant);
+                    ctx.errors.error(*call_stack.last().unwrap(), "Assert failed!".to_string());
+                    ctx.infer.value_sets.get_mut(set).has_errors = true;
+                }
+            }
         }
         NodeKind::FunctionDeclarationInTyping {
             body,

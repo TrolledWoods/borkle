@@ -1,4 +1,5 @@
 use crate::ir::{Instr, Routine, UserDefinedRoutine};
+use crate::location::Location;
 use crate::operators::UnaryOp;
 use crate::program::constant::ConstantRef;
 use crate::program::{BuiltinFunction, Program};
@@ -15,7 +16,8 @@ pub fn emit_and_run<'a>(
     ast: &crate::typer::Ast,
     node: crate::typer::NodeId,
     stack_frame_id: crate::type_infer::ValueSetId,
-) -> ConstantRef {
+    call_stack: &mut Vec<Location>,
+) -> Result<ConstantRef, Box<[Location]>> {
     let mut stack = Stack::new(2048);
     // FIXME: This does not take into account calling dependencies
     let (_, routine) = crate::emit::emit(
@@ -26,24 +28,25 @@ pub fn emit_and_run<'a>(
         node,
         stack_frame_id,
     );
-    let result = interp(program, &mut stack, &routine);
-    program.insert_buffer(ast.get(node).type_(), result.as_ptr())
+    let result = interp(program, &mut stack, &routine, call_stack)?;
+    Ok(program.insert_buffer(ast.get(node).type_(), result.as_ptr()))
 }
 
 pub fn interp<'a>(
     program: &Program,
     stack: &'a mut Stack,
     routine: &'a UserDefinedRoutine,
-) -> StackValueMut<'a> {
+    call_stack: &mut Vec<Location>,
+) -> Result<StackValueMut<'a>, Box<[Location]>> {
     let mut stack_frame = stack.stack_frame(&routine.registers);
-    interp_internal(program, &mut stack_frame, routine);
+    interp_internal(program, &mut stack_frame, routine, call_stack)?;
 
-    stack_frame.into_value(routine.result)
+    Ok(stack_frame.into_value(routine.result))
 }
 
 // The stack frame has to be set up ahead of time here. That is necessary; because
 // we need some way to access the result afterwards as well.
-fn interp_internal(program: &Program, stack: &mut StackFrame<'_>, routine: &UserDefinedRoutine) {
+fn interp_internal(program: &Program, stack: &mut StackFrame<'_>, routine: &UserDefinedRoutine, call_stack: &mut Vec<Location>) -> Result<(), Box<[Location]>> {
     let mut instr_pointer = 0;
     while instr_pointer < routine.instr.len() {
         let instr = &routine.instr[instr_pointer];
@@ -68,12 +71,21 @@ fn interp_internal(program: &Program, stack: &mut StackFrame<'_>, routine: &User
                 to,
                 pointer,
                 ref args,
+                loc,
             } => {
+                call_stack.push(loc);
+
                 let calling = program
                     .get_routine(unsafe { stack.get(pointer).read() })
                     .expect("Invalid function pointer. There are two reasons this could happen; you bit_casted some number into a function pointer, or there is a bug in the compilers dependency system.");
 
                 match &*calling {
+                    Routine::Builtin(BuiltinFunction::Assert) => unsafe {
+                        let condition = stack.get(args[0]).read::<u8>();
+                        if condition == 0 {
+                            return Err(std::mem::take(call_stack).into_boxed_slice());
+                        }
+                    }
                     Routine::Builtin(BuiltinFunction::StdoutWrite) => unsafe {
                         use std::io::Write;
                         let buffer = stack.get(args[0]).read::<BufferRepr>();
@@ -145,7 +157,7 @@ fn interp_internal(program: &Program, stack: &mut StackFrame<'_>, routine: &User
                             }
                         }
 
-                        interp_internal(program, &mut new_stack, calling);
+                        interp_internal(program, &mut new_stack, calling, call_stack)?;
 
                         unsafe {
                             std::ptr::copy_nonoverlapping(
@@ -156,6 +168,8 @@ fn interp_internal(program: &Program, stack: &mut StackFrame<'_>, routine: &User
                         }
                     }
                 }
+
+                call_stack.pop();
             }
             Instr::Increment { value } => {
                 let incr_amount = match value.type_().kind() {
@@ -270,6 +284,8 @@ fn interp_internal(program: &Program, stack: &mut StackFrame<'_>, routine: &User
 
         instr_pointer += 1;
     }
+
+    Ok(())
 }
 
 /// Returns a u64 from some number of bytes.

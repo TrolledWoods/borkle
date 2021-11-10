@@ -1,4 +1,5 @@
 use crate::ir::{Instr, LabelId, Member, Registers, Value};
+use crate::location::Location;
 use crate::locals::LocalVariables;
 use crate::operators::{BinaryOp, UnaryOp};
 use crate::parser::ast::{Ast, NodeId};
@@ -119,8 +120,8 @@ impl Context<'_, '_> {
         }
     }
 
-    pub fn emit_call(&mut self, to: Value, pointer: Value, args: Vec<Value>) {
-        self.instr.push(Instr::Call { to, pointer, args });
+    pub fn emit_call(&mut self, to: Value, pointer: Value, args: Vec<Value>, loc: Location) {
+        self.instr.push(Instr::Call { to, pointer, args, loc });
     }
 
     pub fn emit_unary(&mut self, op: UnaryOp, to: Value, from: Value) {

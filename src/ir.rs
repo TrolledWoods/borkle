@@ -1,4 +1,5 @@
 use crate::operators::{BinaryOp, UnaryOp};
+use crate::location::Location;
 use crate::program::{constant::ConstantRef, BuiltinFunction};
 use crate::types::{to_align, Type, TypeKind};
 use std::fmt;
@@ -12,6 +13,7 @@ pub enum Instr {
         pointer: Value,
         // FIXME: We don't really want a vector here, we want a more efficient datastructure
         args: Vec<Value>,
+        loc: Location,
     },
     SetToZero {
         to: Value,

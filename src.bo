@@ -1,16 +1,62 @@
-library "intrinsics.bo";
+library "base.bo";
 
-#entry fn() -> u64 {
-    let output = bool_to_string(1 > (0 : u8));
-    print(output);
-    print(" :) \n");
-    
-    5
+const ok = fn(name: []r u8) {
+    print("[OK] ");
+    print(name);
+    print("\n");
 };
 
-const bool_to_string = fn(v: bool) -> []r u8  if v "true" else "false";
+#entry fn() -> u64 { 5 };
 
-const print = fn(string: [] u8) {
-    i_stdout_write(string);
-    i_stdout_flush();
+const TestBasic = {
+    let a = 99;
+    let a_ptr = &a;
+    let b = 42;
+
+    a = b;
+
+    a : u32;
+    
+    assert(a == b);
+
+    *a_ptr = 2;
+
+    assert(a >= 2);
+
+    ok("TestBasic");
+};
+
+const TestBlocksAndBreaks = {
+    let set_order = fn(order: &u32, wanted: u32) {
+        assert(*order == wanted);
+        *order = *order + 1;
+    };
+
+    let i = 0;
+
+    {
+        defer set_order(&i, 4);
+        defer set_order(&i, 3);
+        
+        let a = { 'name
+            defer set_order(&i, 2);
+            defer set_order(&i, 1);
+
+            let b = 4;
+
+            {
+                defer set_order(&i, 0);
+                break 'name 3 : u64;
+            };
+
+            defer assert(false);
+
+            b
+        };
+
+        assert(a == 3);
+
+    };
+
+    ok("TestBlocksAndBreaks");
 };

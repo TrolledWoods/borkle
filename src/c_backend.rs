@@ -237,7 +237,7 @@ pub fn routine_to_c(output: &mut String, routine: &Routine, arg_types: &[Type], 
                     Instr::SetToZero { to, size } => {
                         write!(output, "memset(&{}, 0, {});\n", c_format_value(to), size,).unwrap();
                     }
-                    Instr::Call { to, pointer, args } => {
+                    Instr::Call { to, pointer, args, loc: _ } => {
                         if to.size() != 0 {
                             write!(
                                 output,
@@ -427,6 +427,14 @@ fn builtin_function(output: &mut String, builtin: BuiltinFunction, args: &[Value
     output.push_str("    ");
 
     match builtin {
+        BuiltinFunction::Assert => {
+            write!(
+                output,
+                "assert({});\n",
+                c_format_value(&args[0]),
+            )
+            .unwrap();
+        }
         BuiltinFunction::StdoutWrite => {
             write!(
                 output,

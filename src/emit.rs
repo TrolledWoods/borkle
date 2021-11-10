@@ -763,9 +763,10 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, node: NodeId) -> Value {
                 args[*i] = emit_node(ctx, *arg);
             }
 
-            match ctx.ast.get(*typed_calling).type_().kind() {
+            let typed_calling = ctx.ast.get(*typed_calling);
+            match typed_calling.type_().kind() {
                 TypeKind::Function { .. } => {
-                    ctx.emit_call(to, calling, args);
+                    ctx.emit_call(to, calling, args, typed_calling.loc);
                 }
                 _ => todo!("The emitter doesn't know how to emit this type of call"),
             }

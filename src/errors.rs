@@ -39,6 +39,12 @@ impl ErrorCtx {
         self.warnings.append(&mut other.warnings);
     }
 
+    pub fn clear(&mut self) {
+        self.temp_info.clear();
+        self.errors.clear();
+        self.warnings.clear();
+    }
+
     pub fn print(&self, file_contents: &UstrMap<String>) -> bool {
         for &(loc, ref message, ref info) in &self.errors {
             print!("{}ERROR: {}", ANSI_RED, ANSI_DEFAULT);
