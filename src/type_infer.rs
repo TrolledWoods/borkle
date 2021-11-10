@@ -2384,9 +2384,23 @@ impl TypeSystem {
 
     #[track_caller]
     pub fn set_type(&mut self, value_id: ValueId, kind: TypeKind, args: impl IntoBoxSlice<ValueId>, set: impl IntoValueSet, reason: impl IntoReason) -> ValueId {
-        // @Temporary
-        let temp = self.add_t(kind, args, set, reason);
-        self.set_equal(temp, value_id, Variance::Invariant);
+        let MaybeMovedValue::Value(value @ Value { kind: ValueKind::Type(None), .. }) = &mut self.values[value_id] else {
+            unreachable!("Cannot call set_type on anything other than an unknown type")
+        };
+
+        let args = args.into_box_slice();
+        let is_complete = args.is_some();
+        let value_sets = set.add_set(&mut self.value_sets, is_complete);
+        value.kind = ValueKind::Type(Some(Type {
+            kind,
+            args,
+        }));
+        if is_complete {
+            value.value_sets.complete(&mut self.value_sets);
+        }
+        value.value_sets.take_from(value_sets, &mut self.value_sets);
+        debug_assert_eq!(value.reasons.count(), 0, "Cannot call set_type on a value with reasons");
+        value.reasons = reason.reasonify();
 
         value_id
     }
