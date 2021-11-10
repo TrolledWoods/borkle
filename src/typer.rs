@@ -9,8 +9,8 @@ pub use crate::parser::{ast::Node, ast::NodeId, ast::NodeKind, Ast};
 use crate::program::constant::ConstantRef;
 use crate::program::{MemberMetaData, PolyOrMember, Program, Task};
 use crate::thread_pool::ThreadContext;
-use crate::type_infer::{self, Access, Reason, TypeSystem, ValueSetId, Variance};
-use crate::types::{IntTypeKind, PtrPermits, Type, TypeKind};
+use crate::type_infer::{self, Access, Reason, TypeSystem, ValueSetId, Variance, Type, TypeKind};
+use crate::types::{self, IntTypeKind, PtrPermits};
 use std::sync::Arc;
 use std::mem;
 
@@ -277,7 +277,7 @@ fn emit_execution_context(ctx: &mut Context<'_, '_>, node_id: NodeId, set: Value
                 crate::ir::Routine::Builtin(function),
             );
 
-            let TypeKind::Function { args, returns } = type_.kind() else { unreachable!("Defined as a function before, the type inferrence system is busted if this is reached") };
+            let types::TypeKind::Function { args, returns } = type_.kind() else { unreachable!("Defined as a function before, the type inferrence system is busted if this is reached") };
 
             // FIXME: This is duplicated in emit, could there be a nice way to deduplicate them?
             if ctx.program.arguments.release {
@@ -336,11 +336,7 @@ fn build_constraints(
         NodeKind::Empty => {
             // @Performance: We could set the type directly(because no inferrence has happened yet),
             // this is a roundabout way of doing things.
-            let temp = ctx.infer.add_type(
-                type_infer::Empty,
-                set,
-                Reason::new(node_loc, "this value is empty"),
-            );
+            let temp = ctx.infer.add_t(type_infer::TypeKind::Empty, [], set, Reason::new(node_loc, "this value is empty"));
             ctx.infer.set_equal(node_type_id, temp, Variance::Invariant);
         }
         // @Cleanup: We could unify these two nodes probably
@@ -405,8 +401,8 @@ fn build_constraints(
             );
             ctx.infer.set_equal(node_type_id, infer_type, Variance::Invariant);
 
-            let u8_type = Type::new(TypeKind::Int(IntTypeKind::U8));
-            let type_ = Type::new(TypeKind::Buffer { permits: PtrPermits::READ, pointee: u8_type });
+            let u8_type = types::Type::new(types::TypeKind::Int(IntTypeKind::U8));
+            let type_ = types::Type::new(types::TypeKind::Buffer { permits: PtrPermits::READ, pointee: u8_type });
             let ptr = ctx.program.insert_buffer(
                 type_,
                 &crate::types::BufferRepr {
@@ -451,7 +447,7 @@ fn build_constraints(
             }
 
             let usize = ctx.infer.add_type(type_infer::Int(IntTypeKind::Usize), set, Reason::new(node_loc, "array lengths are usize"));
-            let length = ctx.program.insert_buffer(Type::new(TypeKind::Int(IntTypeKind::Usize)), args.len().to_le_bytes().as_ptr());
+            let length = ctx.program.insert_buffer(types::Type::new(types::TypeKind::Int(IntTypeKind::Usize)), args.len().to_le_bytes().as_ptr());
 
             let variable_count = ctx.infer.add(
                 type_infer::ValueKind::Value(Some(type_infer::Constant {
@@ -686,8 +682,10 @@ fn build_constraints(
             let calling_loc = ctx.ast.get(calling).loc;
             let calling_type_id = build_constraints(ctx, calling, set);
 
-            let return_type = ctx.infer.add_unknown_type();
-            ctx.infer.set_equal(return_type, node_type_id, Variance::Invariant);
+            // A little bit hacky, but since we are invariant to the return type
+            // (variance is always applied before merges of types essentially, and this is the creation of a type),
+            // we can get away with this.
+            let return_type = node_type_id;
 
             let mut typer_args = Vec::with_capacity(args.len() + 1);
             typer_args.push(return_type);
@@ -738,10 +736,12 @@ fn build_constraints(
             ctx.infer
                 .set_equal(left_type_id, right_type_id, Variance::Covariant);
 
-            // @Performance: We could set the type directly(because no inferrence has happened yet),
-            // this is a roundabout way of doing things.
-            let temp = ctx.infer.add_type(type_infer::Empty, set, Reason::new(node_loc, "declaration return empty, however this reason should never be noticable by a user"));
-            ctx.infer.set_equal(node_type_id, temp, Variance::Invariant);
+            ctx.infer.set_type(
+                node_type_id,
+                TypeKind::Empty, [],
+                set,
+                Reason::new(node_loc, "declaration return empty, however this reason should never be noticable by a user"),
+            );
         }
         NodeKind::Binary {
             op: BinaryOp::Assign,
@@ -762,14 +762,12 @@ fn build_constraints(
             ctx.infer
                 .set_equal(left_type_id, right_type_id, Variance::Covariant);
 
-            // @Performance: We could set the type directly(because no inferrence has happened yet),
-            // this is a roundabout way of doing things.
-            let temp = ctx.infer.add_type(
-                type_infer::Empty,
+            ctx.infer.set_type(
+                node_type_id,
+                TypeKind::Empty, [],
                 set,
                 Reason::new(node_loc, "this assignment returns Empty"),
             );
-            ctx.infer.set_equal(node_type_id, temp, Variance::Invariant);
         }
         NodeKind::Binary { op, left, right } => {
             let left = build_constraints(ctx, left, set);
@@ -779,12 +777,13 @@ fn build_constraints(
         NodeKind::Reference(operand) => {
             let access = ctx.infer.add_empty_access(set);
             let inner = build_lvalue(ctx, operand, access, set);
-            let temp = ctx.infer.add_type(
-                type_infer::Ref(type_infer::Var(access), type_infer::Var(inner)),
+            ctx.infer.set_type(
+                node_type_id,
+                TypeKind::Reference,
+                [access, inner],
                 set,
                 Reason::new(node_loc, "of this reference operation"),
             );
-            ctx.infer.set_equal(node_type_id, temp, Variance::Invariant);
         }
         NodeKind::Block {
             ref contents,
@@ -822,8 +821,12 @@ fn build_constraints(
             let value_type_id = build_constraints(ctx, value, set);
             ctx.infer.set_equal(value_type_id, label_type_id, Variance::Variant);
 
-            let temp = ctx.infer.add_type(type_infer::Empty, set, Reason::new(node_loc, "declaration return empty, however this reason should never be noticable by a user"));
-            ctx.infer.set_equal(node_type_id, temp, Variance::Invariant);
+            ctx.infer.set_type(
+                node_type_id,
+                TypeKind::Empty, [],
+                set,
+                Reason::new(node_loc, "this break evaluates to an Empty type. Although it will in the future support evaluating to any type, the reason it doesn't is because of type ambiguities that can easily arise.")
+            );
         }
         NodeKind::Parenthesis(inner) => {
             let inner_type_id = build_constraints(ctx, inner, set);
@@ -839,14 +842,8 @@ fn build_constraints(
                 .set_equal(value_type_id, node_type_id, Variance::Variant);
         }
         NodeKind::LiteralType(type_) => {
-            // @Performance: We could set the type directly(because no inferrence has happened yet),
-            // this is a roundabout way of doing things.
-            let temp = ctx.infer.add_type(
-                type_infer::CompilerType(type_),
-                set,
-                Reason::new(node_loc, "of this type"),
-            );
-            ctx.infer.set_equal(node_type_id, temp, Variance::Invariant);
+            let compiler_type = ctx.infer.add_compiler_type(type_, set, Reason::new(node_loc, "of this type"));
+            ctx.infer.set_equal(node_type_id, compiler_type, Variance::Invariant);
         }
         NodeKind::FunctionType { ref args, returns } => {
             // @Speed: Somewhat needless allocation
@@ -861,8 +858,8 @@ fn build_constraints(
                 function_type_ids.push(type_id);
             }
 
-            let infer_type = type_infer::ValueKind::Type(Some(type_infer::Type {
-                kind: type_infer::TypeKind::Function,
+            let infer_type = type_infer::ValueKind::Type(Some(Type {
+                kind: TypeKind::Function,
                 args: Some(function_type_ids.into_boxed_slice()),
             }));
             let infer_type_id = ctx.infer.add(
@@ -883,7 +880,7 @@ fn build_constraints(
                 .collect();
             // @Performance: This could directly set the type in theory
             let temp = ctx.infer.add(
-                type_infer::ValueKind::Type(Some(type_infer::Type {
+                type_infer::ValueKind::Type(Some(Type {
                     kind: type_infer::TypeKind::Struct(names),
                     args: Some(fields),
                 })),
@@ -895,22 +892,24 @@ fn build_constraints(
         NodeKind::ReferenceType(inner, permits) => {
             let inner = build_constraints(ctx, inner, set);
             let access = permits_to_access(permits);
-            let temp = ctx.infer.add_type(
-                type_infer::Ref(access, type_infer::Var(inner)),
+            let access = ctx.infer.add_access(Some(access), set, Reason::new(node_loc, "reference type access blah blah blah this reason shouldn't be seen, it has to be here right now because of technical crap I haven't cleaned up"));
+            ctx.infer.set_type(
+                node_type_id,
+                TypeKind::Reference, [access, inner],
                 set,
                 Reason::new(node_loc, "of this reference type"),
             );
-            ctx.infer.set_equal(node_type_id, temp, Variance::Invariant);
         }
         NodeKind::BufferType(inner, permits) => {
             let inner = build_constraints(ctx, inner, set);
             let access = permits_to_access(permits);
-            let temp = ctx.infer.add_type(
-                type_infer::Buffer(access, type_infer::Var(inner)),
+            let access = ctx.infer.add_access(Some(access), set, Reason::new(node_loc, "reference type access blah blah blah this reason shouldn't be seen, it has to be here right now because of technical crap I haven't cleaned up"));
+            ctx.infer.set_type(
+                node_type_id,
+                TypeKind::Buffer, [access, inner],
                 set,
                 Reason::new(node_loc, "of this reference type"),
             );
-            ctx.infer.set_equal(node_type_id, temp, Variance::Invariant);
         }
         _ => unimplemented!(
             "Ast node does not have a typing relationship yet {:?}",
@@ -999,23 +998,16 @@ fn build_lvalue(
             op: UnaryOp::Dereference,
             operand,
         } => {
-            let operand_type_id = build_constraints(ctx, operand, set);
-            // @Performance: It should be possible to constrain the type even here, but it's a little hairy.
-            // Maybe a better approach would be just an "assignment" constraint, like "this type has to have this kind", or something
-            let temp = ctx.infer.add_type(
-                type_infer::Ref(type_infer::Var(access), type_infer::Unknown),
+            let temp = ctx.infer.add_t(
+                TypeKind::Reference,
+                [access, node_type_id],
                 set,
                 Reason::new(node_loc, "it is dereferenced here"),
             );
-            // @Correctness: I'm not sure that a variance here is correct in all
-            // cases, but without it the inferrence isn't correct.
-            // But I think it's correct, because essentially what this is saying is "this pointer needs
-            // at least the permissions to do the things we're trying to do, but if it has more that is fine",
-            // and that should be ok, right?
+
+            let operand_type_id = build_constraints(ctx, operand, set);
             ctx.infer
                 .set_equal(operand_type_id, temp, Variance::Variant);
-            ctx.infer
-                .set_field_equal(temp, 1, node_type_id, Variance::Invariant);
         }
         _ => {
             // Make it a reference to a temporary instead. This forces the pointer to be readonly.

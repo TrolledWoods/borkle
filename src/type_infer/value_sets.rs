@@ -10,6 +10,7 @@
 //! This is also why `ValueSetHandles` doesn't implement `Clone`, since
 //! cloning it requires you to increment the uncomputed values.
 //!
+use std::panic::Location;
 
 pub type ValueSetId = usize;
 
@@ -19,6 +20,7 @@ pub struct ValueSets {
 }
 
 impl ValueSets {
+    #[track_caller]
     pub fn with_one(&mut self, set_id: ValueSetId, is_complete: bool) -> ValueSetHandles {
         if !is_complete {
             self.sets[set_id].uncomputed_values += 1;
@@ -27,6 +29,7 @@ impl ValueSets {
         ValueSetHandles {
             sets: vec![set_id],
             is_complete,
+            caller_location: Location::caller(),
         }
     }
 
@@ -92,17 +95,31 @@ impl ValueSet {
     }
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct ValueSetHandles {
     sets: Vec<ValueSetId>,
     is_complete: bool,
+    caller_location: &'static Location<'static>,
+}
+
+impl Default for ValueSetHandles {
+    #[track_caller]
+    fn default() -> Self {
+        Self {
+            sets: Vec::new(),
+            is_complete: false,
+            caller_location: Location::caller(),
+        }
+    }
 }
 
 impl ValueSetHandles {
+    #[track_caller]
     pub fn already_complete() -> Self {
         Self {
             sets: Vec::new(),
             is_complete: true,
+            caller_location: Location::caller(),
         }
     }
 
@@ -122,10 +139,12 @@ impl ValueSetHandles {
 
     // @Temporary thing for making it easier to migrate to the new system.
     // Intended for use with `combine_with`
+    #[track_caller]
     pub fn take(&mut self) -> Self {
         Self {
             sets: std::mem::take(&mut self.sets),
             is_complete: self.is_complete,
+            caller_location: Location::caller(),
         }
     }
 
@@ -142,22 +161,19 @@ impl ValueSetHandles {
     }
 
     pub fn take_from(&mut self, mut other: ValueSetHandles, value_sets: &mut ValueSets) {
-        debug_assert!(!self.is_complete, "Cannot add more sets after completed");
-        if !other.is_complete {
-            for set in other.sets.drain(..) {
-                if !self.insert_without_tracking(set) {
-                    // It already existed in self, so the number of total dependants is reduced.
-                    value_sets.sets[set].uncomputed_values -= 1;
-                }
+        for set in other.sets.drain(..) {
+            if !other.is_complete {
+                value_sets.sets[set].uncomputed_values -= 1;
             }
-        } else {
-            for set in other.sets.drain(..) {
-                if self.insert_without_tracking(set) {
-                    // It didn't exist in self. Since the other set is complete, the values there aren't uncomputed.
+
+            if self.insert_without_tracking(set) {
+                if !self.is_complete {
                     value_sets.sets[set].uncomputed_values += 1;
                 }
             }
         }
+
+        other.is_complete = true;
     }
 
     fn insert_without_tracking(&mut self, id: ValueSetId) -> bool {
@@ -169,6 +185,7 @@ impl ValueSetHandles {
         }
     }
 
+    #[track_caller]
     pub fn clone(&self, value_sets: &mut ValueSets, already_complete: bool) -> Self {
         let sets = self.sets.clone();
         // We need all these already_complete flags, because make_erroneous needs to know all the
@@ -181,6 +198,7 @@ impl ValueSetHandles {
         Self {
             sets,
             is_complete: already_complete,
+            caller_location: Location::caller(),
         }
     }
 
@@ -210,8 +228,8 @@ impl ValueSetHandles {
 // @Correctness: This crashes during incompleteness errors as well, because, they are incomplete. We should probably mass-flag all values as complete when generating incompleteness errors.
 impl Drop for ValueSetHandles {
     fn drop(&mut self) {
-        if !self.is_complete {
-            unreachable!("A value set cannot be dropped non-completed");
+        if !self.is_complete && !std::thread::panicking() {
+            unreachable!("A value set cannot be dropped non-completed, created at: {}", self.caller_location);
         }
     }
 }

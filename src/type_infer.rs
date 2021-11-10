@@ -2382,7 +2382,16 @@ impl TypeSystem {
         }
     }
 
-    fn add_t(&mut self, kind: TypeKind, args: impl IntoBoxSlice<ValueId>, set: impl IntoValueSet, reason: impl IntoReason) -> ValueId {
+    #[track_caller]
+    pub fn set_type(&mut self, value_id: ValueId, kind: TypeKind, args: impl IntoBoxSlice<ValueId>, set: impl IntoValueSet, reason: impl IntoReason) -> ValueId {
+        // @Temporary
+        let temp = self.add_t(kind, args, set, reason);
+        self.set_equal(temp, value_id, Variance::Invariant);
+
+        value_id
+    }
+
+    pub fn add_t(&mut self, kind: TypeKind, args: impl IntoBoxSlice<ValueId>, set: impl IntoValueSet, reason: impl IntoReason) -> ValueId {
         let args = args.into_box_slice();
         let is_complete = args.is_some();
         let value_sets = set.add_set(&mut self.value_sets, is_complete);

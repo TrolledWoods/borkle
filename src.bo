@@ -1,11 +1,10 @@
 library "intrinsics.bo";
 
 #entry fn() -> u64 {
-    let var = bool_to_string(1 == (1 : u8));
-
-    print(var);
-    print("\n");
-
+    let output = bool_to_string(1 > (0 : u8));
+    print(output);
+    print(" :) \n");
+    
     5
 };
 
