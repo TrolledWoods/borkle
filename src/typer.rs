@@ -391,15 +391,14 @@ fn build_constraints(
             ctx.infer.set_equal(node_type_id, empty_id, Variance::Invariant);
         }
         NodeKind::Literal(Literal::String(ref data)) => {
-            let infer_type = ctx.infer.add_type(
-                type_infer::Buffer(
-                    type_infer::Access::disallows(None, Some(Reason::new(node_loc, "string literals cannot be written to"))),
-                    type_infer::Int(IntTypeKind::U8),
-                ),
+            let reason = Reason::new(node_loc, "of this string literal");
+            let access = ctx.infer.add_access(
+                Some(type_infer::Access::disallows(None, Some(Reason::new(node_loc, "string literals cannot be written to")))),
                 set,
-                Reason::new(node_loc, "of this string literal"),
+                reason.clone(),
             );
-            ctx.infer.set_equal(node_type_id, infer_type, Variance::Invariant);
+            let u8_type = ctx.infer.add_t(TypeKind::Int(IntTypeKind::U8), [], set, reason.clone());
+            ctx.infer.set_type(node_type_id, TypeKind::Buffer, [access, u8_type], set, reason.clone());
 
             let u8_type = types::Type::new(types::TypeKind::Int(IntTypeKind::U8));
             let type_ = types::Type::new(types::TypeKind::Buffer { permits: PtrPermits::READ, pointee: u8_type });
@@ -419,21 +418,11 @@ fn build_constraints(
             // it can continue, so we lock it to make sure it doesn't get emitted before then.
             ctx.infer.value_sets.lock(set);
 
-            let infer_type = type_infer::ValueKind::Type(Some(type_infer::Type {
-                kind: type_infer::TypeKind::Function,
-                args: None,
-            }));
-            let infer_type_id = ctx.infer.add(
-                infer_type,
-                sub_set,
-                Reason::new(node_loc, "this builtin function is a function (surprising!)"),
-            );
-            ctx.infer
-                .set_equal(infer_type_id, node_type_id, Variance::Invariant);
+            ctx.infer.set_type(node_type_id, TypeKind::Function, (), sub_set, Reason::new(node_loc, "this builtin function is a function (surprising!)"));
 
             ctx.ast.get_mut(node_id).kind = NodeKind::BuiltinFunctionInTyping {
                 function,
-                type_: infer_type_id,
+                type_: node_type_id,
                 parent_set: set,
             };
         }
