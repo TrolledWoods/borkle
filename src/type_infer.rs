@@ -41,6 +41,22 @@ impl<T> IntoBoxSlice<T> for () {
     }
 }
 
+pub trait IntoConstant {
+    fn into_constant(self) -> Option<ConstantRef>;
+}
+
+impl IntoConstant for ConstantRef {
+    fn into_constant(self) -> Option<ConstantRef> {
+        Some(self)
+    }
+}
+
+impl IntoConstant for () {
+    fn into_constant(self) -> Option<ConstantRef> {
+        None
+    }
+}
+
 pub trait IntoValueSet {
     fn add_set(self, value_sets: &mut ValueSets, already_complete: bool) -> ValueSetHandles;
 }
@@ -88,92 +104,6 @@ pub struct Empty;
 pub struct Var(pub usize);
 #[derive(Clone, Copy)]
 pub struct Unknown;
-#[derive(Clone, Copy)]
-pub struct Int(pub IntTypeKind);
-#[derive(Clone, Copy)]
-pub struct Ref<V: IntoAccess, T: IntoType>(pub V, pub T);
-#[derive(Clone, Copy)]
-pub struct Buffer<V: IntoAccess, T: IntoType>(pub V, pub T);
-#[derive(Clone, Copy)]
-pub struct WithType<T: IntoType>(pub T);
-
-pub trait IntoType {
-    fn into_type(self, system: &mut TypeSystem, set: ValueSetId, reason: Reason) -> ValueId;
-}
-
-impl IntoType for CompilerType {
-    fn into_type(self, system: &mut TypeSystem, set: ValueSetId, reason: Reason) -> ValueId {
-        system.add_compiler_type(self.0, set, reason)
-    }
-}
-
-impl IntoType for Var {
-    fn into_type(self, _: &mut TypeSystem, set: ValueSetId, reason: Reason) -> ValueId {
-        self.0
-    }
-}
-
-impl IntoType for Empty {
-    fn into_type(self, system: &mut TypeSystem, set: ValueSetId, reason: Reason) -> ValueId {
-        system.add(
-            ValueKind::Type(Some(Type {
-                kind: TypeKind::Empty,
-                args: Some(Box::new([])),
-            })),
-            set,
-            reason,
-        )
-    }
-}
-
-impl IntoType for Int {
-    fn into_type(self, system: &mut TypeSystem, set: ValueSetId, reason: Reason) -> ValueId {
-        system.add(
-            ValueKind::Type(Some(Type {
-                kind: TypeKind::Int(self.0),
-                args: Some(Box::new([])),
-            })),
-            set,
-            reason,
-        )
-    }
-}
-
-impl IntoType for Unknown {
-    fn into_type(self, system: &mut TypeSystem, set: ValueSetId, reason: Reason) -> ValueId {
-        system.add_without_reason(ValueKind::Type(None), set)
-    }
-}
-
-impl<T: IntoAccess, V: IntoType> IntoType for Buffer<T, V> {
-    fn into_type(self, system: &mut TypeSystem, set: ValueSetId, reason: Reason) -> ValueId {
-        let inner_variance = self.0.into_variance(system, set, reason.clone());
-        let inner_type = self.1.into_type(system, set, reason.clone());
-        system.add(
-            ValueKind::Type(Some(Type {
-                kind: TypeKind::Buffer,
-                args: Some(Box::new([inner_variance, inner_type])),
-            })),
-            set,
-            reason,
-        )
-    }
-}
-
-impl<T: IntoAccess, V: IntoType> IntoType for Ref<T, V> {
-    fn into_type(self, system: &mut TypeSystem, set: ValueSetId, reason: Reason) -> ValueId {
-        let inner_variance = self.0.into_variance(system, set, reason.clone());
-        let inner_type = self.1.into_type(system, set, reason.clone());
-        system.add(
-            ValueKind::Type(Some(Type {
-                kind: TypeKind::Reference,
-                args: Some(Box::new([inner_variance, inner_type])),
-            })),
-            set,
-            reason,
-        )
-    }
-}
 
 pub trait IntoAccess {
     fn into_variance(self, system: &mut TypeSystem, set: ValueSetId, reason: Reason) -> ValueId;
@@ -194,30 +124,6 @@ impl IntoAccess for Var {
 impl IntoAccess for Unknown {
     fn into_variance(self, system: &mut TypeSystem, set: ValueSetId, reason: Reason) -> ValueId {
         system.add_access(None, set, reason)
-    }
-}
-
-pub trait IntoValue {
-    fn into_value(self, system: &mut TypeSystem, set: ValueSetId, reason: Reason) -> ValueId;
-}
-
-impl<T: IntoType> IntoValue for WithType<T> {
-    fn into_value(self, system: &mut TypeSystem, set: ValueSetId, reason: Reason) -> ValueId {
-        let type_ = self.0.into_type(system, set, reason.clone());
-        system.add(ValueKind::Value(Some(Constant { type_, value: None })), set, reason)
-    }
-}
-
-impl IntoValue for Var {
-    // @Correctness: Should the set be added to the var here?
-    fn into_value(self, _: &mut TypeSystem, _set: ValueSetId, reason: Reason) -> ValueId {
-        self.0
-    }
-}
-
-impl IntoValue for Unknown {
-    fn into_value(self, system: &mut TypeSystem, set: ValueSetId, reason: Reason) -> ValueId {
-        system.add(ValueKind::Value(None), set, reason)
     }
 }
 
@@ -2431,8 +2337,20 @@ impl TypeSystem {
         id
     }
 
-    pub fn add_value(&mut self, value: impl IntoValue, set: ValueSetId, reason: Reason) -> ValueId {
-        value.into_value(self, set, reason)
+    pub fn add_value(&mut self, type_: ValueId, value: impl IntoConstant, set: ValueSetId, reason: impl IntoReason) -> ValueId {
+        let value = value.into_constant();
+        let is_complete =  value.is_some();
+        let value_sets = set.add_set(&mut self.value_sets, is_complete);
+        let id = self.values.len();
+        self.values.push(MaybeMovedValue::Value(Value {
+            kind: ValueKind::Value(Some(Constant {
+                type_,
+                value,
+            })),
+            value_sets,
+            reasons: reason.reasonify(),
+        }));
+        id
     }
 
     pub fn add_empty_access(&mut self, set: ValueSetId) -> ValueId {
@@ -2452,10 +2370,6 @@ impl TypeSystem {
         reason: Reason,
     ) -> ValueId {
         self.add(ValueKind::Access(access), set, reason)
-    }
-
-    pub fn add_type(&mut self, type_: impl IntoType, set: ValueSetId, reason: Reason) -> ValueId {
-        type_.into_type(self, set, reason)
     }
 }
 

@@ -360,8 +360,8 @@ fn build_constraints(
 
             let (type_, meta_data) = ctx.program.get_member_meta_data(id);
 
-            let type_id = ctx.infer.add_type(
-                type_infer::CompilerType(type_),
+            let type_id = ctx.infer.add_compiler_type(
+                type_,
                 set,
                 Reason::new(node_loc, format!("this global is '{}'", type_)),
             );
@@ -390,8 +390,8 @@ fn build_constraints(
         }
         NodeKind::Defer { deferring } => {
             build_constraints(ctx, deferring, set);
-            let empty_id = ctx.infer.add_type(
-                type_infer::Empty,
+            let empty_id = ctx.infer.add_t(
+                TypeKind::Empty, [],
                 set,
                 Reason::new(
                     node_loc,
@@ -446,23 +446,18 @@ fn build_constraints(
                 ctx.infer.set_equal(arg_type_id, inner_type, Variance::Variant);
             }
 
-            let usize = ctx.infer.add_type(type_infer::Int(IntTypeKind::Usize), set, Reason::new(node_loc, "array lengths are usize"));
+            let usize = ctx.infer.add_t(TypeKind::Int(IntTypeKind::Usize), [], set, Reason::new(node_loc, "array lengths are usize"));
             let length = ctx.program.insert_buffer(types::Type::new(types::TypeKind::Int(IntTypeKind::Usize)), args.len().to_le_bytes().as_ptr());
 
-            let variable_count = ctx.infer.add(
-                type_infer::ValueKind::Value(Some(type_infer::Constant {
-                    type_: usize,
-                    value: Some(length),
-                })),
+            let variable_count = ctx.infer.add_value(
+                usize,
+                length,
                 set,
                 Reason::new(node_loc, format!("this array has {} elements", args.len())),
             );
 
-            let array_type = ctx.infer.add(
-                type_infer::ValueKind::Type(Some(type_infer::Type {
-                    kind: type_infer::TypeKind::Array,
-                    args: Some(Box::new([inner_type, variable_count])),
-                })),
+            let array_type = ctx.infer.add_t(
+                TypeKind::Array, [inner_type, variable_count],
                 set,
                 Reason::new(node_loc, format!("of this array literal")),
             );
@@ -514,8 +509,8 @@ fn build_constraints(
             let true_body_id = build_constraints(ctx, true_body, set);
             let false_body_id = match false_body {
                 Some(id) => build_constraints(ctx, id, set),
-                None => ctx.infer.add_type(
-                    type_infer::Empty,
+                None => ctx.infer.add_t(
+                    TypeKind::Empty, [],
                     set,
                     Reason::new(
                         node_loc,
@@ -534,20 +529,20 @@ fn build_constraints(
             operand,
         } => {
             let operand_type_id = build_constraints(ctx, operand, set);
-            // @Performance: It should be possible to constrain the type even here, but it's a little hairy.
-            // Maybe a better approach would be just an "assignment" constraint, like "this type has to have this kind", or something
-            let temp = ctx.infer.add_type(
-                type_infer::Ref(
-                    type_infer::Access::needs(Some(Reason::new(node_loc, "it was read from here")), None),
-                    type_infer::Unknown
-                ),
+
+            let access = ctx.infer.add_access(
+                Some(Access::needs(Some(Reason::new(node_loc, "this dereference requires read access")), None)),
+                set,
+                Reason::new(node_loc, "Temporary reason for declare until I simplify it"),
+            );
+            let temp = ctx.infer.add_t(
+                TypeKind::Reference,
+                [access, node_type_id],
                 set,
                 Reason::new(node_loc, "it was dereferenced here"),
             );
             ctx.infer
                 .set_equal(operand_type_id, temp, Variance::Invariant);
-            ctx.infer
-                .set_field_equal(temp, 1, node_type_id, Variance::Invariant);
         }
         NodeKind::ArrayType { len, members } => {
             let mut sub_ctx = Context {
@@ -565,8 +560,8 @@ fn build_constraints(
             let len_type_id = build_constraints(&mut sub_ctx, len, sub_set);
             let member_type_id = build_constraints(ctx, members, set);
 
-            let usize_type = ctx.infer.add_type(
-                type_infer::Int(IntTypeKind::Usize),
+            let usize_type = ctx.infer.add_t(
+                TypeKind::Int(IntTypeKind::Usize), [],
                 set,
                 Reason::new(node_loc, "array lengths are usize"),
             );
