@@ -131,6 +131,8 @@ impl IntoAccess for Unknown {
 pub enum TypeKind {
     // No arguments
     Int(IntTypeKind),
+    // bool, u8
+    NewInt,
     Bool,
     Empty,
 
@@ -729,6 +731,7 @@ fn type_kind_to_str(
     use std::fmt::Write;
     match type_kind {
         TypeKind::Int(int_type_kind) => write!(string, "{:?}", int_type_kind),
+        TypeKind::NewInt => write!(string, "int"),
         TypeKind::Bool => write!(string, "bool"),
         TypeKind::Empty => write!(string, "Empty"),
         TypeKind::Function => {
@@ -952,6 +955,41 @@ impl TypeSystem {
 
         match *type_kind {
             TypeKind::Int(int_type_kind) => types::Type::new(types::TypeKind::Int(int_type_kind)),
+            TypeKind::NewInt => {
+                let [signed, size] = &**type_args else {
+                    unreachable!("Invalid int size and sign")
+                };
+
+                let Value { kind: ValueKind::Value(Some(Constant {
+                    type_: _,
+                    value: Some(sign_value),
+                })), .. } = get_value(&self.values, *signed) else {
+                    unreachable!("No!!!")
+                };
+
+                let Value { kind: ValueKind::Value(Some(Constant {
+                    type_: _,
+                    value: Some(size_value),
+                })), .. } = get_value(&self.values, *size) else {
+                    unreachable!("No!!!")
+                };
+
+                let sign_value = unsafe { *sign_value.as_ptr().cast::<bool>() };
+                let size_value = unsafe { *size_value.as_ptr().cast::<u8>() };
+                let int_type_kind = match (sign_value, size_value) {
+                    (false, 1) => IntTypeKind::U8,
+                    (false, 2) => IntTypeKind::U16,
+                    (false, 4) => IntTypeKind::U32,
+                    (false, 8) => IntTypeKind::U64,
+                    (true, 1) => IntTypeKind::I8,
+                    (true, 2) => IntTypeKind::I16,
+                    (true, 4) => IntTypeKind::I32,
+                    (true, 8) => IntTypeKind::I64,
+                    (_, _) => unreachable!("Invalid sign+size combination"),
+                };
+
+                types::Type::new(types::TypeKind::Int(int_type_kind))
+            }
             TypeKind::Bool => types::Type::new(types::TypeKind::Bool),
             TypeKind::Empty => types::Type::new(types::TypeKind::Empty),
             TypeKind::Function => {
@@ -1130,6 +1168,40 @@ impl TypeSystem {
                 }
                 format!("{}", i128::from_le_bytes(big_int))
             }
+            ValueKind::Type(Some(Type { kind: TypeKind::NewInt, args: Some(c) })) => {
+                let [signed, size] = &**c else { panic!() };
+                let (
+                    Value { kind: ValueKind::Value(Some(Constant { value: Some(signed), .. })), .. },
+                    Value { kind: ValueKind::Value(Some(Constant { value: Some(size), .. })), .. },
+                ) = (get_value(&self.values, *signed), get_value(&self.values, *size)) else {
+                    unreachable!("Invalid arguments to newint")
+                };
+
+                let signed = unsafe { *signed.as_ptr().cast::<bool>() };
+                let size = unsafe { *size.as_ptr().cast::<u8>() } as usize;
+
+                let mut big_int = [0; 16];
+                unsafe {
+                    std::ptr::copy_nonoverlapping(value.as_ptr(), big_int.as_mut_ptr(), size);
+                }
+
+                if (big_int[size] & 0x80) > 0 {
+                    big_int[size + 1..].fill(0xff);
+                }
+
+                format!("{}", i128::from_le_bytes(big_int))
+            }
+            ValueKind::Type(Some(Type { kind: TypeKind::Bool, .. })) => {
+                let mut byte = 0_u8;
+                unsafe {
+                    byte = *value.as_ptr();
+                }
+                match byte {
+                    0 => "false".to_string(),
+                    1 => "true".to_string(),
+                    num => format!("<invalid bool value {}>", num),
+                }
+            }
             ValueKind::Type(_) => {
                 format!("(cannot format {})", self.value_to_str(type_, rec))
             }
@@ -1188,6 +1260,14 @@ impl TypeSystem {
                     format!("{:?}", int_type_kind)
                 }
                 ValueKind::Type(Some(Type { kind, args: None, .. })) => format!("{:?}", kind),
+                ValueKind::Type(Some(Type { kind: TypeKind::NewInt, args: Some(c) })) => match &**c {
+                    [signed, size] => format!(
+                        "int({}, {})",
+                        self.value_to_str(*signed, rec + 1),
+                        self.value_to_str(*size, rec + 1),
+                    ),
+                    _ => unreachable!("A function pointer type has to have at least a return type"),
+                }
                 ValueKind::Type(Some(Type { kind: TypeKind::Function, args: Some(c) })) => match &**c {
                     [return_, args @ ..] => format!(
                         "fn({}) -> {}",

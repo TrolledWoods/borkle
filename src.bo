@@ -6,7 +6,9 @@ const ok = fn(name: []r u8) {
     print("\n");
 };
 
-#entry fn() -> u64 { 5 };
+#entry fn() -> u64 {
+    5
+};
 
 const TestBasic = {
     let a = 99;
@@ -37,7 +39,7 @@ const TestBlocksAndBreaks = {
     {
         defer set_order(&i, 4);
         defer set_order(&i, 3);
-        
+
         let a = { 'name
             defer set_order(&i, 2);
             defer set_order(&i, 1);
