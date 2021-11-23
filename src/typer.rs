@@ -52,7 +52,7 @@ pub fn process_ast<'a>(
 
     let mut ast = from.ast;
     let mut locals = from.locals;
-    let mut infer = TypeSystem::new();
+    let mut infer = TypeSystem::new(program);
 
     // Create type inference variables for all variables and nodes, so that there's a way to talk about
     // all of them.

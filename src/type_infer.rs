@@ -1,4 +1,27 @@
+//! Type inferrence system
+//!
+//! # Will try and document more later once I feel fairly done with the first version of this system, but for now just some generic info I want to put here
+//!
+//! Static value header, e.g. value indices we know what their values are statically, for very common types,
+//! like integers and so on.
+//! 0    1 : U8
+//! 1    2 : U8
+//! 2    4 : U8
+//! 3    8 : U8
+//! 4    U8
+//! 5    U16
+//! 6    U32
+//! 7    U64
+//! 8    I8
+//! 9    I16
+//! 10   I32
+//! 11   I64
+//! 12   bool
+//! 13   true  : bool
+//! 14   false : bool
+
 use crate::errors::ErrorCtx;
+use crate::program::Program;
 use crate::location::Location;
 use crate::operators::BinaryOp;
 use crate::types::{self, IntTypeKind};
@@ -778,9 +801,70 @@ pub struct TypeSystem {
 }
 
 impl TypeSystem {
-    pub fn new() -> Self {
+    pub fn new(program: &crate::program::Program) -> Self {
+        let u8_type = crate::types::Type::new(crate::types::TypeKind::Int(IntTypeKind::U8));
+
+        // @Cleanup: This is messy code to set up some initial state, because even ints are self referential
+        // in this system, it's ridiculous honestly. But, you gotta do what you gotta do.
+        let false_buffer = program.insert_buffer(u8_type, &0);
+        let true_buffer = program.insert_buffer(u8_type, &1);
+
+        let mut values = Vec::with_capacity(15);
+
+        for i in 0..4 {
+            let buffer = program.insert_buffer(u8_type, &(1 << i));
+            values.push(MaybeMovedValue::Value(Value {
+                kind: ValueKind::Value(Some(Constant {
+                    type_: 4, // u8
+                    value: Some(buffer),
+                })),
+                value_sets: ValueSetHandles::already_complete(),
+                reasons: Reasons::default(),
+            }));
+        }
+
+        for signed in [14 /* false */, 13 /* true */] {
+            for i in 0..4 {
+                values.push(MaybeMovedValue::Value(Value {
+                    kind: ValueKind::Type(Some(Type {
+                        kind: TypeKind::NewInt,
+                        args: Some(Box::new([signed, i])),
+                    })),
+                    value_sets: ValueSetHandles::already_complete(),
+                    reasons: Reasons::default(),
+                }));
+            }
+        }
+
+        values.push(MaybeMovedValue::Value(Value {
+            kind: ValueKind::Type(Some(Type {
+                kind: TypeKind::Bool,
+                args: Some(Box::new([])),
+            })),
+            value_sets: ValueSetHandles::already_complete(),
+            reasons: Reasons::default(),
+        }));
+
+        values.push(MaybeMovedValue::Value(Value {
+            kind: ValueKind::Value(Some(Constant {
+                type_: 12, // bool
+                value: Some(true_buffer),
+            })),
+            value_sets: ValueSetHandles::already_complete(),
+            reasons: Reasons::default(),
+        }));
+
+        values.push(MaybeMovedValue::Value(Value {
+            kind: ValueKind::Value(Some(Constant {
+                type_: 13, // bool
+                value: Some(false_buffer),
+            })),
+            value_sets: ValueSetHandles::already_complete(),
+            reasons: Reasons::default(),
+        }));
+
         Self {
-            values: vec![],
+            values,
             value_sets: ValueSets::default(),
             variance_updates: HashMap::new(),
             constraints: Vec::new(),
