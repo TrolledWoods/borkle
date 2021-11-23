@@ -386,7 +386,7 @@ fn build_constraints(
             ctx.ast.get_mut(node_id).kind = NodeKind::ResolvedGlobal(id, meta_data);
         }
         NodeKind::Literal(Literal::Int(_)) => {
-            // TODO: Actually add a constraint that checks that the type is an int, and that it's in bounds
+            ctx.infer.set_type(node_type_id, TypeKind::NewInt, (), set, Reason::new(node_loc, "int literals are integers"));
         }
         NodeKind::Defer { deferring } => {
             build_constraints(ctx, deferring, set);
