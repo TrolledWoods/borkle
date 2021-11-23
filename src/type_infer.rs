@@ -156,8 +156,6 @@ impl IntoAccess for Unknown {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TypeKind {
-    // No arguments
-    Int(IntTypeKind),
     // bool, u8
     NewInt,
     // No arguments, the size of an integer, hidden type that the user cannot access
@@ -760,7 +758,6 @@ fn type_kind_to_str(
 ) -> std::fmt::Result {
     use std::fmt::Write;
     match type_kind {
-        TypeKind::Int(int_type_kind) => write!(string, "{:?}", int_type_kind),
         TypeKind::NewInt => write!(string, "int"),
         TypeKind::IntSize => write!(string, "<size of int>"),
         TypeKind::Bool => write!(string, "bool"),
@@ -1003,7 +1000,6 @@ impl TypeSystem {
         };
 
         match *type_kind {
-            TypeKind::Int(int_type_kind) => types::Type::new(types::TypeKind::Int(int_type_kind)),
             TypeKind::IntSize => unreachable!("Int sizes are a hidden type for now, the user shouldn't be able to access them"),
             TypeKind::NewInt => {
                 let [signed, size] = &**type_args else {
@@ -1212,14 +1208,6 @@ impl TypeSystem {
 
     fn constant_to_str(&self, type_: ValueId, value: ConstantRef, rec: usize) -> String {
         match &get_value(&self.values, type_).kind {
-            ValueKind::Type(Some(Type { kind: TypeKind::Int(int_kind), .. })) => {
-                let mut big_int = [0; 16];
-                let (size, _) = int_kind.size_align();
-                unsafe {
-                    std::ptr::copy_nonoverlapping(value.as_ptr(), big_int.as_mut_ptr(), size);
-                }
-                format!("{}", i128::from_le_bytes(big_int))
-            }
             ValueKind::Type(Some(Type { kind: TypeKind::IntSize, .. })) => {
                 let mut byte = 0_u8;
                 unsafe {
@@ -1323,9 +1311,6 @@ impl TypeSystem {
                 }
                 ValueKind::Value(Some(Constant { type_, value: Some(value), .. })) => {
                     format!("{}", self.constant_to_str(*type_, *value, rec + 1))
-                }
-                ValueKind::Type(Some(Type { kind: TypeKind::Int(int_type_kind), .. })) => {
-                    format!("{:?}", int_type_kind)
                 }
                 ValueKind::Type(Some(Type { kind, args: None, .. })) => format!("{:?}", kind),
                 ValueKind::Type(Some(Type { kind: TypeKind::NewInt, args: Some(c) })) => match &**c {
@@ -2395,7 +2380,6 @@ impl TypeSystem {
                 let v = self.add_unknown_type();
                 self.set_int(v, int_type_kind, set, reason);
                 v
-                // self.add_t(TypeKind::Int(int_type_kind), [], set, reason)
             }
             types::TypeKind::Empty => self.add_t(TypeKind::Empty, [], set, reason),
             types::TypeKind::Bool  => self.add_t(TypeKind::Bool, [], set, reason),

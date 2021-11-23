@@ -446,7 +446,7 @@ fn build_constraints(
                 ctx.infer.set_equal(arg_type_id, inner_type, Variance::Variant);
             }
 
-            let usize = ctx.infer.add_t(TypeKind::Int(IntTypeKind::Usize), [], set, Reason::new(node_loc, "array lengths are usize"));
+            let usize = ctx.infer.add_int(IntTypeKind::Usize, set, Reason::new(node_loc, "array lengths are usize"));
             let length = ctx.program.insert_buffer(types::Type::new(types::TypeKind::Int(IntTypeKind::Usize)), args.len().to_le_bytes().as_ptr());
 
             let variable_count = ctx.infer.add_value(
@@ -560,11 +560,7 @@ fn build_constraints(
             let len_type_id = build_constraints(&mut sub_ctx, len, sub_set);
             let member_type_id = build_constraints(ctx, members, set);
 
-            let usize_type = ctx.infer.add_t(
-                TypeKind::Int(IntTypeKind::Usize), [],
-                set,
-                Reason::new(node_loc, "array lengths are usize"),
-            );
+            let usize_type = ctx.infer.add_int(IntTypeKind::Usize, set, Reason::new(node_loc, "array lengths are usize"));
 
             ctx.infer.set_equal(usize_type, len_type_id, Variance::Invariant);
 

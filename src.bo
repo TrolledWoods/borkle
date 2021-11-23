@@ -1,7 +1,4 @@
-// library "base.bo";
 import "tests/main.bo";
-
-// const a = #0 : u8;
 
 #entry fn() -> u64 {
     5
