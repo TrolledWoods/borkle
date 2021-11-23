@@ -408,7 +408,7 @@ fn build_constraints(
                 set,
                 reason.clone(),
             );
-            let u8_type = ctx.infer.add_t(TypeKind::Int(IntTypeKind::U8), [], set, reason.clone());
+            let u8_type = ctx.infer.add_int(IntTypeKind::U8, set, reason.clone());
             ctx.infer.set_type(node_type_id, TypeKind::Buffer, [access, u8_type], set, reason.clone());
 
             let u8_type = types::Type::new(types::TypeKind::Int(IntTypeKind::U8));

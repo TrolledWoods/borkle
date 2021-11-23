@@ -7,15 +7,15 @@ mod static_values {
     //! like integers and so on.
     use super::ValueId;
 
-    pub const POINTER: ValueId = 0;
-    pub const ONE    : ValueId = 1;
-    pub const TWO    : ValueId = 2;
-    pub const FOUR   : ValueId = 3;
-    pub const EIGHT  : ValueId = 4;
-    pub const TRUE   : ValueId = 5;
-    pub const FALSE  : ValueId = 6;
-    pub const U8     : ValueId = 7;
-    pub const BOOL   : ValueId = 8;
+    pub const POINTER  : ValueId = 0;
+    pub const ONE      : ValueId = 1;
+    pub const TWO      : ValueId = 2;
+    pub const FOUR     : ValueId = 3;
+    pub const EIGHT    : ValueId = 4;
+    pub const TRUE     : ValueId = 5;
+    pub const FALSE    : ValueId = 6;
+    pub const INT_SIZE : ValueId = 7;
+    pub const BOOL     : ValueId = 8;
 }
 
 use crate::errors::ErrorCtx;
@@ -160,6 +160,9 @@ pub enum TypeKind {
     Int(IntTypeKind),
     // bool, u8
     NewInt,
+    // No arguments, the size of an integer, hidden type that the user cannot access
+    IntSize,
+
     Bool,
     Empty,
 
@@ -603,7 +606,7 @@ impl Constraint {
             }
         };
 
-        Self { kind }
+        Self { kind, }
     }
 }
 
@@ -759,6 +762,7 @@ fn type_kind_to_str(
     match type_kind {
         TypeKind::Int(int_type_kind) => write!(string, "{:?}", int_type_kind),
         TypeKind::NewInt => write!(string, "int"),
+        TypeKind::IntSize => write!(string, "<size of int>"),
         TypeKind::Bool => write!(string, "bool"),
         TypeKind::Empty => write!(string, "Empty"),
         TypeKind::Function => {
@@ -821,7 +825,7 @@ impl TypeSystem {
 
         for i in [0, 1, 2, 4, 8_u8] {
             let buffer = program.insert_buffer(u8_type, &i);
-            this.add_value(static_values::U8, buffer, (), ());
+            this.add_value(static_values::INT_SIZE, buffer, (), ());
         }
 
         for i in [1, 0_u8] {
@@ -829,7 +833,7 @@ impl TypeSystem {
             this.add_value(static_values::BOOL, buffer, (), ());
         }
 
-        this.add_t(TypeKind::NewInt, [static_values::TRUE, static_values::ONE], (), ());
+        this.add_t(TypeKind::IntSize, [], (), ());
         this.add_t(TypeKind::Bool, [], (), ());
 
         this
@@ -1000,6 +1004,7 @@ impl TypeSystem {
 
         match *type_kind {
             TypeKind::Int(int_type_kind) => types::Type::new(types::TypeKind::Int(int_type_kind)),
+            TypeKind::IntSize => unreachable!("Int sizes are a hidden type for now, the user shouldn't be able to access them"),
             TypeKind::NewInt => {
                 let [signed, size] = &**type_args else {
                     unreachable!("Invalid int size and sign")
@@ -1022,10 +1027,12 @@ impl TypeSystem {
                 let sign_value = unsafe { *sign_value.as_ptr().cast::<bool>() };
                 let size_value = unsafe { *size_value.as_ptr().cast::<u8>() };
                 let int_type_kind = match (sign_value, size_value) {
+                    (false, 0) => IntTypeKind::Usize,
                     (false, 1) => IntTypeKind::U8,
                     (false, 2) => IntTypeKind::U16,
                     (false, 4) => IntTypeKind::U32,
                     (false, 8) => IntTypeKind::U64,
+                    (true, 0) => IntTypeKind::Isize,
                     (true, 1) => IntTypeKind::I8,
                     (true, 2) => IntTypeKind::I16,
                     (true, 4) => IntTypeKind::I32,
@@ -1213,13 +1220,28 @@ impl TypeSystem {
                 }
                 format!("{}", i128::from_le_bytes(big_int))
             }
+            ValueKind::Type(Some(Type { kind: TypeKind::IntSize, .. })) => {
+                let mut byte = 0_u8;
+                unsafe {
+                    byte = *value.as_ptr();
+                }
+                match byte {
+                    0 => "ptr".to_string(),
+                    1 => "1".to_string(),
+                    2 => "2".to_string(),
+                    4 => "4".to_string(),
+                    8 => "8".to_string(),
+                    num => format!("<invalid int size value {}>", num),
+                }
+            }
             ValueKind::Type(Some(Type { kind: TypeKind::NewInt, args: Some(c) })) => {
                 let [signed, size] = &**c else { panic!() };
+
                 let (
                     Value { kind: ValueKind::Value(Some(Constant { value: Some(signed), .. })), .. },
                     Value { kind: ValueKind::Value(Some(Constant { value: Some(size), .. })), .. },
                 ) = (get_value(&self.values, *signed), get_value(&self.values, *size)) else {
-                    unreachable!("Invalid arguments to newint")
+                    return "(?)".to_string();
                 };
 
                 let signed = unsafe { *signed.as_ptr().cast::<bool>() };
@@ -1293,6 +1315,7 @@ impl TypeSystem {
                 }
                 ValueKind::Type(Some(Type { kind: TypeKind::Bool, .. })) => "bool".to_string(),
                 ValueKind::Type(Some(Type { kind: TypeKind::Empty, .. })) => "Empty".to_string(),
+                ValueKind::Type(Some(Type { kind: TypeKind::IntSize, .. })) => "<size of int>".to_string(),
                 ValueKind::Type(None) => "_".to_string(),
                 ValueKind::Value(None) => "_(value)".to_string(),
                 ValueKind::Value(Some(Constant { type_, value: None, .. })) => {
@@ -1472,8 +1495,6 @@ impl TypeSystem {
                         // Temporary: No type validation, just equality :)
                         self.set_equal(a_id, b_id, Variance::Invariant);
                         self.set_equal(a_id, result_id, Variance::Invariant);
-
-                        self.constraints[constraint_id].kind = ConstraintKind::Dead;
                     }
                     BinaryOp::And | BinaryOp::Or => {
                         // Temporary: No type validation, just equality :)
@@ -1494,8 +1515,6 @@ impl TypeSystem {
 
                         self.set_equal(result_id, id, Variance::Invariant);
                         self.set_equal(a_id, b_id, Variance::DontCare);
-
-                        self.constraints[constraint_id].kind = ConstraintKind::Dead;
                     }
                     _ => unimplemented!("Operator {:?} not supported in type inferrence yet", op),
                 }
@@ -1541,9 +1560,6 @@ impl TypeSystem {
                                     }));
 
                                     self.set_equal(new_value_id, b_id, variance);
-
-                                    // @HACK: To prevent spam
-                                    self.constraints[constraint_id].kind = ConstraintKind::Dead;
                                 }
                             }
                             "len" => {
@@ -1567,9 +1583,6 @@ impl TypeSystem {
                                 }));
 
                                 self.set_equal(new_value_id, b_id, variance);
-
-                                // @HACK: To prevent spam
-                                self.constraints[constraint_id].kind = ConstraintKind::Dead;
                             }
                             _ => {
                                 self.errors.push(Error::new(
@@ -2379,7 +2392,10 @@ impl TypeSystem {
                 self.add_t(TypeKind::Function, &new_args[..], set, reason)
             }
             types::TypeKind::Int(int_type_kind) => {
-                self.add_t(TypeKind::Int(int_type_kind), [], set, reason)
+                let v = self.add_unknown_type();
+                self.set_int(v, int_type_kind, set, reason);
+                v
+                // self.add_t(TypeKind::Int(int_type_kind), [], set, reason)
             }
             types::TypeKind::Empty => self.add_t(TypeKind::Empty, [], set, reason),
             types::TypeKind::Bool  => self.add_t(TypeKind::Bool, [], set, reason),
@@ -2436,6 +2452,12 @@ impl TypeSystem {
         value_id
     }
 
+    pub fn add_int(&mut self, int_kind: IntTypeKind, set: impl IntoValueSet, reason: impl IntoReason) -> ValueId {
+        let id = self.add_unknown_type();
+        self.set_int(id, int_kind, set, reason);
+        id
+    }
+
     // @Speed: This creates a temporary, but is also a kind of temporary value itself....
     pub fn set_int(&mut self, value_id: ValueId, int_kind: IntTypeKind, set: impl IntoValueSet, reason: impl IntoReason) {
         let (signed, size) = match int_kind {
@@ -2443,12 +2465,12 @@ impl TypeSystem {
             IntTypeKind::U16   => (static_values::FALSE, static_values::TWO),
             IntTypeKind::U32   => (static_values::FALSE, static_values::FOUR),
             IntTypeKind::U64   => (static_values::FALSE, static_values::EIGHT),
-            IntTypeKind::Usize => (static_values::FALSE, static_values::EIGHT),
+            IntTypeKind::Usize => (static_values::FALSE, static_values::POINTER),
             IntTypeKind::I8    => (static_values::TRUE,  static_values::ONE),
             IntTypeKind::I16   => (static_values::TRUE,  static_values::TWO),
             IntTypeKind::I32   => (static_values::TRUE,  static_values::FOUR),
             IntTypeKind::I64   => (static_values::TRUE,  static_values::EIGHT),
-            IntTypeKind::Isize => (static_values::TRUE,  static_values::EIGHT),
+            IntTypeKind::Isize => (static_values::TRUE,  static_values::POINTER),
         };
 
         self.set_type(value_id, TypeKind::NewInt, [signed, size], set, reason);
