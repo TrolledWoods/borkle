@@ -157,7 +157,7 @@ impl IntoAccess for Unknown {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TypeKind {
     // bool, u8
-    NewInt,
+    Int,
     // No arguments, the size of an integer, hidden type that the user cannot access
     IntSize,
 
@@ -758,7 +758,7 @@ fn type_kind_to_str(
 ) -> std::fmt::Result {
     use std::fmt::Write;
     match type_kind {
-        TypeKind::NewInt => write!(string, "int"),
+        TypeKind::Int => write!(string, "int"),
         TypeKind::IntSize => write!(string, "<size of int>"),
         TypeKind::Bool => write!(string, "bool"),
         TypeKind::Empty => write!(string, "Empty"),
@@ -830,8 +830,8 @@ impl TypeSystem {
             this.add_value(static_values::BOOL, buffer, (), ());
         }
 
-        this.add_t(TypeKind::IntSize, [], (), ());
-        this.add_t(TypeKind::Bool, [], (), ());
+        this.add_type(TypeKind::IntSize, [], (), ());
+        this.add_type(TypeKind::Bool, [], (), ());
 
         this
     }
@@ -1001,7 +1001,7 @@ impl TypeSystem {
 
         match *type_kind {
             TypeKind::IntSize => unreachable!("Int sizes are a hidden type for now, the user shouldn't be able to access them"),
-            TypeKind::NewInt => {
+            TypeKind::Int => {
                 let [signed, size] = &**type_args else {
                     unreachable!("Invalid int size and sign")
                 };
@@ -1222,7 +1222,7 @@ impl TypeSystem {
                     num => format!("<invalid int size value {}>", num),
                 }
             }
-            ValueKind::Type(Some(Type { kind: TypeKind::NewInt, args: Some(c) })) => {
+            ValueKind::Type(Some(Type { kind: TypeKind::Int, args: Some(c) })) => {
                 let [signed, size] = &**c else { panic!() };
 
                 let (
@@ -1313,7 +1313,7 @@ impl TypeSystem {
                     format!("{}", self.constant_to_str(*type_, *value, rec + 1))
                 }
                 ValueKind::Type(Some(Type { kind, args: None, .. })) => format!("{:?}", kind),
-                ValueKind::Type(Some(Type { kind: TypeKind::NewInt, args: Some(c) })) => match &**c {
+                ValueKind::Type(Some(Type { kind: TypeKind::Int, args: Some(c) })) => match &**c {
                     [signed, size] => format!(
                         "int({}, {})",
                         self.value_to_str(*signed, rec + 1),
@@ -2374,28 +2374,28 @@ impl TypeSystem {
                     new_args.push(self.add_compiler_type(arg, set, reason.clone()));
                 }
 
-                self.add_t(TypeKind::Function, &new_args[..], set, reason)
+                self.add_type(TypeKind::Function, &new_args[..], set, reason)
             }
             types::TypeKind::Int(int_type_kind) => {
                 let v = self.add_unknown_type();
                 self.set_int(v, int_type_kind, set, reason);
                 v
             }
-            types::TypeKind::Empty => self.add_t(TypeKind::Empty, [], set, reason),
-            types::TypeKind::Bool  => self.add_t(TypeKind::Bool, [], set, reason),
+            types::TypeKind::Empty => self.add_type(TypeKind::Empty, [], set, reason),
+            types::TypeKind::Bool  => self.add_type(TypeKind::Bool, [], set, reason),
             types::TypeKind::Buffer { pointee, permits } => {
                 // @Cleanup: This is ugly!
                 let permits = self.add_access(Some(Access::disallows((!permits.read()).then(|| reason.clone()), (!permits.write()).then(|| reason.clone()))), set, reason.clone());
                 let pointee = self.add_compiler_type(pointee, set, reason.clone());
 
-                self.add_t(TypeKind::Buffer, [permits, pointee], set, reason)
+                self.add_type(TypeKind::Buffer, [permits, pointee], set, reason)
             }
             types::TypeKind::Reference { pointee, permits } => {
                 // @Cleanup: This is ugly!
                 let permits = self.add_access(Some(Access::disallows((!permits.read()).then(|| reason.clone()), (!permits.write()).then(|| reason.clone()))), set, reason.clone());
                 let pointee = self.add_compiler_type(pointee, set, reason.clone());
 
-                self.add_t(TypeKind::Reference, [permits, pointee], set, reason)
+                self.add_type(TypeKind::Reference, [permits, pointee], set, reason)
             }
             types::TypeKind::Array(type_, length) => {
                 todo!("We need a function for turning a compiler type into an actionable type that also takes the program");
@@ -2407,7 +2407,7 @@ impl TypeSystem {
                     // @TODO: We should append the sub-expression used to the reason as well.
                     .map(|&(_, v)| self.add_compiler_type(v, set, reason.clone()))
                     .collect();
-                self.add_t(TypeKind::Struct(field_names), field_types, set, reason)
+                self.add_type(TypeKind::Struct(field_names), field_types, set, reason)
             }
             _ => todo!("This compiler type is not done yet"),
         }
@@ -2457,11 +2457,10 @@ impl TypeSystem {
             IntTypeKind::Isize => (static_values::TRUE,  static_values::POINTER),
         };
 
-        self.set_type(value_id, TypeKind::NewInt, [signed, size], set, reason);
+        self.set_type(value_id, TypeKind::Int, [signed, size], set, reason);
     }
 
-    // @Cleanup: Rename back to `add_type`
-    pub fn add_t(&mut self, kind: TypeKind, args: impl IntoBoxSlice<ValueId>, set: impl IntoValueSet, reason: impl IntoReason) -> ValueId {
+    pub fn add_type(&mut self, kind: TypeKind, args: impl IntoBoxSlice<ValueId>, set: impl IntoValueSet, reason: impl IntoReason) -> ValueId {
         let args = args.into_box_slice();
         let is_complete = args.is_some();
         let value_sets = set.add_set(&mut self.value_sets, is_complete);

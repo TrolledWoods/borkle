@@ -347,7 +347,7 @@ fn build_constraints(
         NodeKind::Empty => {
             // @Performance: We could set the type directly(because no inferrence has happened yet),
             // this is a roundabout way of doing things.
-            let temp = ctx.infer.add_t(type_infer::TypeKind::Empty, [], set, Reason::new(node_loc, "this value is empty"));
+            let temp = ctx.infer.add_type(type_infer::TypeKind::Empty, [], set, Reason::new(node_loc, "this value is empty"));
             ctx.infer.set_equal(node_type_id, temp, Variance::Invariant);
         }
         // @Cleanup: We could unify these two nodes probably
@@ -386,11 +386,11 @@ fn build_constraints(
             ctx.ast.get_mut(node_id).kind = NodeKind::ResolvedGlobal(id, meta_data);
         }
         NodeKind::Literal(Literal::Int(_)) => {
-            ctx.infer.set_type(node_type_id, TypeKind::NewInt, (), set, Reason::new(node_loc, "int literals are integers"));
+            ctx.infer.set_type(node_type_id, TypeKind::Int, (), set, Reason::new(node_loc, "int literals are integers"));
         }
         NodeKind::Defer { deferring } => {
             build_constraints(ctx, deferring, set);
-            let empty_id = ctx.infer.add_t(
+            let empty_id = ctx.infer.add_type(
                 TypeKind::Empty, [],
                 set,
                 Reason::new(
@@ -456,7 +456,7 @@ fn build_constraints(
                 Reason::new(node_loc, format!("this array has {} elements", args.len())),
             );
 
-            let array_type = ctx.infer.add_t(
+            let array_type = ctx.infer.add_type(
                 TypeKind::Array, [inner_type, variable_count],
                 set,
                 Reason::new(node_loc, format!("of this array literal")),
@@ -509,7 +509,7 @@ fn build_constraints(
             let true_body_id = build_constraints(ctx, true_body, set);
             let false_body_id = match false_body {
                 Some(id) => build_constraints(ctx, id, set),
-                None => ctx.infer.add_t(
+                None => ctx.infer.add_type(
                     TypeKind::Empty, [],
                     set,
                     Reason::new(
@@ -535,7 +535,7 @@ fn build_constraints(
                 set,
                 Reason::new(node_loc, "Temporary reason for declare until I simplify it"),
             );
-            let temp = ctx.infer.add_t(
+            let temp = ctx.infer.add_type(
                 TypeKind::Reference,
                 [access, node_type_id],
                 set,
@@ -989,7 +989,7 @@ fn build_lvalue(
             op: UnaryOp::Dereference,
             operand,
         } => {
-            let temp = ctx.infer.add_t(
+            let temp = ctx.infer.add_type(
                 TypeKind::Reference,
                 [access, node_type_id],
                 set,
