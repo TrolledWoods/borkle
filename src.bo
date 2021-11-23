@@ -1,5 +1,8 @@
 import "tests/main.bo";
 
 #entry fn() -> u64 {
-    5
+    let a = [1, 2, 3];
+    let b = &a._0 + 1;
+
+    *b
 };

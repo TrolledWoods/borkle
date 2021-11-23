@@ -1475,34 +1475,69 @@ impl TypeSystem {
                 let b = get_value(&self.values, b_id);
                 let result = get_value(&self.values, result_id);
 
-                match op {
-                    BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mult | BinaryOp::Div | BinaryOp::BitAnd | BinaryOp::BitOr => {
-                        // Temporary: No type validation, just equality :)
-                        self.set_equal(a_id, b_id, Variance::Invariant);
-                        self.set_equal(a_id, result_id, Variance::Invariant);
-                    }
-                    BinaryOp::And | BinaryOp::Or => {
-                        // Temporary: No type validation, just equality :)
-                        self.set_equal(a_id, b_id, Variance::Invariant);
-                        self.set_equal(a_id, result_id, Variance::Invariant);
-                    }
-                    BinaryOp::Equals | BinaryOp::NotEquals | BinaryOp::LargerThanEquals | BinaryOp::LargerThan | BinaryOp::LessThanEquals | BinaryOp::LessThan => {
-                        let id = self.values.len();
-                        self.values.push(MaybeMovedValue::Value(Value {
-                            kind: ValueKind::Type(Some(Type {
-                                kind: TypeKind::Bool,
-                                args: Some(Box::new([])),
-                            })),
+                let (a, b, result) = match (&a.kind, &b.kind, &result.kind) {
+                    (ValueKind::Type(a), ValueKind::Type(b), ValueKind::Type(result)) => (a, b, result),
+                    (_, _, _) => {
+                        // Error! This is temporary, I want to change how I do errors later anyway so who cares.
+                        let result = get_value_mut(&mut self.values, result_id);
+                        result.value_sets.make_erroneous(&mut self.value_sets);
+                        *result = Value {
+                            kind: ValueKind::Error {
+                                types: Vec::new(),
+                                access: Access::default(),
+                                values: None,
+                            },
                             value_sets: ValueSetHandles::already_complete(),
                             reasons: Reasons::default(),
-                        }));
+                        };
+                        return;
+                    }
+                };
 
+                match (op, (a.as_ref().map(|v| &v.kind), b.as_ref().map(|v| &v.kind), result.as_ref().map(|v| &v.kind))) {
+                    (
+                        BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mult | BinaryOp::Div | BinaryOp::BitAnd | BinaryOp::BitOr,
+                        (Some(TypeKind::Int), Some(TypeKind::Int), Some(TypeKind::Int)),
+                    ) => {
+                        self.set_equal(a_id, b_id, Variance::Invariant);
+                        self.set_equal(a_id, result_id, Variance::Invariant);
+                    }
+                    (
+                        BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mult | BinaryOp::Div | BinaryOp::BitAnd | BinaryOp::BitOr,
+                        (Some(TypeKind::Reference), Some(TypeKind::Int), Some(TypeKind::Reference)),
+                    ) => {
+                        // No reason given for why the type is a usize....
+                        let usize = self.add_int(IntTypeKind::Usize, (), ());
+                        self.set_equal(usize, b_id, Variance::Invariant);
+                        self.set_equal(a_id, result_id, Variance::Invariant);
+                    }
+                    (
+                        BinaryOp::And | BinaryOp::Or,
+                        (_, _, _),
+                    ) => {
+                        // Temporary: No type validation, just equality :)
+                        let bool = self.add_type(TypeKind::Bool, [], (), ());
+                        self.set_equal(bool, a_id, Variance::Invariant);
+                        self.set_equal(bool, b_id, Variance::Invariant);
+                        self.set_equal(bool, result_id, Variance::Invariant);
+                    }
+                    (
+                        BinaryOp::Equals | BinaryOp::NotEquals | BinaryOp::LargerThanEquals | BinaryOp::LargerThan | BinaryOp::LessThanEquals | BinaryOp::LessThan,
+                        (Some(TypeKind::Int), Some(TypeKind::Int), _) | (Some(TypeKind::Reference), Some(TypeKind::Reference), _)
+                    ) => {
+                        let id = self.add_type(TypeKind::Bool, [], (), ());
 
                         self.set_equal(result_id, id, Variance::Invariant);
                         self.set_equal(a_id, b_id, Variance::DontCare);
                     }
-                    _ => unimplemented!("Operator {:?} not supported in type inferrence yet", op),
+                    (
+                        _,
+                        (Some(_), Some(_), Some(_)),
+                    ) => unimplemented!("Operator {:?} not supported in type inferrence yet", op),
+                    _ => return,
                 }
+
+                self.constraints[constraint_id].kind = ConstraintKind::Dead;
             }
             ConstraintKind::EqualNamedField {
                 values: [a_id, b_id],

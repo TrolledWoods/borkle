@@ -375,6 +375,10 @@ impl BinaryOp {
                 *output.cast() = *a.cast::<usize>() != *b.cast::<usize>();
             },
 
+            (BinaryOp::Equals, TypeKind::Reference { pointee: i1, .. }, TypeKind::Reference { pointee: i2, .. }) if i1 == i2 =>
+                *output.cast() = *a.cast::<*const u8>() == *b.cast::<*const u8>(),
+            (BinaryOp::NotEquals, TypeKind::Reference { pointee: i1, .. }, TypeKind::Reference { pointee: i2, .. }) if i1 == i2 =>
+                *output.cast() = *a.cast::<*const u8>() != *b.cast::<*const u8>(),
             (BinaryOp::LessThan, TypeKind::Reference { pointee: i1, .. }, TypeKind::Reference { pointee: i2, .. }) if i1 == i2 =>
                 *output.cast() = *a.cast::<*const u8>() < *b.cast::<*const u8>(),
             (BinaryOp::LessThan, TypeKind::Int(i1), TypeKind::Int(i2)) if i1 == i2 => {
