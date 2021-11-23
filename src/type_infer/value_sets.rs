@@ -102,25 +102,27 @@ pub struct ValueSetHandles {
     caller_location: &'static Location<'static>,
 }
 
+// @Cleanup: Remove this because it can be confusing....
 impl Default for ValueSetHandles {
     #[track_caller]
     fn default() -> Self {
-        Self {
-            sets: Vec::new(),
-            is_complete: false,
-            caller_location: Location::caller(),
-        }
+        Self::empty(false)
     }
 }
 
 impl ValueSetHandles {
     #[track_caller]
-    pub fn already_complete() -> Self {
+    pub fn empty(is_complete: bool) -> Self {
         Self {
             sets: Vec::new(),
-            is_complete: true,
+            is_complete,
             caller_location: Location::caller(),
         }
+    }
+
+    #[track_caller]
+    pub fn already_complete() -> Self {
+        Self::empty(true)
     }
 
     pub fn is_empty(&self) -> bool {

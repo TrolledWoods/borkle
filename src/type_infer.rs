@@ -1,24 +1,22 @@
 //! Type inferrence system
 //!
 //! # Will try and document more later once I feel fairly done with the first version of this system, but for now just some generic info I want to put here
-//!
-//! Static value header, e.g. value indices we know what their values are statically, for very common types,
-//! like integers and so on.
-//! 0    1 : U8
-//! 1    2 : U8
-//! 2    4 : U8
-//! 3    8 : U8
-//! 4    U8
-//! 5    U16
-//! 6    U32
-//! 7    U64
-//! 8    I8
-//! 9    I16
-//! 10   I32
-//! 11   I64
-//! 12   bool
-//! 13   true  : bool
-//! 14   false : bool
+
+mod static_values {
+    //! Static value header, e.g. value indices we know what their values are statically, for very common types,
+    //! like integers and so on.
+    use super::ValueId;
+
+    pub const POINTER: ValueId = 0;
+    pub const ONE    : ValueId = 1;
+    pub const TWO    : ValueId = 2;
+    pub const FOUR   : ValueId = 3;
+    pub const EIGHT  : ValueId = 4;
+    pub const TRUE   : ValueId = 5;
+    pub const FALSE  : ValueId = 6;
+    pub const U8     : ValueId = 7;
+    pub const BOOL   : ValueId = 8;
+}
 
 use crate::errors::ErrorCtx;
 use crate::program::Program;
@@ -82,6 +80,12 @@ impl IntoConstant for () {
 
 pub trait IntoValueSet {
     fn add_set(self, value_sets: &mut ValueSets, already_complete: bool) -> ValueSetHandles;
+}
+
+impl IntoValueSet for () {
+    fn add_set(self, _value_sets: &mut ValueSets, already_complete: bool) -> ValueSetHandles {
+        ValueSetHandles::empty(already_complete)
+    }
 }
 
 impl IntoValueSet for &ValueSetHandles {
@@ -803,75 +807,32 @@ pub struct TypeSystem {
 impl TypeSystem {
     pub fn new(program: &crate::program::Program) -> Self {
         let u8_type = crate::types::Type::new(crate::types::TypeKind::Int(IntTypeKind::U8));
+        let bool_type = crate::types::Type::new(crate::types::TypeKind::Bool);
 
-        // @Cleanup: This is messy code to set up some initial state, because even ints are self referential
-        // in this system, it's ridiculous honestly. But, you gotta do what you gotta do.
-        let false_buffer = program.insert_buffer(u8_type, &0);
-        let true_buffer = program.insert_buffer(u8_type, &1);
-
-        let mut values = Vec::with_capacity(15);
-
-        for i in 0..4 {
-            let buffer = program.insert_buffer(u8_type, &(1 << i));
-            values.push(MaybeMovedValue::Value(Value {
-                kind: ValueKind::Value(Some(Constant {
-                    type_: 4, // u8
-                    value: Some(buffer),
-                })),
-                value_sets: ValueSetHandles::already_complete(),
-                reasons: Reasons::default(),
-            }));
-        }
-
-        for signed in [14 /* false */, 13 /* true */] {
-            for i in 0..4 {
-                values.push(MaybeMovedValue::Value(Value {
-                    kind: ValueKind::Type(Some(Type {
-                        kind: TypeKind::NewInt,
-                        args: Some(Box::new([signed, i])),
-                    })),
-                    value_sets: ValueSetHandles::already_complete(),
-                    reasons: Reasons::default(),
-                }));
-            }
-        }
-
-        values.push(MaybeMovedValue::Value(Value {
-            kind: ValueKind::Type(Some(Type {
-                kind: TypeKind::Bool,
-                args: Some(Box::new([])),
-            })),
-            value_sets: ValueSetHandles::already_complete(),
-            reasons: Reasons::default(),
-        }));
-
-        values.push(MaybeMovedValue::Value(Value {
-            kind: ValueKind::Value(Some(Constant {
-                type_: 12, // bool
-                value: Some(true_buffer),
-            })),
-            value_sets: ValueSetHandles::already_complete(),
-            reasons: Reasons::default(),
-        }));
-
-        values.push(MaybeMovedValue::Value(Value {
-            kind: ValueKind::Value(Some(Constant {
-                type_: 13, // bool
-                value: Some(false_buffer),
-            })),
-            value_sets: ValueSetHandles::already_complete(),
-            reasons: Reasons::default(),
-        }));
-
-        Self {
-            values,
+        let mut this = Self {
+            values: Vec::with_capacity(32),
             value_sets: ValueSets::default(),
             variance_updates: HashMap::new(),
             constraints: Vec::new(),
             available_constraints: HashMap::new(),
             queued_constraints: Vec::new(),
             errors: Vec::new(),
+        };
+
+        for i in [0, 1, 2, 4, 8_u8] {
+            let buffer = program.insert_buffer(u8_type, &i);
+            this.add_value(static_values::U8, buffer, (), ());
         }
+
+        for i in [1, 0_u8] {
+            let buffer = program.insert_buffer(bool_type, &i);
+            this.add_value(static_values::BOOL, buffer, (), ());
+        }
+
+        this.add_t(TypeKind::NewInt, [static_values::TRUE, static_values::ONE], (), ());
+        this.add_t(TypeKind::Bool, [], (), ());
+
+        this
     }
 
     /// Only to be used when generating incompleteness-errors
@@ -1292,7 +1253,7 @@ impl TypeSystem {
             ValueKind::Error { .. } => {
                 format!("error!")
             }
-            _ => unreachable!("Not a type!"),
+            v => unreachable!("Not a type! {:?}", v),
         }
     }
 
@@ -2475,6 +2436,25 @@ impl TypeSystem {
         value_id
     }
 
+    // @Speed: This creates a temporary, but is also a kind of temporary value itself....
+    pub fn set_int(&mut self, value_id: ValueId, int_kind: IntTypeKind, set: impl IntoValueSet, reason: impl IntoReason) {
+        let (signed, size) = match int_kind {
+            IntTypeKind::U8    => (static_values::FALSE, static_values::ONE),
+            IntTypeKind::U16   => (static_values::FALSE, static_values::TWO),
+            IntTypeKind::U32   => (static_values::FALSE, static_values::FOUR),
+            IntTypeKind::U64   => (static_values::FALSE, static_values::EIGHT),
+            IntTypeKind::Usize => (static_values::FALSE, static_values::EIGHT),
+            IntTypeKind::I8    => (static_values::TRUE,  static_values::ONE),
+            IntTypeKind::I16   => (static_values::TRUE,  static_values::TWO),
+            IntTypeKind::I32   => (static_values::TRUE,  static_values::FOUR),
+            IntTypeKind::I64   => (static_values::TRUE,  static_values::EIGHT),
+            IntTypeKind::Isize => (static_values::TRUE,  static_values::EIGHT),
+        };
+
+        self.set_type(value_id, TypeKind::NewInt, [signed, size], set, reason);
+    }
+
+    // @Cleanup: Rename back to `add_type`
     pub fn add_t(&mut self, kind: TypeKind, args: impl IntoBoxSlice<ValueId>, set: impl IntoValueSet, reason: impl IntoReason) -> ValueId {
         let args = args.into_box_slice();
         let is_complete = args.is_some();
@@ -2501,7 +2481,7 @@ impl TypeSystem {
         id
     }
 
-    pub fn add_value(&mut self, type_: ValueId, value: impl IntoConstant, set: ValueSetId, reason: impl IntoReason) -> ValueId {
+    pub fn add_value(&mut self, type_: ValueId, value: impl IntoConstant, set: impl IntoValueSet, reason: impl IntoReason) -> ValueId {
         let value = value.into_constant();
         let is_complete =  value.is_some();
         let value_sets = set.add_set(&mut self.value_sets, is_complete);
