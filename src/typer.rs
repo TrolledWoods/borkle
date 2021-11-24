@@ -64,6 +64,10 @@ pub fn process_ast<'a>(
         local.type_infer_value_id = infer.add_unknown_type();
     }
 
+    for label in locals.iter_labels_mut() {
+        label.type_infer_value_id = infer.add_unknown_type();
+    }
+
     let mut emit_deps = from.emit_deps;
 
     let mut ctx = Context {
@@ -385,6 +389,39 @@ fn build_constraints(
 
             ctx.ast.get_mut(node_id).kind = NodeKind::ResolvedGlobal(id, meta_data);
         }
+        NodeKind::For {
+            iterator,
+            iteration_var,
+            iterating,
+            body,
+            else_body,
+            label,
+        } => {
+            ctx.locals.get_mut(iteration_var).stack_frame_id = set;
+            ctx.locals.get_mut(iterator).stack_frame_id = set;
+            ctx.locals.get_label_mut(label).stack_frame_id = set;
+
+            ctx.infer.set_int(ctx.locals.get(iteration_var).type_infer_value_id, IntTypeKind::Usize, set, Reason::new(node_loc, "_iters is always usize, for now..."));
+
+            // The type the body returns doesn't matter, since we don't forward it.
+            let iterating_type_id = build_constraints(ctx, iterating, set);
+            build_constraints(ctx, body, set);
+
+            let label_type_infer_id = ctx.locals.get_label(label).type_infer_value_id;
+
+            match else_body {
+                Some(else_body) => {
+                    let else_type = build_constraints(ctx, else_body, set);
+                    ctx.infer.set_equal(label_type_infer_id, else_type, Variance::Invariant);
+                }
+                None => {
+                    let empty_type = ctx.infer.add_type(TypeKind::Empty, [], set, Reason::new(node_loc, "loops without else blocks can only break with the empty value"));
+                    ctx.infer.set_equal(label_type_infer_id, empty_type, Variance::Invariant);
+                }
+            }
+
+            ctx.infer.set_equal(node_type_id, label_type_infer_id, Variance::Invariant);
+        }
         NodeKind::Literal(Literal::Int(_)) => {
             ctx.infer.set_type(node_type_id, TypeKind::Int, (), set, Reason::new(node_loc, "int literals are integers"));
         }
@@ -483,6 +520,7 @@ fn build_constraints(
                 .set_equal(local_type_id, node_type_id, Variance::Invariant);
 
             if ctx.runs != ExecutionTime::Never && local.stack_frame_id != set {
+                dbg!(local.stack_frame_id);
                 ctx.errors.error(node_loc, "Variable is defined in a different execution context, you cannot access it here, other than for its type". to_string());
                 ctx.infer.value_sets.get_mut(set).has_errors = true;
             }
@@ -782,7 +820,7 @@ fn build_constraints(
         } => {
             if let Some(label) = label {
                 let label = ctx.locals.get_label_mut(label);
-                label.type_infer_value_id = node_type_id;
+                ctx.infer.set_equal(label.type_infer_value_id, node_type_id, Variance::Invariant);
                 label.stack_frame_id = set;
             }
 
@@ -965,6 +1003,7 @@ fn build_lvalue(
                 .set_equal(local_type_id, node_type_id, Variance::Invariant);
 
             if local.stack_frame_id != set {
+                dbg!(local.stack_frame_id);
                 ctx.errors.error(node_loc, "Variable is defined in a different execution context, you cannot access it here, other than for its type".to_string());
                 ctx.infer.value_sets.get_mut(set).has_errors = true;
             }

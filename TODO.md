@@ -9,3 +9,4 @@
 * Custom pointer thing for the interpreter; could also use this for constants, and to statically pre-build some pointer values that let you reference known values and so on.
 * POSSIBLE BUG!!! Make sure that constants that contain pointers don't compile time merge with ones that don't.
 * Make operators use the assert system to check for overflow
+* The _iters variable in loops could be any integer type.

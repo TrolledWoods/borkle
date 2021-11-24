@@ -891,6 +891,7 @@ fn value_without_unaries(
                             let id = imperative.insert_local(Local::new(token.loc, name));
                             let dummy_local_node =
                                 buffer.add(Node::new(token.loc, NodeKind::Local(id)));
+                            // @Cleanup: Remove this, not necessary anymore
                             imperative.locals.get_mut(id).uses.push(dummy_local_node);
 
                             let declaration = buffer.add(Node::new(

@@ -32,7 +32,7 @@ impl Local {
             loc,
             type_: None,
             type_infer_value_id: 0,
-            stack_frame_id: 0,
+            stack_frame_id: 123123,
             value: None,
             uses: Vec::new(),
             num_uses: 0,
@@ -89,6 +89,10 @@ impl LocalVariables {
 
     pub fn iter_mut(&mut self) -> impl Iterator<Item = &'_ mut Local> {
         self.locals.iter_mut()
+    }
+
+    pub fn iter_labels_mut(&mut self) -> impl Iterator<Item = &'_ mut Label> {
+        self.labels.iter_mut()
     }
 
     pub fn get_label(&self, id: LabelId) -> &Label {
