@@ -1,8 +1,18 @@
+library "base.bo";
 import "tests/main.bo";
 
-#entry fn() -> u64 {
-    let a = [1, 2, 3];
-    let b = &a._0 + 1;
+const slice = fn(buffer: []r u8, start: usize, end: usize) -> []r u8 {
+    let new = #0;
+    new.ptr = buffer.ptr + start;
+    new.len = end - start;
+    assert(start <= end);
+    assert(end <= buffer.len);
+    new
+};
 
-    *b
+#entry fn() -> u64 {
+    print(slice("Hi :) this is a text", 4, 10));
+    print("\n");
+
+    42 - 13
 };

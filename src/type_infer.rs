@@ -1532,8 +1532,8 @@ impl TypeSystem {
                     }
                     (
                         _,
-                        (Some(_), Some(_), Some(_)),
-                    ) => unimplemented!("Operator {:?} not supported in type inferrence yet", op),
+                        (Some(a), Some(b), Some(c)),
+                    ) => unimplemented!("Operator {:?} with operands {:?}, {:?}, and returning {:?}, not supported in type inferrence yet", op, a, b, c),
                     _ => return,
                 }
 
@@ -1587,22 +1587,17 @@ impl TypeSystem {
                                 // so we don't have to re-add it over and over.
 
                                 let new_value_id = self.values.len();
-                                let mut value_sets = a.value_sets.clone(&mut self.value_sets, true);
+                                let value_sets = a.value_sets.clone(&mut self.value_sets, true);
                                 // @TODO: We want EqualNamedField constraints to store locations, since these constraints
                                 // are very tightly linked with where they're created, as opposed to Equal.
                                 // And then we can generate a good reason here.
                                 // These reasons aren't correct at all....
                                 let mut reasons = a.reasons.clone();
-                                self.values.push(MaybeMovedValue::Value(Value {
-                                    kind: ValueKind::Type(Some(Type {
-                                        kind: TypeKind::Bool,
-                                        args: Some(Box::new([])),
-                                    })),
-                                    value_sets,
-                                    reasons,
-                                }));
+                                let field_type = self.add_int(IntTypeKind::Usize, &value_sets, reasons);
 
-                                self.set_equal(new_value_id, b_id, variance);
+                                self.set_equal(field_type, b_id, variance);
+
+                                self.constraints[constraint_id].kind = ConstraintKind::Dead;
                             }
                             _ => {
                                 self.errors.push(Error::new(
