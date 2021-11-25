@@ -100,28 +100,6 @@ impl IntoValueSet for ValueSetId {
     }
 }
 
-pub trait IntoReason {
-    fn reasonify(self) -> Reasons;
-}
-
-impl IntoReason for Reason {
-    fn reasonify(self) -> Reasons {
-        Reasons::with_one(self)
-    }
-}
-
-impl IntoReason for Reasons {
-    fn reasonify(self) -> Reasons {
-        self
-    }
-}
-
-impl IntoReason for () {
-    fn reasonify(self) -> Reasons {
-        Reasons::default()
-    }
-}
-
 #[derive(Clone, Copy)]
 pub struct CompilerType(pub types::Type);
 
@@ -133,24 +111,24 @@ pub struct Var(pub usize);
 pub struct Unknown;
 
 pub trait IntoAccess {
-    fn into_variance(self, system: &mut TypeSystem, set: ValueSetId, reason: Reason) -> ValueId;
+    fn into_variance(self, system: &mut TypeSystem, set: ValueSetId) -> ValueId;
 }
 
 impl IntoAccess for Access {
-    fn into_variance(self, system: &mut TypeSystem, set: ValueSetId, reason: Reason) -> ValueId {
-        system.add_access(Some(self), set, reason)
+    fn into_variance(self, system: &mut TypeSystem, set: ValueSetId) -> ValueId {
+        system.add_access(Some(self), set)
     }
 }
 
 impl IntoAccess for Var {
-    fn into_variance(self, _: &mut TypeSystem, _: ValueSetId, reason: Reason) -> ValueId {
+    fn into_variance(self, _: &mut TypeSystem, _: ValueSetId) -> ValueId {
         self.0
     }
 }
 
 impl IntoAccess for Unknown {
-    fn into_variance(self, system: &mut TypeSystem, set: ValueSetId, reason: Reason) -> ValueId {
-        system.add_access(None, set, reason)
+    fn into_variance(self, system: &mut TypeSystem, set: ValueSetId) -> ValueId {
+        system.add_access(None, set)
     }
 }
 
@@ -235,113 +213,99 @@ impl Variance {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Access {
-    pub cannot_read: Option<Reasons>,
-    pub needs_read: Option<Reasons>,
-    pub cannot_write: Option<Reasons>,
-    pub needs_write: Option<Reasons>,
+    pub cannot_read: bool,
+    pub needs_read: bool,
+    pub cannot_write: bool,
+    pub needs_write: bool,
 }
 
 impl Default for Access {
     fn default() -> Self {
         Self {
-            cannot_read: None,
-            cannot_write: None,
-            needs_read: None,
-            needs_write: None,
+            cannot_read: false,
+            cannot_write: false,
+            needs_read: false,
+            needs_write: false,
         }
     }
 }
 
 impl Access {
+    pub fn cannot_read(&self) -> bool {
+        self.cannot_read
+    }
+
+    pub fn cannot_write(&self) -> bool {
+        self.cannot_write
+    }
+
     pub fn needs_read(&self) -> bool {
-        self.needs_read.is_some()
+        self.needs_read
     }
 
     pub fn needs_write(&self) -> bool {
-        self.needs_write.is_some()
+        self.needs_write
     }
 
-    pub fn specific(read: bool, write: bool, read_reason: Reason, write_reason: Reason) -> Self {
+    pub fn specific(read: bool, write: bool) -> Self {
         Self {
-            cannot_read: (!read).then(|| Reasons::with_one(read_reason.clone())),
-            cannot_write: (!write).then(|| Reasons::with_one(write_reason.clone())),
-            needs_read: read.then(|| Reasons::with_one(read_reason.clone())),
-            needs_write: write.then(|| Reasons::with_one(write_reason.clone())),
+            cannot_read: !read,
+            cannot_write: !write,
+            needs_read: read,
+            needs_write: write,
         }
     }
     
-    pub fn disallows(cannot_read: Option<Reason>, cannot_write: Option<Reason>) -> Self {
+    pub fn disallows(cannot_read: bool, cannot_write: bool) -> Self {
         Self {
-            cannot_read: cannot_read.map(Reasons::with_one),
-            cannot_write: cannot_write.map(Reasons::with_one),
-            needs_read: None,
-            needs_write: None,
+            cannot_read,
+            cannot_write,
+            needs_read: false,
+            needs_write: false,
         }
     }
 
-    pub fn needs(needs_read: Option<Reason>, needs_write: Option<Reason>) -> Self {
+    pub fn needs(needs_read: bool, needs_write: bool) -> Self {
         Self {
-            cannot_read: None,
-            cannot_write: None,
-            needs_read: needs_read.map(Reasons::with_one),
-            needs_write: needs_write.map(Reasons::with_one),
+            cannot_read: false,
+            cannot_write: false,
+            needs_read,
+            needs_write,
         }
     }
 
     pub fn is_complete(&self) -> bool {
-        self.cannot_read.is_none() <= self.needs_read.is_some() && self.cannot_write.is_none() <= self.needs_write.is_some()
+        self.cannot_read <= self.needs_read && self.cannot_write <= self.needs_write
     }
 
-    pub fn combine_with(&mut self, other: &mut Self, variance: Variance) -> bool {
+    pub fn combine_with(&mut self, other: &mut Self, variance: Variance) {
         match variance {
             Variance::Variant => {
-                option_take_reasons_from(&mut self.needs_read,    &other.needs_read) |
-                option_take_reasons_from(&mut self.needs_write,   &other.needs_write) |
-                option_take_reasons_from(&mut other.cannot_read,  &self.cannot_read) |
-                option_take_reasons_from(&mut other.cannot_write, &self.cannot_write)
+                self.needs_read |= other.needs_read;
+                self.needs_write |= other.needs_write;
+                other.cannot_read &= self.cannot_read;
+                other.cannot_write &= self.cannot_write;
             }
             Variance::Covariant => {
-                option_take_reasons_from(&mut other.needs_read,  &self.needs_read) |
-                option_take_reasons_from(&mut other.needs_write, &self.needs_write) |
-                option_take_reasons_from(&mut self.cannot_read,  &other.cannot_read) |
-                option_take_reasons_from(&mut self.cannot_write, &other.cannot_write)
+                other.needs_read |= self.needs_read;
+                other.needs_write |= self.needs_write;
+                self.cannot_read &= other.cannot_read;
+                self.cannot_write &= other.cannot_write;
             }
             Variance::Invariant => {
-                option_combine_reasons(&mut self.needs_read,   &mut other.needs_read) |
-                option_combine_reasons(&mut self.needs_write,  &mut other.needs_write) |
-                option_combine_reasons(&mut self.cannot_read,  &mut other.cannot_read) |
-                option_combine_reasons(&mut self.cannot_write, &mut other.cannot_write)
+                other.needs_read |= self.needs_read;
+                self.needs_read = other.needs_read;
+                other.needs_write |= self.needs_write;
+                self.needs_write = other.needs_write;
+                other.needs_read &= self.needs_read;
+                self.needs_read = other.needs_read;
+                other.needs_write &= self.needs_write;
+                self.needs_write = other.needs_write;
             }
-            Variance::DontCare => false,
+            Variance::DontCare => {},
         }
-    }
-}
-
-fn option_combine_reasons(a: &mut Option<Reasons>, b: &mut Option<Reasons>) -> bool {
-    match (a, b) {
-        (None, None) => false,
-        (a @ None, Some(b)) => {
-            *a = Some(b.clone());
-            true
-        }
-        (Some(a), b @ None) => {
-            *b = Some(a.clone());
-            true
-        }
-        (Some(a), Some(b)) => a.combine(b),
-    }
-}
-
-fn option_take_reasons_from(to: &mut Option<Reasons>, from: &Option<Reasons>) -> bool {
-    match (to, from) {
-        (_, None) => false,
-        (to @ None, Some(from)) => {
-            *to = Some(from.clone());
-            true
-        }
-        (Some(to), Some(from)) => to.take_reasons_from(from),
     }
 }
 
@@ -366,24 +330,9 @@ pub struct Constant {
     pub value: Option<ConstantRef>,
 }
 
-#[derive(Clone, Debug)]
-pub struct ValueError {
-    /// We only store a single type here, because the types are going to be set as equal anyway,
-    /// and generate their own error if they don't match.
-    ///
-    /// If it's not an error, the types of all values should match, and can therefore be compared.
-    type_: ValueId,
-    values: Vec<(ConstantRef, Reasons)>,
-}
-
 #[derive(Debug)]
 pub enum ValueKind {
-    Error {
-        // @Cleanup: Maybe this level of type complexity should be extracted into a struct...
-        types: Vec<((TypeKind, Option<usize>), Reasons)>,
-        access: Access,
-        values: Option<ValueError>,
-    },
+    Error,
 
     Type(Option<Type>),
 
@@ -410,75 +359,8 @@ impl ValueKind {
             Self::Type(_) => Self::Type(None),
             Self::Value(_) => Self::Value(None),
             Self::Access(_) => Self::Access(None),
-            Self::Error { types, access, values } => Self::Error {
-                types: types.clone(),
-                access: access.clone(),
-                values: values.clone(),
-            },
+            Self::Error => Self::Error,
         }
-    }
-}
-
-/// This describes the reason why a value is the way it is.
-/// For example, why is this a reference? Why is this a function? e.t.c.
-/// This means we can give reasonable reporting when errors occur.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Reason {
-    pub loc: Location,
-    pub message: Arc<String>,
-}
-
-impl Reason {
-    pub fn new(loc: Location, message: impl ToString) -> Self {
-        Self {
-            loc,
-            message: Arc::new(message.to_string()),
-        }
-    }
-}
-
-#[derive(Debug, Default, Clone)]
-pub struct Reasons {
-    buffer: Vec<Reason>,
-}
-
-impl Reasons {
-    fn with_one(value: Reason) -> Self {
-        let mut v = Self::default();
-        v.insert(value);
-        v
-    }
-
-    fn count(&self) -> usize {
-        self.iter().count()
-    }
-
-    fn iter(&self) -> impl Iterator<Item = &Reason> {
-        self.buffer.iter()
-    }
-
-    fn insert(&mut self, value: Reason) -> bool {
-        // @Robustness: We want a strict ordering so that errors are consistant, but temporarily this is fine.
-        if self.buffer.iter().any(|v| *v == value) {
-            return false;
-        }
-
-        self.buffer.push(value);
-        true
-    }
-
-    fn combine(&mut self, other: &mut Reasons) -> bool {
-        let a = self.take_reasons_from(other);
-        let b = other.take_reasons_from(self);
-        a || b
-    }
-
-    fn take_reasons_from(&mut self, other: &Reasons) -> bool {
-        let mut changed = false;
-        for value in other.iter() {
-            changed |= self.insert(value.clone());
-        }
-        changed
     }
 }
 
@@ -488,7 +370,6 @@ pub type ValueId = usize;
 struct Value {
     kind: ValueKind,
     value_sets: ValueSetHandles,
-    reasons: Reasons,
     // /// If a value isn't known, it should generate an error, but if it's possible that it's not known because
     // /// an error occured, we don't want to generate an error, which is why this flag exists.
     // related_to_error: bool,
@@ -822,16 +703,16 @@ impl TypeSystem {
 
         for i in [0, 1, 2, 4, 8_u8] {
             let buffer = program.insert_buffer(u8_type, &i);
-            this.add_value(static_values::INT_SIZE, buffer, (), ());
+            this.add_value(static_values::INT_SIZE, buffer, ());
         }
 
         for i in [1, 0_u8] {
             let buffer = program.insert_buffer(bool_type, &i);
-            this.add_value(static_values::BOOL, buffer, (), ());
+            this.add_value(static_values::BOOL, buffer, ());
         }
 
-        this.add_type(TypeKind::IntSize, [], (), ());
-        this.add_type(TypeKind::Bool, [], (), ());
+        this.add_type(TypeKind::IntSize, [], ());
+        this.add_type(TypeKind::Bool, [], ());
 
         this
     }
@@ -852,129 +733,11 @@ impl TypeSystem {
             use std::fmt::Write;
             for value in &self.values {
                 if let MaybeMovedValue::Value(Value {
-                    kind: ValueKind::Error { types, access, values },
+                    kind: ValueKind::Error,
                     ..
-                }) = value
-                {
-                    if !types.is_empty() {
-                        for ((type_, num_args), reasons) in types.iter() {
-                            for (i, reason) in reasons.iter().enumerate() {
-                                let mut message = String::new();
-                                if i == 0 {
-                                    message.push('\'');
-                                    type_kind_to_str(&mut message, type_, *num_args).unwrap();
-                                    message.push_str("' because ");
-                                } else {
-                                    message.push_str(".. and because ");
-                                }
-                                message.push_str(&reason.message);
-                                errors.info(reason.loc, message);
-                            }
-                        }
-
-                        let mut message = String::new();
-                        message.push_str("Conflicting types ");
-                        for (i, ((type_, num_args), _)) in types.iter().enumerate() {
-                            if i > 0 && i + 1 == types.len() {
-                                message.push_str(" and ");
-                            } else if i > 0 {
-                                message.push_str(", ");
-                            }
-
-                            message.push('\'');
-                            type_kind_to_str(&mut message, type_, *num_args).unwrap();
-                            message.push('\'');
-                        }
-                        errors.global_error(message);
-                    }
-
-                    if let Some(ValueError { type_, values }) = values {
-                        if !matches!(get_value(&self.values, *type_).kind, ValueKind::Error { .. }) {
-                            for (constant_ref, reasons) in values.iter() {
-                                for (i, reason) in reasons.iter().enumerate() {
-                                    let mut message = String::new();
-                                    if i == 0 {
-                                        message.push('\'');
-                                        message.push_str(&self.constant_to_str(*type_, *constant_ref, 0));
-
-                                        message.push_str("' because ");
-                                    } else {
-                                        message.push_str(".. and because ");
-                                    }
-                                    message.push_str(&reason.message);
-                                    errors.info(reason.loc, message);
-                                }
-                            }
-
-                            let mut message = String::new();
-                            message.push_str("Conflicting constants ");
-                            for (i, (constant_ref, _)) in values.iter().enumerate() {
-                                if i > 0 && i + 1 == types.len() {
-                                    message.push_str(" and ");
-                                } else if i > 0 {
-                                    message.push_str(", ");
-                                }
-
-                                message.push('\'');
-                                message.push_str(&self.constant_to_str(*type_, *constant_ref, 0));
-                                message.push('\'');
-                            }
-                            errors.global_error(message);
-                        }
-                    }
-
-                    if let (Some(needs), Some(cannot)) = (&access.needs_write, &access.cannot_write) {
-                        for (i, reason) in cannot.iter().enumerate() {
-                            let mut message = String::new();
-                            if i == 0 {
-                                message.push_str("Immutable because ");
-                            } else {
-                                message.push_str(".. and because ");
-                            }
-                            message.push_str(&reason.message);
-                            errors.info(reason.loc, message);
-                        }
-
-                        for (i, reason) in needs.iter().enumerate() {
-                            let mut message = String::new();
-                            if i == 0 {
-                                message.push_str("Needs mutability because ");
-                            } else {
-                                message.push_str(".. and because ");
-                            }
-                            message.push_str(&reason.message);
-                            errors.info(reason.loc, message);
-                        }
-
-                        errors.global_error("Tried writing to immutable value".to_string());
-                    }
-
-                    // @Duplicate code: Almost the exact same as the code above
-                    if let (Some(needs), Some(cannot)) = (&access.needs_read, &access.cannot_read) {
-                        for (i, reason) in cannot.iter().enumerate() {
-                            let mut message = String::new();
-                            if i == 0 {
-                                message.push_str("Cannot read value because ");
-                            } else {
-                                message.push_str(".. and because ");
-                            }
-                            message.push_str(&reason.message);
-                            errors.info(reason.loc, message);
-                        }
-
-                        for (i, reason) in needs.iter().enumerate() {
-                            let mut message = String::new();
-                            if i == 0 {
-                                message.push_str("Read from because ");
-                            } else {
-                                message.push_str(".. and because ");
-                            }
-                            message.push_str(&reason.message);
-                            errors.info(reason.loc, message);
-                        }
-
-                        errors.global_error("Tried reading from unreadable value".to_string());
-                    }
+                }) = value {
+                    // TODO: Use the ast node location
+                    errors.global_error("Typing error!".to_string());
                 }
             }
         }
@@ -1078,7 +841,7 @@ impl TypeSystem {
                 };
 
                 let pointee = self.value_to_compiler_type(*pointee);
-                let permits = types::PtrPermits::from_read_write(access.needs_read.is_some(), access.needs_write.is_some());
+                let permits = types::PtrPermits::from_read_write(access.needs_read(), access.needs_write());
 
                 types::Type::new(types::TypeKind::Buffer { pointee, permits })
             }
@@ -1092,7 +855,7 @@ impl TypeSystem {
                 };
 
                 let pointee = self.value_to_compiler_type(*pointee);
-                let permits = types::PtrPermits::from_read_write(access.needs_read.is_some(), access.needs_write.is_some());
+                let permits = types::PtrPermits::from_read_write(access.needs_read(), access.needs_write());
 
                 types::Type::new(types::TypeKind::Reference { pointee, permits })
             }
@@ -1275,24 +1038,19 @@ impl TypeSystem {
             &MaybeMovedValue::Moved(new_index) => self.value_to_str(new_index, rec),
             MaybeMovedValue::Value(v) => match &v.kind {
                 ValueKind::Access(None) => format!("_"),
-                ValueKind::Error { access, .. } => format!("ERR({})",
-                    access.needs_read.as_ref().map_or(0, |v| v.count())
-                    + access.needs_write.as_ref().map_or(0, |v| v.count())
-                    + access.cannot_read.as_ref().map_or(0, |v| v.count())
-                    + access.cannot_write.as_ref().map_or(0, |v| v.count())
-                ),
+                ValueKind::Error => format!("ERR"),
                 ValueKind::Access(Some(access)) => {
                     format!(
                         "{}{}",
-                        match (access.needs_read.is_some(), access.needs_write.is_some()) {
+                        match (access.needs_read(), access.needs_write()) {
                             (true, true) => "rw",
                             (true, false) => "r",
                             (false, true) => "w",
                             (false, false) => "!!",
                         },
                         match (
-                            access.cannot_read.is_some() && access.needs_read.is_some(),
-                            access.cannot_write.is_some() && access.needs_write.is_some(),
+                            access.cannot_read() && access.needs_read(),
+                            access.cannot_write() && access.needs_write(),
                         ) {
                             (true, true) => "-rw",
                             (true, false) => "-r",
@@ -1482,13 +1240,8 @@ impl TypeSystem {
                         let result = get_value_mut(&mut self.values, result_id);
                         result.value_sets.make_erroneous(&mut self.value_sets);
                         *result = Value {
-                            kind: ValueKind::Error {
-                                types: Vec::new(),
-                                access: Access::default(),
-                                values: None,
-                            },
+                            kind: ValueKind::Error,
                             value_sets: ValueSetHandles::already_complete(),
-                            reasons: Reasons::default(),
                         };
                         return;
                     }
@@ -1507,7 +1260,7 @@ impl TypeSystem {
                         (Some(TypeKind::Reference), Some(TypeKind::Int), Some(TypeKind::Reference)),
                     ) => {
                         // No reason given for why the type is a usize....
-                        let usize = self.add_int(IntTypeKind::Usize, (), ());
+                        let usize = self.add_int(IntTypeKind::Usize, ());
                         self.set_equal(usize, b_id, Variance::Invariant);
                         self.set_equal(a_id, result_id, Variance::Invariant);
                     }
@@ -1516,7 +1269,7 @@ impl TypeSystem {
                         (_, _, _),
                     ) => {
                         // Temporary: No type validation, just equality :)
-                        let bool = self.add_type(TypeKind::Bool, [], (), ());
+                        let bool = self.add_type(TypeKind::Bool, [], ());
                         self.set_equal(bool, a_id, Variance::Invariant);
                         self.set_equal(bool, b_id, Variance::Invariant);
                         self.set_equal(bool, result_id, Variance::Invariant);
@@ -1525,7 +1278,7 @@ impl TypeSystem {
                         BinaryOp::Equals | BinaryOp::NotEquals | BinaryOp::LargerThanEquals | BinaryOp::LargerThan | BinaryOp::LessThanEquals | BinaryOp::LessThan,
                         (Some(TypeKind::Int), Some(TypeKind::Int), _) | (Some(TypeKind::Reference), Some(TypeKind::Reference), _)
                     ) => {
-                        let id = self.add_type(TypeKind::Bool, [], (), ());
+                        let id = self.add_type(TypeKind::Bool, [], ());
 
                         self.set_equal(result_id, id, Variance::Invariant);
                         self.set_equal(a_id, b_id, Variance::DontCare);
@@ -1569,14 +1322,12 @@ impl TypeSystem {
                                     // are very tightly linked with where they're created, as opposed to Equal.
                                     // And then we can generate a good reason here.
                                     // These reasons aren't correct at all....
-                                    let reasons = a.reasons.clone();
                                     self.values.push(MaybeMovedValue::Value(Value {
                                         kind: ValueKind::Type(Some(Type {
                                             kind: TypeKind::Reference,
                                             args: Some(Box::new([mutability, pointee])),
                                         })),
                                         value_sets,
-                                        reasons,
                                     }));
 
                                     self.set_equal(new_value_id, b_id, variance);
@@ -1592,8 +1343,7 @@ impl TypeSystem {
                                 // are very tightly linked with where they're created, as opposed to Equal.
                                 // And then we can generate a good reason here.
                                 // These reasons aren't correct at all....
-                                let mut reasons = a.reasons.clone();
-                                let field_type = self.add_int(IntTypeKind::Usize, &value_sets, reasons);
+                                let field_type = self.add_int(IntTypeKind::Usize, &value_sets);
 
                                 self.set_equal(field_type, b_id, variance);
 
@@ -1683,11 +1433,6 @@ impl TypeSystem {
 
                 match a {
                     ValueKind::Error { .. } => {
-                        // TODO: Deal with this case somehow. I think that a good method would be just
-                        // to flag the child member as being dependant on an error, e.g. if we knew what this
-                        // type was it might be set, so just don't report incompleteness-errors on that value.
-                        // Though, if the value was gotten from here............
-                        // then we should remove it. Bah! Do we need reasons to also cite sources now?
                     }
                     ValueKind::Type(None) | ValueKind::Type(Some(Type { args: None, .. })) => {}
                     ValueKind::Type(Some(Type { args: Some(fields), .. })) => {
@@ -1738,106 +1483,10 @@ impl TypeSystem {
 
                 use ErrorKind::*;
                 match (&mut *a_value, a_id, &mut *b_value, b_id) {
-                    (Value { kind: ValueKind::Error { types: error_types, access: error_access, values: error_values }, value_sets: error_value_sets, .. }, error_id, non_error, non_error_id)
-                    | (non_error, non_error_id, Value { kind: ValueKind::Error { types: error_types, access: error_access, values: error_values }, value_sets: error_value_sets, .. }, error_id) => {
-                        let mut error_types = mem::take(error_types);
-                        let mut error_access = mem::take(error_access);
-                        let mut error_values = mem::take(error_values);
-
+                    (Value { kind: ValueKind::Error, value_sets: error_value_sets, .. }, error_id, non_error, non_error_id)
+                    | (non_error, non_error_id, Value { kind: ValueKind::Error, value_sets: error_value_sets, .. }, error_id) => {
                         non_error.value_sets.make_erroneous(&mut self.value_sets);
                         error_value_sets.make_erroneous(&mut self.value_sets);
-
-                        // @Correctness: I want to figure out what to do with the children of errors, but for now I'm not going to worry
-                        // too much about it.
-                        match &non_error.kind {
-                            ValueKind::Error {
-                                types: other_error_types,
-                                access: other_error_access,
-                                values: other_error_values,
-                            } => {
-                                // @Duplicate code with below, probably extract this into a function later
-                                for ((type_, args), other_reasons) in other_error_types {
-                                    let type_ = (type_.clone(), *args);
-
-                                    let mut found = false;
-                                    for (error_type, reasons) in &mut error_types {
-                                        if *error_type == type_ {
-                                            reasons.take_reasons_from(&other_reasons);
-                                            found = true;
-                                            break;
-                                        }
-                                    }
-
-                                    if !found {
-                                        error_types.push((type_, other_reasons.clone()));
-                                    }
-                                }
-
-                                error_access.combine_with(&mut other_error_access.clone(), Variance::Invariant);
-
-                                match (&mut error_values, &other_error_values) {
-                                    (None, None) => {}
-                                    (Some(_), None) => {}
-                                    (None, Some(other_error_values)) => error_values = Some(other_error_values.clone()),
-                                    (Some(error_values), Some(other_error_values)) => {
-                                        for (constant_ref, reasons) in &other_error_values.values {
-                                            if let Some((_, existing_reasons)) = error_values.values.iter_mut().find(|(v, _)| *v == *constant_ref) {
-                                                existing_reasons.take_reasons_from(reasons);
-                                            } else {
-                                                error_values.values.push((*constant_ref, reasons.clone()));
-                                            }
-                                        }
-
-                                        insert_active_constraint(
-                                            &mut self.constraints,
-                                            &mut self.available_constraints,
-                                            &mut self.queued_constraints,
-                                            Constraint::equal(error_values.type_, other_error_values.type_, variance),
-                                        );
-                                    }
-                                }
-                            }
-                            ValueKind::Type(Some(Type { kind: type_, args })) => {
-                                let type_ = (type_.clone(), args.as_ref().map(|v| v.len()));
-
-                                let mut found = false;
-                                for (error_type, reasons) in &mut error_types {
-                                    if *error_type == type_ {
-                                        reasons.take_reasons_from(&non_error.reasons);
-                                        found = true;
-                                        break;
-                                    }
-                                }
-
-                                if !found {
-                                    error_types.push((type_, non_error.reasons.clone()));
-                                }
-                            }
-                            ValueKind::Access(Some(access)) => {
-                                error_access.combine_with(&mut access.clone(), Variance::Invariant);
-                            }
-                            ValueKind::Value(Some(value)) => {
-                                if let Some(error_values) = &mut error_values {
-                                    if let Some(constant_ref) = value.value {
-                                        if let Some((_, reasons)) = error_values.values.iter_mut().find(|(v, _)| *v == constant_ref) {
-                                            reasons.take_reasons_from(&non_error.reasons);
-                                        } else {
-                                            error_values.values.push((constant_ref, non_error.reasons.clone()));
-                                        }
-                                    }
-
-                                    insert_active_constraint(
-                                        &mut self.constraints,
-                                        &mut self.available_constraints,
-                                        &mut self.queued_constraints,
-                                        Constraint::equal(error_values.type_, value.type_, variance),
-                                    );
-                                } else {
-                                    unreachable!("For now, we cannot deal with errors between values and non-values");
-                                }
-                            }
-                            _ => {}
-                        }
 
                         // @Duplicate code with the invariance optimization below, we could probably join them
                         // together somehow.
@@ -1864,10 +1513,9 @@ impl TypeSystem {
                         }
 
                         *a_value = Value {
-                            kind: ValueKind::Error { types: error_types, access: error_access, values: error_values },
+                            kind: ValueKind::Error,
                             // The value sets of the errors are already set as erroneous, so it doesn't matter that this one is empty.
                             value_sets: ValueSetHandles::already_complete(),
-                            reasons: Reasons::default(),
                         };
 
                         *b_maybe_moved_value = MaybeMovedValue::Moved(a_id);
@@ -1917,8 +1565,6 @@ impl TypeSystem {
                             let a_temp = (base_a.clone(), a_type.args.as_ref().map(|v| v.len()));
                             let b_temp = (base_b.clone(), b_type.args.as_ref().map(|v| v.len()));
 
-                            let reasons = vec![(a_temp, a_value.reasons.clone()), (b_temp, b_value.reasons.clone())];
-
                             a_value.value_sets.make_erroneous(&mut self.value_sets);
                             b_value.value_sets.make_erroneous(&mut self.value_sets);
 
@@ -1952,9 +1598,8 @@ impl TypeSystem {
                             }
 
                             self.values[a_id] = MaybeMovedValue::Value(Value {
-                                kind: ValueKind::Error { types: reasons, access: Access::default(), values: None },
+                                kind: ValueKind::Error,
                                 value_sets: ValueSetHandles::already_complete(),
-                                reasons: Reasons::default(),
                             });
                             self.values[b_id] = MaybeMovedValue::Moved(a_id);
                             return;
@@ -1999,7 +1644,6 @@ impl TypeSystem {
                                     let kind = variant_value.kind.to_unknown();
                                     let new_value = Value {
                                         kind,
-                                        reasons: Reasons::default(),
                                         value_sets: base_value_sets.clone(&mut self.value_sets, false),
                                     };
                                     self.values.push(MaybeMovedValue::Value(new_value));
@@ -2126,32 +1770,14 @@ impl TypeSystem {
                                 );
                             }
                         }
-
-                        // @Duplicate code: with stuff above.
-                        // @Performance: Could be unreachable_unchecked in the future....
-                        let (a_slice, b_slice) = self.values.split_at_mut(b_id);
-                        let MaybeMovedValue::Value(Value { reasons: a_reasons, .. }) = &mut a_slice[a_id] else {
-                            unreachable!("It shouldn't be possible for the value of an equal constraint to be aliased")
-                        };
-                        let MaybeMovedValue::Value(Value { reasons: b_reasons, .. }) = &mut b_slice[0] else {
-                            unreachable!("It shouldn't be possible for the value of an equal constraint to be aliased")
-                        };
-                        // Combine the error message reasons for why these values are the way they are.
-                        // It has to be down here so that it doesn't happen if there are any errors with the
-                        // equality.
-                        a_reasons.combine(b_reasons);
                     }
 
-                    (Value { kind: ValueKind::Value(a), value_sets: a_value_sets, reasons: a_reasons ,.. }, _, Value { kind: ValueKind::Value(b), value_sets: b_value_sets, reasons: b_reasons, .. }, _) => {
+                    (Value { kind: ValueKind::Value(a), value_sets: a_value_sets, .. }, _, Value { kind: ValueKind::Value(b), value_sets: b_value_sets, .. }, _) => {
                         match (&mut *a, &mut *b) {
                             (None, None) => {},
                             (Some(a), None) => {
                                 if a.value.is_some() {
                                     b_value_sets.complete(&mut self.value_sets);
-                                    if a_reasons.combine(b_reasons) {
-                                        progress[0] = true;
-                                        progress[1] = true;
-                                    }
                                 }
                                 // @Correctness: Should this type be a part of the current value set?
                                 // @Cleanup: This is from a self.values.len() call further up, no elements have been
@@ -2179,10 +1805,6 @@ impl TypeSystem {
                             (None, Some(b)) => {
                                 if b.value.is_some() {
                                     a_value_sets.complete(&mut self.value_sets);
-                                    if a_reasons.combine(b_reasons) {
-                                        progress[0] = true;
-                                        progress[1] = true;
-                                    }
                                 }
                                 // @Correctness: Should this type be a part of the current value set?
                                 // @Cleanup: This is from a self.values.len() call further up, no elements have been
@@ -2217,45 +1839,23 @@ impl TypeSystem {
                                         *b_value = Some(*a_value);
                                         b_value_sets.complete(&mut self.value_sets);
                                         progress[1] = true;
-                                        if a_reasons.combine(b_reasons) {
-                                            progress[0] = true;
-                                            progress[1] = true;
-                                        }
                                     }
                                     (a_value @ None, Some(b_value)) => {
                                         *a_value = Some(*b_value);
                                         a_value_sets.complete(&mut self.value_sets);
                                         progress[1] = true;
-                                        if a_reasons.combine(b_reasons) {
-                                            progress[0] = true;
-                                            progress[1] = true;
-                                        }
                                     }
                                     (Some(a_constant), Some(b_constant)) => {
                                         if *a_constant != *b_constant {
                                             let a_constant = *a_constant;
-                                            let reasons = a_reasons.clone();
                                             a_value.value_sets.make_erroneous(&mut self.value_sets);
                                             *a_value = Value {
-                                                kind: ValueKind::Error {
-                                                    types: Vec::new(),
-                                                    access: Access::default(),
-                                                    values: Some(ValueError {
-                                                        type_: a_type,
-                                                        values: vec![(a_constant, reasons)],
-                                                    }),
-                                                },
+                                                kind: ValueKind::Error,
                                                 value_sets: ValueSetHandles::already_complete(),
-                                                reasons: Reasons::default(),
                                             };
                                             // @HACK: I do this so I don't have to do some annoying manipulation more than necessary,
                                             // this should not actually be done.
                                             self.queued_constraints.push(constraint_id);
-                                        } else {
-                                            if a_reasons.combine(b_reasons) {
-                                                progress[0] = true;
-                                                progress[1] = true;
-                                            }
                                         }
                                     }
                                 }
@@ -2274,25 +1874,22 @@ impl TypeSystem {
                             Access::default()
                         });
 
-                        let different = a.combine_with(b, variance);
+                        let old = (*a, *b);
+                        a.combine_with(b, variance);
+                        let different = (*a, *b) != old;
 
                         progress[0] = different;
                         progress[1] = different;
 
-                        if a.needs_write() && a.cannot_write.is_some() || a.needs_read() && a.cannot_read.is_some()
-                        || b.needs_write() && b.cannot_write.is_some() || b.needs_read() && b.cannot_read.is_some() {
+                        if a.needs_write() && a.cannot_write() || a.needs_read() && a.cannot_read()
+                        || b.needs_write() && b.cannot_write() || b.needs_read() && b.cannot_read() {
                             a.combine_with(b, Variance::Invariant);
                             let access = a.clone();
                             let value = get_value_mut(&mut self.values, a_id);
                             value.value_sets.make_erroneous(&mut self.value_sets);
                             *value = Value {
-                                kind: ValueKind::Error {
-                                    types: Vec::new(),
-                                    access,
-                                    values: None,
-                                },
+                                kind: ValueKind::Error,
                                 value_sets: ValueSetHandles::already_complete(),
-                                reasons: Reasons::default(),
                             };
                             // @HACK: I do this so I don't have to do some annoying manipulation more than necessary,
                             // this should not actually be done.
@@ -2344,12 +1941,11 @@ impl TypeSystem {
         }
     }
 
-    pub fn add(&mut self, value: ValueKind, set: ValueSetId, reason: Reason) -> ValueId {
+    pub fn add(&mut self, value: ValueKind, set: ValueSetId) -> ValueId {
         let id = self.values.len();
         let value_sets = self.value_sets.with_one(set, value.is_complete());
         self.values.push(MaybeMovedValue::Value(Value {
             kind: value,
-            reasons: Reasons::with_one(reason),
             value_sets,
         }));
         id
@@ -2361,7 +1957,6 @@ impl TypeSystem {
         let id = self.values.len();
         self.values.push(MaybeMovedValue::Value(Value {
             kind: value,
-            reasons: Reasons::default(),
             value_sets,
         }));
         id
@@ -2386,46 +1981,45 @@ impl TypeSystem {
         let id = self.values.len();
         self.values.push(MaybeMovedValue::Value(Value {
             kind: ValueKind::Type(None),
-            reasons: Reasons::default(),
             value_sets: self.value_sets.with_one(set, false),
         }));
         id
     }
 
-    pub fn add_compiler_type(&mut self, type_: types::Type, set: ValueSetId, reason: Reason) -> ValueId {
+    pub fn add_compiler_type(&mut self, type_: types::Type, set: ValueSetId) -> ValueId {
         match *type_.kind() {
             types::TypeKind::Function { ref args, returns } => {
                 let mut new_args = Vec::with_capacity(args.len() + 1);
 
                 // @TODO: We should append the sub-expression used to the reason as well.
-                new_args.push(self.add_compiler_type(returns, set, reason.clone()));
+                new_args.push(self.add_compiler_type(returns, set));
 
                 for &arg in args {
-                    new_args.push(self.add_compiler_type(arg, set, reason.clone()));
+                    new_args.push(self.add_compiler_type(arg, set));
                 }
 
-                self.add_type(TypeKind::Function, &new_args[..], set, reason)
+                self.add_type(TypeKind::Function, &new_args[..], set)
             }
             types::TypeKind::Int(int_type_kind) => {
                 let v = self.add_unknown_type();
-                self.set_int(v, int_type_kind, set, reason);
+                self.set_int(v, int_type_kind, set);
                 v
             }
-            types::TypeKind::Empty => self.add_type(TypeKind::Empty, [], set, reason),
-            types::TypeKind::Bool  => self.add_type(TypeKind::Bool, [], set, reason),
+            types::TypeKind::Empty => self.add_type(TypeKind::Empty, [], set),
+            types::TypeKind::Bool  => self.add_type(TypeKind::Bool, [], set),
             types::TypeKind::Buffer { pointee, permits } => {
                 // @Cleanup: This is ugly!
-                let permits = self.add_access(Some(Access::disallows((!permits.read()).then(|| reason.clone()), (!permits.write()).then(|| reason.clone()))), set, reason.clone());
-                let pointee = self.add_compiler_type(pointee, set, reason.clone());
+                let permits = self.add_access(Some(Access::disallows(!permits.read(), !permits.write())), set);
+                let pointee = self.add_compiler_type(pointee, set);
 
-                self.add_type(TypeKind::Buffer, [permits, pointee], set, reason)
+                self.add_type(TypeKind::Buffer, [permits, pointee], set)
             }
             types::TypeKind::Reference { pointee, permits } => {
                 // @Cleanup: This is ugly!
-                let permits = self.add_access(Some(Access::disallows((!permits.read()).then(|| reason.clone()), (!permits.write()).then(|| reason.clone()))), set, reason.clone());
-                let pointee = self.add_compiler_type(pointee, set, reason.clone());
+                let permits = self.add_access(Some(Access::disallows(!permits.read(), !permits.write())), set);
+                let pointee = self.add_compiler_type(pointee, set);
 
-                self.add_type(TypeKind::Reference, [permits, pointee], set, reason)
+                self.add_type(TypeKind::Reference, [permits, pointee], set)
             }
             types::TypeKind::Array(type_, length) => {
                 todo!("We need a function for turning a compiler type into an actionable type that also takes the program");
@@ -2435,16 +2029,16 @@ impl TypeSystem {
                 let field_types: Box<[_]> = fields
                     .iter()
                     // @TODO: We should append the sub-expression used to the reason as well.
-                    .map(|&(_, v)| self.add_compiler_type(v, set, reason.clone()))
+                    .map(|&(_, v)| self.add_compiler_type(v, set))
                     .collect();
-                self.add_type(TypeKind::Struct(field_names), field_types, set, reason)
+                self.add_type(TypeKind::Struct(field_names), field_types, set)
             }
             _ => todo!("This compiler type is not done yet"),
         }
     }
 
     #[track_caller]
-    pub fn set_type(&mut self, value_id: ValueId, kind: TypeKind, args: impl IntoBoxSlice<ValueId>, set: impl IntoValueSet, reason: impl IntoReason) -> ValueId {
+    pub fn set_type(&mut self, value_id: ValueId, kind: TypeKind, args: impl IntoBoxSlice<ValueId>, set: impl IntoValueSet) -> ValueId {
         let MaybeMovedValue::Value(value @ Value { kind: ValueKind::Type(None), .. }) = &mut self.values[value_id] else {
             unreachable!("Cannot call set_type on anything other than an unknown type")
         };
@@ -2460,20 +2054,18 @@ impl TypeSystem {
             value.value_sets.complete(&mut self.value_sets);
         }
         value.value_sets.take_from(value_sets, &mut self.value_sets);
-        debug_assert_eq!(value.reasons.count(), 0, "Cannot call set_type on a value with reasons");
-        value.reasons = reason.reasonify();
 
         value_id
     }
 
-    pub fn add_int(&mut self, int_kind: IntTypeKind, set: impl IntoValueSet, reason: impl IntoReason) -> ValueId {
+    pub fn add_int(&mut self, int_kind: IntTypeKind, set: impl IntoValueSet) -> ValueId {
         let id = self.add_unknown_type();
-        self.set_int(id, int_kind, set, reason);
+        self.set_int(id, int_kind, set);
         id
     }
 
     // @Speed: This creates a temporary, but is also a kind of temporary value itself....
-    pub fn set_int(&mut self, value_id: ValueId, int_kind: IntTypeKind, set: impl IntoValueSet, reason: impl IntoReason) {
+    pub fn set_int(&mut self, value_id: ValueId, int_kind: IntTypeKind, set: impl IntoValueSet) {
         let (signed, size) = match int_kind {
             IntTypeKind::U8    => (static_values::FALSE, static_values::ONE),
             IntTypeKind::U16   => (static_values::FALSE, static_values::TWO),
@@ -2487,10 +2079,10 @@ impl TypeSystem {
             IntTypeKind::Isize => (static_values::TRUE,  static_values::POINTER),
         };
 
-        self.set_type(value_id, TypeKind::Int, [signed, size], set, reason);
+        self.set_type(value_id, TypeKind::Int, [signed, size], set);
     }
 
-    pub fn add_type(&mut self, kind: TypeKind, args: impl IntoBoxSlice<ValueId>, set: impl IntoValueSet, reason: impl IntoReason) -> ValueId {
+    pub fn add_type(&mut self, kind: TypeKind, args: impl IntoBoxSlice<ValueId>, set: impl IntoValueSet) -> ValueId {
         let args = args.into_box_slice();
         let is_complete = args.is_some();
         let value_sets = set.add_set(&mut self.value_sets, is_complete);
@@ -2501,7 +2093,6 @@ impl TypeSystem {
                 args,
             })),
             value_sets,
-            reasons: reason.reasonify(),
         }));
         id
     }
@@ -2510,13 +2101,12 @@ impl TypeSystem {
         let id = self.values.len();
         self.values.push(MaybeMovedValue::Value(Value {
             kind: ValueKind::Type(None),
-            reasons: Reasons::default(),
             value_sets: ValueSetHandles::default(),
         }));
         id
     }
 
-    pub fn add_value(&mut self, type_: ValueId, value: impl IntoConstant, set: impl IntoValueSet, reason: impl IntoReason) -> ValueId {
+    pub fn add_value(&mut self, type_: ValueId, value: impl IntoConstant, set: impl IntoValueSet) -> ValueId {
         let value = value.into_constant();
         let is_complete =  value.is_some();
         let value_sets = set.add_set(&mut self.value_sets, is_complete);
@@ -2527,7 +2117,6 @@ impl TypeSystem {
                 value,
             })),
             value_sets,
-            reasons: reason.reasonify(),
         }));
         id
     }
@@ -2536,7 +2125,6 @@ impl TypeSystem {
         let id = self.values.len();
         self.values.push(MaybeMovedValue::Value(Value {
             kind: ValueKind::Access(None),
-            reasons: Reasons::default(),
             value_sets: self.value_sets.with_one(set, false),
         }));
         id
@@ -2546,9 +2134,8 @@ impl TypeSystem {
         &mut self,
         access: Option<Access>,
         set: ValueSetId,
-        reason: Reason,
     ) -> ValueId {
-        self.add(ValueKind::Access(access), set, reason)
+        self.add(ValueKind::Access(access), set)
     }
 }
 

@@ -11,7 +11,9 @@ const slice = fn(buffer: []r u8, start: typeof buffer.len, end: typeof buffer.le
     new
 };
 
-#entry fn() -> u64 {
+#entry fn() -> u64 { 'hi
+    break 'hi 42 : u8;
+
     for c in slice("Hi :) this is a text", 4, 10) {
         let buffer = #0;
         buffer.ptr = c;

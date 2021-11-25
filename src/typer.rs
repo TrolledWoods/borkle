@@ -9,7 +9,7 @@ pub use crate::parser::{ast::Node, ast::NodeId, ast::NodeKind, Ast};
 use crate::program::constant::ConstantRef;
 use crate::program::{MemberMetaData, PolyOrMember, Program, Task};
 use crate::thread_pool::ThreadContext;
-use crate::type_infer::{self, Access, Reason, TypeSystem, ValueSetId, Variance, Type, TypeKind};
+use crate::type_infer::{self, Access, TypeSystem, ValueSetId, Variance, Type, TypeKind};
 use crate::types::{self, IntTypeKind, PtrPermits};
 use std::sync::Arc;
 use std::mem;
@@ -203,7 +203,6 @@ fn emit_execution_context(ctx: &mut Context<'_, '_>, node_id: NodeId, set: Value
                         })),
                         // This value is already complete, so the set doesn't matter
                         set,
-                        Reason::new(ctx.ast.get(len).loc, "the number of elements specified here"),
                     );
                     
                     ctx.infer.set_equal(variable_count, length_value, Variance::Invariant);
@@ -351,7 +350,7 @@ fn build_constraints(
         NodeKind::Empty => {
             // @Performance: We could set the type directly(because no inferrence has happened yet),
             // this is a roundabout way of doing things.
-            let temp = ctx.infer.add_type(type_infer::TypeKind::Empty, [], set, Reason::new(node_loc, "this value is empty"));
+            let temp = ctx.infer.add_type(type_infer::TypeKind::Empty, [], set);
             ctx.infer.set_equal(node_type_id, temp, Variance::Invariant);
         }
         // @Cleanup: We could unify these two nodes probably
@@ -367,7 +366,6 @@ fn build_constraints(
             let type_id = ctx.infer.add_compiler_type(
                 type_,
                 set,
-                Reason::new(node_loc, format!("this global is '{}'", type_)),
             );
 
             ctx.infer.set_equal(node_type_id, type_id, Variance::Invariant);
@@ -401,7 +399,7 @@ fn build_constraints(
             ctx.locals.get_mut(iterator).stack_frame_id = set;
             ctx.locals.get_label_mut(label).stack_frame_id = set;
 
-            ctx.infer.set_int(ctx.locals.get(iteration_var).type_infer_value_id, IntTypeKind::Usize, set, Reason::new(node_loc, "_iters is always usize, for now..."));
+            ctx.infer.set_int(ctx.locals.get(iteration_var).type_infer_value_id, IntTypeKind::Usize, set);
 
             // The type the body returns doesn't matter, since we don't forward it.
             let iterating_type_id = build_constraints(ctx, iterating, set);
@@ -415,7 +413,7 @@ fn build_constraints(
                     ctx.infer.set_equal(label_type_infer_id, else_type, Variance::Invariant);
                 }
                 None => {
-                    let empty_type = ctx.infer.add_type(TypeKind::Empty, [], set, Reason::new(node_loc, "loops without else blocks can only break with the empty value"));
+                    let empty_type = ctx.infer.add_type(TypeKind::Empty, [], set);
                     ctx.infer.set_equal(label_type_infer_id, empty_type, Variance::Invariant);
                 }
             }
@@ -423,30 +421,24 @@ fn build_constraints(
             ctx.infer.set_equal(node_type_id, label_type_infer_id, Variance::Invariant);
         }
         NodeKind::Literal(Literal::Int(_)) => {
-            ctx.infer.set_type(node_type_id, TypeKind::Int, (), set, Reason::new(node_loc, "int literals are integers"));
+            ctx.infer.set_type(node_type_id, TypeKind::Int, (), set);
         }
         NodeKind::Defer { deferring } => {
             build_constraints(ctx, deferring, set);
             let empty_id = ctx.infer.add_type(
                 TypeKind::Empty, [],
                 set,
-                Reason::new(
-                    node_loc,
-                    "this if evaluates to Empty because it doesn't have an else clause",
-                ),
             );
 
             ctx.infer.set_equal(node_type_id, empty_id, Variance::Invariant);
         }
         NodeKind::Literal(Literal::String(ref data)) => {
-            let reason = Reason::new(node_loc, "of this string literal");
             let access = ctx.infer.add_access(
-                Some(type_infer::Access::disallows(None, Some(Reason::new(node_loc, "string literals cannot be written to")))),
+                Some(type_infer::Access::disallows(false, true)),
                 set,
-                reason.clone(),
             );
-            let u8_type = ctx.infer.add_int(IntTypeKind::U8, set, reason.clone());
-            ctx.infer.set_type(node_type_id, TypeKind::Buffer, [access, u8_type], set, reason.clone());
+            let u8_type = ctx.infer.add_int(IntTypeKind::U8, set);
+            ctx.infer.set_type(node_type_id, TypeKind::Buffer, [access, u8_type], set);
 
             let u8_type = types::Type::new(types::TypeKind::Int(IntTypeKind::U8));
             let type_ = types::Type::new(types::TypeKind::Buffer { permits: PtrPermits::READ, pointee: u8_type });
@@ -466,7 +458,7 @@ fn build_constraints(
             // it can continue, so we lock it to make sure it doesn't get emitted before then.
             ctx.infer.value_sets.lock(set);
 
-            ctx.infer.set_type(node_type_id, TypeKind::Function, (), sub_set, Reason::new(node_loc, "this builtin function is a function (surprising!)"));
+            ctx.infer.set_type(node_type_id, TypeKind::Function, (), sub_set);
 
             ctx.ast.get_mut(node_id).kind = NodeKind::BuiltinFunctionInTyping {
                 function,
@@ -483,20 +475,18 @@ fn build_constraints(
                 ctx.infer.set_equal(arg_type_id, inner_type, Variance::Variant);
             }
 
-            let usize = ctx.infer.add_int(IntTypeKind::Usize, set, Reason::new(node_loc, "array lengths are usize"));
+            let usize = ctx.infer.add_int(IntTypeKind::Usize, set);
             let length = ctx.program.insert_buffer(types::Type::new(types::TypeKind::Int(IntTypeKind::Usize)), args.len().to_le_bytes().as_ptr());
 
             let variable_count = ctx.infer.add_value(
                 usize,
                 length,
                 set,
-                Reason::new(node_loc, format!("this array has {} elements", args.len())),
             );
 
             let array_type = ctx.infer.add_type(
                 TypeKind::Array, [inner_type, variable_count],
                 set,
-                Reason::new(node_loc, format!("of this array literal")),
             );
 
             ctx.infer.set_equal(node_type_id, array_type, Variance::Invariant);
@@ -539,7 +529,6 @@ fn build_constraints(
                     args: Some(Box::new([])),
                 })),
                 set,
-                Reason::new(condition_loc, "this if condition has to be a boolean"),
             );
             ctx.infer
                 .set_equal(condition_type_id, condition_type, Variance::Invariant);
@@ -550,10 +539,6 @@ fn build_constraints(
                 None => ctx.infer.add_type(
                     TypeKind::Empty, [],
                     set,
-                    Reason::new(
-                        node_loc,
-                        "this if evaluates to Empty because it doesn't have an else clause",
-                    ),
                 ),
             };
 
@@ -569,15 +554,13 @@ fn build_constraints(
             let operand_type_id = build_constraints(ctx, operand, set);
 
             let access = ctx.infer.add_access(
-                Some(Access::needs(Some(Reason::new(node_loc, "this dereference requires read access")), None)),
+                Some(Access::needs(true, false)),
                 set,
-                Reason::new(node_loc, "Temporary reason for declare until I simplify it"),
             );
             let temp = ctx.infer.add_type(
                 TypeKind::Reference,
                 [access, node_type_id],
                 set,
-                Reason::new(node_loc, "it was dereferenced here"),
             );
             ctx.infer
                 .set_equal(operand_type_id, temp, Variance::Invariant);
@@ -598,7 +581,7 @@ fn build_constraints(
             let len_type_id = build_constraints(&mut sub_ctx, len, sub_set);
             let member_type_id = build_constraints(ctx, members, set);
 
-            let usize_type = ctx.infer.add_int(IntTypeKind::Usize, set, Reason::new(node_loc, "array lengths are usize"));
+            let usize_type = ctx.infer.add_int(IntTypeKind::Usize, set);
 
             ctx.infer.set_equal(usize_type, len_type_id, Variance::Invariant);
 
@@ -623,7 +606,6 @@ fn build_constraints(
                     args: Some(Box::new([member_type_id, length_value])),
                 })),
                 set,
-                Reason::new(node_loc, format!("of this array type")),
             );
 
             ctx.ast.get_mut(node_id).kind = NodeKind::ArrayTypeInTyping {
@@ -687,7 +669,6 @@ fn build_constraints(
             let infer_type_id = ctx.infer.add(
                 infer_type,
                 sub_set,
-                Reason::new(node_loc, "it was declared as a function here"),
             );
             ctx.infer
                 .set_equal(infer_type_id, node_type_id, Variance::Invariant);
@@ -734,7 +715,6 @@ fn build_constraints(
             let type_id = ctx.infer.add(
                 infer_type,
                 set,
-                Reason::new(calling_loc, "it was called here"),
             );
             ctx.infer
                 .set_equal(calling_type_id, type_id, Variance::Invariant);
@@ -755,9 +735,8 @@ fn build_constraints(
             ctx.infer.set_value_set(local.type_infer_value_id, set);
 
             let access = ctx.infer.add_access(
-                Some(Access::needs(None, Some(Reason::new(node_loc, "Temporary reason for declare until I simplify it")))),
+                Some(Access::needs(false, true)),
                 set,
-                Reason::new(node_loc, "Temporary reason for declare until I simplify it"),
             );
             let left_type_id = build_lvalue(ctx, left, access, set);
             let right_type_id = build_constraints(ctx, right, set);
@@ -769,7 +748,6 @@ fn build_constraints(
                 node_type_id,
                 TypeKind::Empty, [],
                 set,
-                Reason::new(node_loc, "declaration return empty, however this reason should never be noticable by a user"),
             );
         }
         NodeKind::Binary {
@@ -778,12 +756,8 @@ fn build_constraints(
             right,
         } => {
             let access = ctx.infer.add_access(
-                Some(Access::needs(None, Some(Reason::new(node_loc, "it is assigned to here")))),
+                Some(Access::needs(false, true)),
                 set,
-                Reason::new(
-                    node_loc,
-                    "assigned here, therefore needs to be a writable value",
-                ),
             );
             let left_type_id = build_lvalue(ctx, left, access, set);
             let right_type_id = build_constraints(ctx, right, set);
@@ -795,7 +769,6 @@ fn build_constraints(
                 node_type_id,
                 TypeKind::Empty, [],
                 set,
-                Reason::new(node_loc, "this assignment returns Empty"),
             );
         }
         NodeKind::Binary { op, left, right } => {
@@ -811,7 +784,6 @@ fn build_constraints(
                 TypeKind::Reference,
                 [access, inner],
                 set,
-                Reason::new(node_loc, "of this reference operation"),
             );
         }
         NodeKind::Block {
@@ -854,7 +826,6 @@ fn build_constraints(
                 node_type_id,
                 TypeKind::Empty, [],
                 set,
-                Reason::new(node_loc, "this break evaluates to an Empty type. Although it will in the future support evaluating to any type, the reason it doesn't is because of type ambiguities that can easily arise.")
             );
         }
         NodeKind::Parenthesis(inner) => {
@@ -871,7 +842,7 @@ fn build_constraints(
                 .set_equal(value_type_id, node_type_id, Variance::Variant);
         }
         NodeKind::LiteralType(type_) => {
-            let compiler_type = ctx.infer.add_compiler_type(type_, set, Reason::new(node_loc, "of this type"));
+            let compiler_type = ctx.infer.add_compiler_type(type_, set);
             ctx.infer.set_equal(node_type_id, compiler_type, Variance::Invariant);
         }
         NodeKind::FunctionType { ref args, returns } => {
@@ -894,7 +865,6 @@ fn build_constraints(
             let infer_type_id = ctx.infer.add(
                 infer_type,
                 set,
-                Reason::new(node_loc, "of this type"),
             );
             ctx.infer
                 .set_equal(infer_type_id, node_type_id, Variance::Invariant);
@@ -914,30 +884,27 @@ fn build_constraints(
                     args: Some(fields),
                 })),
                 set,
-                Reason::new(node_loc, "of this type"),
             );
             ctx.infer.set_equal(node_type_id, temp, Variance::Invariant);
         }
         NodeKind::ReferenceType(inner, permits) => {
             let inner = build_constraints(ctx, inner, set);
             let access = permits_to_access(permits);
-            let access = ctx.infer.add_access(Some(access), set, Reason::new(node_loc, "reference type access blah blah blah this reason shouldn't be seen, it has to be here right now because of technical crap I haven't cleaned up"));
+            let access = ctx.infer.add_access(Some(access), set);
             ctx.infer.set_type(
                 node_type_id,
                 TypeKind::Reference, [access, inner],
                 set,
-                Reason::new(node_loc, "of this reference type"),
             );
         }
         NodeKind::BufferType(inner, permits) => {
             let inner = build_constraints(ctx, inner, set);
             let access = permits_to_access(permits);
-            let access = ctx.infer.add_access(Some(access), set, Reason::new(node_loc, "reference type access blah blah blah this reason shouldn't be seen, it has to be here right now because of technical crap I haven't cleaned up"));
+            let access = ctx.infer.add_access(Some(access), set);
             ctx.infer.set_type(
                 node_type_id,
                 TypeKind::Buffer, [access, inner],
                 set,
-                Reason::new(node_loc, "of this reference type"),
             );
         }
         _ => unimplemented!(
@@ -954,23 +921,6 @@ fn permits_to_access(permits: Option<(Location, PtrPermits)>) -> type_infer::Acc
         type_infer::Access::specific(
             v.read(),
             v.write(),
-            Reason::new(loc, if v.read() {
-                "it's defined as such here"
-            } else {
-                "these permissions don't include readability"
-            }),
-            Reason::new(
-                if v.read() && v.write() {
-                    loc.next_char()
-                } else {
-                    loc
-                },
-                if v.write() {
-                    "it's defined as such here"
-                } else {
-                    "these permissions don't include mutability"
-                },
-            )
         )
     })
 }
@@ -1032,7 +982,6 @@ fn build_lvalue(
                 TypeKind::Reference,
                 [access, node_type_id],
                 set,
-                Reason::new(node_loc, "it is dereferenced here"),
             );
 
             let operand_type_id = build_constraints(ctx, operand, set);
@@ -1043,9 +992,8 @@ fn build_lvalue(
             // Make it a reference to a temporary instead. This forces the pointer to be readonly.
             // @Speed: This could be faster...
             let access_strict = ctx.infer.add_access(
-                Some(type_infer::Access::disallows(None, Some(Reason::new(node_loc, "temporary values are read-only")))),
+                Some(type_infer::Access::disallows(false, true)),
                 set,
-                Reason::new(node_loc, "this isn't acceptable as an lvalue, so it's treated as a temporary value, and temporaries are read-only"),
             );
             ctx.infer
                 .set_equal(access_strict, access, Variance::Invariant);
