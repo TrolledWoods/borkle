@@ -375,12 +375,6 @@ struct Value {
     // related_to_error: bool,
 }
 
-#[derive(Debug)]
-enum MaybeMovedValue {
-    Value(Value),
-    Moved(ValueId),
-}
-
 type ConstraintId = usize;
 
 #[derive(Debug, Clone, Copy)]
@@ -522,49 +516,12 @@ struct VarianceConstraint {
     constraints: Vec<(ConstraintId, Variance)>,
 }
 
-fn get_real_value_id(values: &Vec<MaybeMovedValue>, mut id: ValueId) -> ValueId {
-    while let MaybeMovedValue::Moved(new_id) = values[id] {
-        id = new_id;
-    }
-
-    id
+fn get_value(values: &Vec<Value>, id: ValueId) -> &Value {
+    &values[id]
 }
 
-fn get_value(values: &Vec<MaybeMovedValue>, mut id: ValueId) -> &Value {
-    let MaybeMovedValue::Value(v) = &values[get_real_value_id(values, id)] else {
-        // Safety: Because we called `get_real_value_id` we know that it's not an alias
-        unsafe { unreachable_unchecked() }
-    };
-    v
-}
-
-fn get_unaliased_value(values: &Vec<MaybeMovedValue>, mut id: ValueId) -> &Value {
-    let MaybeMovedValue::Value(v) = &values[id] else {
-        unreachable!("Value has to be unaliased")
-        // I'll do this in release mode later....
-        // // Safety: Because we called `get_real_value_id` we know that it's not an alias
-        // unsafe { unreachable_unchecked() }
-    };
-    v
-}
-
-fn get_value_mut(values: &mut Vec<MaybeMovedValue>, mut id: ValueId) -> &mut Value {
-    let id = get_real_value_id(values, id);
-    let MaybeMovedValue::Value(v) = &mut values[id] else {
-        // Safety: Because we called `get_real_value_id` we know that it's not an alias
-        unsafe { unreachable_unchecked() }
-    };
-    v
-}
-
-fn get_unaliased_value_mut(values: &mut Vec<MaybeMovedValue>, mut id: ValueId) -> &mut Value {
-    let MaybeMovedValue::Value(v) = &mut values[id] else {
-        unreachable!("Value has to be unaliased")
-        // I'll do this in release mode later....
-        // // Safety: Because we called `get_real_value_id` we know that it's not an alias
-        // unsafe { unreachable_unchecked() }
-    };
-    v
+fn get_value_mut(values: &mut Vec<Value>, id: ValueId) -> &mut Value {
+    &mut values[id]
 }
 
 fn insert_constraint(
@@ -671,7 +628,7 @@ fn type_kind_to_str(
 pub struct TypeSystem {
     /// The first few values are always primitive values, with a fixed position, to make them trivial to create.
     /// 0 - Int
-    values: Vec<MaybeMovedValue>,
+    values: Vec<Value>,
 
     pub value_sets: ValueSets,
 
@@ -720,9 +677,7 @@ impl TypeSystem {
     /// Only to be used when generating incompleteness-errors
     pub fn flag_all_values_as_complete(&mut self) {
         for value in &mut self.values {
-            if let MaybeMovedValue::Value(value) = value {
-                value.value_sets.complete(&mut self.value_sets);
-            }
+            value.value_sets.complete(&mut self.value_sets);
         }
     }
 
@@ -732,10 +687,10 @@ impl TypeSystem {
             has_errors = true;
             use std::fmt::Write;
             for value in &self.values {
-                if let MaybeMovedValue::Value(Value {
+                if let Value {
                     kind: ValueKind::Error,
                     ..
-                }) = value {
+                } = value {
                     // TODO: Use the ast node location
                     errors.global_error("Typing error!".to_string());
                 }
@@ -871,9 +826,6 @@ impl TypeSystem {
     }
     
     pub fn set_op_equal(&mut self, op: BinaryOp, a: ValueId, b: ValueId, result: ValueId) {
-        let a = get_real_value_id(&self.values, a);
-        let b = get_real_value_id(&self.values, b);
-        let result = get_real_value_id(&self.values, result);
         insert_active_constraint(
             &mut self.constraints,
             &mut self.available_constraints,
@@ -888,8 +840,6 @@ impl TypeSystem {
     }
 
     pub fn set_equal(&mut self, a: ValueId, b: ValueId, variance: Variance) {
-        let a = get_real_value_id(&self.values, a);
-        let b = get_real_value_id(&self.values, b);
         if a == b {
             return;
         }
@@ -908,8 +858,6 @@ impl TypeSystem {
         b: ValueId,
         variance: Variance,
     ) {
-        let a = get_real_value_id(&self.values, a);
-        let b = get_real_value_id(&self.values, b);
         insert_active_constraint(
             &mut self.constraints,
             &mut self.available_constraints,
@@ -931,8 +879,6 @@ impl TypeSystem {
         b: ValueId,
         variance: Variance,
     ) {
-        let a = get_real_value_id(&self.values, a);
-        let b = get_real_value_id(&self.values, b);
         insert_active_constraint(
             &mut self.constraints,
             &mut self.available_constraints,
@@ -1034,97 +980,94 @@ impl TypeSystem {
         if rec > 7 {
             return "...".to_string();
         }
-        match &self.values[value] {
-            &MaybeMovedValue::Moved(new_index) => self.value_to_str(new_index, rec),
-            MaybeMovedValue::Value(v) => match &v.kind {
-                ValueKind::Access(None) => format!("_"),
-                ValueKind::Error => format!("ERR"),
-                ValueKind::Access(Some(access)) => {
-                    format!(
-                        "{}{}",
-                        match (access.needs_read(), access.needs_write()) {
-                            (true, true) => "rw",
-                            (true, false) => "r",
-                            (false, true) => "w",
-                            (false, false) => "!!",
-                        },
-                        match (
-                            access.cannot_read() && access.needs_read(),
-                            access.cannot_write() && access.needs_write(),
-                        ) {
-                            (true, true) => "-rw",
-                            (true, false) => "-r",
-                            (false, true) => "-w",
-                            (false, false) => "",
-                        },
-                    )
-                }
-                ValueKind::Type(Some(Type { kind: TypeKind::Bool, .. })) => "bool".to_string(),
-                ValueKind::Type(Some(Type { kind: TypeKind::Empty, .. })) => "Empty".to_string(),
-                ValueKind::Type(Some(Type { kind: TypeKind::IntSize, .. })) => "<size of int>".to_string(),
-                ValueKind::Type(None) => "_".to_string(),
-                ValueKind::Value(None) => "_(value)".to_string(),
-                ValueKind::Value(Some(Constant { type_, value: None, .. })) => {
-                    format!("(_: {})", self.value_to_str(*type_, rec + 1))
-                }
-                ValueKind::Value(Some(Constant { type_, value: Some(value), .. })) => {
-                    format!("{}", self.constant_to_str(*type_, *value, rec + 1))
-                }
-                ValueKind::Type(Some(Type { kind, args: None, .. })) => format!("{:?}", kind),
-                ValueKind::Type(Some(Type { kind: TypeKind::Int, args: Some(c) })) => match &**c {
-                    [signed, size] => format!(
-                        "int({}, {})",
-                        self.value_to_str(*signed, rec + 1),
-                        self.value_to_str(*size, rec + 1),
-                    ),
-                    _ => unreachable!("A function pointer type has to have at least a return type"),
-                }
-                ValueKind::Type(Some(Type { kind: TypeKind::Function, args: Some(c) })) => match &**c {
-                    [return_, args @ ..] => format!(
-                        "fn({}) -> {}",
-                        args.iter()
-                            .map(|&v| self.value_to_str(v, rec + 1))
-                            .collect::<Vec<_>>()
-                            .join(", "),
-                        self.value_to_str(*return_, rec + 1),
-                    ),
-                    _ => unreachable!("A function pointer type has to have at least a return type"),
-                },
-                ValueKind::Type(Some(Type { kind: TypeKind::Struct(names), args: Some(c), .. })) => {
-                    let list = names
-                        .iter()
-                        .zip(c.iter())
-                        .map(|(name, type_)| {
-                            format!("{}: {}", name, self.value_to_str(*type_, rec + 1))
-                        })
+        match &self.values[value].kind {
+            ValueKind::Access(None) => format!("_"),
+            ValueKind::Error => format!("ERR"),
+            ValueKind::Access(Some(access)) => {
+                format!(
+                    "{}{}",
+                    match (access.needs_read(), access.needs_write()) {
+                        (true, true) => "rw",
+                        (true, false) => "r",
+                        (false, true) => "w",
+                        (false, false) => "!!",
+                    },
+                    match (
+                        access.cannot_read() && access.needs_read(),
+                        access.cannot_write() && access.needs_write(),
+                    ) {
+                        (true, true) => "-rw",
+                        (true, false) => "-r",
+                        (false, true) => "-w",
+                        (false, false) => "",
+                    },
+                )
+            }
+            ValueKind::Type(Some(Type { kind: TypeKind::Bool, .. })) => "bool".to_string(),
+            ValueKind::Type(Some(Type { kind: TypeKind::Empty, .. })) => "Empty".to_string(),
+            ValueKind::Type(Some(Type { kind: TypeKind::IntSize, .. })) => "<size of int>".to_string(),
+            ValueKind::Type(None) => "_".to_string(),
+            ValueKind::Value(None) => "_(value)".to_string(),
+            ValueKind::Value(Some(Constant { type_, value: None, .. })) => {
+                format!("(_: {})", self.value_to_str(*type_, rec + 1))
+            }
+            ValueKind::Value(Some(Constant { type_, value: Some(value), .. })) => {
+                format!("{}", self.constant_to_str(*type_, *value, rec + 1))
+            }
+            ValueKind::Type(Some(Type { kind, args: None, .. })) => format!("{:?}", kind),
+            ValueKind::Type(Some(Type { kind: TypeKind::Int, args: Some(c) })) => match &**c {
+                [signed, size] => format!(
+                    "int({}, {})",
+                    self.value_to_str(*signed, rec + 1),
+                    self.value_to_str(*size, rec + 1),
+                ),
+                _ => unreachable!("A function pointer type has to have at least a return type"),
+            }
+            ValueKind::Type(Some(Type { kind: TypeKind::Function, args: Some(c) })) => match &**c {
+                [return_, args @ ..] => format!(
+                    "fn({}) -> {}",
+                    args.iter()
+                        .map(|&v| self.value_to_str(v, rec + 1))
                         .collect::<Vec<_>>()
-                        .join(", ");
-                    format!("{{ {} }}", list)
-                }
-                ValueKind::Type(Some(Type { kind: TypeKind::Array, args: Some(c), .. })) => match &**c {
-                    [type_, length] => format!(
-                        "[{}] {}",
-                        self.value_to_str(*length, rec + 1),
-                        self.value_to_str(*type_, rec + 1),
-                    ),
-                    _ => unreachable!("Arrays should only ever have two type parameters"),
-                },
-                ValueKind::Type(Some(Type { kind: TypeKind::Buffer, args: Some(c), .. })) => match &**c {
-                    [mutability, type_] => format!(
-                        "[]{} {}",
-                        self.value_to_str(*mutability, rec + 1),
-                        self.value_to_str(*type_, rec + 1)
-                    ),
-                    _ => unreachable!("Buffers should only ever have two type parameters"),
-                },
-                ValueKind::Type(Some(Type { kind: TypeKind::Reference, args: Some(c), .. })) => match &**c {
-                    [mutability, type_] => format!(
-                        "&{} {}",
-                        self.value_to_str(*mutability, rec + 1),
-                        self.value_to_str(*type_, rec + 1)
-                    ),
-                    _ => unreachable!("References should only ever have two type parameters"),
-                },
+                        .join(", "),
+                    self.value_to_str(*return_, rec + 1),
+                ),
+                _ => unreachable!("A function pointer type has to have at least a return type"),
+            },
+            ValueKind::Type(Some(Type { kind: TypeKind::Struct(names), args: Some(c), .. })) => {
+                let list = names
+                    .iter()
+                    .zip(c.iter())
+                    .map(|(name, type_)| {
+                        format!("{}: {}", name, self.value_to_str(*type_, rec + 1))
+                    })
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                format!("{{ {} }}", list)
+            }
+            ValueKind::Type(Some(Type { kind: TypeKind::Array, args: Some(c), .. })) => match &**c {
+                [type_, length] => format!(
+                    "[{}] {}",
+                    self.value_to_str(*length, rec + 1),
+                    self.value_to_str(*type_, rec + 1),
+                ),
+                _ => unreachable!("Arrays should only ever have two type parameters"),
+            },
+            ValueKind::Type(Some(Type { kind: TypeKind::Buffer, args: Some(c), .. })) => match &**c {
+                [mutability, type_] => format!(
+                    "[]{} {}",
+                    self.value_to_str(*mutability, rec + 1),
+                    self.value_to_str(*type_, rec + 1)
+                ),
+                _ => unreachable!("Buffers should only ever have two type parameters"),
+            },
+            ValueKind::Type(Some(Type { kind: TypeKind::Reference, args: Some(c), .. })) => match &**c {
+                [mutability, type_] => format!(
+                    "&{} {}",
+                    self.value_to_str(*mutability, rec + 1),
+                    self.value_to_str(*type_, rec + 1)
+                ),
+                _ => unreachable!("References should only ever have two type parameters"),
             },
         }
     }
@@ -1322,13 +1265,13 @@ impl TypeSystem {
                                     // are very tightly linked with where they're created, as opposed to Equal.
                                     // And then we can generate a good reason here.
                                     // These reasons aren't correct at all....
-                                    self.values.push(MaybeMovedValue::Value(Value {
+                                    self.values.push(Value {
                                         kind: ValueKind::Type(Some(Type {
                                             kind: TypeKind::Reference,
                                             args: Some(Box::new([mutability, pointee])),
                                         })),
                                         value_sets,
-                                    }));
+                                    });
 
                                     self.set_equal(new_value_id, b_id, variance);
                                 }
@@ -1437,7 +1380,6 @@ impl TypeSystem {
                     ValueKind::Type(None) | ValueKind::Type(Some(Type { args: None, .. })) => {}
                     ValueKind::Type(Some(Type { args: Some(fields), .. })) => {
                         if let Some(&field) = fields.get(field_index) {
-                            let field = get_real_value_id(&self.values, field);
                             insert_active_constraint(
                                 &mut self.constraints,
                                 &mut self.available_constraints,
@@ -1472,14 +1414,8 @@ impl TypeSystem {
                 let values_len = self.values.len();
                 let (a_slice, b_slice) = self.values.split_at_mut(b_id);
                 // @Performance: Could be unreachable_unchecked in the future....
-                let a_maybe_moved_value = &mut a_slice[a_id];
-                let MaybeMovedValue::Value(a_value) = &mut *a_maybe_moved_value else {
-                    unreachable!("It shouldn't be possible for the value of an equal constraint to be aliased {:?}", self.values[a_id])
-                };
-                let b_maybe_moved_value = &mut b_slice[0];
-                let MaybeMovedValue::Value(b_value) = &mut *b_maybe_moved_value else {
-                    unreachable!("It shouldn't be possible for the value of an equal constraint to be aliased {:?}", self.values[b_id])
-                };
+                let a_value = &mut a_slice[a_id];
+                let b_value = &mut b_slice[0];
 
                 use ErrorKind::*;
                 match (&mut *a_value, a_id, &mut *b_value, b_id) {
@@ -1518,7 +1454,10 @@ impl TypeSystem {
                             value_sets: ValueSetHandles::already_complete(),
                         };
 
-                        *b_maybe_moved_value = MaybeMovedValue::Moved(a_id);
+                        *b_value = Value {
+                            kind: ValueKind::Error,
+                            value_sets: ValueSetHandles::already_complete(),
+                        };
 
                         if let Some(available_constraints) = self.available_constraints.get_mut(&a_id) {
                             available_constraints.retain(|&constraint| {
@@ -1597,11 +1536,14 @@ impl TypeSystem {
                                 }
                             }
 
-                            self.values[a_id] = MaybeMovedValue::Value(Value {
+                            self.values[a_id] = Value {
                                 kind: ValueKind::Error,
                                 value_sets: ValueSetHandles::already_complete(),
-                            });
-                            self.values[b_id] = MaybeMovedValue::Moved(a_id);
+                            };
+                            self.values[b_id] = Value {
+                                kind: ValueKind::Error,
+                                value_sets: ValueSetHandles::already_complete(),
+                            };
                             return;
                         }
 
@@ -1635,8 +1577,7 @@ impl TypeSystem {
 
                                 let variant_fields = known.clone();
 
-                                // @Speed: Could be a direct access of the value.
-                                let base_value = get_unaliased_value_mut(&mut self.values, unknown_id);
+                                let base_value = get_value_mut(&mut self.values, unknown_id);
                                 let mut base_value_sets = base_value.value_sets.take();
 
                                 for &v in variant_fields.iter() {
@@ -1646,11 +1587,11 @@ impl TypeSystem {
                                         kind,
                                         value_sets: base_value_sets.clone(&mut self.value_sets, false),
                                     };
-                                    self.values.push(MaybeMovedValue::Value(new_value));
+                                    self.values.push(new_value);
                                 }
 
                                 base_value_sets.complete(&mut self.value_sets);
-                                get_unaliased_value_mut(&mut self.values, unknown_id).value_sets.set_to(base_value_sets);
+                                get_value_mut(&mut self.values, unknown_id).value_sets.set_to(base_value_sets);
                             }
                             (Some(_), _, _, Some(_), _, _) => {}
                         };
@@ -1688,11 +1629,6 @@ impl TypeSystem {
                                         variance.invert(),
                                     )
                                 };
-
-                            let a_access_id = get_real_value_id(&self.values, a_access_id);
-                            let b_access_id = get_real_value_id(&self.values, b_access_id);
-                            let a_inner = get_real_value_id(&self.values, a_inner);
-                            let b_inner = get_real_value_id(&self.values, b_inner);
 
                             let variance_constraint = self
                                 .variance_updates
@@ -1738,15 +1674,13 @@ impl TypeSystem {
                                 &mut self.available_constraints,
                                 &mut self.queued_constraints,
                                 Constraint::equal(
-                                    get_real_value_id(&self.values, a_fields[0]),
-                                    get_real_value_id(&self.values, b_fields[0]),
+                                    a_fields[0],
+                                    b_fields[0],
                                     variance,
                                 ),
                             );
                             for (&a_field, &b_field) in a_fields[1..].iter().zip(&b_fields[1..])
                             {
-                                let a_field = get_real_value_id(&self.values, a_field);
-                                let b_field = get_real_value_id(&self.values, b_field);
                                 insert_active_constraint(
                                     &mut self.constraints,
                                     &mut self.available_constraints,
@@ -1757,8 +1691,6 @@ impl TypeSystem {
                         } else {
                             // Now, we want to apply equality to all the fields as well.
                             for (&a_field, &b_field) in a_fields.iter().zip(&**b_fields) {
-                                let a_field = get_real_value_id(&self.values, a_field);
-                                let b_field = get_real_value_id(&self.values, b_field);
                                 // @Improvement: Later, variance should be definable in a much more generic way(for generic types).
                                 // In a generic type, you could paramaterize the mutability of something, which might then influence
                                 // the variance of other parameters.
@@ -1944,10 +1876,10 @@ impl TypeSystem {
     pub fn add(&mut self, value: ValueKind, set: ValueSetId) -> ValueId {
         let id = self.values.len();
         let value_sets = self.value_sets.with_one(set, value.is_complete());
-        self.values.push(MaybeMovedValue::Value(Value {
+        self.values.push(Value {
             kind: value,
             value_sets,
-        }));
+        });
         id
     }
 
@@ -1955,10 +1887,10 @@ impl TypeSystem {
         // @Cleanup: We could clean this up by having a concept of "complete" and "incomplete" values.
         let value_sets = self.value_sets.with_one(set, value.is_complete());
         let id = self.values.len();
-        self.values.push(MaybeMovedValue::Value(Value {
+        self.values.push(Value {
             kind: value,
             value_sets,
-        }));
+        });
         id
     }
 
@@ -1966,9 +1898,7 @@ impl TypeSystem {
     /// in debug mode. It also cannot be an alias. This is solely intended for use by the building
     /// process of the typer.
     pub fn set_value_set(&mut self, value_id: ValueId, value_set_id: ValueSetId) {
-        let MaybeMovedValue::Value(value) = &mut self.values[value_id] else {
-            unreachable!("Cannot call set_value_set on an alias")
-        };
+        let value = &mut self.values[value_id];
 
         // There can be no children, this function shouldn't have to recurse.
         debug_assert!(matches!(value.kind, ValueKind::Type(None)));
@@ -1979,10 +1909,10 @@ impl TypeSystem {
 
     pub fn add_unknown_type_with_set(&mut self, set: ValueSetId) -> ValueId {
         let id = self.values.len();
-        self.values.push(MaybeMovedValue::Value(Value {
+        self.values.push(Value {
             kind: ValueKind::Type(None),
             value_sets: self.value_sets.with_one(set, false),
-        }));
+        });
         id
     }
 
@@ -2039,7 +1969,7 @@ impl TypeSystem {
 
     #[track_caller]
     pub fn set_type(&mut self, value_id: ValueId, kind: TypeKind, args: impl IntoBoxSlice<ValueId>, set: impl IntoValueSet) -> ValueId {
-        let MaybeMovedValue::Value(value @ Value { kind: ValueKind::Type(None), .. }) = &mut self.values[value_id] else {
+        let value @ Value { kind: ValueKind::Type(None), .. } = &mut self.values[value_id] else {
             unreachable!("Cannot call set_type on anything other than an unknown type")
         };
 
@@ -2087,22 +2017,22 @@ impl TypeSystem {
         let is_complete = args.is_some();
         let value_sets = set.add_set(&mut self.value_sets, is_complete);
         let id = self.values.len();
-        self.values.push(MaybeMovedValue::Value(Value {
+        self.values.push(Value {
             kind: ValueKind::Type(Some(Type {
                 kind,
                 args,
             })),
             value_sets,
-        }));
+        });
         id
     }
 
     pub fn add_unknown_type(&mut self) -> ValueId {
         let id = self.values.len();
-        self.values.push(MaybeMovedValue::Value(Value {
+        self.values.push(Value {
             kind: ValueKind::Type(None),
             value_sets: ValueSetHandles::default(),
-        }));
+        });
         id
     }
 
@@ -2111,22 +2041,22 @@ impl TypeSystem {
         let is_complete =  value.is_some();
         let value_sets = set.add_set(&mut self.value_sets, is_complete);
         let id = self.values.len();
-        self.values.push(MaybeMovedValue::Value(Value {
+        self.values.push(Value {
             kind: ValueKind::Value(Some(Constant {
                 type_,
                 value,
             })),
             value_sets,
-        }));
+        });
         id
     }
 
     pub fn add_empty_access(&mut self, set: ValueSetId) -> ValueId {
         let id = self.values.len();
-        self.values.push(MaybeMovedValue::Value(Value {
+        self.values.push(Value {
             kind: ValueKind::Access(None),
             value_sets: self.value_sets.with_one(set, false),
-        }));
+        });
         id
     }
 
@@ -2167,7 +2097,7 @@ fn run_variance_constraint(
     constraint: &mut VarianceConstraint,
     a: ValueId,
     b: ValueId,
-    values: &Vec<MaybeMovedValue>,
+    values: &Vec<Value>,
     constraints: &mut Vec<Constraint>,
     available_constraints: &mut HashMap<ValueId, Vec<ConstraintId>>,
     queued_constraints: &mut Vec<ConstraintId>,
