@@ -364,8 +364,6 @@ impl ValueKind {
     }
 }
 
-pub type ValueId = usize;
-
 #[derive(Debug)]
 struct Value {
     kind: ValueKind,
@@ -516,12 +514,13 @@ struct VarianceConstraint {
     constraints: Vec<(ConstraintId, Variance)>,
 }
 
-fn get_value(values: &Vec<Value>, id: ValueId) -> &Value {
-    &values[id]
+// Temporary, until we move to calling values.get immediately.
+fn get_value(values: &Values, id: ValueId) -> &Value {
+    values.get(id)
 }
 
-fn get_value_mut(values: &mut Vec<Value>, id: ValueId) -> &mut Value {
-    &mut values[id]
+fn get_value_mut(values: &mut Values, id: ValueId) -> &mut Value {
+    values.get_mut(id)
 }
 
 fn insert_constraint(
@@ -625,10 +624,60 @@ fn type_kind_to_str(
     }
 }
 
+pub type ValueId = usize;
+
+struct Values {
+    values: Vec<Value>,
+}
+
+impl Values {
+    fn new() -> Self {
+        Self {
+            values: Vec::with_capacity(32),
+        }
+    }
+
+    fn add(&mut self, value: Value) -> ValueId {
+        let id = self.values.len();
+        self.values.push(value);
+        id
+    }
+
+    fn iter(&self) -> impl Iterator<Item = &Value> {
+        self.values.iter()
+    }
+
+    fn iter_mut(&mut self) -> impl Iterator<Item = &mut Value> {
+        self.values.iter_mut()
+    }
+
+    fn get(&self, id: ValueId) -> &Value {
+        &self.values[id]
+    }
+
+    fn get_mut(&mut self, id: ValueId) -> &mut Value {
+        &mut self.values[id]
+    }
+
+    /// Returns the value id that will returned by the next call to `add`
+    fn next_value_id(&self) -> ValueId {
+        self.values.len()
+    }
+
+    fn get_disjoint_mut(&mut self, a: ValueId, b: ValueId) -> (&mut Value, &mut Value) {
+        debug_assert_ne!(a, b, "Cannot call get_disjoint_mut on the same values");
+        debug_assert!(a < b, "When calling get_disjoint_mut, a has to be less than b");
+
+        let (section_a, section_b) = self.values.split_at_mut(b);
+
+        (&mut section_a[a], &mut section_b[0])
+    }
+}
+
 pub struct TypeSystem {
     /// The first few values are always primitive values, with a fixed position, to make them trivial to create.
     /// 0 - Int
-    values: Vec<Value>,
+    values: Values,
 
     pub value_sets: ValueSets,
 
@@ -649,7 +698,7 @@ impl TypeSystem {
         let bool_type = crate::types::Type::new(crate::types::TypeKind::Bool);
 
         let mut this = Self {
-            values: Vec::with_capacity(32),
+            values: Values::new(),
             value_sets: ValueSets::default(),
             variance_updates: HashMap::new(),
             constraints: Vec::new(),
@@ -676,7 +725,7 @@ impl TypeSystem {
 
     /// Only to be used when generating incompleteness-errors
     pub fn flag_all_values_as_complete(&mut self) {
-        for value in &mut self.values {
+        for value in self.values.iter_mut() {
             value.value_sets.complete(&mut self.value_sets);
         }
     }
@@ -686,7 +735,7 @@ impl TypeSystem {
         if self.value_sets.iter().any(|v| v.has_errors) {
             has_errors = true;
             use std::fmt::Write;
-            for value in &self.values {
+            for value in self.values.iter() {
                 if let Value {
                     kind: ValueKind::Error,
                     ..
@@ -980,7 +1029,7 @@ impl TypeSystem {
         if rec > 7 {
             return "...".to_string();
         }
-        match &self.values[value].kind {
+        match &self.values.get(value).kind {
             ValueKind::Access(None) => format!("_"),
             ValueKind::Error => format!("ERR"),
             ValueKind::Access(Some(access)) => {
@@ -1132,8 +1181,9 @@ impl TypeSystem {
 
     pub fn print_state(&self) {
         println!("Values:");
-        for i in 0..self.values.len() {
-            println!("{}: {}, {}", i, get_value(&self.values, i).value_sets.is_complete(), self.value_to_str(i, 0));
+        // @Volatile: If we change how value ids work, this will no longer work.
+        for (i, v) in self.values.iter().enumerate() {
+            println!("{}: {}, {}", i, v.value_sets.is_complete(), self.value_to_str(i, 0));
         }
         println!();
 
@@ -1259,13 +1309,12 @@ impl TypeSystem {
 
                                     // @Performance: This is mega-spam of values, we want to later cache this value
                                     // so we don't have to re-add it over and over.
-                                    let new_value_id = self.values.len();
                                     let mut value_sets = a.value_sets.clone(&mut self.value_sets, true);
                                     // @TODO: We want EqualNamedField constraints to store locations, since these constraints
                                     // are very tightly linked with where they're created, as opposed to Equal.
                                     // And then we can generate a good reason here.
                                     // These reasons aren't correct at all....
-                                    self.values.push(Value {
+                                    let new_value_id = self.values.add(Value {
                                         kind: ValueKind::Type(Some(Type {
                                             kind: TypeKind::Reference,
                                             args: Some(Box::new([mutability, pointee])),
@@ -1280,7 +1329,6 @@ impl TypeSystem {
                                 // @Performance: This is mega-spam of values, we want to later cache this value
                                 // so we don't have to re-add it over and over.
 
-                                let new_value_id = self.values.len();
                                 let value_sets = a.value_sets.clone(&mut self.value_sets, true);
                                 // @TODO: We want EqualNamedField constraints to store locations, since these constraints
                                 // are very tightly linked with where they're created, as opposed to Equal.
@@ -1409,13 +1457,8 @@ impl TypeSystem {
                 values: [a_id, b_id],
                 variance,
             } => {
-                debug_assert!(a_id < b_id);
-
-                let values_len = self.values.len();
-                let (a_slice, b_slice) = self.values.split_at_mut(b_id);
-                // @Performance: Could be unreachable_unchecked in the future....
-                let a_value = &mut a_slice[a_id];
-                let b_value = &mut b_slice[0];
+                let values_len = self.values.next_value_id();
+                let (a_value, b_value) = self.values.get_disjoint_mut(a_id, b_id);
 
                 use ErrorKind::*;
                 match (&mut *a_value, a_id, &mut *b_value, b_id) {
@@ -1536,11 +1579,11 @@ impl TypeSystem {
                                 }
                             }
 
-                            self.values[a_id] = Value {
+                            *self.values.get_mut(a_id) = Value {
                                 kind: ValueKind::Error,
                                 value_sets: ValueSetHandles::already_complete(),
                             };
-                            self.values[b_id] = Value {
+                            *self.values.get_mut(b_id) = Value {
                                 kind: ValueKind::Error,
                                 value_sets: ValueSetHandles::already_complete(),
                             };
@@ -1572,8 +1615,7 @@ impl TypeSystem {
                                 // before writing to values. After that we have to recompute the references
                                 // since they may have moved if the vector grew (one of the cases where
                                 // the borrow checker was right!)
-                                *unknown =
-                                    Some((0..known.len()).map(|v| v + values_len).collect());
+                                *unknown = Some((values_len .. values_len + known.len()).collect());
 
                                 let variant_fields = known.clone();
 
@@ -1587,7 +1629,7 @@ impl TypeSystem {
                                         kind,
                                         value_sets: base_value_sets.clone(&mut self.value_sets, false),
                                     };
-                                    self.values.push(new_value);
+                                    self.values.add(new_value);
                                 }
 
                                 base_value_sets.complete(&mut self.value_sets);
@@ -1874,31 +1916,27 @@ impl TypeSystem {
     }
 
     pub fn add(&mut self, value: ValueKind, set: ValueSetId) -> ValueId {
-        let id = self.values.len();
         let value_sets = self.value_sets.with_one(set, value.is_complete());
-        self.values.push(Value {
+        self.values.add(Value {
             kind: value,
             value_sets,
-        });
-        id
+        })
     }
 
     pub fn add_without_reason(&mut self, value: ValueKind, set: ValueSetId) -> ValueId {
         // @Cleanup: We could clean this up by having a concept of "complete" and "incomplete" values.
         let value_sets = self.value_sets.with_one(set, value.is_complete());
-        let id = self.values.len();
-        self.values.push(Value {
+        self.values.add(Value {
             kind: value,
             value_sets,
-        });
-        id
+        })
     }
 
     /// Adds a value set to a value. This value has to be an unknown type, otherwise it will panic
     /// in debug mode. It also cannot be an alias. This is solely intended for use by the building
     /// process of the typer.
     pub fn set_value_set(&mut self, value_id: ValueId, value_set_id: ValueSetId) {
-        let value = &mut self.values[value_id];
+        let value = self.values.get_mut(value_id);
 
         // There can be no children, this function shouldn't have to recurse.
         debug_assert!(matches!(value.kind, ValueKind::Type(None)));
@@ -1908,12 +1946,10 @@ impl TypeSystem {
     }
 
     pub fn add_unknown_type_with_set(&mut self, set: ValueSetId) -> ValueId {
-        let id = self.values.len();
-        self.values.push(Value {
+        self.values.add(Value {
             kind: ValueKind::Type(None),
             value_sets: self.value_sets.with_one(set, false),
-        });
-        id
+        })
     }
 
     pub fn add_compiler_type(&mut self, type_: types::Type, set: ValueSetId) -> ValueId {
@@ -1969,7 +2005,7 @@ impl TypeSystem {
 
     #[track_caller]
     pub fn set_type(&mut self, value_id: ValueId, kind: TypeKind, args: impl IntoBoxSlice<ValueId>, set: impl IntoValueSet) -> ValueId {
-        let value @ Value { kind: ValueKind::Type(None), .. } = &mut self.values[value_id] else {
+        let value @ Value { kind: ValueKind::Type(None), .. } = self.values.get_mut(value_id) else {
             unreachable!("Cannot call set_type on anything other than an unknown type")
         };
 
@@ -2016,48 +2052,40 @@ impl TypeSystem {
         let args = args.into_box_slice();
         let is_complete = args.is_some();
         let value_sets = set.add_set(&mut self.value_sets, is_complete);
-        let id = self.values.len();
-        self.values.push(Value {
+        self.values.add(Value {
             kind: ValueKind::Type(Some(Type {
                 kind,
                 args,
             })),
             value_sets,
-        });
-        id
+        })
     }
 
     pub fn add_unknown_type(&mut self) -> ValueId {
-        let id = self.values.len();
-        self.values.push(Value {
+        self.values.add(Value {
             kind: ValueKind::Type(None),
             value_sets: ValueSetHandles::default(),
-        });
-        id
+        })
     }
 
     pub fn add_value(&mut self, type_: ValueId, value: impl IntoConstant, set: impl IntoValueSet) -> ValueId {
         let value = value.into_constant();
         let is_complete =  value.is_some();
         let value_sets = set.add_set(&mut self.value_sets, is_complete);
-        let id = self.values.len();
-        self.values.push(Value {
+        self.values.add(Value {
             kind: ValueKind::Value(Some(Constant {
                 type_,
                 value,
             })),
             value_sets,
-        });
-        id
+        })
     }
 
     pub fn add_empty_access(&mut self, set: ValueSetId) -> ValueId {
-        let id = self.values.len();
-        self.values.push(Value {
+        self.values.add(Value {
             kind: ValueKind::Access(None),
             value_sets: self.value_sets.with_one(set, false),
-        });
-        id
+        })
     }
 
     pub fn add_access(
@@ -2097,7 +2125,7 @@ fn run_variance_constraint(
     constraint: &mut VarianceConstraint,
     a: ValueId,
     b: ValueId,
-    values: &Vec<Value>,
+    values: &Values,
     constraints: &mut Vec<Constraint>,
     available_constraints: &mut HashMap<ValueId, Vec<ConstraintId>>,
     queued_constraints: &mut Vec<ConstraintId>,
