@@ -413,7 +413,7 @@ pub enum NodeKind {
     },
     ArrayTypeInTyping {
         len: NodeId,
-        length_value: crate::type_infer::ValueSetId,
+        length_value: crate::type_infer::ValueId,
     },
     FunctionType {
         args: Vec<NodeId>,

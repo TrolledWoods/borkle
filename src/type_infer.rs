@@ -106,7 +106,7 @@ pub struct CompilerType(pub types::Type);
 #[derive(Clone, Copy)]
 pub struct Empty;
 #[derive(Clone, Copy)]
-pub struct Var(pub usize);
+pub struct Var(pub ValueId);
 #[derive(Clone, Copy)]
 pub struct Unknown;
 
@@ -364,15 +364,6 @@ impl ValueKind {
     }
 }
 
-#[derive(Debug)]
-struct Value {
-    kind: ValueKind,
-    value_sets: ValueSetHandles,
-    // /// If a value isn't known, it should generate an error, but if it's possible that it's not known because
-    // /// an error occured, we don't want to generate an error, which is why this flag exists.
-    // related_to_error: bool,
-}
-
 type ConstraintId = usize;
 
 #[derive(Debug, Clone, Copy)]
@@ -624,53 +615,117 @@ fn type_kind_to_str(
     }
 }
 
-pub type ValueId = usize;
+pub type ValueId = u32;
+
+#[derive(Debug)]
+struct Value {
+    kind: ValueKind,
+    value_sets: ValueSetHandles,
+}
+
+struct LookupElement {
+    internal_id: u32,
+    // u32::MAX is None
+    next_in_lookup: u32,
+}
+
+// @Temporary: Should be replaced with the real value some day
+struct ValueWrapper {
+    value: Value,
+    structure_id: u32,
+    // u32::MAX means that there is nothing.
+    next_in_structure_group: u32,
+}
 
 struct Values {
-    values: Vec<Value>,
+    structure: Vec<(u32, u32)>,
+    values: Vec<ValueWrapper>,
 }
 
 impl Values {
     fn new() -> Self {
         Self {
+            structure: Vec::new(),
             values: Vec::with_capacity(32),
         }
     }
 
-    fn add(&mut self, value: Value) -> ValueId {
-        let id = self.values.len();
-        self.values.push(value);
+    fn structurally_combine(&mut self, a: ValueId, b: ValueId) {
+        let structure_id = self.values[a as usize].structure_id;
+        let old_b_structure_id = self.values[b as usize].structure_id;
+
+        if structure_id == old_b_structure_id {
+            return;
+        }
+
+        let (b_structure_start, b_structure_len) = mem::replace(&mut self.structure[old_b_structure_id as usize], (u32::MAX, 0));
+        self.structure[structure_id as usize].1 += b_structure_len;
+
+        // Join the two linked lists together
+        let mut value_id = a;
+        loop {
+            let value = &mut self.values[value_id as usize];
+            if value.next_in_structure_group == u32::MAX {
+                value.next_in_structure_group = b_structure_start;
+                break;
+            }
+            value_id = value.next_in_structure_group;
+        }
+
+        // Convert the old structure list to the new structure
+        let mut value_id = b_structure_start;
+        loop {
+            let value = &mut self.values[value_id as usize];
+            value.structure_id = structure_id;
+            if value.next_in_structure_group == u32::MAX {
+                break;
+            }
+            value_id = value.next_in_structure_group;
+        }
+    }
+
+    fn add(&mut self, mut value: Value) -> ValueId {
+        let structure_id = self.structure.len() as u32;
+        let id = self.values.len() as u32;
+        assert!(id < u32::MAX, "Too many values, overflows a u32");
+        self.structure.push((structure_id, 1));
+
+        self.values.push(ValueWrapper {
+            value,
+            structure_id,
+            next_in_structure_group: u32::MAX,
+        });
         id
     }
 
     fn iter(&self) -> impl Iterator<Item = &Value> {
-        self.values.iter()
+        self.values.iter().map(|v| &v.value)
     }
 
     fn iter_mut(&mut self) -> impl Iterator<Item = &mut Value> {
-        self.values.iter_mut()
+        self.values.iter_mut().map(|v| &mut v.value)
     }
 
     fn get(&self, id: ValueId) -> &Value {
-        &self.values[id]
+        &self.values[id as usize].value
     }
 
     fn get_mut(&mut self, id: ValueId) -> &mut Value {
-        &mut self.values[id]
+        &mut self.values[id as usize].value
     }
 
     /// Returns the value id that will returned by the next call to `add`
     fn next_value_id(&self) -> ValueId {
-        self.values.len()
+        self.values.len() as u32
     }
 
     fn get_disjoint_mut(&mut self, a: ValueId, b: ValueId) -> (&mut Value, &mut Value) {
         debug_assert_ne!(a, b, "Cannot call get_disjoint_mut on the same values");
         debug_assert!(a < b, "When calling get_disjoint_mut, a has to be less than b");
 
-        let (section_a, section_b) = self.values.split_at_mut(b);
+        let (section_a, section_b) = self.values.split_at_mut(b as usize);
 
-        (&mut section_a[a], &mut section_b[0])
+        (&mut section_a[a as usize].value, &mut section_b[0].value)
     }
 }
 
@@ -1183,7 +1238,7 @@ impl TypeSystem {
         println!("Values:");
         // @Volatile: If we change how value ids work, this will no longer work.
         for (i, v) in self.values.iter().enumerate() {
-            println!("{}: {}, {}", i, v.value_sets.is_complete(), self.value_to_str(i, 0));
+            println!("{}: {}, {}", i, v.value_sets.is_complete(), self.value_to_str(i as u32, 0));
         }
         println!();
 
@@ -1615,7 +1670,7 @@ impl TypeSystem {
                                 // before writing to values. After that we have to recompute the references
                                 // since they may have moved if the vector grew (one of the cases where
                                 // the borrow checker was right!)
-                                *unknown = Some((values_len .. values_len + known.len()).collect());
+                                *unknown = Some((values_len .. values_len + known.len() as u32).collect());
 
                                 let variant_fields = known.clone();
 
@@ -1888,6 +1943,8 @@ impl TypeSystem {
                             .push(Error::new(a_id, b_id, MixingTypesAndValues));
                     }
                 }
+
+                self.values.structurally_combine(a_id, b_id);
             }
         }
 

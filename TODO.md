@@ -10,3 +10,4 @@
 * POSSIBLE BUG!!! Make sure that constants that contain pointers don't compile time merge with ones that don't.
 * Make operators use the assert system to check for overflow
 * The _iters variable in loops could be any integer type.
+* Investigate keeping the structure lookup thing sorted for cache friendliness
