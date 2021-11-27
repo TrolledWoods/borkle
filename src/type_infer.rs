@@ -577,7 +577,6 @@ pub type ValueId = u32;
 
 #[derive(Debug)]
 struct Value {
-    kind: Option<Type>,
     value_sets: ValueSetHandles,
 }
 
@@ -609,6 +608,7 @@ struct ValueWrapper {
 #[derive(Default)]
 struct StructureGroup {
     first_value: ValueId,
+    kind: Option<Type>,
     num_values: u32,
 }
 
@@ -665,11 +665,12 @@ impl Values {
         assert!(id < u32::MAX, "Too many values, overflows a u32");
         self.structure.push(StructureGroup {
             first_value: structure_id,
+            kind,
             num_values: 1,
         });
 
         self.values.push(ValueWrapper {
-            value: Value { kind, value_sets },
+            value: Value { value_sets },
             structure_id,
             next_in_structure_group: u32::MAX,
         });
@@ -685,18 +686,18 @@ impl Values {
     }
 
     fn get(&self, id: ValueId) -> ValueBorrow<'_> {
-        let value = &self.values[id as usize].value;
+        let value = &self.values[id as usize];
         ValueBorrow {
-            kind: &value.kind,
-            value_sets: &value.value_sets,
+            kind: &self.structure[value.structure_id as usize].kind,
+            value_sets: &value.value.value_sets,
         }
     }
 
     fn get_mut(&mut self, id: ValueId) -> ValueBorrowMut<'_> {
-        let value = &mut self.values[id as usize].value;
+        let value = &mut self.values[id as usize];
         ValueBorrowMut {
-            kind: &mut value.kind,
-            value_sets: &mut value.value_sets,
+            kind: &mut self.structure[value.structure_id as usize].kind,
+            value_sets: &mut value.value.value_sets,
         }
     }
 
@@ -708,15 +709,15 @@ impl Values {
     fn get_disjoint_mut(&mut self, a: ValueId, b: ValueId) -> Option<(ValueBorrowMut<'_>, ValueBorrowMut<'_>)> {
         let (a, b) = slice_get_two_mut(&mut self.values, a as usize, b as usize)?;
 
-        // let (structure_a, structure_b) = slice_get_two_mut(&mut self.structure, a.structure_id as usize, b.structure_id as usize)?;
+        let (structure_a, structure_b) = slice_get_two_mut(&mut self.structure, a.structure_id as usize, b.structure_id as usize)?;
 
         Some((
             ValueBorrowMut {
-                kind: &mut a.value.kind,
+                kind: &mut structure_a.kind,
                 value_sets: &mut a.value.value_sets,
             },
             ValueBorrowMut {
-                kind: &mut b.value.kind,
+                kind: &mut structure_b.kind,
                 value_sets: &mut b.value.value_sets,
             },
         ))
