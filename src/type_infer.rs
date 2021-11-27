@@ -1211,7 +1211,7 @@ impl TypeSystem {
     pub fn print_state(&self) {
         println!("Values:");
         // @Volatile: If we change how value ids work, this will no longer work.
-        for (i, v) in self.values.iter().enumerate() {
+        for (i, _) in self.values.iter().enumerate() {
             println!("{}, {}", i, self.value_to_str(i as u32, 0));
         }
         println!();
