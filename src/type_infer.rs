@@ -659,7 +659,7 @@ impl Values {
         }
     }
 
-    fn add(&mut self, value: Value) -> ValueId {
+    fn add(&mut self, kind: Option<Type>, value_sets: ValueSetHandles) -> ValueId {
         let structure_id = self.structure.len() as u32;
         let id = self.values.len() as u32;
         assert!(id < u32::MAX, "Too many values, overflows a u32");
@@ -669,7 +669,7 @@ impl Values {
         });
 
         self.values.push(ValueWrapper {
-            value,
+            value: Value { kind, value_sets },
             structure_id,
             next_in_structure_group: u32::MAX,
         });
@@ -795,15 +795,7 @@ impl TypeSystem {
         let mut has_errors = false;
         if self.value_sets.iter().any(|v| v.has_errors) {
             has_errors = true;
-            for value in self.values.iter() {
-                if let Value {
-                    kind: Some(Type { kind: TypeKind::Error, .. }),
-                    ..
-                } = value {
-                    // TODO: Use the ast node location
-                    errors.global_error("Typing error!".to_string());
-                }
-            }
+            errors.global_error("Typing error!".to_string());
         }
 
         for error in &self.errors {
@@ -1298,13 +1290,13 @@ impl TypeSystem {
                                     let value_sets = a.value_sets.clone(&mut self.value_sets, true);
 
                                     // @Correctness: We want to reintroduce variances here after the rework
-                                    let new_value_id = self.values.add(Value {
-                                        kind: Some(Type {
+                                    let new_value_id = self.values.add(
+                                        Some(Type {
                                             kind: TypeKind::Reference,
                                             args: Some(Box::new([pointee])),
                                         }),
                                         value_sets,
-                                    });
+                                    );
 
                                     self.set_equal(new_value_id, b_id, variance);
                                 }
@@ -1537,11 +1529,8 @@ impl TypeSystem {
                         let mut base_value_sets = base_value.value_sets.take();
 
                         for _ in 0..variant_fields.len() {
-                            let new_value = Value {
-                                kind: None,
-                                value_sets: base_value_sets.clone(&mut self.value_sets, false),
-                            };
-                            self.values.add(new_value);
+                            let value_sets = base_value_sets.clone(&mut self.value_sets, false);
+                            self.values.add(None, value_sets);
                         }
 
                         base_value_sets.complete(&mut self.value_sets);
@@ -1610,10 +1599,10 @@ impl TypeSystem {
     }
 
     pub fn add_unknown_type_with_set(&mut self, set: ValueSetId) -> ValueId {
-        self.values.add(Value {
-            kind: None,
-            value_sets: self.value_sets.with_one(set, false),
-        })
+        self.values.add(
+            None,
+            self.value_sets.with_one(set, false),
+        )
     }
 
     pub fn add_compiler_type(&mut self, type_: types::Type, set: ValueSetId) -> ValueId {
@@ -1716,33 +1705,33 @@ impl TypeSystem {
         let args = args.into_box_slice();
         let is_complete = args.is_some();
         let value_sets = set.add_set(&mut self.value_sets, is_complete);
-        self.values.add(Value {
-            kind: Some(Type {
+        self.values.add(
+            Some(Type {
                 kind,
                 args,
             }),
             value_sets,
-        })
+        )
     }
 
     pub fn add_unknown_type(&mut self) -> ValueId {
-        self.values.add(Value {
-            kind: None,
-            value_sets: ValueSetHandles::default(),
-        })
+        self.values.add(
+            None,
+            ValueSetHandles::default(),
+        )
     }
 
     pub fn set_value(&mut self, value_id: ValueId, type_: ValueId, value: impl IntoConstant, set: impl IntoValueSet) {
         let value = value.into_constant();
         let is_complete =  value.is_some();
         let value_sets = set.add_set(&mut self.value_sets, is_complete);
-        let constant_value_id = self.values.add(Value {
-            kind: value.map(|v| Type {
+        let constant_value_id = self.values.add(
+            value.map(|v| Type {
                 kind: TypeKind::ConstantValue(v),
                 args: Some(Box::new([])),
             }),
             value_sets,
-        });
+        );
         self.set_type(value_id, TypeKind::Constant, [type_, constant_value_id], set);
     }
 
