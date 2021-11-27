@@ -705,13 +705,33 @@ impl Values {
         self.values.len() as u32
     }
 
-    fn get_disjoint_mut(&mut self, a: ValueId, b: ValueId) -> (&mut Value, &mut Value) {
-        debug_assert_ne!(a, b, "Cannot call get_disjoint_mut on the same values");
-        debug_assert!(a < b, "When calling get_disjoint_mut, a has to be less than b");
+    fn get_disjoint_mut(&mut self, a: ValueId, b: ValueId) -> Option<(ValueBorrowMut<'_>, ValueBorrowMut<'_>)> {
+        let (a, b) = slice_get_two_mut(&mut self.values, a as usize, b as usize)?;
 
-        let (section_a, section_b) = self.values.split_at_mut(b as usize);
+        // let (structure_a, structure_b) = slice_get_two_mut(&mut self.structure, a.structure_id as usize, b.structure_id as usize)?;
 
-        (&mut section_a[a as usize].value, &mut section_b[0].value)
+        Some((
+            ValueBorrowMut {
+                kind: &mut a.value.kind,
+                value_sets: &mut a.value.value_sets,
+            },
+            ValueBorrowMut {
+                kind: &mut b.value.kind,
+                value_sets: &mut b.value.value_sets,
+            },
+        ))
+    }
+}
+
+fn slice_get_two_mut<T>(slice: &mut [T], a: usize, b: usize) -> Option<(&mut T, &mut T)> {
+    if a == b { return None; }
+    assert!(a < slice.len());
+    assert!(b < slice.len());
+
+    // Safety: We know they are different fields, so this is fine.
+    unsafe {
+        let ptr = slice.as_mut_ptr();
+        Some((&mut *ptr.add(a), &mut *ptr.add(b)))
     }
 }
 
@@ -1406,12 +1426,14 @@ impl TypeSystem {
                 variance,
             } => {
                 let values_len = self.values.next_value_id();
-                let (a_value, b_value) = self.values.get_disjoint_mut(a_id, b_id);
+                let Some((a_value, b_value)) = self.values.get_disjoint_mut(a_id, b_id) else {
+                    return;
+                };
 
                 use ErrorKind::*;
 
-                let a = &mut a_value.kind;
-                let b = &mut b_value.kind;
+                let a = a_value.kind;
+                let b = b_value.kind;
                 let (a_type, b_type) = match (a, b) {
                     (None, None) => return,
                     (Some(a_type), b_type @ None) => {
