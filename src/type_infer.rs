@@ -449,11 +449,11 @@ struct VarianceConstraint {
 }
 
 fn extract_constant_from_value(values: &Values, value: ValueId) -> Option<ConstantRef> {
-    let Value { kind: Some(Type { kind: TypeKind::Constant, args: Some(args) }), .. } = values.get(value) else {
+    let Some(Type { kind: TypeKind::Constant, args: Some(args) }) = values.get(value).kind else {
         return None
     };
 
-    let Value { kind: Some(Type { kind: TypeKind::ConstantValue(constant_ref), .. }), .. } = values.get(*args.get(1)?) else {
+    let Some(Type { kind: TypeKind::ConstantValue(constant_ref), .. }) = values.get(*args.get(1)?).kind else {
         return None;
     };
 
@@ -461,11 +461,11 @@ fn extract_constant_from_value(values: &Values, value: ValueId) -> Option<Consta
 }
 
 // Temporary, until we move to calling values.get immediately.
-fn get_value(values: &Values, id: ValueId) -> &Value {
+fn get_value(values: &Values, id: ValueId) -> ValueBorrow<'_> {
     values.get(id)
 }
 
-fn get_value_mut(values: &mut Values, id: ValueId) -> &mut Value {
+fn get_value_mut(values: &mut Values, id: ValueId) -> ValueBorrowMut<'_> {
     values.get_mut(id)
 }
 
@@ -581,6 +581,17 @@ struct Value {
     value_sets: ValueSetHandles,
 }
 
+#[derive(Clone, Copy)]
+struct ValueBorrow<'a> {
+    kind: &'a Option<Type>,
+    value_sets: &'a ValueSetHandles,
+}
+
+struct ValueBorrowMut<'a> {
+    kind: &'a mut Option<Type>,
+    value_sets: &'a mut ValueSetHandles,
+}
+
 struct LookupElement {
     internal_id: u32,
     // u32::MAX is None
@@ -673,12 +684,20 @@ impl Values {
         self.values.iter_mut().map(|v| &mut v.value)
     }
 
-    fn get(&self, id: ValueId) -> &Value {
-        &self.values[id as usize].value
+    fn get(&self, id: ValueId) -> ValueBorrow<'_> {
+        let value = &self.values[id as usize].value;
+        ValueBorrow {
+            kind: &value.kind,
+            value_sets: &value.value_sets,
+        }
     }
 
-    fn get_mut(&mut self, id: ValueId) -> &mut Value {
-        &mut self.values[id as usize].value
+    fn get_mut(&mut self, id: ValueId) -> ValueBorrowMut<'_> {
+        let value = &mut self.values[id as usize].value;
+        ValueBorrowMut {
+            kind: &mut value.kind,
+            value_sets: &mut value.value_sets,
+        }
     }
 
     /// Returns the value id that will returned by the next call to `add`
@@ -1012,8 +1031,8 @@ impl TypeSystem {
             None => "_".to_string(),
             Some(Type { kind: TypeKind::Constant, args: Some(c) }) => match &**c {
                 [type_, value] => {
-                    let value = match self.values.get(*value) {
-                        Value { kind: Some(Type { kind: TypeKind::ConstantValue(constant_ref), .. }), .. } => {
+                    let value = match &self.values.get(*value).kind {
+                        Some(Type { kind: TypeKind::ConstantValue(constant_ref), .. }) => {
                             self.constant_to_str(*type_, *constant_ref, rec + 1)
                         }
                         _ => "_".to_string(),
@@ -1452,14 +1471,14 @@ impl TypeSystem {
                         }
                     }
 
-                    *self.values.get_mut(a_id) = Value {
-                        kind: Some(Type { kind: TypeKind::Error, args: Some(Box::new([])) }),
-                        value_sets: ValueSetHandles::already_complete(),
-                    };
-                    *self.values.get_mut(b_id) = Value {
-                        kind: Some(Type { kind: TypeKind::Error, args: Some(Box::new([])) }),
-                        value_sets: ValueSetHandles::already_complete(),
-                    };
+                    let value = self.values.get_mut(a_id);
+                    *value.kind = Some(Type { kind: TypeKind::Error, args: Some(Box::new([])) });
+                    *value.value_sets = ValueSetHandles::already_complete();
+
+                    let value = self.values.get_mut(b_id);
+                    *value.kind = Some(Type { kind: TypeKind::Error, args: Some(Box::new([])) });
+                    *value.value_sets = ValueSetHandles::already_complete();
+
                     return;
                 }
 
@@ -1549,11 +1568,8 @@ impl TypeSystem {
     }
 
     pub fn params(&self, value: ValueId) -> Option<&[ValueId]> {
-        match get_value(&self.values, value) {
-            Value {
-                kind: Some(Type { ref args, .. }),
-                ..
-            } => args.as_deref(),
+        match get_value(&self.values, value).kind {
+            Some(Type { ref args, .. }) => args.as_deref(),
             _ => None,
         }
     }
@@ -1632,14 +1648,13 @@ impl TypeSystem {
 
     #[track_caller]
     pub fn set_type(&mut self, value_id: ValueId, kind: TypeKind, args: impl IntoBoxSlice<ValueId>, set: impl IntoValueSet) -> ValueId {
-        let value @ Value { kind: None, .. } = self.values.get_mut(value_id) else {
-            unreachable!("Cannot call set_type on anything other than an unknown type")
-        };
+        let value = self.values.get_mut(value_id);
+        debug_assert!(value.kind.is_none(), "Cannot call set_type on anything other than an unknown type");
 
         let args = args.into_box_slice();
         let is_complete = args.is_some();
         let value_sets = set.add_set(&mut self.value_sets, is_complete);
-        value.kind = Some(Type {
+        *value.kind = Some(Type {
             kind,
             args,
         });
