@@ -192,14 +192,7 @@ fn emit_execution_context(ctx: &mut Context<'_, '_>, node_id: NodeId, set: Value
                 Ok(constant_ref) => {
                     // @Hack: We get the usize from the variable so we don't have to add a reason for it
                     let usize = ctx.ast.get(len).type_infer_value_id;
-                    let variable_count = ctx.infer.add(
-                        type_infer::ValueKind::Value(Some(type_infer::Constant {
-                            type_: usize,
-                            value: Some(constant_ref),
-                        })),
-                        // This value is already complete, so the set doesn't matter
-                        set,
-                    );
+                    let variable_count = ctx.infer.add_value(usize, constant_ref, set);
                     
                     ctx.infer.set_equal(variable_count, length_value, Variance::Invariant);
                 }
@@ -582,20 +575,13 @@ fn build_constraints(
 
             ctx.infer.set_equal(usize_type, len_type_id, Variance::Invariant);
 
-            // @Cleanup: Adding without reason is a little bit scary, should we just add unknown instead?
             // @Performance: We can add some checks to see if the length calculation is actually simple
             // We don't check that it's part of the same set, because this is
             // all to compute a type; if we figure out a valid set of types
             // for the main thing but not for the array length, that's fine,
             // even if we create an error later the types matched for a moment,
             // enough to emit code.
-            let length_value = ctx.infer.add_without_reason(
-                type_infer::ValueKind::Value(Some(type_infer::Constant {
-                    type_: usize_type,
-                    value: None,
-                })),
-                set,
-            );
+            let length_value = ctx.infer.add_value(usize_type, (), set);
 
             let array_type = ctx.infer.add(
                 type_infer::ValueKind::Type(Some(type_infer::Type {

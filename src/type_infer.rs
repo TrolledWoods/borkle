@@ -8,14 +8,14 @@ mod static_values {
     use super::ValueId;
 
     pub const POINTER  : ValueId = 0;
-    pub const ONE      : ValueId = 1;
-    pub const TWO      : ValueId = 2;
-    pub const FOUR     : ValueId = 3;
-    pub const EIGHT    : ValueId = 4;
-    pub const TRUE     : ValueId = 5;
-    pub const FALSE    : ValueId = 6;
-    pub const INT_SIZE : ValueId = 7;
-    pub const BOOL     : ValueId = 8;
+    pub const ONE      : ValueId = 2;
+    pub const TWO      : ValueId = 4;
+    pub const FOUR     : ValueId = 6;
+    pub const EIGHT    : ValueId = 8;
+    pub const TRUE     : ValueId = 10;
+    pub const FALSE    : ValueId = 12;
+    pub const INT_SIZE : ValueId = 14;
+    pub const BOOL     : ValueId = 15;
 }
 
 use crate::errors::ErrorCtx;
@@ -74,24 +74,24 @@ impl IntoConstant for () {
 }
 
 pub trait IntoValueSet {
-    fn add_set(self, value_sets: &mut ValueSets, already_complete: bool) -> ValueSetHandles;
+    fn add_set(&self, value_sets: &mut ValueSets, already_complete: bool) -> ValueSetHandles;
 }
 
 impl IntoValueSet for () {
-    fn add_set(self, _value_sets: &mut ValueSets, already_complete: bool) -> ValueSetHandles {
+    fn add_set(&self, _value_sets: &mut ValueSets, already_complete: bool) -> ValueSetHandles {
         ValueSetHandles::empty(already_complete)
     }
 }
 
 impl IntoValueSet for &ValueSetHandles {
-    fn add_set(self, value_sets: &mut ValueSets, already_complete: bool) -> ValueSetHandles {
-        self.clone(value_sets, already_complete)
+    fn add_set(&self, value_sets: &mut ValueSets, already_complete: bool) -> ValueSetHandles {
+        (*self).clone(value_sets, already_complete)
     }
 }
 
 impl IntoValueSet for ValueSetId {
-    fn add_set(self, value_sets: &mut ValueSets, already_complete: bool) -> ValueSetHandles {
-        value_sets.with_one(self, already_complete)
+    fn add_set(&self, value_sets: &mut ValueSets, already_complete: bool) -> ValueSetHandles {
+        value_sets.with_one(*self, already_complete)
     }
 }
 
@@ -141,12 +141,19 @@ pub enum TypeKind {
     Function,
     // element: type, length: int
     Array,
-    // mutability, type
+    // + has variance
+    // type
     Reference,
-    // mutability, type
+    // + has variance
+    // type
     Buffer,
     // (type, type, type, type), in the same order as the strings.
     Struct(Box<[Ustr]>),
+
+    // no fields
+    ConstantValue(ConstantRef),
+    // type, constant_ref(has to be a ConstantValue)
+    Constant,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -331,10 +338,6 @@ pub enum ValueKind {
 
     Type(Option<Type>),
 
-    // @Cleanup: Rename to Constant
-    /// For now values can only be usize, but you could theoretically have any value.
-    Value(Option<Constant>),
-
     /// These are the only coerced values for now.
     Access(Option<Access>),
 }
@@ -344,7 +347,6 @@ impl ValueKind {
         matches!(
             self,
             ValueKind::Type(Some(Type { args: Some(_), .. }))
-            | ValueKind::Value(Some(Constant { value: Some(_), .. }))
             | ValueKind::Access(Some(_))
         )
     }
@@ -352,7 +354,6 @@ impl ValueKind {
     fn to_unknown(&self) -> Self {
         match self {
             Self::Type(_) => Self::Type(None),
-            Self::Value(_) => Self::Value(None),
             Self::Access(_) => Self::Access(None),
             Self::Error => Self::Error,
         }
@@ -500,6 +501,18 @@ struct VarianceConstraint {
     constraints: Vec<(ConstraintId, Variance)>,
 }
 
+fn extract_constant_from_value(values: &Values, value: ValueId) -> Option<ConstantRef> {
+    let Value { kind: ValueKind::Type(Some(Type { kind: TypeKind::Constant, args: Some(args) })), .. } = values.get(value) else {
+        return None
+    };
+
+    let Value { kind: ValueKind::Type(Some(Type { kind: TypeKind::ConstantValue(constant_ref), .. })), .. } = values.get(*args.get(1)?) else {
+        return None;
+    };
+
+    Some(*constant_ref)
+}
+
 // Temporary, until we move to calling values.get immediately.
 fn get_value(values: &Values, id: ValueId) -> &Value {
     values.get(id)
@@ -581,6 +594,8 @@ fn type_kind_to_str(
 ) -> std::fmt::Result {
     use std::fmt::Write;
     match type_kind {
+        TypeKind::Constant => write!(string, "constant"),
+        TypeKind::ConstantValue(_) => write!(string, "<constant value>"),
         TypeKind::Int => write!(string, "int"),
         TypeKind::IntSize => write!(string, "<size of int>"),
         TypeKind::Bool => write!(string, "bool"),
@@ -821,25 +836,15 @@ impl TypeSystem {
         };
 
         match *type_kind {
+            TypeKind::Constant | TypeKind::ConstantValue(_) => unreachable!("Constants aren't concrete types, cannot use them as node types"),
             TypeKind::IntSize => unreachable!("Int sizes are a hidden type for now, the user shouldn't be able to access them"),
             TypeKind::Int => {
                 let [signed, size] = &**type_args else {
                     unreachable!("Invalid int size and sign")
                 };
 
-                let Value { kind: ValueKind::Value(Some(Constant {
-                    type_: _,
-                    value: Some(sign_value),
-                })), .. } = get_value(&self.values, *signed) else {
-                    unreachable!("No!!!")
-                };
-
-                let Value { kind: ValueKind::Value(Some(Constant {
-                    type_: _,
-                    value: Some(size_value),
-                })), .. } = get_value(&self.values, *size) else {
-                    unreachable!("No!!!")
-                };
+                let sign_value = extract_constant_from_value(&self.values, *signed).expect("Sign wasn't a value");
+                let size_value = extract_constant_from_value(&self.values, *size).expect("Sign wasn't a value");
 
                 let sign_value = unsafe { *sign_value.as_ptr().cast::<bool>() };
                 let size_value = unsafe { *size_value.as_ptr().cast::<u8>() };
@@ -881,9 +886,7 @@ impl TypeSystem {
 
                 let element_type = self.value_to_compiler_type(*element_type);
 
-                let ValueKind::Value(Some(Constant { value: Some(length), .. })) = &get_value(&self.values, *length).kind else {
-                    unreachable!("Array length isn't a value")
-                };
+                let length = extract_constant_from_value(&self.values, *length).expect("Array length isn't a value");
 
                 let length = unsafe { usize::from_le_bytes(*length.as_ptr().cast::<[u8; 8]>()) };
 
@@ -1015,11 +1018,12 @@ impl TypeSystem {
             ValueKind::Type(Some(Type { kind: TypeKind::Int, args: Some(c) })) => {
                 let [signed, size] = &**c else { panic!() };
 
-                let (
-                    Value { kind: ValueKind::Value(Some(Constant { value: Some(signed), .. })), .. },
-                    Value { kind: ValueKind::Value(Some(Constant { value: Some(size), .. })), .. },
-                ) = (get_value(&self.values, *signed), get_value(&self.values, *size)) else {
-                    return "(?)".to_string();
+                let Some(signed) = extract_constant_from_value(&self.values, *signed) else {
+                    return "(?)".to_string()
+                };
+
+                let Some(size) = extract_constant_from_value(&self.values, *size) else {
+                    return "(?)".to_string()
                 };
 
                 let signed = unsafe { *signed.as_ptr().cast::<bool>() };
@@ -1084,14 +1088,22 @@ impl TypeSystem {
             ValueKind::Type(Some(Type { kind: TypeKind::Bool, .. })) => "bool".to_string(),
             ValueKind::Type(Some(Type { kind: TypeKind::Empty, .. })) => "Empty".to_string(),
             ValueKind::Type(Some(Type { kind: TypeKind::IntSize, .. })) => "<size of int>".to_string(),
+            ValueKind::Type(Some(Type { kind: TypeKind::ConstantValue(_), .. })) => "<constant value>".to_string(),
             ValueKind::Type(None) => "_".to_string(),
-            ValueKind::Value(None) => "_(value)".to_string(),
-            ValueKind::Value(Some(Constant { type_, value: None, .. })) => {
-                format!("(_: {})", self.value_to_str(*type_, rec + 1))
-            }
-            ValueKind::Value(Some(Constant { type_, value: Some(value), .. })) => {
-                format!("{}", self.constant_to_str(*type_, *value, rec + 1))
-            }
+            ValueKind::Type(Some(Type { kind: TypeKind::Constant, args: Some(c) })) => match &**c {
+                [type_, value] => {
+                    let value = match self.values.get(*value) {
+                        Value { kind: ValueKind::Type(Some(Type { kind: TypeKind::ConstantValue(constant_ref), .. })), .. } => {
+                            self.constant_to_str(*type_, *constant_ref, rec + 1)
+                        }
+                        _ => "_".to_string(),
+                    };
+                    let type_ = self.value_to_str(*type_, rec + 1);
+
+                    format!("{} : {}", value, type_)
+                }
+                _ => unreachable!("A constant type node should always only have two arguments"),
+            },
             ValueKind::Type(Some(Type { kind, args: None, .. })) => format!("{:?}", kind),
             ValueKind::Type(Some(Type { kind: TypeKind::Int, args: Some(c) })) => match &**c {
                 [signed, size] => format!(
@@ -1434,7 +1446,7 @@ impl TypeSystem {
                         ));
                         return;
                     }
-                    ValueKind::Access(_) | ValueKind::Value(_) => {
+                    ValueKind::Access(_) => {
                         self.errors.push(Error::new(
                             a_id,
                             b_id,
@@ -1472,7 +1484,7 @@ impl TypeSystem {
                             return;
                         }
                     }
-                    ValueKind::Access(_) | ValueKind::Value(_) => {
+                    ValueKind::Access(_) => {
                         self.errors.push(Error::new(
                             a_id,
                             b_id,
@@ -1769,97 +1781,6 @@ impl TypeSystem {
                         }
                     }
 
-                    (Value { kind: ValueKind::Value(a), value_sets: a_value_sets, .. }, _, Value { kind: ValueKind::Value(b), value_sets: b_value_sets, .. }, _) => {
-                        match (&mut *a, &mut *b) {
-                            (None, None) => {},
-                            (Some(a), None) => {
-                                if a.value.is_some() {
-                                    b_value_sets.complete(&mut self.value_sets);
-                                }
-                                // @Correctness: Should this type be a part of the current value set?
-                                // @Cleanup: This is from a self.values.len() call further up, no elements have been
-                                // added because of the borrow checker. But the fact that the call has to be up there
-                                // is also because of the borrow checker!!!
-                                let type_ = values_len;
-                                *b = Some(Constant {
-                                    type_,
-                                    value: a.value,
-                                });
-                                insert_active_constraint(
-                                    &mut self.constraints,
-                                    &mut self.available_constraints,
-                                    &mut self.queued_constraints,
-                                    Constraint::equal(a.type_, type_, variance),
-                                );
-
-                                // @HACK! We assume that no values were added in between here, and that the id of
-                                // the inserted type is the same. This isn't too unreasonable, because we never
-                                // borrow `self.values`
-                                self.add_unknown_type();
-                                    
-                                progress[1] = true;
-                            }
-                            (None, Some(b)) => {
-                                if b.value.is_some() {
-                                    a_value_sets.complete(&mut self.value_sets);
-                                }
-                                // @Correctness: Should this type be a part of the current value set?
-                                // @Cleanup: This is from a self.values.len() call further up, no elements have been
-                                // added because of the borrow checker. But the fact that the call has to be up there
-                                // is also because of the borrow checker!!!
-                                let type_ = values_len;
-                                *a = Some(Constant {
-                                    type_,
-                                    value: b.value,
-                                });
-                                insert_active_constraint(
-                                    &mut self.constraints,
-                                    &mut self.available_constraints,
-                                    &mut self.queued_constraints,
-                                    Constraint::equal(type_, b.type_, variance),
-                                );
-
-                                // @HACK! We assume that no values were added in between here, and that the id of
-                                // the inserted type is the same. This isn't too unreasonable, because we never
-                                // borrow `self.values`
-                                self.add_unknown_type();
-                                progress[0] = true;
-                            }
-                            (Some(a), Some(b)) => {
-                                let a_type = a.type_;
-                                let b_type = b.type_;
-
-                                // @TODO: We want to also combine the reasons for the values here.
-                                match (&mut a.value, &mut b.value) {
-                                    (None, None) => {},
-                                    (Some(a_value), b_value @ None) => {
-                                        *b_value = Some(*a_value);
-                                        b_value_sets.complete(&mut self.value_sets);
-                                        progress[1] = true;
-                                    }
-                                    (a_value @ None, Some(b_value)) => {
-                                        *a_value = Some(*b_value);
-                                        a_value_sets.complete(&mut self.value_sets);
-                                        progress[1] = true;
-                                    }
-                                    (Some(a_constant), Some(b_constant)) => {
-                                        if *a_constant != *b_constant {
-                                            a_value.value_sets.make_erroneous(&mut self.value_sets);
-                                            *a_value = Value {
-                                                kind: ValueKind::Error,
-                                                value_sets: ValueSetHandles::already_complete(),
-                                            };
-                                            // @HACK: I do this so I don't have to do some annoying manipulation more than necessary,
-                                            // this should not actually be done.
-                                            self.queued_constraints.push(constraint_id);
-                                        }
-                                    }
-                                }
-
-                                self.set_equal(a_type, b_type, variance);
-                            }
-                        }
-                    }
                     (Value { kind: ValueKind::Access(a), value_sets: a_value_sets, .. }, _, Value { kind: ValueKind::Access(b), value_sets: b_value_sets, .. }, _) => {
                         let a = a.get_or_insert_with(|| {
                             a_value_sets.complete(&mut self.value_sets);
@@ -2090,17 +2011,24 @@ impl TypeSystem {
         })
     }
 
-    pub fn add_value(&mut self, type_: ValueId, value: impl IntoConstant, set: impl IntoValueSet) -> ValueId {
+    pub fn set_value(&mut self, value_id: ValueId, type_: ValueId, value: impl IntoConstant, set: impl IntoValueSet) {
         let value = value.into_constant();
         let is_complete =  value.is_some();
         let value_sets = set.add_set(&mut self.value_sets, is_complete);
-        self.values.add(Value {
-            kind: ValueKind::Value(Some(Constant {
-                type_,
-                value,
+        let constant_value_id = self.values.add(Value {
+            kind: ValueKind::Type(value.map(|v| Type {
+                kind: TypeKind::ConstantValue(v),
+                args: Some(Box::new([])),
             })),
             value_sets,
-        })
+        });
+        self.set_type(value_id, TypeKind::Constant, [type_, constant_value_id], set);
+    }
+
+    pub fn add_value(&mut self, type_: ValueId, value: impl IntoConstant, set: impl IntoValueSet) -> ValueId {
+        let type_id = self.add_unknown_type();
+        self.set_value(type_id, type_, value, set);
+        type_id
     }
 
     pub fn add_empty_access(&mut self, set: ValueSetId) -> ValueId {
