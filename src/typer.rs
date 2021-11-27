@@ -8,7 +8,7 @@ use crate::operators::{BinaryOp, UnaryOp};
 pub use crate::parser::{ast::Node, ast::NodeId, ast::NodeKind, Ast};
 use crate::program::{PolyOrMember, Program, Task};
 use crate::thread_pool::ThreadContext;
-use crate::type_infer::{self, Access, TypeSystem, ValueSetId, Variance, Type, TypeKind};
+use crate::type_infer::{self, TypeSystem, ValueSetId, Variance, Type, TypeKind};
 use crate::types::{self, IntTypeKind, PtrPermits};
 
 pub struct YieldData {
@@ -424,12 +424,8 @@ fn build_constraints(
             ctx.infer.set_equal(node_type_id, empty_id, Variance::Invariant);
         }
         NodeKind::Literal(Literal::String(ref data)) => {
-            let access = ctx.infer.add_access(
-                Some(type_infer::Access::disallows(false, true)),
-                set,
-            );
             let u8_type = ctx.infer.add_int(IntTypeKind::U8, set);
-            ctx.infer.set_type(node_type_id, TypeKind::Buffer, [access, u8_type], set);
+            ctx.infer.set_type(node_type_id, TypeKind::Buffer, [u8_type], set);
 
             let u8_type = types::Type::new(types::TypeKind::Int(IntTypeKind::U8));
             let type_ = types::Type::new(types::TypeKind::Buffer { permits: PtrPermits::READ, pointee: u8_type });
@@ -543,13 +539,9 @@ fn build_constraints(
         } => {
             let operand_type_id = build_constraints(ctx, operand, set);
 
-            let access = ctx.infer.add_access(
-                Some(Access::needs(true, false)),
-                set,
-            );
             let temp = ctx.infer.add_type(
                 TypeKind::Reference,
-                [access, node_type_id],
+                [node_type_id],
                 set,
             );
             ctx.infer
@@ -716,11 +708,11 @@ fn build_constraints(
             local.stack_frame_id = set;
             ctx.infer.set_value_set(local.type_infer_value_id, set);
 
-            let access = ctx.infer.add_access(
-                Some(Access::needs(false, true)),
-                set,
-            );
-            let left_type_id = build_lvalue(ctx, left, access, set);
+            // let access = ctx.infer.add_access(
+            //     Some(Access::needs(false, true)),
+            //     set,
+            // );
+            let left_type_id = build_lvalue(ctx, left, set);
             let right_type_id = build_constraints(ctx, right, set);
 
             ctx.infer
@@ -737,11 +729,7 @@ fn build_constraints(
             left,
             right,
         } => {
-            let access = ctx.infer.add_access(
-                Some(Access::needs(false, true)),
-                set,
-            );
-            let left_type_id = build_lvalue(ctx, left, access, set);
+            let left_type_id = build_lvalue(ctx, left, set);
             let right_type_id = build_constraints(ctx, right, set);
 
             ctx.infer
@@ -759,12 +747,11 @@ fn build_constraints(
             ctx.infer.set_op_equal(op, left, right, node_type_id);
         }
         NodeKind::Reference(operand) => {
-            let access = ctx.infer.add_empty_access(set);
-            let inner = build_lvalue(ctx, operand, access, set);
+            let inner = build_lvalue(ctx, operand, set);
             ctx.infer.set_type(
                 node_type_id,
                 TypeKind::Reference,
-                [access, inner],
+                [inner],
                 set,
             );
         }
@@ -869,23 +856,23 @@ fn build_constraints(
             );
             ctx.infer.set_equal(node_type_id, temp, Variance::Invariant);
         }
-        NodeKind::ReferenceType(inner, permits) => {
+        NodeKind::ReferenceType(inner, _permits) => {
             let inner = build_constraints(ctx, inner, set);
-            let access = permits_to_access(permits);
-            let access = ctx.infer.add_access(Some(access), set);
+            // let access = permits_to_access(permits);
+            // let access = ctx.infer.add_access(Some(access), set);
             ctx.infer.set_type(
                 node_type_id,
-                TypeKind::Reference, [access, inner],
+                TypeKind::Reference, [inner],
                 set,
             );
         }
-        NodeKind::BufferType(inner, permits) => {
+        NodeKind::BufferType(inner, _permits) => {
             let inner = build_constraints(ctx, inner, set);
-            let access = permits_to_access(permits);
-            let access = ctx.infer.add_access(Some(access), set);
+            // let access = permits_to_access(permits);
+            // let access = ctx.infer.add_access(Some(access), set);
             ctx.infer.set_type(
                 node_type_id,
-                TypeKind::Buffer, [access, inner],
+                TypeKind::Buffer, [inner],
                 set,
             );
         }
@@ -898,15 +885,6 @@ fn build_constraints(
     node_type_id
 }
 
-fn permits_to_access(permits: Option<(Location, PtrPermits)>) -> type_infer::Access {
-    permits.map_or_else(Default::default, |(_, v)| {
-        type_infer::Access::specific(
-            v.read(),
-            v.write(),
-        )
-    })
-}
-
 /// Normal values are assumed to be readonly, because they are temporaries, it doesn't really make sense to
 /// write to them. However, in some cases the value isn't a temporary at all, but actually refers to a value
 /// inside of another value. That's what this is for. Instead of forcing the value to be readonly, we can make
@@ -915,7 +893,7 @@ fn permits_to_access(permits: Option<(Location, PtrPermits)>) -> type_infer::Acc
 fn build_lvalue(
     ctx: &mut Context<'_, '_>,
     node_id: NodeId,
-    access: type_infer::ValueId,
+    // access: type_infer::ValueId,
     set: ValueSetId,
 ) -> type_infer::ValueId {
     let node = ctx.ast.get(node_id);
@@ -924,7 +902,7 @@ fn build_lvalue(
 
     match node.kind {
         NodeKind::Member { of, name } => {
-            let of_type_id = build_lvalue(ctx, of, access, set);
+            let of_type_id = build_lvalue(ctx, of, set);
             ctx.infer
                 .set_field_name_equal(of_type_id, name, node_type_id, Variance::Invariant);
         }
@@ -941,7 +919,7 @@ fn build_lvalue(
             }
         }
         NodeKind::Parenthesis(inner) => {
-            build_lvalue(ctx, inner, access, set);
+            build_lvalue(ctx, inner, set);
         }
         NodeKind::TypeBound { value, bound } => {
             // @Improvment: Here, both things are invariant. One of them could potentially be variant,
@@ -952,7 +930,7 @@ fn build_lvalue(
             let bound_type_id = build_constraints(ctx, bound, set);
             ctx.infer
                 .set_equal(node_type_id, bound_type_id, Variance::Invariant);
-            let value_type_id = build_lvalue(ctx, value, access, set);
+            let value_type_id = build_lvalue(ctx, value, set);
             ctx.infer
                 .set_equal(value_type_id, node_type_id, Variance::Invariant);
         }
@@ -962,7 +940,7 @@ fn build_lvalue(
         } => {
             let temp = ctx.infer.add_type(
                 TypeKind::Reference,
-                [access, node_type_id],
+                [node_type_id],
                 set,
             );
 
@@ -973,12 +951,12 @@ fn build_lvalue(
         _ => {
             // Make it a reference to a temporary instead. This forces the pointer to be readonly.
             // @Speed: This could be faster...
-            let access_strict = ctx.infer.add_access(
-                Some(type_infer::Access::disallows(false, true)),
-                set,
-            );
-            ctx.infer
-                .set_equal(access_strict, access, Variance::Invariant);
+            // let access_strict = ctx.infer.add_access(
+            //     Some(type_infer::Access::disallows(false, true)),
+            //     set,
+            // );
+            // ctx.infer
+                // .set_equal(access_strict, access, Variance::Invariant);
             return build_constraints(ctx, node_id, set);
         }
     }

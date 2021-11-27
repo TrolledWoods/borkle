@@ -105,28 +105,6 @@ pub struct Var(pub ValueId);
 #[derive(Clone, Copy)]
 pub struct Unknown;
 
-pub trait IntoAccess {
-    fn into_variance(self, system: &mut TypeSystem, set: ValueSetId) -> ValueId;
-}
-
-impl IntoAccess for Access {
-    fn into_variance(self, system: &mut TypeSystem, set: ValueSetId) -> ValueId {
-        system.add_access(Some(self), set)
-    }
-}
-
-impl IntoAccess for Var {
-    fn into_variance(self, _: &mut TypeSystem, _: ValueSetId) -> ValueId {
-        self.0
-    }
-}
-
-impl IntoAccess for Unknown {
-    fn into_variance(self, system: &mut TypeSystem, set: ValueSetId) -> ValueId {
-        system.add_access(None, set)
-    }
-}
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TypeKind {
     // bool, u8
@@ -337,9 +315,6 @@ pub enum ValueKind {
     Error,
 
     Type(Option<Type>),
-
-    /// These are the only coerced values for now.
-    Access(Option<Access>),
 }
 
 impl ValueKind {
@@ -347,14 +322,12 @@ impl ValueKind {
         matches!(
             self,
             ValueKind::Type(Some(Type { args: Some(_), .. }))
-            | ValueKind::Access(Some(_))
         )
     }
 
     fn to_unknown(&self) -> Self {
         match self {
             Self::Type(_) => Self::Type(None),
-            Self::Access(_) => Self::Access(None),
             Self::Error => Self::Error,
         }
     }
@@ -893,30 +866,23 @@ impl TypeSystem {
                 types::Type::new(types::TypeKind::Array(element_type, length))
             }
             TypeKind::Buffer => {
-                let [mutability, pointee] = &**type_args else {
+                let [pointee] = &**type_args else {
                     unreachable!("Invalid reference type")
                 };
 
-                let ValueKind::Access(Some(access)) = &get_value(&self.values, *mutability).kind else {
-                    unreachable!("Requires access")
-                };
-
                 let pointee = self.value_to_compiler_type(*pointee);
-                let permits = types::PtrPermits::from_read_write(access.needs_read(), access.needs_write());
+                let permits = types::PtrPermits::from_read_write(true, true);
 
                 types::Type::new(types::TypeKind::Buffer { pointee, permits })
             }
             TypeKind::Reference => {
-                let [mutability, pointee] = &**type_args else {
+                let [pointee] = &**type_args else {
                     unreachable!("Invalid reference type")
                 };
 
-                let ValueKind::Access(Some(access)) = &get_value(&self.values, *mutability).kind else {
-                    unreachable!("Requires access")
-                };
-
                 let pointee = self.value_to_compiler_type(*pointee);
-                let permits = types::PtrPermits::from_read_write(access.needs_read(), access.needs_write());
+                // @Correctness: We want to reintroduce the real permits after the rework is complete
+                let permits = types::PtrPermits::from_read_write(true, true);
 
                 types::Type::new(types::TypeKind::Reference { pointee, permits })
             }
@@ -1063,28 +1029,7 @@ impl TypeSystem {
             return "...".to_string();
         }
         match &self.values.get(value).kind {
-            ValueKind::Access(None) => format!("_"),
             ValueKind::Error => format!("ERR"),
-            ValueKind::Access(Some(access)) => {
-                format!(
-                    "{}{}",
-                    match (access.needs_read(), access.needs_write()) {
-                        (true, true) => "rw",
-                        (true, false) => "r",
-                        (false, true) => "w",
-                        (false, false) => "!!",
-                    },
-                    match (
-                        access.cannot_read() && access.needs_read(),
-                        access.cannot_write() && access.needs_write(),
-                    ) {
-                        (true, true) => "-rw",
-                        (true, false) => "-r",
-                        (false, true) => "-w",
-                        (false, false) => "",
-                    },
-                )
-            }
             ValueKind::Type(Some(Type { kind: TypeKind::Bool, .. })) => "bool".to_string(),
             ValueKind::Type(Some(Type { kind: TypeKind::Empty, .. })) => "Empty".to_string(),
             ValueKind::Type(Some(Type { kind: TypeKind::IntSize, .. })) => "<size of int>".to_string(),
@@ -1144,17 +1089,15 @@ impl TypeSystem {
                 _ => unreachable!("Arrays should only ever have two type parameters"),
             },
             ValueKind::Type(Some(Type { kind: TypeKind::Buffer, args: Some(c), .. })) => match &**c {
-                [mutability, type_] => format!(
-                    "[]{} {}",
-                    self.value_to_str(*mutability, rec + 1),
+                [type_] => format!(
+                    "[] {}",
                     self.value_to_str(*type_, rec + 1)
                 ),
                 _ => unreachable!("Buffers should only ever have two type parameters"),
             },
             ValueKind::Type(Some(Type { kind: TypeKind::Reference, args: Some(c), .. })) => match &**c {
-                [mutability, type_] => format!(
-                    "&{} {}",
-                    self.value_to_str(*mutability, rec + 1),
+                [type_] => format!(
+                    "&{}",
                     self.value_to_str(*type_, rec + 1)
                 ),
                 _ => unreachable!("References should only ever have two type parameters"),
@@ -1344,21 +1287,19 @@ impl TypeSystem {
                         match &*field_name {
                             "ptr" => {
                                 if let Some(args) = args {
-                                    let &[mutability, pointee] = &args[..] else {
+                                    let &[pointee] = &args[..] else {
                                         unreachable!("All buffer types should have two arguments")
                                     };
 
                                     // @Performance: This is mega-spam of values, we want to later cache this value
                                     // so we don't have to re-add it over and over.
                                     let value_sets = a.value_sets.clone(&mut self.value_sets, true);
-                                    // @TODO: We want EqualNamedField constraints to store locations, since these constraints
-                                    // are very tightly linked with where they're created, as opposed to Equal.
-                                    // And then we can generate a good reason here.
-                                    // These reasons aren't correct at all....
+
+                                    // @Correctness: We want to reintroduce variances here after the rework
                                     let new_value_id = self.values.add(Value {
                                         kind: ValueKind::Type(Some(Type {
                                             kind: TypeKind::Reference,
-                                            args: Some(Box::new([mutability, pointee])),
+                                            args: Some(Box::new([pointee])),
                                         })),
                                         value_sets,
                                     });
@@ -1446,14 +1387,6 @@ impl TypeSystem {
                         ));
                         return;
                     }
-                    ValueKind::Access(_) => {
-                        self.errors.push(Error::new(
-                            a_id,
-                            b_id,
-                            ErrorKind::ValueAndTypesIntermixed,
-                        ));
-                        return;
-                    }
                 }
             }
             ConstraintKind::EqualsField {
@@ -1483,14 +1416,6 @@ impl TypeSystem {
                             ));
                             return;
                         }
-                    }
-                    ValueKind::Access(_) => {
-                        self.errors.push(Error::new(
-                            a_id,
-                            b_id,
-                            ErrorKind::ValueAndTypesIntermixed,
-                        ));
-                        return;
                     }
                 }
             }
@@ -1676,153 +1601,25 @@ impl TypeSystem {
                         // @Duplicate code from above.
                         let a = get_value(&self.values, a_id);
                         let b = get_value(&self.values, b_id);
-                        let (ValueKind::Type(Some(Type { kind: base_a, args: Some(a_fields), .. })), ValueKind::Type(Some(Type { kind: _, args: Some(b_fields), .. }))) = (&a.kind, &b.kind) else {
+                        let (ValueKind::Type(Some(Type { kind: _, args: Some(a_fields), .. })), ValueKind::Type(Some(Type { kind: _, args: Some(b_fields), .. }))) = (&a.kind, &b.kind) else {
                             // @Speed: Could be replaced with unreachable_unchecked in the real version.
                             unreachable!("Because of computations above, this is always true")
                         };
 
-                        // Ugly special case for references and buffers. This would apply for anything that has a
-                        // mutability parameter that controls the variance of another field, because that behaviour
-                        // is quite messy and complex.
-                        if *base_a == TypeKind::Reference || *base_a == TypeKind::Buffer {
-                            // @Cleanup: This has to be done because a has to be less than b, otherwise
-                            // the lookups don't work properly. However, this is messy. So it would be nice if it
-                            // could be factored out to something else.
-                            let (a_access_id, a_inner, b_access_id, b_inner, variance) =
-                                if a_fields[0] < b_fields[0] {
-                                    (
-                                        a_fields[0],
-                                        a_fields[1],
-                                        b_fields[0],
-                                        b_fields[1],
-                                        variance,
-                                    )
-                                } else {
-                                    (
-                                        b_fields[0],
-                                        b_fields[1],
-                                        a_fields[0],
-                                        a_fields[1],
-                                        variance.invert(),
-                                    )
-                                };
-
-                            let variance_constraint = self
-                                .variance_updates
-                                .entry((a_access_id, b_access_id))
-                                .or_insert_with(|| VarianceConstraint {
-                                    variance,
-                                    last_variance_applied: Variance::DontCare,
-                                    constraints: Vec::new(),
-                                });
-                            // We use guaranteed_variance instead of last_variance_applied here, since if they are different
-                            // it just means the VarianceConstraint has more work to do in the future to catch up, so we may as well
-                            // do that work right now, and save some work in the future.
-                            let inner_constraint = Constraint::equal(
-                                a_inner,
-                                b_inner,
-                                Variance::DontCare.apply_to(variance),
-                            );
-                            if let Some(inner_constraint_id) = insert_constraint(
-                                &mut self.constraints,
-                                &mut self.available_constraints,
-                                inner_constraint,
-                            ) {
-                                if !variance_constraint
-                                    .constraints
-                                    .iter()
-                                    .any(|(v, _)| v == &inner_constraint_id)
-                                {
-                                    variance_constraint
-                                        .constraints
-                                        .push((inner_constraint_id, variance));
-                                    self.queued_constraints.push(inner_constraint_id);
-                                }
-                            }
+                        // Now, we want to apply equality to all the fields as well.
+                        for (&a_field, &b_field) in a_fields.iter().zip(&**b_fields) {
+                            // @Improvement: Later, variance should be definable in a much more generic way(for generic types).
+                            // In a generic type, you could paramaterize the mutability of something, which might then influence
+                            // the variance of other parameters.
                             insert_active_constraint(
                                 &mut self.constraints,
                                 &mut self.available_constraints,
                                 &mut self.queued_constraints,
-                                Constraint::equal(a_access_id, b_access_id, variance),
-                            );
-                        } else if *base_a == TypeKind::Function {
-                            insert_active_constraint(
-                                &mut self.constraints,
-                                &mut self.available_constraints,
-                                &mut self.queued_constraints,
-                                Constraint::equal(
-                                    a_fields[0],
-                                    b_fields[0],
-                                    variance,
-                                ),
-                            );
-                            for (&a_field, &b_field) in a_fields[1..].iter().zip(&b_fields[1..])
-                            {
-                                insert_active_constraint(
-                                    &mut self.constraints,
-                                    &mut self.available_constraints,
-                                    &mut self.queued_constraints,
-                                    Constraint::equal(a_field, b_field, variance.invert()),
-                                );
-                            }
-                        } else {
-                            // Now, we want to apply equality to all the fields as well.
-                            for (&a_field, &b_field) in a_fields.iter().zip(&**b_fields) {
-                                // @Improvement: Later, variance should be definable in a much more generic way(for generic types).
-                                // In a generic type, you could paramaterize the mutability of something, which might then influence
-                                // the variance of other parameters.
-                                insert_active_constraint(
-                                    &mut self.constraints,
-                                    &mut self.available_constraints,
-                                    &mut self.queued_constraints,
-                                    Constraint::equal(a_field, b_field, variance),
-                                );
-                            }
-                        }
-                    }
-
-                    (Value { kind: ValueKind::Access(a), value_sets: a_value_sets, .. }, _, Value { kind: ValueKind::Access(b), value_sets: b_value_sets, .. }, _) => {
-                        let a = a.get_or_insert_with(|| {
-                            a_value_sets.complete(&mut self.value_sets);
-                            Access::default()
-                        });
-                        let b = b.get_or_insert_with(|| {
-                            b_value_sets.complete(&mut self.value_sets);
-                            Access::default()
-                        });
-
-                        let old = (*a, *b);
-                        a.combine_with(b, variance);
-                        let different = (*a, *b) != old;
-
-                        progress[0] = different;
-                        progress[1] = different;
-
-                        if a.needs_write() && a.cannot_write() || a.needs_read() && a.cannot_read()
-                        || b.needs_write() && b.cannot_write() || b.needs_read() && b.cannot_read() {
-                            a.combine_with(b, Variance::Invariant);
-                            let value = get_value_mut(&mut self.values, a_id);
-                            value.value_sets.make_erroneous(&mut self.value_sets);
-                            *value = Value {
-                                kind: ValueKind::Error,
-                                value_sets: ValueSetHandles::already_complete(),
-                            };
-                            // @HACK: I do this so I don't have to do some annoying manipulation more than necessary,
-                            // this should not actually be done.
-                            self.queued_constraints.push(constraint_id);
-                        } else if let Some(variance_constraint) =
-                            self.variance_updates.get_mut(&(a_id, b_id))
-                        {
-                            run_variance_constraint(
-                                variance_constraint,
-                                a_id,
-                                b_id,
-                                &self.values,
-                                &mut self.constraints,
-                                &mut self.queued_constraints,
+                                Constraint::equal(a_field, b_field, variance),
                             );
                         }
                     }
+
                     _ => {
                         // TODO: We should generate an error value in this case.
                         self.errors
@@ -1916,19 +1713,20 @@ impl TypeSystem {
             }
             types::TypeKind::Empty => self.add_type(TypeKind::Empty, [], set),
             types::TypeKind::Bool  => self.add_type(TypeKind::Bool, [], set),
-            types::TypeKind::Buffer { pointee, permits } => {
+            types::TypeKind::Buffer { pointee, permits: _ } => {
                 // @Cleanup: This is ugly!
-                let permits = self.add_access(Some(Access::disallows(!permits.read(), !permits.write())), set);
+                // @Correctness: We want to reintroduce these once the rework is complete
+                // let permits = self.add_access(Some(Access::disallows(!permits.read(), !permits.write())), set);
                 let pointee = self.add_compiler_type(pointee, set);
 
-                self.add_type(TypeKind::Buffer, [permits, pointee], set)
+                self.add_type(TypeKind::Buffer, [pointee], set)
             }
-            types::TypeKind::Reference { pointee, permits } => {
-                // @Cleanup: This is ugly!
-                let permits = self.add_access(Some(Access::disallows(!permits.read(), !permits.write())), set);
+            types::TypeKind::Reference { pointee, permits: _ } => {
+                // @Correctness: We want to reintroduce permits once the rework is complete
+                // let permits = self.add_access(Some(Access::disallows(!permits.read(), !permits.write())), set);
                 let pointee = self.add_compiler_type(pointee, set);
 
-                self.add_type(TypeKind::Reference, [permits, pointee], set)
+                self.add_type(TypeKind::Reference, [pointee], set)
             }
             types::TypeKind::Array(_type_, _length) => {
                 todo!("We need a function for turning a compiler type into an actionable type that also takes the program");
@@ -2030,21 +1828,6 @@ impl TypeSystem {
         self.set_value(type_id, type_, value, set);
         type_id
     }
-
-    pub fn add_empty_access(&mut self, set: ValueSetId) -> ValueId {
-        self.values.add(Value {
-            kind: ValueKind::Access(None),
-            value_sets: self.value_sets.with_one(set, false),
-        })
-    }
-
-    pub fn add_access(
-        &mut self,
-        access: Option<Access>,
-        set: ValueSetId,
-    ) -> ValueId {
-        self.add(ValueKind::Access(access), set)
-    }
 }
 
 /// If a and b are accesses permissions used to determine the variance of an operation, and they are "equal" with a variance
@@ -2068,39 +1851,5 @@ fn biggest_guaranteed_variance_of_operation(a: &Option<Access>, b: &Option<Acces
         (false, true) => Variance::Covariant,
         (true, false) => Variance::Variant,
         (false, false) => Variance::DontCare,
-    }
-}
-
-fn run_variance_constraint(
-    constraint: &mut VarianceConstraint,
-    a: ValueId,
-    b: ValueId,
-    values: &Values,
-    constraints: &mut Vec<Constraint>,
-    queued_constraints: &mut Vec<ConstraintId>,
-) {
-    let ValueKind::Access(a_access) = &get_value(&values, a).kind else { panic!() };
-    let ValueKind::Access(b_access) = &get_value(&values, b).kind else { panic!() };
-
-    let new_variance = biggest_guaranteed_variance_of_operation(
-        a_access,
-        b_access,
-        constraint.variance,
-    );
-
-    if new_variance != constraint.last_variance_applied {
-        for &(constraint, variance) in &constraint.constraints {
-            // If the constraint doesn't have a variance we don't even care, since it won't
-            // depend on this system anyways, and when it was inserted all the logic it could use would have been
-            // run already.
-            if let Some(variance_mut) = constraints[constraint].variance_mut() {
-                let old = *variance_mut;
-                variance_mut.combine(new_variance.apply_to(variance));
-                if old != *variance_mut {
-                    queued_constraints.push(constraint);
-                }
-            }
-        }
-        constraint.last_variance_applied = new_variance;
     }
 }
