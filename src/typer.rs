@@ -509,13 +509,7 @@ fn build_constraints(
         } => {
             let condition_type_id = build_constraints(ctx, condition, set);
             // @Performance: This could be better, I really want a constraint for this kind of thing...
-            let condition_type = ctx.infer.add(
-                type_infer::ValueKind::Type(Some(type_infer::Type {
-                    kind: type_infer::TypeKind::Bool,
-                    args: Some(Box::new([])),
-                })),
-                set,
-            );
+            let condition_type = ctx.infer.add_type(TypeKind::Bool, [], set);
             ctx.infer
                 .set_equal(condition_type_id, condition_type, Variance::Invariant);
 
@@ -575,13 +569,7 @@ fn build_constraints(
             // enough to emit code.
             let length_value = ctx.infer.add_value(usize_type, (), set);
 
-            let array_type = ctx.infer.add(
-                type_infer::ValueKind::Type(Some(type_infer::Type {
-                    kind: type_infer::TypeKind::Array,
-                    args: Some(Box::new([member_type_id, length_value])),
-                })),
-                set,
-            );
+            let array_type = ctx.infer.add_type(TypeKind::Array, [member_type_id, length_value], set);
 
             ctx.ast.get_mut(node_id).kind = NodeKind::ArrayTypeInTyping {
                 len,
@@ -637,14 +625,7 @@ fn build_constraints(
             ctx.infer
                 .set_equal(body_type_id, returns_type_id, Variance::Variant);
 
-            let infer_type = type_infer::ValueKind::Type(Some(type_infer::Type {
-                kind: type_infer::TypeKind::Function,
-                args: Some(function_type_ids.into_boxed_slice()),
-            }));
-            let infer_type_id = ctx.infer.add(
-                infer_type,
-                sub_set,
-            );
+            let infer_type_id = ctx.infer.add_type(TypeKind::Function, function_type_ids.into_boxed_slice(), sub_set);
             ctx.infer
                 .set_equal(infer_type_id, node_type_id, Variance::Invariant);
 
@@ -682,14 +663,7 @@ fn build_constraints(
             }
 
             // Specify that the caller has to be a function type
-            let infer_type = type_infer::ValueKind::Type(Some(type_infer::Type {
-                kind: type_infer::TypeKind::Function,
-                args: Some(typer_args.into_boxed_slice()),
-            }));
-            let type_id = ctx.infer.add(
-                infer_type,
-                set,
-            );
+            let type_id = ctx.infer.add_type(TypeKind::Function, typer_args.into_boxed_slice(), set);
             ctx.infer
                 .set_equal(calling_type_id, type_id, Variance::Invariant);
 
@@ -827,14 +801,7 @@ fn build_constraints(
                 function_type_ids.push(type_id);
             }
 
-            let infer_type = type_infer::ValueKind::Type(Some(Type {
-                kind: TypeKind::Function,
-                args: Some(function_type_ids.into_boxed_slice()),
-            }));
-            let infer_type_id = ctx.infer.add(
-                infer_type,
-                set,
-            );
+            let infer_type_id = ctx.infer.add_type(TypeKind::Function, function_type_ids.into_boxed_slice(), set);
             ctx.infer
                 .set_equal(infer_type_id, node_type_id, Variance::Invariant);
         }
@@ -842,19 +809,11 @@ fn build_constraints(
             // @Performance: Many allocations
             let names = fields.iter().map(|v| v.0).collect();
             let fields = fields.iter().map(|v| v.1).collect::<Vec<_>>();
-            let fields = fields
+            let fields: Box<_> = fields
                 .into_iter()
                 .map(|v| build_constraints(ctx, v, set))
                 .collect();
-            // @Performance: This could directly set the type in theory
-            let temp = ctx.infer.add(
-                type_infer::ValueKind::Type(Some(Type {
-                    kind: type_infer::TypeKind::Struct(names),
-                    args: Some(fields),
-                })),
-                set,
-            );
-            ctx.infer.set_equal(node_type_id, temp, Variance::Invariant);
+            ctx.infer.set_type(node_type_id, TypeKind::Struct(names), fields, set);
         }
         NodeKind::ReferenceType(inner, _permits) => {
             let inner = build_constraints(ctx, inner, set);

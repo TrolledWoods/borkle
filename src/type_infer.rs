@@ -107,6 +107,7 @@ pub struct Unknown;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TypeKind {
+    Error, 
     // bool, u8
     Int,
     // No arguments, the size of an integer, hidden type that the user cannot access
@@ -295,41 +296,14 @@ pub struct Type {
     pub args: Option<Box<[ValueId]>>,
 }
 
-impl Type {
-    fn primitive(kind: TypeKind) -> Self {
-        Self {
-            kind,
-            args: Some(Box::new([])),
-        }
-    }
-}
-
-#[derive(Debug)]
-pub struct Constant {
-    pub type_: ValueId,
-    pub value: Option<ConstantRef>,
-}
-
 #[derive(Debug)]
 pub enum ValueKind {
-    Error,
-
     Type(Option<Type>),
 }
 
-impl ValueKind {
+impl Type {
     fn is_complete(&self) -> bool {
-        matches!(
-            self,
-            ValueKind::Type(Some(Type { args: Some(_), .. }))
-        )
-    }
-
-    fn to_unknown(&self) -> Self {
-        match self {
-            Self::Type(_) => Self::Type(None),
-            Self::Error => Self::Error,
-        }
+        self.args.is_some()
     }
 }
 
@@ -475,11 +449,11 @@ struct VarianceConstraint {
 }
 
 fn extract_constant_from_value(values: &Values, value: ValueId) -> Option<ConstantRef> {
-    let Value { kind: ValueKind::Type(Some(Type { kind: TypeKind::Constant, args: Some(args) })), .. } = values.get(value) else {
+    let Value { kind: Some(Type { kind: TypeKind::Constant, args: Some(args) }), .. } = values.get(value) else {
         return None
     };
 
-    let Value { kind: ValueKind::Type(Some(Type { kind: TypeKind::ConstantValue(constant_ref), .. })), .. } = values.get(*args.get(1)?) else {
+    let Value { kind: Some(Type { kind: TypeKind::ConstantValue(constant_ref), .. }), .. } = values.get(*args.get(1)?) else {
         return None;
     };
 
@@ -567,6 +541,7 @@ fn type_kind_to_str(
 ) -> std::fmt::Result {
     use std::fmt::Write;
     match type_kind {
+        TypeKind::Error => write!(string, "error!"),
         TypeKind::Constant => write!(string, "constant"),
         TypeKind::ConstantValue(_) => write!(string, "<constant value>"),
         TypeKind::Int => write!(string, "int"),
@@ -602,7 +577,7 @@ pub type ValueId = u32;
 
 #[derive(Debug)]
 struct Value {
-    kind: ValueKind,
+    kind: Option<Type>,
     value_sets: ValueSetHandles,
 }
 
@@ -783,7 +758,7 @@ impl TypeSystem {
             has_errors = true;
             for value in self.values.iter() {
                 if let Value {
-                    kind: ValueKind::Error,
+                    kind: Some(Type { kind: TypeKind::Error, .. }),
                     ..
                 } = value {
                     // TODO: Use the ast node location
@@ -804,11 +779,12 @@ impl TypeSystem {
     }
 
     pub fn value_to_compiler_type(&self, value_id: ValueId) -> types::Type {
-        let ValueKind::Type(Some(Type { kind: type_kind, args: Some(type_args) })) = &get_value(&self.values, value_id).kind else {
+        let Some(Type { kind: type_kind, args: Some(type_args) }) = &get_value(&self.values, value_id).kind else {
             panic!("Cannot call value_to_compiler_type on incomplete value")
         };
 
         match *type_kind {
+            TypeKind::Error => unreachable!("Error value cannot be turned into a compiler time"),
             TypeKind::Constant | TypeKind::ConstantValue(_) => unreachable!("Constants aren't concrete types, cannot use them as node types"),
             TypeKind::IntSize => unreachable!("Int sizes are a hidden type for now, the user shouldn't be able to access them"),
             TypeKind::Int => {
@@ -967,7 +943,7 @@ impl TypeSystem {
 
     fn constant_to_str(&self, type_: ValueId, value: ConstantRef, rec: usize) -> String {
         match &get_value(&self.values, type_).kind {
-            ValueKind::Type(Some(Type { kind: TypeKind::IntSize, .. })) => {
+            Some(Type { kind: TypeKind::IntSize, .. }) => {
                 let byte;
                 unsafe {
                     byte = *value.as_ptr();
@@ -981,7 +957,7 @@ impl TypeSystem {
                     num => format!("<invalid int size value {}>", num),
                 }
             }
-            ValueKind::Type(Some(Type { kind: TypeKind::Int, args: Some(c) })) => {
+            Some(Type { kind: TypeKind::Int, args: Some(c) }) => {
                 let [signed, size] = &**c else { panic!() };
 
                 let Some(signed) = extract_constant_from_value(&self.values, *signed) else {
@@ -1006,7 +982,7 @@ impl TypeSystem {
 
                 format!("{}", i128::from_le_bytes(big_int))
             }
-            ValueKind::Type(Some(Type { kind: TypeKind::Bool, .. })) => {
+            Some(Type { kind: TypeKind::Bool, .. }) => {
                 let byte = unsafe { *value.as_ptr() };
                 match byte {
                     0 => "false".to_string(),
@@ -1014,13 +990,12 @@ impl TypeSystem {
                     num => format!("<invalid bool value {}>", num),
                 }
             }
-            ValueKind::Type(_) => {
-                format!("(cannot format {})", self.value_to_str(type_, rec))
-            }
-            ValueKind::Error { .. } => {
+            Some(Type { kind: TypeKind::Error, .. }) => {
                 format!("error!")
             }
-            v => unreachable!("Not a type! {:?}", v),
+            _ => {
+                format!("(cannot format {})", self.value_to_str(type_, rec))
+            }
         }
     }
 
@@ -1029,16 +1004,16 @@ impl TypeSystem {
             return "...".to_string();
         }
         match &self.values.get(value).kind {
-            ValueKind::Error => format!("ERR"),
-            ValueKind::Type(Some(Type { kind: TypeKind::Bool, .. })) => "bool".to_string(),
-            ValueKind::Type(Some(Type { kind: TypeKind::Empty, .. })) => "Empty".to_string(),
-            ValueKind::Type(Some(Type { kind: TypeKind::IntSize, .. })) => "<size of int>".to_string(),
-            ValueKind::Type(Some(Type { kind: TypeKind::ConstantValue(_), .. })) => "<constant value>".to_string(),
-            ValueKind::Type(None) => "_".to_string(),
-            ValueKind::Type(Some(Type { kind: TypeKind::Constant, args: Some(c) })) => match &**c {
+            Some(Type { kind: TypeKind::Error, .. }) => format!("ERR"),
+            Some(Type { kind: TypeKind::Bool, .. }) => "bool".to_string(),
+            Some(Type { kind: TypeKind::Empty, .. }) => "Empty".to_string(),
+            Some(Type { kind: TypeKind::IntSize, .. }) => "<size of int>".to_string(),
+            Some(Type { kind: TypeKind::ConstantValue(_), .. }) => "<constant value>".to_string(),
+            None => "_".to_string(),
+            Some(Type { kind: TypeKind::Constant, args: Some(c) }) => match &**c {
                 [type_, value] => {
                     let value = match self.values.get(*value) {
-                        Value { kind: ValueKind::Type(Some(Type { kind: TypeKind::ConstantValue(constant_ref), .. })), .. } => {
+                        Value { kind: Some(Type { kind: TypeKind::ConstantValue(constant_ref), .. }), .. } => {
                             self.constant_to_str(*type_, *constant_ref, rec + 1)
                         }
                         _ => "_".to_string(),
@@ -1049,8 +1024,8 @@ impl TypeSystem {
                 }
                 _ => unreachable!("A constant type node should always only have two arguments"),
             },
-            ValueKind::Type(Some(Type { kind, args: None, .. })) => format!("{:?}", kind),
-            ValueKind::Type(Some(Type { kind: TypeKind::Int, args: Some(c) })) => match &**c {
+            Some(Type { kind, args: None, .. }) => format!("{:?}", kind),
+            Some(Type { kind: TypeKind::Int, args: Some(c) }) => match &**c {
                 [signed, size] => format!(
                     "int({}, {})",
                     self.value_to_str(*signed, rec + 1),
@@ -1058,7 +1033,7 @@ impl TypeSystem {
                 ),
                 _ => unreachable!("A function pointer type has to have at least a return type"),
             }
-            ValueKind::Type(Some(Type { kind: TypeKind::Function, args: Some(c) })) => match &**c {
+            Some(Type { kind: TypeKind::Function, args: Some(c) }) => match &**c {
                 [return_, args @ ..] => format!(
                     "fn({}) -> {}",
                     args.iter()
@@ -1069,7 +1044,7 @@ impl TypeSystem {
                 ),
                 _ => unreachable!("A function pointer type has to have at least a return type"),
             },
-            ValueKind::Type(Some(Type { kind: TypeKind::Struct(names), args: Some(c), .. })) => {
+            Some(Type { kind: TypeKind::Struct(names), args: Some(c), .. }) => {
                 let list = names
                     .iter()
                     .zip(c.iter())
@@ -1080,7 +1055,7 @@ impl TypeSystem {
                     .join(", ");
                 format!("{{ {} }}", list)
             }
-            ValueKind::Type(Some(Type { kind: TypeKind::Array, args: Some(c), .. })) => match &**c {
+            Some(Type { kind: TypeKind::Array, args: Some(c), .. }) => match &**c {
                 [type_, length] => format!(
                     "[{}] {}",
                     self.value_to_str(*length, rec + 1),
@@ -1088,14 +1063,14 @@ impl TypeSystem {
                 ),
                 _ => unreachable!("Arrays should only ever have two type parameters"),
             },
-            ValueKind::Type(Some(Type { kind: TypeKind::Buffer, args: Some(c), .. })) => match &**c {
+            Some(Type { kind: TypeKind::Buffer, args: Some(c), .. }) => match &**c {
                 [type_] => format!(
                     "[] {}",
                     self.value_to_str(*type_, rec + 1)
                 ),
                 _ => unreachable!("Buffers should only ever have two type parameters"),
             },
-            ValueKind::Type(Some(Type { kind: TypeKind::Reference, args: Some(c), .. })) => match &**c {
+            Some(Type { kind: TypeKind::Reference, args: Some(c), .. }) => match &**c {
                 [type_] => format!(
                     "&{}",
                     self.value_to_str(*type_, rec + 1)
@@ -1210,19 +1185,7 @@ impl TypeSystem {
                 let b = get_value(&self.values, b_id);
                 let result = get_value(&self.values, result_id);
 
-                let (a, b, result) = match (&a.kind, &b.kind, &result.kind) {
-                    (ValueKind::Type(a), ValueKind::Type(b), ValueKind::Type(result)) => (a, b, result),
-                    (_, _, _) => {
-                        // Error! This is temporary, I want to change how I do errors later anyway so who cares.
-                        let result = get_value_mut(&mut self.values, result_id);
-                        result.value_sets.make_erroneous(&mut self.value_sets);
-                        *result = Value {
-                            kind: ValueKind::Error,
-                            value_sets: ValueSetHandles::already_complete(),
-                        };
-                        return;
-                    }
-                };
+                let (a, b, result) = (&a.kind, &b.kind, &result.kind);
 
                 match (op, (a.as_ref().map(|v| &v.kind), b.as_ref().map(|v| &v.kind), result.as_ref().map(|v| &v.kind))) {
                     (
@@ -1277,13 +1240,13 @@ impl TypeSystem {
                 let a = get_value(&self.values, a_id);
 
                 match &a.kind {
-                    ValueKind::Error { .. } => {
+                    Some(Type { kind: TypeKind::Error, .. }) => {
                         // TODO: Deal with this case somehow. I think that a good method would be just
                         // to flag the child member as being dependant on an error, e.g. if we knew what this
                         // type was it might be set, so just don't report incompleteness-errors on that value.
                     }
-                    ValueKind::Type(None) => {}
-                    ValueKind::Type(Some(Type { kind: TypeKind::Buffer, args, .. })) => {
+                    None => {}
+                    Some(Type { kind: TypeKind::Buffer, args, .. }) => {
                         match &*field_name {
                             "ptr" => {
                                 if let Some(args) = args {
@@ -1297,10 +1260,10 @@ impl TypeSystem {
 
                                     // @Correctness: We want to reintroduce variances here after the rework
                                     let new_value_id = self.values.add(Value {
-                                        kind: ValueKind::Type(Some(Type {
+                                        kind: Some(Type {
                                             kind: TypeKind::Reference,
                                             args: Some(Box::new([pointee])),
-                                        })),
+                                        }),
                                         value_sets,
                                     });
 
@@ -1332,7 +1295,7 @@ impl TypeSystem {
                             }
                         }
                     }
-                    ValueKind::Type(Some(Type { kind: TypeKind::Struct(names), .. })) => {
+                    Some(Type { kind: TypeKind::Struct(names), .. }) => {
                         if let Some(pos) = names.iter().position(|&v| v == field_name) {
                             insert_active_constraint(
                                 &mut self.constraints,
@@ -1355,7 +1318,7 @@ impl TypeSystem {
                             return;
                         }
                     }
-                    ValueKind::Type(Some(Type { kind: TypeKind::Array, .. })) => {
+                    Some(Type { kind: TypeKind::Array, .. }) => {
                         // @Correctness: We should have a check that the argument is in range
                         if let Some(_) = field_name.strip_prefix("_").and_then(|v| v.parse::<usize>().ok()) {
                             insert_active_constraint(
@@ -1379,7 +1342,7 @@ impl TypeSystem {
                             return;
                         }
                     }
-                    ValueKind::Type(Some(_)) => {
+                    Some(_) => {
                         self.errors.push(Error::new(
                             a_id,
                             b_id,
@@ -1397,10 +1360,10 @@ impl TypeSystem {
                 let a = &get_value(&self.values, a_id).kind;
 
                 match a {
-                    ValueKind::Error { .. } => {
+                    Some(Type { kind: TypeKind::Error, .. }) => {
                     }
-                    ValueKind::Type(None) | ValueKind::Type(Some(Type { args: None, .. })) => {}
-                    ValueKind::Type(Some(Type { args: Some(fields), .. })) => {
+                    None | Some(Type { args: None, .. }) => {}
+                    Some(Type { args: Some(fields), .. }) => {
                         if let Some(&field) = fields.get(field_index) {
                             insert_active_constraint(
                                 &mut self.constraints,
@@ -1428,8 +1391,8 @@ impl TypeSystem {
 
                 use ErrorKind::*;
                 match (&mut *a_value, a_id, &mut *b_value, b_id) {
-                    (Value { kind: ValueKind::Error, value_sets: error_value_sets, .. }, _, non_error, _)
-                    | (non_error, _, Value { kind: ValueKind::Error, value_sets: error_value_sets, .. }, _) => {
+                    (Value { kind: Some(Type { kind: TypeKind::Error, .. }), value_sets: error_value_sets, .. }, _, non_error, _)
+                    | (non_error, _, Value { kind: Some(Type { kind: TypeKind::Error, .. }), value_sets: error_value_sets, .. }, _) => {
                         non_error.value_sets.make_erroneous(&mut self.value_sets);
                         error_value_sets.make_erroneous(&mut self.value_sets);
 
@@ -1458,13 +1421,13 @@ impl TypeSystem {
                         }
 
                         *a_value = Value {
-                            kind: ValueKind::Error,
+                            kind: Some(Type { kind: TypeKind::Error, args: Some(Box::new([])) }),
                             // The value sets of the errors are already set as erroneous, so it doesn't matter that this one is empty.
                             value_sets: ValueSetHandles::already_complete(),
                         };
 
                         *b_value = Value {
-                            kind: ValueKind::Error,
+                            kind: Some(Type { kind: TypeKind::Error, args: Some(Box::new([])) }),
                             value_sets: ValueSetHandles::already_complete(),
                         };
 
@@ -1479,7 +1442,7 @@ impl TypeSystem {
                             });
                         }
                     }
-                    (Value { kind: ValueKind::Type(a), .. }, _, Value { kind: ValueKind::Type(b), .. }, _) => {
+                    (Value { kind: a, .. }, _, Value { kind: b, .. }, _) => {
                         let (a_type, b_type) = match (a, b) {
                             (None, None) => return,
                             (Some(a_type), b_type @ None) => {
@@ -1540,11 +1503,11 @@ impl TypeSystem {
                             }
 
                             *self.values.get_mut(a_id) = Value {
-                                kind: ValueKind::Error,
+                                kind: Some(Type { kind: TypeKind::Error, args: Some(Box::new([])) }),
                                 value_sets: ValueSetHandles::already_complete(),
                             };
                             *self.values.get_mut(b_id) = Value {
-                                kind: ValueKind::Error,
+                                kind: Some(Type { kind: TypeKind::Error, args: Some(Box::new([])) }),
                                 value_sets: ValueSetHandles::already_complete(),
                             };
                             return;
@@ -1582,11 +1545,9 @@ impl TypeSystem {
                                 let base_value = get_value_mut(&mut self.values, unknown_id);
                                 let mut base_value_sets = base_value.value_sets.take();
 
-                                for &v in variant_fields.iter() {
-                                    let variant_value = get_value(&self.values, v);
-                                    let kind = variant_value.kind.to_unknown();
+                                for _ in 0..variant_fields.len() {
                                     let new_value = Value {
-                                        kind,
+                                        kind: None,
                                         value_sets: base_value_sets.clone(&mut self.value_sets, false),
                                     };
                                     self.values.add(new_value);
@@ -1601,7 +1562,7 @@ impl TypeSystem {
                         // @Duplicate code from above.
                         let a = get_value(&self.values, a_id);
                         let b = get_value(&self.values, b_id);
-                        let (ValueKind::Type(Some(Type { kind: _, args: Some(a_fields), .. })), ValueKind::Type(Some(Type { kind: _, args: Some(b_fields), .. }))) = (&a.kind, &b.kind) else {
+                        let (Some(Type { kind: _, args: Some(a_fields), .. }), Some(Type { kind: _, args: Some(b_fields), .. })) = (&a.kind, &b.kind) else {
                             // @Speed: Could be replaced with unreachable_unchecked in the real version.
                             unreachable!("Because of computations above, this is always true")
                         };
@@ -1618,12 +1579,6 @@ impl TypeSystem {
                                 Constraint::equal(a_field, b_field, variance),
                             );
                         }
-                    }
-
-                    _ => {
-                        // TODO: We should generate an error value in this case.
-                        self.errors
-                            .push(Error::new(a_id, b_id, MixingTypesAndValues));
                     }
                 }
 
@@ -1648,28 +1603,11 @@ impl TypeSystem {
     pub fn params(&self, value: ValueId) -> Option<&[ValueId]> {
         match get_value(&self.values, value) {
             Value {
-                kind: ValueKind::Type(Some(Type { ref args, .. })),
+                kind: Some(Type { ref args, .. }),
                 ..
             } => args.as_deref(),
             _ => None,
         }
-    }
-
-    pub fn add(&mut self, value: ValueKind, set: ValueSetId) -> ValueId {
-        let value_sets = self.value_sets.with_one(set, value.is_complete());
-        self.values.add(Value {
-            kind: value,
-            value_sets,
-        })
-    }
-
-    pub fn add_without_reason(&mut self, value: ValueKind, set: ValueSetId) -> ValueId {
-        // @Cleanup: We could clean this up by having a concept of "complete" and "incomplete" values.
-        let value_sets = self.value_sets.with_one(set, value.is_complete());
-        self.values.add(Value {
-            kind: value,
-            value_sets,
-        })
     }
 
     /// Adds a value set to a value. This value has to be an unknown type, otherwise it will panic
@@ -1679,7 +1617,7 @@ impl TypeSystem {
         let value = self.values.get_mut(value_id);
 
         // There can be no children, this function shouldn't have to recurse.
-        debug_assert!(matches!(value.kind, ValueKind::Type(None)));
+        debug_assert!(matches!(value.kind, None));
 
         // We don't want to worry about sorting or binary searching
         value.value_sets.set_to(self.value_sets.with_one(value_set_id, false));
@@ -1687,7 +1625,7 @@ impl TypeSystem {
 
     pub fn add_unknown_type_with_set(&mut self, set: ValueSetId) -> ValueId {
         self.values.add(Value {
-            kind: ValueKind::Type(None),
+            kind: None,
             value_sets: self.value_sets.with_one(set, false),
         })
     }
@@ -1746,17 +1684,17 @@ impl TypeSystem {
 
     #[track_caller]
     pub fn set_type(&mut self, value_id: ValueId, kind: TypeKind, args: impl IntoBoxSlice<ValueId>, set: impl IntoValueSet) -> ValueId {
-        let value @ Value { kind: ValueKind::Type(None), .. } = self.values.get_mut(value_id) else {
+        let value @ Value { kind: None, .. } = self.values.get_mut(value_id) else {
             unreachable!("Cannot call set_type on anything other than an unknown type")
         };
 
         let args = args.into_box_slice();
         let is_complete = args.is_some();
         let value_sets = set.add_set(&mut self.value_sets, is_complete);
-        value.kind = ValueKind::Type(Some(Type {
+        value.kind = Some(Type {
             kind,
             args,
-        }));
+        });
         if is_complete {
             value.value_sets.complete(&mut self.value_sets);
         }
@@ -1794,17 +1732,17 @@ impl TypeSystem {
         let is_complete = args.is_some();
         let value_sets = set.add_set(&mut self.value_sets, is_complete);
         self.values.add(Value {
-            kind: ValueKind::Type(Some(Type {
+            kind: Some(Type {
                 kind,
                 args,
-            })),
+            }),
             value_sets,
         })
     }
 
     pub fn add_unknown_type(&mut self) -> ValueId {
         self.values.add(Value {
-            kind: ValueKind::Type(None),
+            kind: None,
             value_sets: ValueSetHandles::default(),
         })
     }
@@ -1814,10 +1752,10 @@ impl TypeSystem {
         let is_complete =  value.is_some();
         let value_sets = set.add_set(&mut self.value_sets, is_complete);
         let constant_value_id = self.values.add(Value {
-            kind: ValueKind::Type(value.map(|v| Type {
+            kind: value.map(|v| Type {
                 kind: TypeKind::ConstantValue(v),
                 args: Some(Box::new([])),
-            })),
+            }),
             value_sets,
         });
         self.set_type(value_id, TypeKind::Constant, [type_, constant_value_id], set);
