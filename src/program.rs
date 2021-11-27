@@ -431,12 +431,6 @@ impl Program {
 
     /// # Locks
     /// * ``constant_data`` write
-    pub fn insert_zeroed_buffer(&self, type_: Type) -> ConstantRef {
-        self.insert_buffer_from_operation(type_, |buf| unsafe { buf.write_bytes(0, type_.size()) })
-    }
-
-    /// # Locks
-    /// * ``constant_data`` write
     pub fn insert_buffer(&self, type_: Type, data: *const u8) -> ConstantRef {
         self.insert_buffer_from_operation(type_, |buf| unsafe {
             std::ptr::copy(data, buf, type_.size())

@@ -10,8 +10,6 @@ use ustr::Ustr;
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ScopeBoundaryId(usize);
 
-pub type StackFrameId = u32;
-
 /// A collection of various data that is needed for parsing
 /// things in a data scope. Data scopes are scopes where constants
 /// can be defined.

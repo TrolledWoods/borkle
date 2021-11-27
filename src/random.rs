@@ -1,3 +1,6 @@
+// The random stuff is used mostly for testing, but since it is used sometimes I want to keep it in here.
+#![allow(unused)]
+
 #[derive(Clone, Copy)]
 pub struct Random(u32);
 

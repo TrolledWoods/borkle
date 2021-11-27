@@ -19,15 +19,10 @@ mod static_values {
 }
 
 use crate::errors::ErrorCtx;
-use crate::program::Program;
-use crate::location::Location;
 use crate::operators::BinaryOp;
 use crate::types::{self, IntTypeKind};
 use std::collections::HashMap;
-use std::hint::unreachable_unchecked;
-use std::iter::repeat_with;
 use std::mem;
-use std::sync::Arc;
 use ustr::Ustr;
 use crate::program::constant::ConstantRef;
 
@@ -637,8 +632,14 @@ struct ValueWrapper {
     next_in_structure_group: u32,
 }
 
+#[derive(Default)]
+struct StructureGroup {
+    first_value: ValueId,
+    num_values: u32,
+}
+
 struct Values {
-    structure: Vec<(u32, u32)>,
+    structure: Vec<StructureGroup>,
     values: Vec<ValueWrapper>,
 }
 
@@ -658,22 +659,22 @@ impl Values {
             return;
         }
 
-        let (b_structure_start, b_structure_len) = mem::replace(&mut self.structure[old_b_structure_id as usize], (u32::MAX, 0));
-        self.structure[structure_id as usize].1 += b_structure_len;
+        let b_structure = mem::take(&mut self.structure[old_b_structure_id as usize]);
+        self.structure[structure_id as usize].num_values += b_structure.num_values;
 
         // Join the two linked lists together
         let mut value_id = a;
         loop {
             let value = &mut self.values[value_id as usize];
             if value.next_in_structure_group == u32::MAX {
-                value.next_in_structure_group = b_structure_start;
+                value.next_in_structure_group = b_structure.first_value;
                 break;
             }
             value_id = value.next_in_structure_group;
         }
 
         // Convert the old structure list to the new structure
-        let mut value_id = b_structure_start;
+        let mut value_id = b_structure.first_value;
         loop {
             let value = &mut self.values[value_id as usize];
             value.structure_id = structure_id;
@@ -684,11 +685,14 @@ impl Values {
         }
     }
 
-    fn add(&mut self, mut value: Value) -> ValueId {
+    fn add(&mut self, value: Value) -> ValueId {
         let structure_id = self.structure.len() as u32;
         let id = self.values.len() as u32;
         assert!(id < u32::MAX, "Too many values, overflows a u32");
-        self.structure.push((structure_id, 1));
+        self.structure.push(StructureGroup {
+            first_value: structure_id,
+            num_values: 1,
+        });
 
         self.values.push(ValueWrapper {
             value,
@@ -789,7 +793,6 @@ impl TypeSystem {
         let mut has_errors = false;
         if self.value_sets.iter().any(|v| v.has_errors) {
             has_errors = true;
-            use std::fmt::Write;
             for value in self.values.iter() {
                 if let Value {
                     kind: ValueKind::Error,
@@ -810,10 +813,6 @@ impl TypeSystem {
         }
 
         has_errors
-    }
-
-    pub fn value_is_in_set(&self, value_id: ValueId, set_id: ValueSetId) -> bool {
-        get_value(&self.values, value_id).value_sets.contains(set_id)
     }
 
     pub fn value_to_compiler_type(&self, value_id: ValueId) -> types::Type {
@@ -955,27 +954,6 @@ impl TypeSystem {
         );
     }
 
-    pub fn set_field_equal(
-        &mut self,
-        a: ValueId,
-        field_index: usize,
-        b: ValueId,
-        variance: Variance,
-    ) {
-        insert_active_constraint(
-            &mut self.constraints,
-            &mut self.available_constraints,
-            &mut self.queued_constraints,
-            Constraint {
-                kind: ConstraintKind::EqualsField {
-                    values: [a, b],
-                    index: field_index,
-                    variance,
-                },
-            },
-        );
-    }
-
     pub fn set_field_name_equal(
         &mut self,
         a: ValueId,
@@ -1003,10 +981,7 @@ impl TypeSystem {
 
         // self.print_state();
 
-        let mut i = 1;
         while let Some(available_id) = self.queued_constraints.pop() {
-            i += 1;
-
             // println!("Applied constraint: {}", self.constraint_to_string(&self.constraints[available_id]));
 
             self.apply_constraint(available_id);
@@ -1016,13 +991,15 @@ impl TypeSystem {
 
         // self.print_state();
 
-        // println!("-- Number of steps required: {}", i);
+        let count = self.values.structure.iter().filter(|v| v.num_values > 0).count();
+        let length = self.values.structure.len();
+        println!("Conversion ratio: {}, {}, {:.4}", count, length, count as f64 / length as f64);
     }
 
     fn constant_to_str(&self, type_: ValueId, value: ConstantRef, rec: usize) -> String {
         match &get_value(&self.values, type_).kind {
             ValueKind::Type(Some(Type { kind: TypeKind::IntSize, .. })) => {
-                let mut byte = 0_u8;
+                let byte;
                 unsafe {
                     byte = *value.as_ptr();
                 }
@@ -1053,17 +1030,14 @@ impl TypeSystem {
                     std::ptr::copy_nonoverlapping(value.as_ptr(), big_int.as_mut_ptr(), size);
                 }
 
-                if (big_int[size] & 0x80) > 0 {
+                if signed && (big_int[size] & 0x80) > 0 {
                     big_int[size + 1..].fill(0xff);
                 }
 
                 format!("{}", i128::from_le_bytes(big_int))
             }
             ValueKind::Type(Some(Type { kind: TypeKind::Bool, .. })) => {
-                let mut byte = 0_u8;
-                unsafe {
-                    byte = *value.as_ptr();
-                }
+                let byte = unsafe { *value.as_ptr() };
                 match byte {
                     0 => "false".to_string(),
                     1 => "true".to_string(),
@@ -1238,7 +1212,7 @@ impl TypeSystem {
         println!("Values:");
         // @Volatile: If we change how value ids work, this will no longer work.
         for (i, v) in self.values.iter().enumerate() {
-            println!("{}: {}, {}", i, v.value_sets.is_complete(), self.value_to_str(i as u32, 0));
+            println!("{}, {}", i, self.value_to_str(i as u32, 0));
         }
         println!();
 
@@ -1364,7 +1338,7 @@ impl TypeSystem {
 
                                     // @Performance: This is mega-spam of values, we want to later cache this value
                                     // so we don't have to re-add it over and over.
-                                    let mut value_sets = a.value_sets.clone(&mut self.value_sets, true);
+                                    let value_sets = a.value_sets.clone(&mut self.value_sets, true);
                                     // @TODO: We want EqualNamedField constraints to store locations, since these constraints
                                     // are very tightly linked with where they're created, as opposed to Equal.
                                     // And then we can generate a good reason here.
@@ -1517,8 +1491,8 @@ impl TypeSystem {
 
                 use ErrorKind::*;
                 match (&mut *a_value, a_id, &mut *b_value, b_id) {
-                    (Value { kind: ValueKind::Error, value_sets: error_value_sets, .. }, error_id, non_error, non_error_id)
-                    | (non_error, non_error_id, Value { kind: ValueKind::Error, value_sets: error_value_sets, .. }, error_id) => {
+                    (Value { kind: ValueKind::Error, value_sets: error_value_sets, .. }, _, non_error, _)
+                    | (non_error, _, Value { kind: ValueKind::Error, value_sets: error_value_sets, .. }, _) => {
                         non_error.value_sets.make_erroneous(&mut self.value_sets);
                         error_value_sets.make_erroneous(&mut self.value_sets);
 
@@ -1596,12 +1570,6 @@ impl TypeSystem {
                                 .zip(b_type.args.as_ref())
                                 .map_or(false, |(a, b)| a.len() != b.len())
                         {
-                            let base_a = a_type.kind.clone();
-                            let base_b = b_type.kind.clone();
-
-                            let a_temp = (base_a.clone(), a_type.args.as_ref().map(|v| v.len()));
-                            let b_temp = (base_b.clone(), b_type.args.as_ref().map(|v| v.len()));
-
                             a_value.value_sets.make_erroneous(&mut self.value_sets);
                             b_value.value_sets.make_erroneous(&mut self.value_sets);
 
@@ -1696,7 +1664,7 @@ impl TypeSystem {
                         // @Duplicate code from above.
                         let a = get_value(&self.values, a_id);
                         let b = get_value(&self.values, b_id);
-                        let (ValueKind::Type(Some(Type { kind: base_a, args: Some(a_fields), .. })), ValueKind::Type(Some(Type { kind: base_b, args: Some(b_fields), .. }))) = (&a.kind, &b.kind) else {
+                        let (ValueKind::Type(Some(Type { kind: base_a, args: Some(a_fields), .. })), ValueKind::Type(Some(Type { kind: _, args: Some(b_fields), .. }))) = (&a.kind, &b.kind) else {
                             // @Speed: Could be replaced with unreachable_unchecked in the real version.
                             unreachable!("Because of computations above, this is always true")
                         };
@@ -1876,7 +1844,6 @@ impl TypeSystem {
                                     }
                                     (Some(a_constant), Some(b_constant)) => {
                                         if *a_constant != *b_constant {
-                                            let a_constant = *a_constant;
                                             a_value.value_sets.make_erroneous(&mut self.value_sets);
                                             *a_value = Value {
                                                 kind: ValueKind::Error,
@@ -1913,7 +1880,6 @@ impl TypeSystem {
                         if a.needs_write() && a.cannot_write() || a.needs_read() && a.cannot_read()
                         || b.needs_write() && b.cannot_write() || b.needs_read() && b.cannot_read() {
                             a.combine_with(b, Variance::Invariant);
-                            let access = a.clone();
                             let value = get_value_mut(&mut self.values, a_id);
                             value.value_sets.make_erroneous(&mut self.value_sets);
                             *value = Value {
@@ -1932,7 +1898,6 @@ impl TypeSystem {
                                 b_id,
                                 &self.values,
                                 &mut self.constraints,
-                                &mut self.available_constraints,
                                 &mut self.queued_constraints,
                             );
                         }
@@ -2044,7 +2009,7 @@ impl TypeSystem {
 
                 self.add_type(TypeKind::Reference, [permits, pointee], set)
             }
-            types::TypeKind::Array(type_, length) => {
+            types::TypeKind::Array(_type_, _length) => {
                 todo!("We need a function for turning a compiler type into an actionable type that also takes the program");
             }
             types::TypeKind::Struct(ref fields) => {
@@ -2184,7 +2149,6 @@ fn run_variance_constraint(
     b: ValueId,
     values: &Values,
     constraints: &mut Vec<Constraint>,
-    available_constraints: &mut HashMap<ValueId, Vec<ConstraintId>>,
     queued_constraints: &mut Vec<ConstraintId>,
 ) {
     let ValueKind::Access(a_access) = &get_value(&values, a).kind else { panic!() };

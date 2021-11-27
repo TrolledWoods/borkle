@@ -7,6 +7,8 @@ const ok = fn(name: []r u8) {
 };
 
 const TestBasic = {
+    defer ok("TestBasic");
+
     let a = 99;
     let a_ptr = &a;
     let b = 42;
@@ -20,11 +22,11 @@ const TestBasic = {
     *a_ptr = 2;
 
     assert(a >= 2);
-
-    ok("TestBasic");
 };
 
 const TestBlocksAndBreaks = {
+    defer ok("TestBlocksAndBreaks");
+
     let set_order = fn(order: &u32, wanted: u32) {
         assert(*order == wanted);
         *order = *order + 1;
@@ -55,6 +57,4 @@ const TestBlocksAndBreaks = {
         assert(a == 3);
 
     };
-
-    ok("TestBlocksAndBreaks");
 };

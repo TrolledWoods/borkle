@@ -1,7 +1,7 @@
 use crate::literal::Literal;
 use crate::dependencies::DependencyList;
 use crate::execution_time::ExecutionTime;
-use crate::locals::{LabelId, LocalId, LocalVariables};
+use crate::locals::{LabelId, LocalId};
 use crate::location::Location;
 use crate::operators::{BinaryOp, UnaryOp};
 use crate::program::constant::ConstantRef;
@@ -43,33 +43,12 @@ impl AstBuilder {
         Self::default()
     }
 
-    pub fn nodes(&self) -> &[Node] {
-        &self.nodes
-    }
-
-    pub fn set_root(mut self, root: NodeId) -> Ast {
+    pub fn set_root(self, root: NodeId) -> Ast {
         // @Performance: This is not necessary, it's just to make sure that everything
         // is correct
         for (i, node) in self.nodes.iter().enumerate().rev().skip(1).rev() {
             if i as u32 != root && node.parent.is_none() {
                 panic!("Node without a parent {:?}", node);
-            }
-        }
-
-        Ast {
-            builder: self,
-            root,
-        }
-    }
-
-    pub fn insert_root(mut self, root: Node) -> Ast {
-        let root = self.add(root);
-
-        // @Performance: This is not necessary, it's just to make sure that everything
-        // is correct
-        for (i, node) in self.nodes.iter().enumerate().rev().skip(1).rev() {
-            if i as u32 != root && node.parent.is_none() {
-                panic!("Node without a parent");
             }
         }
 
@@ -93,8 +72,6 @@ impl AstBuilder {
 
     pub fn add(&mut self, node: Node) -> NodeId {
         let id = self.nodes.len() as u32;
-
-        use NodeKind::*;
 
         node.child_nodes(|v| self.get_mut(v).parent = Some(id));
 

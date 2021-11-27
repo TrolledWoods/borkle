@@ -1,24 +1,6 @@
 #![feature(let_else)]
 #![deny(rust_2018_idioms, clippy::all)]
 #![deny(mutable_borrow_reservation_conflict)]
-#![warn(clippy::pedantic)]
-#![allow(
-    clippy::too_many_arguments,
-    clippy::struct_excessive_bools,
-    clippy::wildcard_imports,
-    clippy::similar_names,
-    clippy::if_not_else,
-    clippy::module_name_repetitions,
-    clippy::single_match_else,
-    clippy::match_same_arms,
-    clippy::too_many_lines,
-    clippy::option_if_let_else,
-    clippy::map_err_ignore,
-    // TODO: We should remove this eventually, because it is in fact kinda ugly to cast from *const
-    // u8 to other types all over the place, but for now this is necessary because *const u8 is
-    // used to represent arbitrary pointers.
-    clippy::cast_ptr_alignment,
-)]
 
 mod c_backend;
 mod command_line_arguments;
@@ -37,7 +19,6 @@ mod operators;
 mod parser;
 mod program;
 mod random;
-mod self_buffer;
 mod thread_pool;
 mod type_infer;
 mod typer;

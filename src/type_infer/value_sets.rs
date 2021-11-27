@@ -125,10 +125,6 @@ impl ValueSetHandles {
         Self::empty(true)
     }
 
-    pub fn is_empty(&self) -> bool {
-        self.sets.is_empty()
-    }
-
     /// Sets this set to another set. This is different from take_from, because
     /// it assumes that this set is _empty_, and not complete.
     pub fn set_to(&mut self, mut set: ValueSetHandles) {
@@ -204,10 +200,6 @@ impl ValueSetHandles {
         }
     }
 
-    pub fn is_complete(&self) -> bool {
-        self.is_complete
-    }
-
     // @Cleanup: It would be nice for complete to take ownership of self,
     // but I'm not going to do that for now.
     pub fn complete(&mut self, value_sets: &mut ValueSets) {
@@ -220,10 +212,6 @@ impl ValueSetHandles {
         }
 
         self.is_complete = true;
-    }
-
-    pub fn contains(&self, id: ValueSetId) -> bool {
-        self.sets.binary_search(&id).is_ok()
     }
 }
 

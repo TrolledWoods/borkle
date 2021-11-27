@@ -377,7 +377,6 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, node: NodeId) -> Value {
             let node_type = ctx.ast.get(node).type_();
             let bytes = num.to_le_bytes();
 
-            // This is terrifying, if node_type isn't an int this will blow up.
             let buffer = ctx.program.insert_buffer(node_type, bytes.as_ptr());
 
             Value::Global(buffer, node_type)
@@ -683,14 +682,15 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, node: NodeId) -> Value {
             to
         }
         NodeKind::Local(id) => ctx.locals.get(*id).value.unwrap(),
-        NodeKind::ConstAtEvaluation { inner } => {
-            todo!();
-            /*
-            let type_ = ctx.ast.get(*inner).type_();
+        NodeKind::ConstAtEvaluation { .. } => {
+            // TODO: Implement this, it's not going to work yet because emission cannot produce errors,
+            // and assertion failures are errors.
+            todo!()
+            // emission cannot produce errors right now...
+            /*let type_ = ctx.ast.get(*inner).type_();
             let constant =
-                crate::interp::emit_and_run(ctx.thread_context, ctx.program, locals.clone(), &ctx.ast, *inner);
-            Value::Global(constant, type_)
-            */
+                crate::interp::emit_and_run(ctx.thread_context, ctx.program, ctx.locals, &ctx.ast, *inner);
+            Value::Global(constant, type_)*/
         }
         NodeKind::Defer { deferring } => {
             ctx.defers.push(*deferring);

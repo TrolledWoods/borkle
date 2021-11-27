@@ -2,17 +2,14 @@ use crate::dependencies::{DepKind, DependencyList, MemberDep};
 use crate::errors::ErrorCtx;
 use crate::literal::Literal;
 use crate::execution_time::ExecutionTime;
-use crate::locals::{LocalId, LocalVariables};
+use crate::locals::LocalVariables;
 use crate::location::Location;
 use crate::operators::{BinaryOp, UnaryOp};
 pub use crate::parser::{ast::Node, ast::NodeId, ast::NodeKind, Ast};
-use crate::program::constant::ConstantRef;
-use crate::program::{MemberMetaData, PolyOrMember, Program, Task};
+use crate::program::{PolyOrMember, Program, Task};
 use crate::thread_pool::ThreadContext;
 use crate::type_infer::{self, Access, TypeSystem, ValueSetId, Variance, Type, TypeKind};
 use crate::types::{self, IntTypeKind, PtrPermits};
-use std::sync::Arc;
-use std::mem;
 
 pub struct YieldData {
     emit_deps: DependencyList,
@@ -176,7 +173,6 @@ pub fn process_ast<'a>(
 
 fn emit_execution_context(ctx: &mut Context<'_, '_>, node_id: NodeId, set: ValueSetId) {
     let node = ctx.ast.get_mut(node_id);
-    let node_type_id = node.type_infer_value_id;
     let node_loc = node.loc;
 
     // @Hack: We replace the kind with a temporary, since all the nodes here are only for this function,
@@ -407,6 +403,8 @@ fn build_constraints(
 
             let label_type_infer_id = ctx.locals.get_label(label).type_infer_value_id;
 
+            ctx.infer.set_field_name_equal(iterating_type_id, "ptr".into(), ctx.locals.get(iterator).type_infer_value_id, Variance::Invariant);
+
             match else_body {
                 Some(else_body) => {
                     let else_type = build_constraints(ctx, else_body, set);
@@ -521,7 +519,6 @@ fn build_constraints(
             false_body,
         } => {
             let condition_type_id = build_constraints(ctx, condition, set);
-            let condition_loc = ctx.ast.get(condition).loc;
             // @Performance: This could be better, I really want a constraint for this kind of thing...
             let condition_type = ctx.infer.add(
                 type_infer::ValueKind::Type(Some(type_infer::Type {
@@ -689,7 +686,6 @@ fn build_constraints(
             // @Speed: Somewhat needless allocation
             let args = args.to_vec();
 
-            let calling_loc = ctx.ast.get(calling).loc;
             let calling_type_id = build_constraints(ctx, calling, set);
 
             // A little bit hacky, but since we are invariant to the return type
@@ -700,7 +696,7 @@ fn build_constraints(
             let mut typer_args = Vec::with_capacity(args.len() + 1);
             typer_args.push(return_type);
 
-            for (i, &arg) in args.iter().enumerate() {
+            for &arg in &args {
                 let function_arg_type_id = ctx.infer.add_unknown_type();
                 let arg_type_id = build_constraints(ctx, arg, set);
                 ctx.infer.set_equal(function_arg_type_id, arg_type_id, Variance::Covariant);
@@ -917,7 +913,7 @@ fn build_constraints(
 }
 
 fn permits_to_access(permits: Option<(Location, PtrPermits)>) -> type_infer::Access {
-    permits.map_or_else(Default::default, |(loc, v)| {
+    permits.map_or_else(Default::default, |(_, v)| {
         type_infer::Access::specific(
             v.read(),
             v.write(),
