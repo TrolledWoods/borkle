@@ -1,7 +1,7 @@
 library "base.bo";
 import "tests/main.bo";
 
-const slice = fn(buffer: []r u8, start: typeof buffer.len, end: typeof buffer.len) -> typeof buffer {
+const slice = fn(buffer: []r u8, start: typeof buffer.len, end: typeof start) -> typeof buffer {
     assert(start <= end);
     assert(end <= buffer.len);
 

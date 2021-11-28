@@ -625,9 +625,30 @@ impl Values {
         }
     }
 
-    fn structurally_combine(&mut self, a: ValueId, b: ValueId) {
-        let structure_id = self.values[a as usize].structure_id;
-        let old_b_structure_id = self.values[b as usize].structure_id;
+    fn iter_values_in_structure(&self, value_id: ValueId) -> impl Iterator<Item = ValueId> + '_ {
+        let structure = &self.structure[self.values[value_id as usize].structure_id as usize];
+
+        let values = &self.values;
+        let mut value_id = structure.first_value;
+
+        std::iter::from_fn(move || {
+            if value_id == u32::MAX { return None; }
+            let v = value_id;
+            let value = &values[value_id as usize];
+            value_id = value.next_in_structure_group;
+            Some(v)
+        })
+    }
+
+    // @Cleanup: Move this out of function? It's going to get pretty situation specific I feel like
+    fn structurally_combine(&mut self, value_sets: &mut ValueSets, a: ValueId, b: ValueId) {
+        let a_value = &self.values[a as usize];
+        let structure_id = a_value.structure_id;
+        let a_value_is_complete = a_value.value.value_sets.is_complete();
+        let b_value = &self.values[b as usize];
+        let old_b_structure_id = b_value.structure_id;
+        let b_value_is_complete = b_value.value.value_sets.is_complete();
+        debug_assert!(!(b_value_is_complete && !a_value_is_complete), "b can't be complete while a isn't, because a will replace b, so it makes no sense for b not to be complete?");
 
         if structure_id == old_b_structure_id {
             return;
@@ -651,6 +672,9 @@ impl Values {
         let mut value_id = b_structure.first_value;
         loop {
             let value = &mut self.values[value_id as usize];
+            if a_value_is_complete && !b_value_is_complete {
+                value.value.value_sets.complete(value_sets);
+            }
             value.structure_id = structure_id;
             if value.next_in_structure_group == u32::MAX {
                 break;
@@ -1173,8 +1197,8 @@ impl TypeSystem {
     pub fn print_state(&self) {
         println!("Values:");
         // @Volatile: If we change how value ids work, this will no longer work.
-        for (i, _) in self.values.iter().enumerate() {
-            println!("{}, {}", i, self.value_to_str(i as u32, 0));
+        for (i, v) in self.values.iter().enumerate() {
+            println!("{}: {}, {}", i, v.value_sets.is_complete(), self.value_to_str(i as u32, 0));
         }
         println!();
 
@@ -1204,8 +1228,6 @@ impl TypeSystem {
 
     fn apply_constraint(&mut self, constraint_id: ConstraintId) {
         let constraint = self.constraints[constraint_id];
-
-        let mut progress = [false; 8];
 
         match constraint.kind {
             ConstraintKind::Dead => {}
@@ -1416,165 +1438,70 @@ impl TypeSystem {
             }
             ConstraintKind::Equal {
                 values: [a_id, b_id],
-                variance,
+                variance: _,
             } => {
-                let values_len = self.values.next_value_id();
                 let Some((a_value, b_value)) = self.values.get_disjoint_mut(a_id, b_id) else {
                     return;
                 };
 
-                use ErrorKind::*;
+                let a = &mut *a_value.kind;
+                let b = &mut *b_value.kind;
+                let (to, from) = match (a, b) {
+                    (None, None) => (a_id, b_id),
+                    (None, Some(_)) => (b_id, a_id),
+                    (Some(_), None) => (a_id, b_id),
+                    (Some(a_type), Some(b_type)) => {
+                        if a_type.kind != b_type.kind {
+                            a_value.value_sets.make_erroneous(&mut self.value_sets);
+                            *a_value.kind = Some(Type { kind: TypeKind::Error, args: Some(Box::new([])) });
 
-                let a = a_value.kind;
-                let b = b_value.kind;
-                let (a_type, b_type) = match (a, b) {
-                    (None, None) => return,
-                    (Some(a_type), b_type @ None) => {
-                        progress[1] = true;
-                        let b_type = b_type.insert(Type {
-                            kind: a_type.kind.clone(),
-                            args: None,
-                        });
-                        (a_type, b_type)
-                    }
-                    (a_type @ None, Some(b_type)) => {
-                        progress[0] = true;
-                        let a_type = a_type.insert(Type {
-                            kind: b_type.kind.clone(),
-                            args: None,
-                        });
-                        (a_type, b_type)
-                    }
-                    (Some(a_type), Some(b_type)) => (a_type, b_type),
-                };
+                            b_value.value_sets.make_erroneous(&mut self.value_sets);
+                            *b_value.kind = Some(Type { kind: TypeKind::Error, args: Some(Box::new([])) });
 
-                if a_type.kind != b_type.kind
-                    || a_type.args
-                        .as_ref()
-                        .zip(b_type.args.as_ref())
-                        .map_or(false, |(a, b)| a.len() != b.len())
-                {
-                    a_value.value_sets.make_erroneous(&mut self.value_sets);
-                    b_value.value_sets.make_erroneous(&mut self.value_sets);
+                            (a_id, b_id)
+                        } else {
+                            match (&a_type.args, &b_type.args) {
+                                (None, None) => (a_id, b_id),
+                                (None, Some(_)) => (b_id, a_id),
+                                (Some(_), None) => (a_id, b_id),
+                                (Some(a_args), Some(b_args)) => {
+                                    if a_args.len() != b_args.len() {
+                                        a_value.value_sets.make_erroneous(&mut self.value_sets);
+                                        *a_value.kind = Some(Type { kind: TypeKind::Error, args: Some(Box::new([])) });
 
-                    // @Duplicate code with the invariance optimization below, we could probably join them
-                    // together somehow.
-                    // Any constraints with the value should have the values id changed.
-                    // This sets the current equality constraint to dead as well.
-                    if let Some(affected_constraints) =
-                        self.available_constraints.remove(&b_id)
-                    {
-                        for affected_constraint_id in affected_constraints {
-                            let affected_constraint =
-                                &mut self.constraints[affected_constraint_id];
-                            for value in affected_constraint.values_mut() {
-                                if *value == b_id {
-                                    *value = a_id;
-                                    self.available_constraints
-                                        .entry(a_id)
-                                        .or_insert_with(Vec::new)
-                                        .push(affected_constraint_id);
+                                        b_value.value_sets.make_erroneous(&mut self.value_sets);
+                                        *b_value.kind = Some(Type { kind: TypeKind::Error, args: Some(Box::new([])) });
+                                    } else {
+                                        for (a_arg, b_arg) in a_args.iter().zip(b_args.iter()) {
+                                            insert_active_constraint(
+                                                &mut self.constraints,
+                                                &mut self.available_constraints,
+                                                &mut self.queued_constraints,
+                                                Constraint::equal(*a_arg, *b_arg, Variance::Variant),
+                                            );
+                                        }
+                                    }
+
+                                    (a_id, b_id)
                                 }
                             }
-
-                            affected_constraint.fix_order();
-
-                            if !matches!(affected_constraint.kind, ConstraintKind::Dead)
-                            {
-                                self.queued_constraints.push(affected_constraint_id);
-                            }
                         }
                     }
-
-                    let value = self.values.get_mut(a_id);
-                    *value.kind = Some(Type { kind: TypeKind::Error, args: Some(Box::new([])) });
-                    *value.value_sets = ValueSetHandles::already_complete();
-
-                    let value = self.values.get_mut(b_id);
-                    *value.kind = Some(Type { kind: TypeKind::Error, args: Some(Box::new([])) });
-                    *value.value_sets = ValueSetHandles::already_complete();
-
-                    return;
-                }
-
-                let [a_progress, b_progress, ..] = &mut progress;
-                match (&mut a_type.args, a_id, a_progress, &mut b_type.args, b_id, b_progress) {
-                    (None, _, _, None, _, _) => return,
-                    (
-                        Some(known),
-                        _,
-                        _,
-                        unknown @ None,
-                        unknown_id,
-                        unknown_progress,
-                    )
-                    | (
-                        unknown @ None,
-                        unknown_id,
-                        unknown_progress,
-                        Some(known),
-                        _,
-                        _,
-                    ) => {
-                        *unknown_progress = true;
-
-                        // We do this weird thing so we can utilize the mutable reference to unknown
-                        // before writing to values. After that we have to recompute the references
-                        // since they may have moved if the vector grew (one of the cases where
-                        // the borrow checker was right!)
-                        *unknown = Some((values_len .. values_len + known.len() as u32).collect());
-
-                        let variant_fields = known.clone();
-
-                        let base_value = get_value_mut(&mut self.values, unknown_id);
-                        let mut base_value_sets = base_value.value_sets.take();
-
-                        for _ in 0..variant_fields.len() {
-                            let value_sets = base_value_sets.clone(&mut self.value_sets, false);
-                            self.values.add(None, value_sets);
-                        }
-
-                        base_value_sets.complete(&mut self.value_sets);
-                        get_value_mut(&mut self.values, unknown_id).value_sets.set_to(base_value_sets);
-                    }
-                    (Some(_), _, _, Some(_), _, _) => {}
-                }
-
-                // @Duplicate code from above.
-                let a = get_value(&self.values, a_id);
-                let b = get_value(&self.values, b_id);
-                let (Some(Type { kind: _, args: Some(a_fields), .. }), Some(Type { kind: _, args: Some(b_fields), .. })) = (&a.kind, &b.kind) else {
-                    // @Speed: Could be replaced with unreachable_unchecked in the real version.
-                    unreachable!("Because of computations above, this is always true")
                 };
 
-                // Now, we want to apply equality to all the fields as well.
-                for (&a_field, &b_field) in a_fields.iter().zip(&**b_fields) {
-                    // @Improvement: Later, variance should be definable in a much more generic way(for generic types).
-                    // In a generic type, you could paramaterize the mutability of something, which might then influence
-                    // the variance of other parameters.
-                    insert_active_constraint(
-                        &mut self.constraints,
-                        &mut self.available_constraints,
-                        &mut self.queued_constraints,
-                        Constraint::equal(a_field, b_field, variance),
+                // Actually, progress was made on the whole from set
+                for id in self.values.iter_values_in_structure(from) {
+                    self.queued_constraints.extend(
+                        self.available_constraints
+                            .get(&id)
+                            .iter()
+                            .flat_map(|v| v.iter())
+                            .copied()
+                            .filter(|v| v != &constraint_id),
                     );
                 }
 
-                self.values.structurally_combine(a_id, b_id);
-            }
-        }
-
-        for (value_id, progress) in constraint.values().iter().zip(progress) {
-            if progress {
-                self.queued_constraints.extend(
-                    self.available_constraints
-                        .get(value_id)
-                        .iter()
-                        .flat_map(|v| v.iter())
-                        .copied()
-                        .filter(|v| v != &constraint_id),
-                );
+                self.values.structurally_combine(&mut self.value_sets, to, from);
             }
         }
     }

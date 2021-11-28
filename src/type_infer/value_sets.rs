@@ -125,6 +125,10 @@ impl ValueSetHandles {
         Self::empty(true)
     }
 
+    pub fn is_complete(&self) -> bool {
+        self.is_complete
+    }
+
     /// Sets this set to another set. This is different from take_from, because
     /// it assumes that this set is _empty_, and not complete.
     pub fn set_to(&mut self, mut set: ValueSetHandles) {
