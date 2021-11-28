@@ -11,14 +11,20 @@ const slice = fn(buffer: []r u8, start: typeof buffer.len, end: typeof start) ->
     new
 };
 
+const char_to_buffer = fn(c: &u8) -> [] u8 {
+    let buffer = #uninit;
+    buffer.ptr = c;
+    buffer.len = 1;
+    buffer
+};
+
 #entry fn() -> u64 { 'hi
     for c in slice("Hi :) this is a text", 4, 10) {
-        let buffer = #0;
-        buffer.ptr = c;
-        buffer.len = 1;
-        print(buffer);
+        print(char_to_buffer(c));
         print("\n");
     };
 
-    42 - 13
+    break 'hi 99;
+
+    42
 };
