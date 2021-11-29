@@ -27,7 +27,7 @@ impl ValueSets {
         }
 
         ValueSetHandles {
-            sets: vec![set_id],
+            sets: Some(set_id),
             is_complete,
             caller_location: Location::caller(),
         }
@@ -97,7 +97,7 @@ impl ValueSet {
 
 #[derive(Debug)]
 pub struct ValueSetHandles {
-    sets: Vec<ValueSetId>,
+    sets: Option<ValueSetId>,
     is_complete: bool,
     caller_location: &'static Location<'static>,
 }
@@ -114,15 +114,10 @@ impl ValueSetHandles {
     #[track_caller]
     pub fn empty(is_complete: bool) -> Self {
         Self {
-            sets: Vec::new(),
+            sets: None,
             is_complete,
             caller_location: Location::caller(),
         }
-    }
-
-    #[track_caller]
-    pub fn already_complete() -> Self {
-        Self::empty(true)
     }
 
     pub fn is_complete(&self) -> bool {
@@ -133,21 +128,10 @@ impl ValueSetHandles {
     /// it assumes that this set is _empty_, and not complete.
     pub fn set_to(&mut self, mut set: ValueSetHandles) {
         debug_assert!(!self.is_complete, "Called set_to on completed value");
-        debug_assert!(self.sets.is_empty(), "Called set_to on non-empty value");
+        debug_assert!(self.sets.is_none(), "Called set_to on non-empty value");
         self.sets = std::mem::take(&mut set.sets);
         self.is_complete = set.is_complete;
         set.is_complete = true;
-    }
-
-    // @Temporary thing for making it easier to migrate to the new system.
-    // Intended for use with `combine_with`
-    #[track_caller]
-    pub fn take(&mut self) -> Self {
-        Self {
-            sets: std::mem::take(&mut self.sets),
-            is_complete: self.is_complete,
-            caller_location: Location::caller(),
-        }
     }
 
     pub fn make_erroneous(&mut self, value_sets: &mut ValueSets) {
@@ -163,12 +147,15 @@ impl ValueSetHandles {
     }
 
     pub fn take_from(&mut self, mut other: ValueSetHandles, value_sets: &mut ValueSets) {
-        for set in other.sets.drain(..) {
+        if let Some(set) = other.sets {
             if !other.is_complete {
                 value_sets.sets[set].uncomputed_values -= 1;
             }
 
-            if self.insert_without_tracking(set) {
+            if let Some(self_set) = self.sets {
+                debug_assert_eq!(self_set, set, "take_from cannot cause more than one set to appear");
+            } else {
+                self.sets = Some(set);
                 if !self.is_complete {
                     value_sets.sets[set].uncomputed_values += 1;
                 }
@@ -178,22 +165,13 @@ impl ValueSetHandles {
         other.is_complete = true;
     }
 
-    fn insert_without_tracking(&mut self, id: ValueSetId) -> bool {
-        if let Err(index) = self.sets.binary_search(&id) {
-            self.sets.insert(index, id);
-            true
-        } else {
-            false
-        }
-    }
-
     #[track_caller]
     pub fn clone(&self, value_sets: &mut ValueSets, already_complete: bool) -> Self {
-        let sets = self.sets.clone();
+        let sets = self.sets;
         // We need all these already_complete flags, because make_erroneous needs to know all the
         // sets, so it can set all the ones that matter to erroneous.
         if !already_complete {
-            for &set in &sets {
+            if let Some(set) = sets {
                 value_sets.sets[set].uncomputed_values += 1;
             }
         }
@@ -211,7 +189,7 @@ impl ValueSetHandles {
         // debug_assert!(!self.is_complete, "Cannot complete a set twice");
         if self.is_complete { return; }
 
-        for &set in &self.sets {
+        if let Some(set) = self.sets {
             value_sets.sets[set].uncomputed_values -= 1;
         }
 

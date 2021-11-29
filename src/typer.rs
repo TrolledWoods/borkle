@@ -445,11 +445,12 @@ fn build_constraints(
             // it can continue, so we lock it to make sure it doesn't get emitted before then.
             ctx.infer.value_sets.lock(set);
 
-            ctx.infer.set_type(node_type_id, TypeKind::Function, (), sub_set);
+            let function_type_id = ctx.infer.add_type(TypeKind::Function, (), sub_set);
+            ctx.infer.set_equal(node_type_id, function_type_id, Variance::Invariant);
 
             ctx.ast.get_mut(node_id).kind = NodeKind::BuiltinFunctionInTyping {
                 function,
-                type_: node_type_id,
+                type_: function_type_id,
                 parent_set: set,
             };
         }
