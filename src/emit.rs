@@ -5,6 +5,7 @@ use crate::operators::{BinaryOp, UnaryOp};
 use crate::parser::ast::{Ast, NodeId, NodeKind};
 use crate::program::{FunctionId, Program};
 use crate::thread_pool::ThreadContext;
+use crate::type_infer::TypeSystem;
 use crate::types::{IntTypeKind, PtrPermits, Type, TypeKind};
 
 mod context;
@@ -15,6 +16,7 @@ pub fn emit<'a>(
     thread_context: &mut ThreadContext<'a>,
     program: &'a Program,
     locals: &mut LocalVariables,
+    types: &TypeSystem,
     ast: &Ast,
     node: NodeId,
     stack_frame_id: crate::type_infer::ValueSetId,
@@ -24,6 +26,7 @@ pub fn emit<'a>(
         instr: Vec::new(),
         registers: Registers::new(),
         locals,
+        types,
         program,
         label_locations: Vec::new(),
         calling: Vec::new(),
@@ -57,6 +60,7 @@ pub fn emit_function_declaration<'a>(
     thread_context: &mut ThreadContext<'a>,
     program: &'a Program,
     locals: &mut LocalVariables,
+    types: &TypeSystem,
     ast: &Ast,
     node_id: NodeId,
     type_: Type,
@@ -68,6 +72,7 @@ pub fn emit_function_declaration<'a>(
         instr: Vec::new(),
         registers: Registers::new(),
         locals,
+        types,
         program,
         label_locations: Vec::new(),
         defers: Vec::new(),

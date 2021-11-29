@@ -353,7 +353,7 @@ impl Access {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Type {
     pub kind: TypeKind,
     pub args: Option<Box<[ValueId]>>,
@@ -478,7 +478,7 @@ impl Constraint {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Error {
     a: ValueId,
     b: ValueId,
@@ -491,7 +491,7 @@ impl Error {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum ErrorKind {
     NonexistantOperation,
     MixingTypesAndValues,
@@ -502,6 +502,7 @@ pub enum ErrorKind {
     NonexistantName(Ustr),
 }
 
+#[derive(Clone)]
 struct VarianceConstraint {
     /// The variance between the two Access operations
     variance: Variance,
@@ -638,7 +639,7 @@ fn type_kind_to_str(
 
 pub type ValueId = u32;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct Value {
     value_sets: ValueSetHandles,
 }
@@ -663,6 +664,7 @@ struct LookupElement {
 }
 
 // @Temporary: Should be replaced with the real value some day
+#[derive(Clone)]
 struct ValueWrapper {
     value: Value,
     structure_id: u32,
@@ -671,14 +673,14 @@ struct ValueWrapper {
 }
 
 #[derive(Default, Clone, Copy)]
-struct Layout {
-    size: usize,
+pub struct Layout {
+    pub size: usize,
     // An align of zero means that the size hasn't been calculated yet, and the number is how many children types
     // have to be known.
-    align: usize,
+    pub align: usize,
 }
 
-#[derive(Default)]
+#[derive(Clone, Default)]
 struct StructureGroup {
     first_value: ValueId,
     kind: Option<Type>,
@@ -687,6 +689,7 @@ struct StructureGroup {
     num_values: u32,
 }
 
+#[derive(Clone)]
 struct Values {
     structure: Vec<StructureGroup>,
     values: Vec<ValueWrapper>,
@@ -773,7 +776,12 @@ impl Values {
 
     fn compute_size(&mut self, computable_sizes: &mut Vec<ValueId>, id: ValueId) {
         let id = self.values[id as usize].structure_id;
-        let Some(Type { kind, args: Some(args) }) = &self.structure[id as usize].kind else {
+        let structure = &self.structure[id as usize];
+        if structure.layout.align > 0 {
+            // We already know what the layout
+            return;
+        }
+        let Some(Type { kind, args: Some(args) }) = &structure.kind else {
             unreachable!("Cannot call compute_size on an incomplete value")
         };
         let layout = compute_type_layout(kind, self, args);
@@ -907,6 +915,7 @@ fn slice_get_two_mut<T>(slice: &mut [T], a: usize, b: usize) -> Option<(&mut T, 
     }
 }
 
+#[derive(Clone)]
 pub struct TypeSystem {
     /// The first few values are always primitive values, with a fixed position, to make them trivial to create.
     /// 0 - Int
@@ -981,6 +990,12 @@ impl TypeSystem {
         }
 
         has_errors
+    }
+
+    pub fn value_layout(&self, value_id: ValueId) -> Layout {
+        let layout = *self.values.get(value_id).layout;
+        debug_assert_ne!(layout.align, 0, "Tried to read an incomplete layout");
+        layout
     }
 
     pub fn value_to_compiler_type(&self, value_id: ValueId) -> types::Type {

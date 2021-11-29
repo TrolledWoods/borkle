@@ -44,7 +44,7 @@ pub fn process_ast<'a>(
     thread_context: &mut ThreadContext<'a>,
     program: &'a Program,
     from: YieldData,
-) -> Result<Result<(DependencyList, LocalVariables, Ast), (DependencyList, YieldData)>, ()> {
+) -> Result<Result<(DependencyList, LocalVariables, TypeSystem, Ast), (DependencyList, YieldData)>, ()> {
     profile::profile!("Type ast");
 
     let mut ast = from.ast;
@@ -168,7 +168,7 @@ pub fn process_ast<'a>(
         }
     }
 
-    Ok(Ok((emit_deps, locals, ast)))
+    Ok(Ok((emit_deps, locals, infer, ast)))
 }
 
 fn emit_execution_context(ctx: &mut Context<'_, '_>, node_id: NodeId, set: ValueSetId) {
@@ -184,6 +184,7 @@ fn emit_execution_context(ctx: &mut Context<'_, '_>, node_id: NodeId, set: Value
                 ctx.thread_context,
                 ctx.program,
                 &mut ctx.locals,
+                &ctx.infer,
                 &ctx.ast,
                 len,
                 set,
@@ -223,6 +224,7 @@ fn emit_execution_context(ctx: &mut Context<'_, '_>, node_id: NodeId, set: Value
                         emit_deps,
                         Task::EmitFunction(
                             ctx.locals.clone(),
+                            ctx.infer.clone(),
                             ctx.ast.clone(),
                             body,
                             type_,
@@ -236,6 +238,7 @@ fn emit_execution_context(ctx: &mut Context<'_, '_>, node_id: NodeId, set: Value
                         ctx.thread_context,
                         ctx.program,
                         &mut ctx.locals,
+                        &ctx.infer,
                         &ctx.ast,
                         body,
                         type_,

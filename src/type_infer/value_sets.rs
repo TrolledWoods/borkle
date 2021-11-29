@@ -14,7 +14,7 @@ use std::panic::Location;
 
 pub type ValueSetId = usize;
 
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub struct ValueSets {
     sets: Vec<ValueSet>,
 }
@@ -79,6 +79,7 @@ impl ValueSets {
     }
 }
 
+#[derive(Clone)]
 pub struct ValueSet {
     pub related_nodes: Vec<crate::parser::ast::NodeId>,
 
@@ -95,7 +96,7 @@ impl ValueSet {
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct ValueSetHandles {
     sets: Option<ValueSetId>,
     is_complete: bool,
@@ -197,11 +198,11 @@ impl ValueSetHandles {
     }
 }
 
-// @Correctness: This crashes during incompleteness errors as well, because, they are incomplete. We should probably mass-flag all values as complete when generating incompleteness errors.
-impl Drop for ValueSetHandles {
-    fn drop(&mut self) {
-        if !self.is_complete && !std::thread::panicking() {
-            unreachable!("A value set cannot be dropped non-completed, created at: {}", self.caller_location);
-        }
-    }
-}
+// // @Correctness: This crashes during incompleteness errors as well, because, they are incomplete. We should probably mass-flag all values as complete when generating incompleteness errors.
+// impl Drop for ValueSetHandles {
+//     fn drop(&mut self) {
+//         if !self.is_complete && !std::thread::panicking() {
+//             unreachable!("A value set cannot be dropped non-completed, created at: {}", self.caller_location);
+//         }
+//     }
+// }

@@ -175,7 +175,7 @@ fn worker<'a>(alloc: &'a mut Bump, program: &'a Program) -> (ThreadContext<'a>, 
                             program,
                             yield_info,
                         ) {
-                            Ok(Ok((dependencies, locals, ast))) => {
+                            Ok(Ok((dependencies, locals, types, ast))) => {
                                 let meta_data = match &ast.get(ast.root).kind {
                                     NodeKind::Constant(_, Some(meta_data)) => {
                                         (&**meta_data).clone()
@@ -197,7 +197,7 @@ fn worker<'a>(alloc: &'a mut Bump, program: &'a Program) -> (ThreadContext<'a>, 
                                     program.set_type_of_member(member_id, type_, meta_data);
                                     program.queue_task(
                                         dependencies,
-                                        Task::EmitMember(member_id, locals, ast),
+                                        Task::EmitMember(member_id, locals, types, ast),
                                     );
                                 } else {
                                     errors.error(ast.get(ast.root).loc, format!("'{}' cannot be stored in a constant, because it contains types that the compiler cannot reason about properly, such as '&any', '[] any', or similar", type_));
@@ -216,7 +216,7 @@ fn worker<'a>(alloc: &'a mut Bump, program: &'a Program) -> (ThreadContext<'a>, 
                         }
                     }
                 }
-                Task::EmitMember(member_id, mut locals, ast) => {
+                Task::EmitMember(member_id, mut locals, types, ast) => {
                     if !program.member_is_evaluated(member_id) {
                         profile::profile!("Task::EmitMember");
                         use crate::typer::NodeKind;
@@ -278,6 +278,7 @@ fn worker<'a>(alloc: &'a mut Bump, program: &'a Program) -> (ThreadContext<'a>, 
                                     &mut thread_context,
                                     program,
                                     &mut locals,
+                                    &types,
                                     &ast,
                                     ast.root,
                                     // @HACK: Here we assume that stack frame id number 0 is the parent one.
@@ -377,7 +378,7 @@ fn worker<'a>(alloc: &'a mut Bump, program: &'a Program) -> (ThreadContext<'a>, 
                     }
                     */
                 }
-                Task::EmitFunction(mut locals, ast, node_id, type_, function_id, stack_frame_id) => {
+                Task::EmitFunction(mut locals, types, ast, node_id, type_, function_id, stack_frame_id) => {
                     program
                         .logger
                         .log(format_args!("emitting function '{:?}'", function_id));
@@ -386,6 +387,7 @@ fn worker<'a>(alloc: &'a mut Bump, program: &'a Program) -> (ThreadContext<'a>, 
                         &mut thread_context,
                         program,
                         &mut locals,
+                        &types,
                         &ast,
                         node_id,
                         type_,

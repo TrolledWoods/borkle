@@ -1217,7 +1217,7 @@ pub enum Task {
 
     Parse(Option<(Location, ScopeId)>, PathBuf),
     TypeMember(MemberId, crate::typer::YieldData),
-    EmitMember(MemberId, crate::locals::LocalVariables, crate::typer::Ast),
+    EmitMember(MemberId, crate::locals::LocalVariables, crate::type_infer::TypeSystem, crate::typer::Ast),
     EvaluateMember(MemberId, crate::ir::UserDefinedRoutine),
     FlagMemberCallable(MemberId),
     TypeFunction(
@@ -1229,6 +1229,7 @@ pub enum Task {
     ),
     EmitFunction(
         crate::locals::LocalVariables,
+        crate::type_infer::TypeSystem,
         crate::typer::Ast,
         crate::parser::ast::NodeId,
         Type,
@@ -1246,11 +1247,11 @@ impl fmt::Debug for Task {
 
             Task::Parse(_, buf) => write!(f, "parse({:?})", buf),
             Task::TypeMember(id, _) => write!(f, "type_member({:?})", id),
-            Task::EmitMember(id, _, _) => write!(f, "emit_member({:?})", id),
+            Task::EmitMember(id, _, _, _) => write!(f, "emit_member({:?})", id),
             Task::EvaluateMember(id, _) => write!(f, "evaluate_member({:?})", id),
             Task::FlagMemberCallable(id) => write!(f, "flag_member_callable({:?})", id),
             Task::TypeFunction(id, _, _, _, _) => write!(f, "type_function({:?})", id),
-            Task::EmitFunction(_, _, _, _, id, _) => write!(f, "emit_function({:?})", id),
+            Task::EmitFunction(_, _, _, _, _, id, _) => write!(f, "emit_function({:?})", id),
         }
     }
 }

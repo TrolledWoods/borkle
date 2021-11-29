@@ -5,6 +5,7 @@ use crate::operators::{BinaryOp, UnaryOp};
 use crate::parser::ast::{Ast, NodeId};
 use crate::program::{FunctionId, Program};
 use crate::thread_pool::ThreadContext;
+use crate::type_infer::TypeSystem;
 
 pub struct Context<'a, 'b> {
     pub thread_context: &'a mut ThreadContext<'b>,
@@ -12,6 +13,7 @@ pub struct Context<'a, 'b> {
     pub registers: Registers,
     pub locals: &'a mut LocalVariables,
     pub program: &'b Program,
+    pub types: &'a TypeSystem,
     pub label_locations: Vec<usize>,
     pub calling: Vec<FunctionId>,
     pub ast: &'a Ast,

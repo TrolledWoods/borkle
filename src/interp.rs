@@ -4,6 +4,7 @@ use crate::operators::UnaryOp;
 use crate::program::constant::ConstantRef;
 use crate::program::{BuiltinFunction, Program};
 use crate::types::{BufferRepr, TypeKind};
+use crate::type_infer::TypeSystem;
 
 mod stack;
 
@@ -13,6 +14,7 @@ pub fn emit_and_run<'a>(
     thread_context: &mut crate::thread_pool::ThreadContext<'a>,
     program: &'a Program,
     locals: &mut crate::locals::LocalVariables,
+    types: &TypeSystem,
     ast: &crate::typer::Ast,
     node: crate::typer::NodeId,
     stack_frame_id: crate::type_infer::ValueSetId,
@@ -24,6 +26,7 @@ pub fn emit_and_run<'a>(
         thread_context,
         program,
         locals,
+        types,
         ast,
         node,
         stack_frame_id,
