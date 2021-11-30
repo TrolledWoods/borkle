@@ -804,6 +804,10 @@ fn value_without_unaries(
         TokenKind::Keyword(Keyword::Function) => {
             function_declaration(global, imperative, buffer, token.loc)?
         }
+        TokenKind::Keyword(Keyword::Cast) => {
+            let value = value(global, imperative, buffer)?;
+            buffer.add(Node::new(token.loc, NodeKind::Cast { value }))
+        }
         TokenKind::Keyword(Keyword::BitCast) => {
             let value = value(global, imperative, buffer)?;
             buffer.add(Node::new(token.loc, NodeKind::BitCast { value }))

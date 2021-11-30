@@ -380,7 +380,17 @@ struct Constraint {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+enum Relation {
+    Cast,
+    BufferEqualsArray,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 enum ConstraintKind {
+    Relation {
+        kind: Relation,
+        values: [ValueId; 2],
+    },
     BinaryOp {
         op: BinaryOp,
         values: [ValueId; 3],
@@ -420,7 +430,8 @@ impl Constraint {
             ConstraintKind::EqualsField { .. }
             | ConstraintKind::EqualNamedField { .. }
             | ConstraintKind::BinaryOp { .. }
-            | ConstraintKind::Dead => {}
+            | ConstraintKind::Dead
+            | ConstraintKind::Relation { .. } => {}
         }
     }
 
@@ -434,6 +445,7 @@ impl Constraint {
 
     fn values(&self) -> &[ValueId] {
         match &self.kind {
+            ConstraintKind::Relation { values, .. } => &*values,
             ConstraintKind::Equal { values, .. }
             | ConstraintKind::EqualsField { values, .. }
             | ConstraintKind::EqualNamedField { values, .. } => &*values,
@@ -444,6 +456,7 @@ impl Constraint {
 
     fn values_mut(&mut self) -> &mut [ValueId] {
         match &mut self.kind {
+            ConstraintKind::Relation { values, .. } => &mut *values,
             ConstraintKind::Equal { values, .. }
             | ConstraintKind::EqualsField { values, .. }
             | ConstraintKind::EqualNamedField { values, .. } => &mut *values,
@@ -457,7 +470,7 @@ impl Constraint {
             ConstraintKind::Equal { variance, .. }
             | ConstraintKind::EqualsField { variance, .. }
             | ConstraintKind::EqualNamedField { variance, .. } => Some(variance),
-            ConstraintKind::Dead | ConstraintKind::BinaryOp { .. } => None,
+            ConstraintKind::Dead | ConstraintKind::BinaryOp { .. } | ConstraintKind::Relation { .. } => None,
         }
     }
 
@@ -514,7 +527,7 @@ struct VarianceConstraint {
     constraints: Vec<(ConstraintId, Variance)>,
 }
 
-fn extract_constant_from_value(values: &Values, value: ValueId) -> Option<ConstantRef> {
+pub fn extract_constant_from_value(values: &Values, value: ValueId) -> Option<ConstantRef> {
     let Some(Type { kind: TypeKind::Constant, args: Some(args) }) = values.get(value).kind else {
         return None
     };
@@ -1115,6 +1128,17 @@ impl TypeSystem {
         );
     }
 
+    pub fn set_cast(&mut self, to: ValueId, from: ValueId) {
+        insert_active_constraint(
+            &mut self.constraints,
+            &mut self.available_constraints,
+            &mut self.queued_constraints,
+            Constraint {
+                kind: ConstraintKind::Relation { kind: Relation::Cast, values: [to, from] },
+            }
+        );
+    }
+
     pub fn set_equal(&mut self, a: ValueId, b: ValueId, variance: Variance) {
         if a == b {
             return;
@@ -1314,6 +1338,9 @@ impl TypeSystem {
 
     fn constraint_to_string(&self, constraint: &Constraint) -> String {
         match constraint.kind {
+            ConstraintKind::Relation { kind, values: [a, b] } => {
+                format!("{} == {:?} {}", self.value_to_str(a, 0), kind, self.value_to_str(b, 0))
+            }
             ConstraintKind::Dead => format!("< removed >"),
             ConstraintKind::BinaryOp { values: [a, b, result], op } => {
                 format!(
@@ -1408,6 +1435,59 @@ impl TypeSystem {
 
         match constraint.kind {
             ConstraintKind::Dead => {}
+            ConstraintKind::Relation { kind, values: [to_id, from_id] } => {
+                let to = get_value(&self.values, to_id);
+                let from = get_value(&self.values, from_id);
+
+                match (kind, to.kind, from.kind) {
+                    (
+                        Relation::Cast,
+                        Some(Type { kind: TypeKind::Buffer, args: Some(_) }),
+                        Some(Type { kind: TypeKind::Reference, args: Some(from_args), .. }),
+                    ) => {
+                        let new_from = from_args[0];
+                        insert_active_constraint(
+                            &mut self.constraints,
+                            &mut self.available_constraints,
+                            &mut self.queued_constraints,
+                            Constraint {
+                                kind: ConstraintKind::Relation { kind: Relation::BufferEqualsArray, values: [to_id, new_from] },
+                            }
+                        );
+                    }
+                    (
+                        Relation::Cast,
+                        Some(Type { kind: TypeKind::Int, args: Some(_) }),
+                        Some(Type { kind: TypeKind::Int, args: Some(_), .. }),
+                    ) => {
+                        // They're already both ints, it's fine.
+                    }
+                    (
+                        Relation::Cast,
+                        Some(Type { kind: TypeKind::Reference, args: Some(_) }),
+                        Some(Type { kind: TypeKind::Reference, args: Some(_), .. }),
+                    ) => {
+                        // Two references just cast to each other, no matter the type
+                    }
+                    (
+                        Relation::BufferEqualsArray,
+                        Some(Type { kind: TypeKind::Buffer, args: Some(to_args) }),
+                        Some(Type { kind: TypeKind::Array, args: Some(from_args), .. }),
+                    ) => {
+                        let a = to_args[0];
+                        let b = from_args[0];
+                        self.set_equal(a, b, Variance::Invariant);
+                    }
+                    (
+                        _,
+                        Some(Type { kind: to, args: Some(_), .. }),
+                        Some(Type { kind: from, args: Some(_), .. }),
+                    ) => unimplemented!("Temporary error: Cannot use relation {:?} from {:?} to {:?}", kind, from, to),
+                    _ => return,
+                }
+
+                self.constraints[constraint_id].kind = ConstraintKind::Dead;
+            }
             ConstraintKind::BinaryOp {
                 values: [a_id, b_id, result_id],
                 op,

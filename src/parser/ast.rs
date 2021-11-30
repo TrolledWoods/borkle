@@ -89,6 +89,9 @@ impl AstBuilder {
             NodeKind::BitCast {
                 value: operand, ..
             }
+            NodeKind::Cast {
+                value: operand, ..
+            }
             | NodeKind::Unary { operand, .. } => self.has_to_be_alone(operand),
             _ => false,
         }
@@ -212,7 +215,8 @@ impl Node {
             ReferenceType(inner, _)
             | Reference(inner)
             | Defer { deferring: inner }
-            | BitCast { value: inner } => {
+            | BitCast { value: inner }
+            | Cast { value: inner } => {
                 v(inner);
             }
             ArrayType { len, members } => {
@@ -442,6 +446,9 @@ pub enum NodeKind {
     TypeBound {
         value: NodeId,
         bound: NodeId,
+    },
+    Cast {
+        value: NodeId,
     },
     BitCast {
         value: NodeId,

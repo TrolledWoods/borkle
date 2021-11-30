@@ -339,6 +339,10 @@ fn build_constraints(
 
     match node.kind {
         NodeKind::Uninit | NodeKind::Zeroed | NodeKind::ImplicitType => {}
+        NodeKind::Cast { value } => {
+            let result_value = build_constraints(ctx, value, set);
+            ctx.infer.set_cast(node_type_id, result_value);
+        }
         NodeKind::BitCast { value } => {
             build_constraints(ctx, value, set);
         }

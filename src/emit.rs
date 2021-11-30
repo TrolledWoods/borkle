@@ -396,6 +396,72 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, node: NodeId) -> Value {
             // We don't need an instruction to initialize the memory, because it's uninit!
             ctx.registers.create(ctx.types, ctx.ast.get(node).type_infer_value_id, ctx.ast.get(node).type_())
         }
+        NodeKind::Cast { value } => {
+            let from = emit_node(ctx, *value);
+            let to = ctx.registers.create(ctx.types, ctx.ast.get(node).type_infer_value_id, ctx.ast.get(node).type_());
+
+            // Get the types of the values
+            let node_type = ctx.types.get(ctx.ast.get(node).type_infer_value_id);
+            let value_type = ctx.types.get(ctx.ast.get(*value).type_infer_value_id);
+
+            match (node_type.kind, value_type.kind) {
+                (
+                    Some(type_infer::Type { kind: type_infer::TypeKind::Int, args: Some(to_args) }),
+                    Some(type_infer::Type { kind: type_infer::TypeKind::Int, args: Some(_) }),
+                ) => {
+                    let is_signed_to = 0 < unsafe { *type_infer::extract_constant_from_value(&ctx.types.values, to_args[0]).unwrap().as_ptr().cast::<u8>() };
+                    let to_size = node_type.layout.size;
+                    let from_size = value_type.layout.size;
+
+                    if to_size <= from_size {
+                        ctx.emit_truncate_int(to, from, to_size as u8);
+                    } else {
+                        ctx.emit_extend_int(to, from, to_size as u8, from_size as u8, is_signed_to);
+                    }
+                }
+                (
+                    Some(type_infer::Type { kind: type_infer::TypeKind::Buffer, .. }),
+                    Some(type_infer::Type { kind: type_infer::TypeKind::Reference, args: Some(from_args) })
+                ) => {
+                    match ctx.types.get(from_args[0]).kind {
+                        Some(type_infer::Type { kind: type_infer::TypeKind::Array, args: Some(array_args) }) => {
+                            let length = type_infer::extract_constant_from_value(&ctx.types.values, array_args[1]).unwrap();
+                            let usize_type = Type::new(TypeKind::Int(IntTypeKind::Usize));
+                            let len_reg = ctx.registers.create(ctx.types, type_infer::static_values::USIZE, usize_type);
+                            ctx.emit_move(len_reg, Value::Global(length, usize_type));
+
+                            ctx.emit_move_to_member_of_value(
+                                to,
+                                from,
+                                Member {
+                                    offset: 0,
+                                    amount: 1,
+                                },
+                            );
+                            ctx.emit_move_to_member_of_value(
+                                to,
+                                len_reg,
+                                Member {
+                                    offset: 8,
+                                    amount: 1,
+                                },
+                            );
+                        }
+                        _ => unreachable!("Internal error: Invalid types for cast reached emission"),
+                    }
+                }
+                (
+                    Some(type_infer::Type { kind: type_infer::TypeKind::Reference, .. }),
+                    Some(type_infer::Type { kind: type_infer::TypeKind::Reference, .. }),
+                ) => {
+                    // References are the same layout, we just cast them.
+                    ctx.emit_move(to, from);
+                }
+                _ => unreachable!("Internal error: Invalid types for cast reached emission"),
+            }
+
+            to
+        }
         NodeKind::BitCast { value } => {
             let from = emit_node(ctx, *value);
             let to = ctx.registers.create(ctx.types, ctx.ast.get(node).type_infer_value_id, ctx.ast.get(node).type_());

@@ -46,6 +46,14 @@ impl Context<'_, '_> {
         self.instr.push(Instr::SetToZero { to, size });
     }
 
+    pub fn emit_truncate_int(&mut self, to: Value, from: Value, to_size: u8) {
+        self.instr.push(Instr::TruncateInt { to, from, to_size });
+    }
+
+    pub fn emit_extend_int(&mut self, to: Value, from: Value, to_size: u8, from_size: u8, sign_extend: bool) {
+        self.instr.push(Instr::ExtendInt { to, from, to_size, from_size, sign_extend });
+    }
+
     pub fn emit_member(&mut self, to: Value, of: Value, member: Member) {
         if to.size() != 0 {
             self.instr.push(Instr::Member { to, of, member });

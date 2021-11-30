@@ -48,6 +48,18 @@ pub enum Instr {
         to: Value,
         from: Value,
     },
+    TruncateInt {
+        to: Value,
+        from: Value,
+        to_size: u8,
+    },
+    ExtendInt {
+        to: Value,
+        from: Value,
+        from_size: u8,
+        to_size: u8,
+        sign_extend: bool,
+    },
     // to = &from.offset
     PointerToMemberOfValue {
         to: Value,

@@ -92,7 +92,6 @@ macro_rules! operator {
 }
 
 operator!(UnaryOp {
-    AutoCast = ("<<", 0),
     Negate = ("-", 0),
     Not = ("!", 0),
     Reference = ("&", 0),

@@ -228,7 +228,7 @@ fn interp_internal(program: &Program, stack: &mut StackFrame<'_>, routine: &User
                         }
                     }
                 }
-                UnaryOp::AutoCast | UnaryOp::Reference | UnaryOp::Dereference => {
+                UnaryOp::Reference | UnaryOp::Dereference => {
                     unreachable!("This operator is supposed to be a special case");
                 }
             },
@@ -252,6 +252,28 @@ fn interp_internal(program: &Program, stack: &mut StackFrame<'_>, routine: &User
                     std::ptr::copy(ptr, to_ptr, to.size());
                 }
             }
+            Instr::TruncateInt {
+                to,
+                from,
+                to_size,
+            } => unsafe {
+                let from: *const u8 = stack.get(from).as_ptr();
+                let to: *mut u8 = stack.get_mut(to).as_mut_ptr();
+                std::ptr::copy_nonoverlapping(from, to, to_size as usize);
+            },
+            Instr::ExtendInt {
+                to,
+                from,
+                to_size,
+                from_size,
+                sign_extend,
+            } => unsafe {
+                let from: *const u8 = stack.get(from).as_ptr();
+                let is_signed = sign_extend && (*from.add(from_size as usize - 1) & 0x80) > 0;
+                let to: *mut u8 = stack.get_mut(to).as_mut_ptr();
+                std::ptr::copy_nonoverlapping(from, to, from_size as usize);
+                std::ptr::write_bytes(to.add(from_size as usize), if is_signed { 0xff } else { 0x00 }, (to_size - from_size) as usize);
+            },
             Instr::PointerToMemberOfValue {
                 to,
                 from,

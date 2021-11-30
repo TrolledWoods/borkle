@@ -234,6 +234,17 @@ pub fn routine_to_c(output: &mut String, routine: &Routine, arg_types: &[Type], 
                 write!(output, "    // {:?}\n", instr).unwrap();
                 output.push_str("    ");
                 match instr {
+                    Instr::TruncateInt { to, from, .. } | Instr::ExtendInt { to, from, .. } => {
+                        let Value::Register(_, to_type) = to else {
+                            unreachable!("Assigned to global in ir, should probably make this impossible in the type system in the future")
+                        };
+                        write!(
+                            output, "{} = ({}){};\n",
+                            c_format_value(to),
+                            c_format_type(*to_type),
+                            c_format_value(from),
+                        );
+                    }
                     Instr::SetToZero { to, size } => {
                         write!(output, "memset(&{}, 0, {});\n", c_format_value(to), size,).unwrap();
                     }
@@ -320,7 +331,7 @@ pub fn routine_to_c(output: &mut String, routine: &Routine, arg_types: &[Type], 
                         let op_name = match op {
                             UnaryOp::Negate => "-",
                             UnaryOp::Not => "!",
-                            UnaryOp::AutoCast | UnaryOp::Dereference | UnaryOp::Reference => {
+                            UnaryOp::Dereference | UnaryOp::Reference => {
                                 unreachable!()
                             }
                         };
