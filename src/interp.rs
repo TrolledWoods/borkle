@@ -14,7 +14,7 @@ pub fn emit_and_run<'a>(
     thread_context: &mut crate::thread_pool::ThreadContext<'a>,
     program: &'a Program,
     locals: &mut crate::locals::LocalVariables,
-    types: &TypeSystem,
+    types: &mut TypeSystem,
     ast: &crate::typer::Ast,
     node: crate::typer::NodeId,
     stack_frame_id: crate::type_infer::ValueSetId,

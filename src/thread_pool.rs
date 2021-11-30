@@ -216,7 +216,7 @@ fn worker<'a>(alloc: &'a mut Bump, program: &'a Program) -> (ThreadContext<'a>, 
                         }
                     }
                 }
-                Task::EmitMember(member_id, mut locals, types, ast) => {
+                Task::EmitMember(member_id, mut locals, mut types, ast) => {
                     if !program.member_is_evaluated(member_id) {
                         profile::profile!("Task::EmitMember");
                         use crate::typer::NodeKind;
@@ -278,7 +278,7 @@ fn worker<'a>(alloc: &'a mut Bump, program: &'a Program) -> (ThreadContext<'a>, 
                                     &mut thread_context,
                                     program,
                                     &mut locals,
-                                    &types,
+                                    &mut types,
                                     &ast,
                                     ast.root,
                                     // @HACK: Here we assume that stack frame id number 0 is the parent one.
@@ -378,7 +378,7 @@ fn worker<'a>(alloc: &'a mut Bump, program: &'a Program) -> (ThreadContext<'a>, 
                     }
                     */
                 }
-                Task::EmitFunction(mut locals, types, ast, node_id, type_, function_id, stack_frame_id) => {
+                Task::EmitFunction(mut locals, mut types, ast, node_id, type_, function_id, stack_frame_id) => {
                     program
                         .logger
                         .log(format_args!("emitting function '{:?}'", function_id));
@@ -387,7 +387,7 @@ fn worker<'a>(alloc: &'a mut Bump, program: &'a Program) -> (ThreadContext<'a>, 
                         &mut thread_context,
                         program,
                         &mut locals,
-                        &types,
+                        &mut types,
                         &ast,
                         node_id,
                         type_,

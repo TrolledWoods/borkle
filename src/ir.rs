@@ -2,6 +2,7 @@ use crate::operators::{BinaryOp, UnaryOp};
 use crate::location::Location;
 use crate::program::{constant::ConstantRef, BuiltinFunction};
 use crate::types::{to_align, Type, TypeKind};
+use crate::type_infer::{TypeSystem, ValueId as TypeId, self};
 use std::fmt;
 
 #[derive(Clone, Debug)]
@@ -140,12 +141,12 @@ impl Registers {
         self.buffer_head = head;
     }
 
-    pub fn create(&mut self, type_: impl Into<Type>) -> Value {
+    pub fn create(&mut self, _types: &TypeSystem, _value: TypeId, type_: impl Into<Type>) -> Value {
         self.create_min_align(type_.into(), 1)
     }
 
     pub fn zst(&mut self) -> Value {
-        self.create(TypeKind::Empty)
+        self.create_min_align(TypeKind::Empty, 1)
     }
 
     pub fn create_min_align(&mut self, type_: impl Into<Type>, min_align: usize) -> Value {

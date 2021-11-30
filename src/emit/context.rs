@@ -13,7 +13,7 @@ pub struct Context<'a, 'b> {
     pub registers: Registers,
     pub locals: &'a mut LocalVariables,
     pub program: &'b Program,
-    pub types: &'a TypeSystem,
+    pub types: &'a mut TypeSystem,
     pub label_locations: Vec<usize>,
     pub calling: Vec<FunctionId>,
     pub ast: &'a Ast,

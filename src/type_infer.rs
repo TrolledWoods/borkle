@@ -2,7 +2,7 @@
 //!
 //! # Will try and document more later once I feel fairly done with the first version of this system, but for now just some generic info I want to put here
 
-mod static_values {
+pub mod static_values {
     //! Static value header, e.g. value indices we know what their values are statically, for very common types,
     //! like integers and so on.
     use super::ValueId;
@@ -16,6 +16,8 @@ mod static_values {
     pub const EIGHT    : ValueId = 10;
     pub const TRUE     : ValueId = 12;
     pub const FALSE    : ValueId = 14;
+    pub const EMPTY    : ValueId = 15;
+    pub const USIZE    : ValueId = 16;
 }
 
 use crate::errors::ErrorCtx;
@@ -645,15 +647,15 @@ struct Value {
 }
 
 #[derive(Clone, Copy)]
-struct ValueBorrow<'a> {
-    kind: &'a Option<Type>,
-    layout: &'a Layout,
+pub struct ValueBorrow<'a> {
+    pub kind: &'a Option<Type>,
+    pub layout: &'a Layout,
     value_sets: &'a ValueSetHandles,
 }
 
-struct ValueBorrowMut<'a> {
-    kind: &'a mut Option<Type>,
-    layout: &'a mut Layout,
+pub struct ValueBorrowMut<'a> {
+    pub kind: &'a mut Option<Type>,
+    pub layout: &'a mut Layout,
     value_sets: &'a mut ValueSetHandles,
 }
 
@@ -690,7 +692,7 @@ struct StructureGroup {
 }
 
 #[derive(Clone)]
-struct Values {
+pub struct Values {
     structure: Vec<StructureGroup>,
     values: Vec<ValueWrapper>,
 }
@@ -858,7 +860,7 @@ impl Values {
         self.values.iter_mut().map(|v| &mut v.value)
     }
 
-    fn get(&self, id: ValueId) -> ValueBorrow<'_> {
+    pub fn get(&self, id: ValueId) -> ValueBorrow<'_> {
         let value = &self.values[id as usize];
         let structure = &self.structure[value.structure_id as usize];
         ValueBorrow {
@@ -868,7 +870,7 @@ impl Values {
         }
     }
 
-    fn get_mut(&mut self, id: ValueId) -> ValueBorrowMut<'_> {
+    pub fn get_mut(&mut self, id: ValueId) -> ValueBorrowMut<'_> {
         let value = &mut self.values[id as usize];
         let structure = &mut self.structure[value.structure_id as usize];
         ValueBorrowMut {
@@ -917,9 +919,7 @@ fn slice_get_two_mut<T>(slice: &mut [T], a: usize, b: usize) -> Option<(&mut T, 
 
 #[derive(Clone)]
 pub struct TypeSystem {
-    /// The first few values are always primitive values, with a fixed position, to make them trivial to create.
-    /// 0 - Int
-    values: Values,
+    pub values: Values,
 
     pub value_sets: ValueSets,
 
@@ -964,8 +964,16 @@ impl TypeSystem {
             this.add_value(static_values::BOOL, buffer, ());
         }
 
+        this.add_type(TypeKind::Empty, [], ());
+        this.add_int(IntTypeKind::Usize, ());
+
         this
     }
+
+    pub fn get(&self, id: ValueId) -> ValueBorrow<'_> {
+        self.values.get(id)
+    }
+
 
     /// Only to be used when generating incompleteness-errors
     pub fn flag_all_values_as_complete(&mut self) {
