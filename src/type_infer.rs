@@ -176,9 +176,9 @@ fn compute_type_layout(kind: &TypeKind, values: &Values, children: &[ValueId]) -
         TypeKind::Buffer | TypeKind::Reference | TypeKind::Function => Layout { size: 8, align: 8 },
         TypeKind::Array => {
             // @Correctness: We want to make sure that the type actually is a usize here
-            let length = extract_constant_from_value(values, children[0]).unwrap();
+            let length = extract_constant_from_value(values, children[1]).unwrap();
             let length = unsafe { *length.as_ptr().cast::<usize>() };
-            let inner_layout = values.get(children[1]).layout;
+            let inner_layout = values.get(children[0]).layout;
             debug_assert!(inner_layout.align != 0);
             Layout { size: length * inner_layout.size, align: inner_layout.align }
         }
@@ -1166,11 +1166,11 @@ impl TypeSystem {
             self.values.compute_size(&mut self.computable_value_sizes, computable_size);
         }
 
-        self.print_state();
+        // self.print_state();
 
-        let count = self.values.structure.iter().filter(|v| v.num_values > 0).count();
-        let length = self.values.structure.len();
-        println!("Conversion ratio: {}, {}, {:.4}", count, length, count as f64 / length as f64);
+        // let count = self.values.structure.iter().filter(|v| v.num_values > 0).count();
+        // let length = self.values.structure.len();
+        // println!("Conversion ratio: {}, {}, {:.4}", count, length, count as f64 / length as f64);
     }
 
     fn constant_to_str(&self, type_: ValueId, value: ConstantRef, rec: usize) -> String {

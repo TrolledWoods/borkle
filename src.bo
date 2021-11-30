@@ -24,7 +24,7 @@ const char_to_buffer = fn(c: &u8) -> [] u8 {
         print("\n");
     };
 
-    break 'hi 99;
+    // break 'hi 99;
 
-    42
+    bit_cast [1, 0 : u64, 4, 5, 2, 1, 2, 3, 4, 2523, 25, 24, 1, 3, 2] : u64
 };

@@ -339,6 +339,9 @@ fn build_constraints(
 
     match node.kind {
         NodeKind::Uninit | NodeKind::Zeroed | NodeKind::ImplicitType => {}
+        NodeKind::BitCast { value } => {
+            build_constraints(ctx, value, set);
+        }
         NodeKind::Empty => {
             // @Performance: We could set the type directly(because no inferrence has happened yet),
             // this is a roundabout way of doing things.
