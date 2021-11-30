@@ -386,6 +386,39 @@ fn build_constraints(
 
             ctx.ast.get_mut(node_id).kind = NodeKind::ResolvedGlobal(id, meta_data);
         }
+        NodeKind::While {
+            condition,
+            iteration_var,
+            body,
+            else_body,
+            label,
+        } => {
+            ctx.locals.get_mut(iteration_var).stack_frame_id = set;
+            ctx.locals.get_label_mut(label).stack_frame_id = set;
+
+            ctx.infer.set_int(ctx.locals.get(iteration_var).type_infer_value_id, IntTypeKind::Usize, set);
+
+            let condition_type_id = build_constraints(ctx, condition, set);
+            let bool_type = ctx.infer.add_type(TypeKind::Bool, [], set);
+            ctx.infer.set_equal(condition_type_id, bool_type, Variance::Invariant);
+
+            let label_type_infer_id = ctx.locals.get_label(label).type_infer_value_id;
+
+            build_constraints(ctx, body, set);
+
+            match else_body {
+                Some(else_body) => {
+                    let else_type = build_constraints(ctx, else_body, set);
+                    ctx.infer.set_equal(label_type_infer_id, else_type, Variance::Invariant);
+                }
+                None => {
+                    let empty_type = ctx.infer.add_type(TypeKind::Empty, [], set);
+                    ctx.infer.set_equal(label_type_infer_id, empty_type, Variance::Invariant);
+                }
+            }
+
+            ctx.infer.set_equal(node_type_id, label_type_infer_id, Variance::Invariant);
+        }
         NodeKind::For {
             iterator,
             iteration_var,
@@ -406,7 +439,8 @@ fn build_constraints(
 
             let label_type_infer_id = ctx.locals.get_label(label).type_infer_value_id;
 
-            ctx.infer.set_field_name_equal(iterating_type_id, "ptr".into(), ctx.locals.get(iterator).type_infer_value_id, Variance::Invariant);
+            let buffer_type = ctx.infer.add_type(TypeKind::Buffer, [ctx.locals.get(iterator).type_infer_value_id], set);
+            ctx.infer.set_equal(buffer_type, iterating_type_id, Variance::Invariant);
 
             match else_body {
                 Some(else_body) => {
