@@ -16,9 +16,9 @@ pub mod static_values {
     pub const EIGHT    : ValueId = 10;
     pub const TRUE     : ValueId = 12;
     pub const FALSE    : ValueId = 14;
-    pub const EMPTY    : ValueId = 15;
-    pub const USIZE    : ValueId = 16;
-    pub const STATIC_VALUES_SIZE : u32 = 17;
+    pub const EMPTY    : ValueId = 16;
+    pub const USIZE    : ValueId = 17;
+    pub const STATIC_VALUES_SIZE : u32 = 18;
 }
 
 use crate::errors::ErrorCtx;
@@ -1072,7 +1072,7 @@ impl TypeSystem {
         };
 
         match *type_kind {
-            TypeKind::Error => unreachable!("Error value cannot be turned into a compiler time"),
+            TypeKind::Error => unreachable!("Error value cannot be turned into a compiler type"),
             TypeKind::Constant | TypeKind::ConstantValue(_) => unreachable!("Constants aren't concrete types, cannot use them as node types"),
             TypeKind::IntSize => unreachable!("Int sizes are a hidden type for now, the user shouldn't be able to access them"),
             TypeKind::Int => {

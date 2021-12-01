@@ -243,7 +243,7 @@ pub fn routine_to_c(output: &mut String, routine: &Routine, arg_types: &[Type], 
                             c_format_value(to),
                             c_format_type(*to_type),
                             c_format_value(from),
-                        );
+                        ).unwrap();
                     }
                     Instr::SetToZero { to, size } => {
                         write!(output, "memset(&{}, 0, {});\n", c_format_value(to), size,).unwrap();

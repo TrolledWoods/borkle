@@ -1,8 +1,9 @@
 library "base.bo";
+import "../main.bo";
 import "day1_input.bo";
 
 const AOC_DAY_1 = {
-    defer print("AOC day 1 OK\n");
+    defer ok("AOC day 1");
     let input = INPUT;
     let parse = input;
     
@@ -11,9 +12,8 @@ const AOC_DAY_1 = {
     let normal_count = 0 : u32;
     while not(empty(&parse)) {
         let number = take_u64(&parse);
-        if number > old_number {
-            normal_count = normal_count + 1;
-        };
+        if number > old_number  normal_count = normal_count + 1;
+
         old_number = number;
         take_whitespace(&parse);
     };
@@ -32,9 +32,8 @@ const AOC_DAY_1 = {
         let number = take_u64(&parse);
         take_whitespace(&parse);
 
-        if number > old_a {
-            windowed_count = windowed_count + 1;
-        };
+        if number > old_a  windowed_count = windowed_count + 1;
+
         old_a = old_b;
         old_b = old_c;
         old_c = number;

@@ -3,12 +3,11 @@ use crate::errors::ErrorCtx;
 use crate::literal::Literal;
 use crate::execution_time::ExecutionTime;
 use crate::locals::LocalVariables;
-use crate::location::Location;
 use crate::operators::{BinaryOp, UnaryOp};
 pub use crate::parser::{ast::Node, ast::NodeId, ast::NodeKind, Ast};
 use crate::program::{PolyOrMember, Program, Task};
 use crate::thread_pool::ThreadContext;
-use crate::type_infer::{self, TypeSystem, ValueSetId, Variance, Type, TypeKind};
+use crate::type_infer::{self, TypeSystem, ValueSetId, Variance, TypeKind};
 use crate::types::{self, IntTypeKind, PtrPermits};
 
 pub struct YieldData {
@@ -136,11 +135,6 @@ pub fn process_ast<'a>(
     //     );
     // }
 
-    if ctx.infer.output_errors(ctx.errors, ctx.ast, ctx.locals) {
-        ctx.infer.flag_all_values_as_complete();
-        return Err(());
-    }
-
     let mut are_incomplete_sets = false;
     for value_set_id in ctx.infer.value_sets.iter_ids() {
         let value_set = ctx.infer.value_sets.get(value_set_id);
@@ -150,7 +144,7 @@ pub fn process_ast<'a>(
         }
     }
 
-    if are_incomplete_sets {
+    if are_incomplete_sets | ctx.infer.output_errors(ctx.errors, ctx.ast, ctx.locals) {
         ctx.infer.output_incompleteness_errors(ctx.errors, ctx.ast, ctx.locals);
         ctx.infer.flag_all_values_as_complete();
         return Err(());
@@ -957,15 +951,6 @@ fn build_lvalue(
         _ => {
             unreachable!("References to temporaries are disabled since mutability can't be enforced right now");
             // Make it a reference to a temporary instead. This forces the pointer to be readonly.
-            // @Speed: This could be faster...
-            // let access_strict = ctx.infer.add_access(
-            //     Some(type_infer::Access::disallows(false, true)),
-            //     set,
-            // );
-            // ctx.infer
-                // .set_equal(access_strict, access, Variance::Invariant);
-            let inner = build_constraints(ctx, node_id, set);
-            ctx.infer.set_equal(node_type_id, inner, Variance::Invariant);
         }
     }
 

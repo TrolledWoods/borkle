@@ -1,5 +1,7 @@
 library "base.bo";
 
+import "aoc/day1.bo";
+
 const ok = fn(name: []r u8) {
     print("[OK] ");
     print(name);
