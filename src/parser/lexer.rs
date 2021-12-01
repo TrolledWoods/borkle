@@ -325,6 +325,7 @@ fn string_literal(
                 Some((_, _, 'n')) => string.push('\n'),
                 Some((_, _, 't')) => string.push('\t'),
                 Some((_, _, '0')) => string.push('\0'),
+                Some((_, _, 'r')) => string.push('\r'),
                 Some((loc, _, c)) => {
                     errors.error(
                         loc,

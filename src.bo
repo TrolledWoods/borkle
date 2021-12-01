@@ -1,36 +1,7 @@
 library "base.bo";
-import "tests/main.bo";
-
-const slice = fn(buffer: []r u8, start: typeof buffer.len, end: typeof start) -> typeof buffer {
-    assert(start <= end);
-    assert(end <= buffer.len);
-
-    let new = #uninit;
-    new.ptr = buffer.ptr + start;
-    new.len = end - start;
-    new
-};
-
-const char_to_buffer = fn(c: &u8) -> [] u8 {
-    let buffer = #uninit;
-    buffer.ptr = c;
-    buffer.len = 1;
-    buffer
-};
+import "tests/aoc/day1.bo";
 
 #entry fn() -> u64 {
-    let string = " 42  142   999  1042  ";
-    let parse = &string;
-
-    take_whitespace(parse);
-
-    while not(empty(parse)) {
-        let number = take_u64(parse);
-        print("Found number: ");
-        print_u64(number);
-        print("!\n");
-        take_whitespace(parse);
-    };
-
-    cast (42 : u8)
+    print("Hello, world!\n");
+    0
 };

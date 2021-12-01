@@ -52,9 +52,10 @@ const take_whitespace = fn(string: &rw []r u8) {
 const SPACE = *" ".ptr;
 const NEW_LINE = *"\n".ptr;
 const TAB = *"\t".ptr;
+const CARRIAGE_RETURN = *"\r".ptr;
 
 const is_whitespace = fn(c: u8) -> bool {
-    c == SPACE || c == NEW_LINE || c == TAB
+    c == SPACE || c == NEW_LINE || c == TAB || c == CARRIAGE_RETURN
 };
 
 const is_digit = fn(c: u8) -> bool {

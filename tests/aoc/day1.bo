@@ -1,0 +1,45 @@
+library "base.bo";
+import "day1_input.bo";
+
+const AOC_DAY_1 = {
+    defer print("AOC day 1 OK\n");
+    let input = INPUT;
+    let parse = input;
+    
+    let old_number = take_u64(&parse);
+    take_whitespace(&parse);
+    let normal_count = 0 : u32;
+    while not(empty(&parse)) {
+        let number = take_u64(&parse);
+        if number > old_number {
+            normal_count = normal_count + 1;
+        };
+        old_number = number;
+        take_whitespace(&parse);
+    };
+
+
+    parse = input;
+
+    let old_a = take_u64(&parse);
+    take_whitespace(&parse);
+    let old_b = take_u64(&parse);
+    take_whitespace(&parse);
+    let old_c = take_u64(&parse);
+    take_whitespace(&parse);
+    let windowed_count = 0 : u32;
+    while not(empty(&parse)) {
+        let number = take_u64(&parse);
+        take_whitespace(&parse);
+
+        if number > old_a {
+            windowed_count = windowed_count + 1;
+        };
+        old_a = old_b;
+        old_b = old_c;
+        old_c = number;
+    };
+
+    assert(normal_count == 1466);
+    assert(windowed_count == 1491);
+};
