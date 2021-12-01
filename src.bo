@@ -19,9 +19,18 @@ const char_to_buffer = fn(c: &u8) -> [] u8 {
 };
 
 #entry fn() -> u64 {
-    while _iters < 10   print("Hi!\n");
+    let string = " 42  142   999  1042  ";
+    let parse = &string;
 
-    print_u64(83478752);
+    take_whitespace(parse);
+
+    while not(empty(parse)) {
+        let number = take_u64(parse);
+        print("Found number: ");
+        print_u64(number);
+        print("!\n");
+        take_whitespace(parse);
+    };
 
     cast (42 : u8)
 };

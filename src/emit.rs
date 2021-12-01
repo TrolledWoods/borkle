@@ -650,7 +650,9 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, node: NodeId) -> Value {
             let to = ctx.registers.create(ctx.types, ctx.ast.get(node).type_infer_value_id, ctx.ast.get(node).type_());
             let of = emit_node(ctx, *of);
 
-            let member = of.type_().member(*name).unwrap();
+            let Some(member) = of.type_().member(*name) else {
+                unreachable!("Type {} doesn't have member {}, but it got through the typer", of.type_(), *name)
+            };
             ctx.emit_member(
                 to,
                 of,
@@ -903,6 +905,9 @@ fn emit_lvalue<'a>(
         NodeKind::Local(id) => LValue::Value(ctx.locals.get(*id).value.unwrap(), Member::default()),
         NodeKind::ResolvedGlobal(id, _) => {
             LValue::Value(ctx.program.get_constant_as_value(*id), Member::default())
+        }
+        NodeKind::Parenthesis(value) => {
+            emit_lvalue(ctx, can_reference_temporaries, *value)
         }
         kind => {
             if can_reference_temporaries {

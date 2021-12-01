@@ -22,6 +22,7 @@ pub mod static_values {
 }
 
 use crate::errors::ErrorCtx;
+use crate::location::Location;
 use crate::operators::BinaryOp;
 use crate::types::{self, IntTypeKind};
 use std::collections::HashMap;
@@ -931,6 +932,30 @@ fn slice_get_two_mut<T>(slice: &mut [T], a: usize, b: usize) -> Option<(&mut T, 
     }
 }
 
+fn get_loc_of_value(ast: &crate::parser::Ast, locals: &crate::locals::LocalVariables, value: ValueId) -> Option<Location> {
+    let mut loc_id = value;
+    if loc_id < static_values::STATIC_VALUES_SIZE {
+        return None;
+    }
+    loc_id -= static_values::STATIC_VALUES_SIZE;
+
+    if loc_id < ast.nodes.len() as _ {
+        return Some(ast.get(loc_id).loc);
+    }
+    loc_id -= ast.nodes.len() as ValueId;
+
+    if loc_id < locals.num_locals() as _ {
+        return Some(locals.get(crate::locals::LocalId(loc_id as _)).loc);
+    }
+
+    loc_id -= locals.num_locals() as ValueId;
+    if loc_id < locals.num_labels() as _ {
+        return Some(locals.get_label(crate::locals::LabelId(loc_id as _)).loc);
+    }
+
+    None
+}
+
 #[derive(Clone)]
 pub struct TypeSystem {
     pub values: Values,
@@ -999,30 +1024,29 @@ impl TypeSystem {
         for node_id in 0..self.values.values.len() as ValueId {
             if !self.values.get(node_id).value_sets.is_complete() {
                 // Generate an error
-                let mut loc_id = node_id - static_values::STATIC_VALUES_SIZE;
-                let loc;
-                if loc_id < ast.nodes.len() as _ {
-                    loc = ast.get(loc_id).loc;
+                if let Some(loc) = get_loc_of_value(ast, locals, node_id) {
+                    errors.error(loc, format!("Ambiguous type"));
                 } else {
-                    loc_id -= ast.nodes.len() as ValueId;
-                    if loc_id < locals.num_locals() as _ {
-                        loc = locals.get(crate::locals::LocalId(loc_id as _)).loc;
-                    } else {
-                        loc_id -= locals.num_locals() as ValueId;
-                        loc = locals.get_label(crate::locals::LabelId(loc_id as _)).loc;
-                    }
+                    errors.global_error(format!("Ambiguous type"));
                 }
-
-                errors.error(loc, format!("Ambiguous type"));
             }
         }
     }
 
-    pub fn output_errors(&self, errors: &mut ErrorCtx) -> bool {
+    pub fn output_errors(&self, errors: &mut ErrorCtx, ast: &crate::parser::Ast, locals: &crate::locals::LocalVariables) -> bool {
         let mut has_errors = false;
         if self.value_sets.iter().any(|v| v.has_errors) {
             has_errors = true;
-            errors.global_error("Typing error!".to_string());
+
+            for node_id in 0..self.values.values.len() as _ {
+                if matches!(self.values.get(node_id).kind, Some(Type { kind: TypeKind::Error, .. })) {
+                    if let Some(loc) = get_loc_of_value(ast, locals, node_id) {
+                        errors.error(loc, "Typing error!".to_string());
+                    } else {
+                        errors.global_error("Typing error!".to_string());
+                    }
+                }
+            }
         }
 
         for error in &self.errors {

@@ -136,7 +136,7 @@ pub fn process_ast<'a>(
     //     );
     // }
 
-    if ctx.infer.output_errors(ctx.errors) {
+    if ctx.infer.output_errors(ctx.errors, ctx.ast, ctx.locals) {
         ctx.infer.flag_all_values_as_complete();
         return Err(());
     }
@@ -923,8 +923,9 @@ fn build_lvalue(
                 ctx.infer.value_sets.get_mut(set).has_errors = true;
             }
         }
-        NodeKind::Parenthesis(inner) => {
-            build_lvalue(ctx, inner, set);
+        NodeKind::Parenthesis(value) => {
+            let inner = build_lvalue(ctx, value, set);
+            ctx.infer.set_equal(node_type_id, inner, Variance::Invariant);
         }
         NodeKind::TypeBound { value, bound } => {
             // @Improvment: Here, both things are invariant. One of them could potentially be variant,
@@ -951,9 +952,10 @@ fn build_lvalue(
 
             let operand_type_id = build_constraints(ctx, operand, set);
             ctx.infer
-                .set_equal(operand_type_id, temp, Variance::Variant);
+                .set_equal(operand_type_id, temp, Variance::Invariant);
         }
         _ => {
+            unreachable!("References to temporaries are disabled since mutability can't be enforced right now");
             // Make it a reference to a temporary instead. This forces the pointer to be readonly.
             // @Speed: This could be faster...
             // let access_strict = ctx.infer.add_access(
@@ -962,7 +964,8 @@ fn build_lvalue(
             // );
             // ctx.infer
                 // .set_equal(access_strict, access, Variance::Invariant);
-            return build_constraints(ctx, node_id, set);
+            let inner = build_constraints(ctx, node_id, set);
+            ctx.infer.set_equal(node_type_id, inner, Variance::Invariant);
         }
     }
 
