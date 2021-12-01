@@ -9,3 +9,30 @@ const print = fn(string: [] u8) {
     i_stdout_write(string);
     i_stdout_flush();
 };
+
+const CHAR_0_ASCII_CODE = 48 : u8;
+
+const put_char = fn(c: u8) {
+    let buf = #0;
+    buf.ptr = &c;
+    buf.len = 1;
+    i_stdout_write(buf);
+};
+
+const print_u64 = fn(num: u64) { 'func_block
+    if num == 0 {
+        put_char(CHAR_0_ASCII_CODE);
+        break 'func_block;
+    };
+
+    let factor = 1;
+    while factor <= num  factor = factor * 10;
+
+    while factor >= 10 {
+        factor = factor / 10;
+        let digit = num / factor;
+        num = num - digit * factor;
+
+        put_char(CHAR_0_ASCII_CODE + (cast digit : u8));
+    };
+};

@@ -151,6 +151,7 @@ pub fn process_ast<'a>(
     }
 
     if are_incomplete_sets {
+        ctx.infer.output_incompleteness_errors(ctx.errors, ctx.ast, ctx.locals);
         ctx.infer.flag_all_values_as_complete();
         return Err(());
     }

@@ -4,10 +4,10 @@ use crate::types::Type;
 use ustr::Ustr;
 
 #[derive(Clone, Copy, Hash, PartialEq, Eq, Debug)]
-pub struct LocalId(usize);
+pub struct LocalId(pub usize);
 
 #[derive(Clone, Copy, Hash, PartialEq, Eq, Debug)]
-pub struct LabelId(usize);
+pub struct LabelId(pub usize);
 
 #[derive(Debug, Clone)]
 pub struct Local {
@@ -80,6 +80,10 @@ impl LocalVariables {
         let id = LabelId(self.labels.len());
         self.labels.push(label);
         id
+    }
+
+    pub fn num_locals(&self) -> usize {
+        self.locals.len()
     }
 
     #[allow(unused)]

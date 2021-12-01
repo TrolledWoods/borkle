@@ -1,25 +1,27 @@
 library "base.bo";
-// import "tests/main.bo";
-// 
-// const slice = fn(buffer: []r u8, start: typeof buffer.len, end: typeof start) -> typeof buffer {
-//     assert(start <= end);
-//     assert(end <= buffer.len);
-// 
-//     let new = #uninit;
-//     new.ptr = buffer.ptr + start;
-//     new.len = end - start;
-//     new
-// };
-// 
-// const char_to_buffer = fn(c: &u8) -> [] u8 {
-//     let buffer = #uninit;
-//     buffer.ptr = c;
-//     buffer.len = 1;
-//     buffer
-// };
+import "tests/main.bo";
+
+const slice = fn(buffer: []r u8, start: typeof buffer.len, end: typeof start) -> typeof buffer {
+    assert(start <= end);
+    assert(end <= buffer.len);
+
+    let new = #uninit;
+    new.ptr = buffer.ptr + start;
+    new.len = end - start;
+    new
+};
+
+const char_to_buffer = fn(c: &u8) -> [] u8 {
+    let buffer = #uninit;
+    buffer.ptr = c;
+    buffer.len = 1;
+    buffer
+};
 
 #entry fn() -> u64 {
     while _iters < 10   print("Hi!\n");
+
+    print_u64(83478752);
 
     cast (42 : u8)
 };

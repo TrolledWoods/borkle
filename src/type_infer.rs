@@ -18,6 +18,7 @@ pub mod static_values {
     pub const FALSE    : ValueId = 14;
     pub const EMPTY    : ValueId = 15;
     pub const USIZE    : ValueId = 16;
+    pub const STATIC_VALUES_SIZE : u32 = 17;
 }
 
 use crate::errors::ErrorCtx;
@@ -987,11 +988,33 @@ impl TypeSystem {
         self.values.get(id)
     }
 
-
     /// Only to be used when generating incompleteness-errors
     pub fn flag_all_values_as_complete(&mut self) {
         for value in self.values.iter_mut() {
             value.value_sets.complete(&mut self.value_sets);
+        }
+    }
+
+    pub fn output_incompleteness_errors(&self, errors: &mut ErrorCtx, ast: &crate::parser::Ast, locals: &crate::locals::LocalVariables) {
+        for node_id in 0..self.values.values.len() as ValueId {
+            if !self.values.get(node_id).value_sets.is_complete() {
+                // Generate an error
+                let mut loc_id = node_id - static_values::STATIC_VALUES_SIZE;
+                let loc;
+                if loc_id < ast.nodes.len() as _ {
+                    loc = ast.get(loc_id).loc;
+                } else {
+                    loc_id -= ast.nodes.len() as ValueId;
+                    if loc_id < locals.num_locals() as _ {
+                        loc = locals.get(crate::locals::LocalId(loc_id as _)).loc;
+                    } else {
+                        loc_id -= locals.num_locals() as ValueId;
+                        loc = locals.get_label(crate::locals::LabelId(loc_id as _)).loc;
+                    }
+                }
+
+                errors.error(loc, format!("Ambiguous type"));
+            }
         }
     }
 
@@ -1458,9 +1481,8 @@ impl TypeSystem {
                     (
                         Relation::Cast,
                         Some(Type { kind: TypeKind::Int, args: Some(_) }),
-                        Some(Type { kind: TypeKind::Int, args: Some(_), .. }),
+                        Some(Type { kind: TypeKind::Int, args: Some(_) }),
                     ) => {
-                        // They're already both ints, it's fine.
                     }
                     (
                         Relation::Cast,
@@ -1501,7 +1523,7 @@ impl TypeSystem {
                 match (op, (a.as_ref().map(|v| &v.kind), b.as_ref().map(|v| &v.kind), result.as_ref().map(|v| &v.kind))) {
                     (
                         BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mult | BinaryOp::Div | BinaryOp::BitAnd | BinaryOp::BitOr,
-                        (Some(TypeKind::Int), Some(TypeKind::Int), Some(TypeKind::Int)),
+                        (Some(TypeKind::Int), Some(TypeKind::Int), _),
                     ) => {
                         self.set_equal(a_id, b_id, Variance::Invariant);
                         self.set_equal(a_id, result_id, Variance::Invariant);
