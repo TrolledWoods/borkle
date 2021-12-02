@@ -1,7 +1,6 @@
 library "base.bo";
-import "tests/main.bo";
+import "tests/aoc/day_2.bo";
 
-#entry fn() -> u64 {
-    print("Hello, world!\n");
-    #0;
-};
+// #entry fn() -> u64 {
+//     #0
+// };

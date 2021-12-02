@@ -430,12 +430,12 @@ fn build_constraints(
 
             // The type the body returns doesn't matter, since we don't forward it.
             let iterating_type_id = build_constraints(ctx, iterating, set);
+
             build_constraints(ctx, body, set);
 
             let label_type_infer_id = ctx.locals.get_label(label).type_infer_value_id;
 
-            let buffer_type = ctx.infer.add_type(TypeKind::Buffer, [ctx.locals.get(iterator).type_infer_value_id], set);
-            ctx.infer.set_equal(buffer_type, iterating_type_id, Variance::Invariant);
+            ctx.infer.set_field_name_equal(iterating_type_id, "ptr".into(), ctx.locals.get(iterator).type_infer_value_id, Variance::Invariant);
 
             match else_body {
                 Some(else_body) => {
@@ -949,8 +949,9 @@ fn build_lvalue(
                 .set_equal(operand_type_id, temp, Variance::Invariant);
         }
         _ => {
-            unreachable!("References to temporaries are disabled since mutability can't be enforced right now");
             // Make it a reference to a temporary instead. This forces the pointer to be readonly.
+            // TODO: Make it require it to be read-only here.
+            return build_constraints(ctx, node_id, set);
         }
     }
 

@@ -15,6 +15,14 @@ const CHAR_0_ASCII_CODE = 48 : u8;
 // TEMPORARY until not operator is done a gain
 const not = fn(v: bool) -> bool  if v false else true;
 
+const cmp_strings = fn(a: []r u8, b: []r u8) -> bool { 'function
+    if a.len != b.len  break 'function false;
+
+    for 'loop c in a {
+        if *c != *(b.ptr + _iters)  break 'loop false;
+    } else true
+};
+
 const put_char = fn(c: u8) {
     let buf = #0;
     buf.ptr = &c;
@@ -42,6 +50,21 @@ const take_u64 = fn(string: &rw []r u8) -> u64 {
     number
 };
 
+const take_word = fn(string: &rw []r u8) -> []r u8 {
+    let length = 0;
+    let start = (*string).ptr;
+    while (*string).len > 0 {
+        if not(is_alpha(*(*string).ptr)) break;
+        length = length + 1;
+        advance(string);
+    };
+
+    let buf = #0;
+    buf.len = length;
+    buf.ptr = start;
+    buf
+};
+
 const take_whitespace = fn(string: &rw []r u8) {
     while (*string).len > 0 {
         if not(is_whitespace(*(*string).ptr)) break;
@@ -53,6 +76,14 @@ const SPACE = *" ".ptr;
 const NEW_LINE = *"\n".ptr;
 const TAB = *"\t".ptr;
 const CARRIAGE_RETURN = *"\r".ptr;
+const LOWER_A = *"a".ptr;
+const LOWER_Z = *"z".ptr;
+const UPPER_A = *"A".ptr;
+const UPPER_Z = *"Z".ptr;
+
+const is_alpha = fn(c: u8) -> bool {
+    (c >= LOWER_A && c <= LOWER_Z) || (c >= UPPER_A && c <= UPPER_Z)
+};
 
 const is_whitespace = fn(c: u8) -> bool {
     c == SPACE || c == NEW_LINE || c == TAB || c == CARRIAGE_RETURN

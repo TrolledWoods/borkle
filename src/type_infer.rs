@@ -758,7 +758,7 @@ impl Values {
                 let dependant_structure = &mut self.structure[dependant_structure_id as usize];
                 dependant_structure.layout.size -= 1;
                 if dependant_structure.layout.size == 0 {
-                    computable_sizes.push(dependant_structure_id);
+                    computable_sizes.push(dependant);
                 }
             }
         } else {
@@ -1081,7 +1081,7 @@ impl TypeSystem {
                 };
 
                 let sign_value = extract_constant_from_value(&self.values, *signed).expect("Sign wasn't a value");
-                let size_value = extract_constant_from_value(&self.values, *size).expect("Sign wasn't a value");
+                let size_value = extract_constant_from_value(&self.values, *size).expect("Size wasn't a value");
 
                 let sign_value = unsafe { *sign_value.as_ptr().cast::<bool>() };
                 let size_value = unsafe { *size_value.as_ptr().cast::<u8>() };
@@ -1233,6 +1233,7 @@ impl TypeSystem {
             // self.print_state();
         }
 
+        // self.print_state();
         while let Some(computable_size) = self.computable_value_sizes.pop() {
             self.values.compute_size(&mut self.computable_value_sizes, computable_size);
         }
