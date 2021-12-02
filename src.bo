@@ -1,6 +1,6 @@
 library "base.bo";
-import "tests/aoc/day_2.bo";
+import "tests/main.bo";
 
-// #entry fn() -> u64 {
-//     #0
-// };
+#entry fn() -> u64 {
+    #0
+};

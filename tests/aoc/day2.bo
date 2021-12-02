@@ -1,0 +1,65 @@
+library "base.bo";
+import "../main.bo";
+import "day2_input.bo";
+
+const TestsDay2 = if DO_AOC {
+    defer ok("AOC day 2");
+    assert(aoc_day2_part_1(INPUT) == 1962940);
+    assert(aoc_day2_part_2(INPUT) == 1813664422);
+};
+
+const aoc_day2_part_1 = fn (parse: []r u8) -> i64 {
+    let depth = 0;
+    let pos   = 0;
+
+    take_whitespace(&parse);
+    while not(empty(&parse)) {
+        let command = take_word(&parse);
+        take_whitespace(&parse);
+        let number = take_u64(&parse);
+        take_whitespace(&parse);
+
+        if cmp_strings(command, "forward") {
+            pos = pos + (cast number : i64);
+        } else if cmp_strings(command, "down") {
+            depth = depth + (cast number : i64);
+        } else if cmp_strings(command, "up") {
+            depth = depth - (cast number : i64);
+        } else {
+            // Invalid command!
+            assert(false);
+        };
+    };
+
+    depth * pos
+};
+
+const aoc_day2_part_2 = fn(parse: []r u8) -> i64 {
+    let parse = INPUT;
+
+    let depth = 0;
+    let pos = 0;
+    let aim = 0;
+
+    take_whitespace(&parse);
+    while not(empty(&parse)) {
+        let command = take_word(&parse);
+        take_whitespace(&parse);
+        let number = take_u64(&parse);
+        take_whitespace(&parse);
+
+        if cmp_strings(command, "forward") {
+            pos = pos + (cast number : i64);
+            depth = depth + aim * (cast number : i64);
+        } else if cmp_strings(command, "down") {
+            aim = aim + (cast number : i64);
+        } else if cmp_strings(command, "up") {
+            aim = aim - (cast number : i64);
+        } else {
+            // Invalid command!
+            assert(false);
+        };
+    };
+
+    depth * pos
+};
