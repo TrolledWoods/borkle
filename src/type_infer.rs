@@ -1505,9 +1505,24 @@ impl TypeSystem {
                     }
                     (
                         Relation::Cast,
-                        Some(Type { kind: TypeKind::Int, args: Some(_) }),
-                        Some(Type { kind: TypeKind::Int, args: Some(_) }),
+                        Some(Type { kind: TypeKind::Int, args: _ }),
+                        Some(Type { kind: TypeKind::Int, args: _ }),
+                    ) => {}
+                    (
+                        Relation::Cast,
+                        Some(Type { kind: TypeKind::Int, args: _ }),
+                        None,
                     ) => {
+                        let int_t = self.add_type(TypeKind::Int, (), ());
+                        self.set_equal(from_id, int_t, Variance::Invariant);
+                    }
+                    (
+                        Relation::Cast,
+                        None,
+                        Some(Type { kind: TypeKind::Int, args: _ }),
+                    ) => {
+                        let int_t = self.add_type(TypeKind::Int, (), ());
+                        self.set_equal(to_id, int_t, Variance::Invariant);
                     }
                     (
                         Relation::Cast,

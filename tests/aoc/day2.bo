@@ -20,11 +20,11 @@ const aoc_day2_part_1 = fn (parse: []r u8) -> i64 {
         take_whitespace(&parse);
 
         if cmp_strings(command, "forward") {
-            pos = pos + (cast number : i64);
+            pos = pos + cast number;
         } else if cmp_strings(command, "down") {
-            depth = depth + (cast number : i64);
+            depth = depth + cast number;
         } else if cmp_strings(command, "up") {
-            depth = depth - (cast number : i64);
+            depth = depth - cast number;
         } else {
             // Invalid command!
             assert(false);
@@ -49,12 +49,12 @@ const aoc_day2_part_2 = fn(parse: []r u8) -> i64 {
         take_whitespace(&parse);
 
         if cmp_strings(command, "forward") {
-            pos = pos + (cast number : i64);
-            depth = depth + aim * (cast number : i64);
+            pos = pos + cast number;
+            depth = depth + aim * number;
         } else if cmp_strings(command, "down") {
-            aim = aim + (cast number : i64);
+            aim = aim + cast number;
         } else if cmp_strings(command, "up") {
-            aim = aim - (cast number : i64);
+            aim = aim - cast number;
         } else {
             // Invalid command!
             assert(false);
