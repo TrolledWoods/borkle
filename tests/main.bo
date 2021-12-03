@@ -1,7 +1,8 @@
 library "base.bo";
 
 import "aoc/day1.bo";
-import "aoc/day2.bo";
+// import "aoc/day2.bo";
+import "aoc/day3.bo";
 
 const DO_AOC = false;
 

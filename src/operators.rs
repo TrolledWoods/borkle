@@ -188,6 +188,12 @@ impl BinaryOp {
                 all_int_types!(i1, output, (a, b), |)
             }
 
+            (BinaryOp::Equals, TypeKind::Bool, TypeKind::Bool) => {
+                *output.cast() = (*a.cast::<u8>() > 0) == (*b.cast::<u8>() > 0);
+            }
+            (BinaryOp::NotEquals, TypeKind::Bool, TypeKind::Bool) => {
+                *output.cast() = (*a.cast::<u8>() > 0) != (*b.cast::<u8>() > 0);
+            }
             (BinaryOp::Equals, TypeKind::Int(i1), TypeKind::Int(i2)) if i1 == i2 =>
                 all_int_types!(i1, output, (a, b), ==),
             (BinaryOp::NotEquals, TypeKind::Int(i1), TypeKind::Int(i2)) if i1 == i2 => {

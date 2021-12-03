@@ -30,6 +30,18 @@ const put_char = fn(c: u8) {
     i_stdout_write(buf);
 };
 
+const take_char = fn(string: &rw []r u8) -> u8 {
+    let c = *(*string).ptr;
+    advance(string);
+    c
+};
+
+const advance_by = fn(string: &rw []r u8, by: usize) {
+    assert((*string).len >= by);
+    (*string).ptr = (*string).ptr + by;
+    (*string).len = (*string).len - by;
+};
+
 const advance = fn(string: &rw []r u8) {
     assert((*string).len > 0);
     (*string).ptr = (*string).ptr + 1;
@@ -38,7 +50,17 @@ const advance = fn(string: &rw []r u8) {
 
 const empty = fn(string: &rw []r u8) -> bool   (*string).len == 0;
 
-// Parsing stuff
+const take_u64_with_base = fn(string: &rw []r u8, base: u64) -> u64 {
+    let number = 0;
+    while (*string).len > 0 {
+        let c = *(*string).ptr;
+        if not(is_digit(c))  break;
+        number = number * base + (cast (c - CHAR_0_ASCII_CODE) : u64);
+        advance(string);
+    };
+    number
+};
+
 const take_u64 = fn(string: &rw []r u8) -> u64 {
     let number = 0;
     while (*string).len > 0 {

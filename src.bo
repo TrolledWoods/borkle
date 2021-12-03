@@ -1,5 +1,5 @@
-library "base.bo";
-import "tests/main.bo";
+// library "base.bo";
+import "tests/aoc/day3.bo";
 
 #entry fn() -> u64 {
     #0

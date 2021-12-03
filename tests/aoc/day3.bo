@@ -1,0 +1,137 @@
+library "base.bo";
+library "intrinsics.bo";
+import "day3_input.bo";
+import "../main.bo";
+
+// const TestsDay3 = if DO_AOC {
+//     defer ok("AOC day 3");
+//     print("Day 3: ");
+//     print_u64(aoc_day3_part1());
+//     print(" ");
+//     print_u64(aoc_day3_part2());
+//     print("\n");
+// };
+
+const aoc_day3_part1 = fn() -> u64 {
+    let input = INPUT;
+
+    let one_counts = #0 : [12] u64;
+    let one_counts_buf = cast &one_counts : [] u64;
+    let total_count = 0;
+
+    let one = *"1".ptr;
+
+    // Both of these are backward, but the backwardness cancels out :)
+    take_whitespace(&input);
+    while not(empty(&input)) {
+        for one_counts_buf {
+            if take_char(&input) == one {
+                *_it = *_it + 1;
+            };
+        };
+
+        total_count = total_count + 1;
+
+        take_whitespace(&input);
+    };
+
+    let a_rate = 2b0_0000;
+    let b_rate = 2b0_0000;
+    for one_counts_buf {
+        a_rate = a_rate * 2;
+        b_rate = b_rate * 2;
+
+        if *_it > total_count - *_it {
+            a_rate = a_rate + 1;
+        } else if *_it < total_count - *_it {
+            b_rate = b_rate + 1;
+        } else {
+            print("Warning! Both bit counts are the same");
+        };
+    };
+
+    a_rate * b_rate
+};
+
+const aoc_day3_part2 = fn() -> u64 {
+    let input = INPUT;
+
+    // Count the number of lines in the input
+    let lines = 0;
+    take_whitespace(&input);
+    while not(empty(&input)) {
+        take_u64_with_base(&input, 2);
+        take_whitespace(&input);
+        lines = lines + 1;
+    };
+
+    // Allocate a buffer (This should really just be one call to alloc in the future)
+    let numbers = #0 : []rw {
+        number: u32;
+        consider_for_a_rate: bool;
+        consider_for_b_rate: bool;
+    };
+    numbers.ptr = cast i_alloc(lines * (4 + 4));
+    numbers.len = lines;
+    // Oh no, this is terrible!
+    defer i_dealloc({
+        let buf = #0;
+        buf.ptr = cast numbers.ptr;
+        buf.len = lines * (4 + 4);
+        buf
+    });
+
+    let input = INPUT;
+    take_whitespace(&input);
+    while not(empty(&input)) {
+        let number = take_u64_with_base(&input, 2);
+        take_whitespace(&input);
+        let entry = numbers.ptr + _iters;
+        (*entry).number = cast number;
+        (*entry).consider_for_a_rate = true;
+        (*entry).consider_for_b_rate = true;
+    };
+
+    let a_rate = 0;
+    let b_rate = 0;
+
+    // There are twelve bits in the numbers
+    let mask = 2b1000_0000_0000;
+    while mask > 0 {
+        // Count the average bit for the current entry
+        let a_rate_total_nums = 0 : u64;
+        let a_rate_nums = 0 : u64;
+        let b_rate_total_nums = 0 : u64;
+        let b_rate_nums = 0 : u64;
+
+        for entry in numbers {
+            let is_set = ((*entry).number & mask) > 0;
+
+            if (*entry).consider_for_a_rate {
+                a_rate_total_nums = a_rate_total_nums + 1;
+                if is_set  a_rate_nums = a_rate_nums + 1;
+                a_rate = cast (*entry).number;
+            };
+
+            if (*entry).consider_for_b_rate {
+                b_rate_total_nums = b_rate_total_nums + 1;
+                if is_set  b_rate_nums = b_rate_nums + 1;
+                b_rate = cast (*entry).number;
+            };
+        };
+
+        let a_rate_bit = a_rate_nums >= a_rate_total_nums - a_rate_nums;
+        let b_rate_bit = b_rate_nums < b_rate_total_nums - b_rate_nums;
+
+        for entry in numbers {
+            let is_set = ((*entry).number & mask) > 0;
+
+            if bit_cast is_set != a_rate_bit { (*entry).consider_for_a_rate = false; };
+            if bit_cast is_set != b_rate_bit { (*entry).consider_for_b_rate = false; };
+        };
+
+        mask = mask / 2;
+    };
+
+    a_rate * b_rate
+};
