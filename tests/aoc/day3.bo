@@ -3,14 +3,11 @@ library "intrinsics.bo";
 import "day3_input.bo";
 import "../main.bo";
 
-// const TestsDay3 = if DO_AOC {
-//     defer ok("AOC day 3");
-//     print("Day 3: ");
-//     print_u64(aoc_day3_part1());
-//     print(" ");
-//     print_u64(aoc_day3_part2());
-//     print("\n");
-// };
+const TestsDay3 = if DO_AOC {
+    defer ok("AOC day 3");
+    assert(aoc_day3_part1() == 2003336);
+    assert(aoc_day3_part2() == 1877139);
+};
 
 const aoc_day3_part1 = fn() -> u64 {
     let input = INPUT;
@@ -126,8 +123,8 @@ const aoc_day3_part2 = fn() -> u64 {
         for entry in numbers {
             let is_set = ((*entry).number & mask) > 0;
 
-            if bit_cast is_set != a_rate_bit { (*entry).consider_for_a_rate = false; };
-            if bit_cast is_set != b_rate_bit { (*entry).consider_for_b_rate = false; };
+            if is_set != a_rate_bit { (*entry).consider_for_a_rate = false; };
+            if is_set != b_rate_bit { (*entry).consider_for_b_rate = false; };
         };
 
         mask = mask / 2;
