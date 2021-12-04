@@ -54,16 +54,13 @@ const aoc_day4 = fn() -> { part_1: u64; part_2: u64; } {
         num_boards = num_boards + 1;
     };
 
-    let board_cells = #uninit : [] {
-        number: u16;
-        when_taken: u16;
-    };
-    board_cells.ptr = cast i_alloc(num_boards * 25 * 4);
+    let board_cells = #uninit : [] u16;
+    board_cells.ptr = cast i_alloc(num_boards * 25 * 2);
     // Oh no, this is terrible!
     defer i_dealloc({
         let buf = #0;
         buf.ptr = cast board_cells.ptr;
-        buf.len = num_boards * 25 * 4;
+        buf.len = num_boards * 25 * 2;
         buf
     });
     board_cells.len = num_boards * 25;
@@ -74,8 +71,7 @@ const aoc_day4 = fn() -> { part_1: u64; part_2: u64; } {
         assert(parse.len != 0);
 
         let number = cast take_u64(&parse);
-        (*cell).number = number;
-        (*cell).when_taken = *(number_map.ptr + cast number);
+        *cell = number;
         take_whitespace(&parse);
     };
 
@@ -98,7 +94,8 @@ const aoc_day4 = fn() -> { part_1: u64; part_2: u64; } {
                 let y = _iters;
 
                 let cell = board_cells.ptr + (base_i + y * 5 + x);
-                if (*cell).when_taken > line_max  line_max = (*cell).when_taken;
+                let when_taken = *(number_map.ptr + cast *cell);
+                if when_taken > line_max  line_max = when_taken;
             };
             if line_max < min {
                 min = line_max;
@@ -113,7 +110,8 @@ const aoc_day4 = fn() -> { part_1: u64; part_2: u64; } {
                 let x = _iters;
 
                 let cell = board_cells.ptr + (base_i + y * 5 + x);
-                if (*cell).when_taken > line_max  line_max = (*cell).when_taken;
+                let when_taken = *(number_map.ptr + cast *cell);
+                if when_taken > line_max  line_max = when_taken;
             };
             if line_max < min {
                 min = line_max;
@@ -135,16 +133,18 @@ const aoc_day4 = fn() -> { part_1: u64; part_2: u64; } {
     let number_at_marked = 0;
     while _iters < 25 {
         let cell = board_cells.ptr + (best_board_i * 25 + _iters);
-        if (*cell).when_taken > best_board_score  unmarked_nums = unmarked_nums + cast (*cell).number;
-        if (*cell).when_taken == best_board_score  number_at_marked = cast (*cell).number;
+        let when_taken = *(number_map.ptr + cast *cell);
+        if when_taken > best_board_score  unmarked_nums = unmarked_nums + cast *cell;
+        if when_taken == best_board_score  number_at_marked = cast *cell;
     };
 
     let worst_unmarked_nums = 0;
     let worst_number_at_marked = 0;
     while _iters < 25 {
         let cell = board_cells.ptr + (worst_board_i * 25 + _iters);
-        if (*cell).when_taken > worst_board_score  worst_unmarked_nums = worst_unmarked_nums + cast (*cell).number;
-        if (*cell).when_taken == worst_board_score  worst_number_at_marked = cast (*cell).number;
+        let when_taken = *(number_map.ptr + cast *cell);
+        if when_taken > worst_board_score  worst_unmarked_nums = worst_unmarked_nums + cast *cell;
+        if when_taken == worst_board_score  worst_number_at_marked = cast *cell;
     };
 
     let result = #0;

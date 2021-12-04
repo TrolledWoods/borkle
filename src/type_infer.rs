@@ -363,11 +363,6 @@ pub struct Type {
     pub args: Option<Box<[ValueId]>>,
 }
 
-#[derive(Debug)]
-pub enum ValueKind {
-    Type(Option<Type>),
-}
-
 impl Type {
     fn is_complete(&self) -> bool {
         self.args.is_some()
