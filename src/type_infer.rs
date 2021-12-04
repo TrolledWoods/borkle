@@ -374,6 +374,7 @@ type ConstraintId = usize;
 #[derive(Debug, Clone, Copy)]
 struct Constraint {
     kind: ConstraintKind,
+    applied: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -406,7 +407,6 @@ enum ConstraintKind {
         index: Ustr,
         variance: Variance,
     },
-    Dead,
 }
 
 impl Constraint {
@@ -418,7 +418,7 @@ impl Constraint {
                 variance,
             } => {
                 if a == b {
-                    self.kind = ConstraintKind::Dead;
+                    self.applied = true;
                 } else if a > b {
                     mem::swap(a, b);
                     *variance = variance.invert();
@@ -427,7 +427,6 @@ impl Constraint {
             ConstraintKind::EqualsField { .. }
             | ConstraintKind::EqualNamedField { .. }
             | ConstraintKind::BinaryOp { .. }
-            | ConstraintKind::Dead
             | ConstraintKind::Relation { .. } => {}
         }
     }
@@ -447,7 +446,6 @@ impl Constraint {
             | ConstraintKind::EqualsField { values, .. }
             | ConstraintKind::EqualNamedField { values, .. } => &*values,
             ConstraintKind::BinaryOp { values, .. } => &*values,
-            ConstraintKind::Dead => &[],
         }
     }
 
@@ -458,7 +456,6 @@ impl Constraint {
             | ConstraintKind::EqualsField { values, .. }
             | ConstraintKind::EqualNamedField { values, .. } => &mut *values,
             ConstraintKind::BinaryOp { values, .. } => &mut *values,
-            ConstraintKind::Dead => &mut [],
         }
     }
 
@@ -467,14 +464,12 @@ impl Constraint {
             ConstraintKind::Equal { variance, .. }
             | ConstraintKind::EqualsField { variance, .. }
             | ConstraintKind::EqualNamedField { variance, .. } => Some(variance),
-            ConstraintKind::Dead | ConstraintKind::BinaryOp { .. } | ConstraintKind::Relation { .. } => None,
+            ConstraintKind::BinaryOp { .. } | ConstraintKind::Relation { .. } => None,
         }
     }
 
     fn equal(a: ValueId, b: ValueId, variance: Variance) -> Self {
-        let kind = if a == b {
-            ConstraintKind::Dead
-        } else if b > a {
+        let kind = if b >= a {
             ConstraintKind::Equal {
                 values: [a, b],
                 variance,
@@ -486,7 +481,7 @@ impl Constraint {
             }
         };
 
-        Self { kind, }
+        Self { kind, applied: false }
     }
 }
 
@@ -1172,6 +1167,7 @@ impl TypeSystem {
                     values: [a, b, result],
                     op,
                 },
+                applied: false,
             },
         );
     }
@@ -1183,6 +1179,7 @@ impl TypeSystem {
             &mut self.queued_constraints,
             Constraint {
                 kind: ConstraintKind::Relation { kind: Relation::Cast, values: [to, from] },
+                applied: false,
             }
         );
     }
@@ -1216,6 +1213,7 @@ impl TypeSystem {
                     index: field_name,
                     variance,
                 },
+                applied: false,
             },
         );
     }
@@ -1390,7 +1388,6 @@ impl TypeSystem {
             ConstraintKind::Relation { kind, values: [a, b] } => {
                 format!("{} == {:?} {}", self.value_to_str(a, 0), kind, self.value_to_str(b, 0))
             }
-            ConstraintKind::Dead => format!("< removed >"),
             ConstraintKind::BinaryOp { values: [a, b, result], op } => {
                 format!(
                     "{} {:?} {} == {}",
@@ -1481,9 +1478,9 @@ impl TypeSystem {
 
     fn apply_constraint(&mut self, constraint_id: ConstraintId) {
         let constraint = self.constraints[constraint_id];
+        if constraint.applied { return; }
 
         match constraint.kind {
-            ConstraintKind::Dead => {}
             ConstraintKind::Relation { kind, values: [to_id, from_id] } => {
                 let to = get_value(&self.values, to_id);
                 let from = get_value(&self.values, from_id);
@@ -1501,6 +1498,7 @@ impl TypeSystem {
                             &mut self.queued_constraints,
                             Constraint {
                                 kind: ConstraintKind::Relation { kind: Relation::BufferEqualsArray, values: [to_id, new_from] },
+                                applied: false,
                             }
                         );
                     }
@@ -1549,7 +1547,7 @@ impl TypeSystem {
                     _ => return,
                 }
 
-                self.constraints[constraint_id].kind = ConstraintKind::Dead;
+                self.constraints[constraint_id].applied = true;
             }
             ConstraintKind::BinaryOp {
                 values: [a_id, b_id, result_id],
@@ -1604,7 +1602,7 @@ impl TypeSystem {
                     _ => return,
                 }
 
-                self.constraints[constraint_id].kind = ConstraintKind::Dead;
+                self.constraints[constraint_id].applied = true;
             }
             ConstraintKind::EqualNamedField {
                 values: [a_id, b_id],
@@ -1658,7 +1656,7 @@ impl TypeSystem {
 
                                 self.set_equal(field_type, b_id, variance);
 
-                                self.constraints[constraint_id].kind = ConstraintKind::Dead;
+                                self.constraints[constraint_id].applied = true;
                             }
                             _ => {
                                 self.errors.push(Error::new(
@@ -1682,6 +1680,7 @@ impl TypeSystem {
                                         index: pos,
                                         variance,
                                     },
+                                    applied: false,
                                 },
                             );
                         } else {
@@ -1706,6 +1705,7 @@ impl TypeSystem {
                                         index: 0,
                                         variance,
                                     },
+                                    applied: false,
                                 },
                             );
                         } else {
