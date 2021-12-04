@@ -1,5 +1,6 @@
 import "tests/main.bo";
 
+// global type, since we know what the type is
 #entry fn() -> u64 {
     #0
 };

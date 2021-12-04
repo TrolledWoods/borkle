@@ -663,6 +663,12 @@ pub struct ValueBorrow<'a> {
     value_sets: &'a ValueSetHandles,
 }
 
+impl ValueBorrow<'_> {
+    pub fn kind(&self) -> &TypeKind {
+        &self.kind.as_ref().expect("Called kind on unknown type").kind
+    }
+}
+
 pub struct ValueBorrowMut<'a> {
     pub kind: &'a mut Option<Type>,
     pub layout: &'a mut Layout,

@@ -196,30 +196,8 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, node: NodeId) -> Value {
             let start = ctx.registers.create(ctx.types, iterator_type_id, iterator_type);
             let end = ctx.registers.create(ctx.types, iterator_type_id, iterator_type);
 
-            match ctx.ast.get(*iterating).type_().kind() {
-                TypeKind::Range(inner) => match inner.kind() {
-                    TypeKind::Int(_) | TypeKind::Reference { .. } => {
-                        ctx.emit_member(
-                            start,
-                            iterating_value,
-                            Member {
-                                // 'start' member
-                                offset: 0,
-                                amount: 1,
-                            },
-                        );
-                        ctx.emit_member(
-                            end,
-                            iterating_value,
-                            Member {
-                                offset: inner.size(),
-                                amount: 1,
-                            },
-                        );
-                    }
-                    _ => unreachable!(),
-                },
-                TypeKind::Buffer { .. } => {
+            match ctx.types.get(ctx.ast.get(*iterating).type_infer_value_id).kind() {
+                type_infer::TypeKind::Buffer { .. } => {
                     ctx.emit_member(
                         start,
                         iterating_value,
@@ -454,7 +432,7 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, node: NodeId) -> Value {
                     Some(type_infer::Type { kind: type_infer::TypeKind::Reference, .. }),
                     Some(type_infer::Type { kind: type_infer::TypeKind::Reference, .. }),
                 ) => {
-                    // References are the same layout, we just cast them.
+                    // References are the same layout, we just do the same as with bitcast.
                     ctx.emit_move(to, from);
                 }
                 _ => unreachable!("Internal error: Invalid types for cast reached emission"),
@@ -468,176 +446,8 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, node: NodeId) -> Value {
             ctx.emit_move(to, from);
             to
         }
-        NodeKind::PtrToAny { ptr, type_ } => {
-            let ptr = emit_node(ctx, *ptr);
-
-            let to = ctx.registers.create(ctx.types, ctx.ast.get(node).type_infer_value_id, ctx.ast.get(node).type_());
-            ctx.emit_move_to_member_of_value(
-                to,
-                ptr,
-                Member {
-                    offset: 0,
-                    amount: 1,
-                },
-            );
-
-            let type_type = Type::new(TypeKind::Type);
-            let type_ = ctx
-                .program
-                .insert_buffer(type_type, type_.as_id().to_le_bytes().as_ptr());
-
-            ctx.emit_move_to_member_of_value(
-                to,
-                Value::Global(type_, type_type),
-                Member {
-                    offset: 8,
-                    amount: 1,
-                },
-            );
-
-            to
-        }
-        NodeKind::BufferToVoid { buffer: _, inner: _ } => {
-            todo!("BufferToVoid not done for now")
-            /*
-            let from = emit_node(ctx, *buffer);
-
-            let ptr = ctx.registers.create(Type::new(TypeKind::VoidPtr));
-            ctx.emit_member(
-                ptr,
-                from,
-                Member {
-                    offset: 0,
-                    amount: 1,
-                },
-            );
-
-            let usize_type = Type::new(TypeKind::Int(IntTypeKind::Usize));
-            let len = ctx.registers.create(usize_type);
-            ctx.emit_member(
-                len,
-                from,
-                Member {
-                    offset: 8,
-                    amount: 1,
-                },
-            );
-
-            let constant = ctx
-                .program
-                .insert_buffer(usize_type, inner.size().to_le_bytes().as_ptr());
-            ctx.emit_binary(
-                BinaryOp::Mult,
-                len,
-                len,
-                Value::Global(constant, usize_type),
-            );
-
-            let to = ctx.registers.create(ctx.ast.get(node).type_());
-            ctx.emit_move_to_member_of_value(
-                to,
-                len,
-                Member {
-                    offset: 8,
-                    amount: 1,
-                },
-            );
-            ctx.emit_move_to_member_of_value(
-                to,
-                ptr,
-                Member {
-                    offset: 0,
-                    amount: 1,
-                },
-            );
-
-            to
-            */
-        }
-        NodeKind::VoidToBuffer { any: _, inner: _ } => {
-            todo!("VoidToBuffer not yet done")
-            /*
-            let from = emit_node(ctx, *any);
-
-            let ptr = ctx.registers.create(Type::new(TypeKind::VoidPtr));
-            ctx.emit_member(
-                ptr,
-                from,
-                Member {
-                    offset: 0,
-                    amount: 1,
-                },
-            );
-
-            let usize_type = Type::new(TypeKind::Int(IntTypeKind::Usize));
-            let len = ctx.registers.create(usize_type);
-            ctx.emit_member(
-                len,
-                from,
-                Member {
-                    offset: 8,
-                    amount: 1,
-                },
-            );
-
-            let constant = ctx
-                .program
-                .insert_buffer(usize_type, inner.size().to_le_bytes().as_ptr());
-            ctx.emit_binary(BinaryOp::Div, len, len, Value::Global(constant, usize_type));
-
-            let to = ctx.registers.create(ctx.ast.get(node).type_());
-            ctx.emit_move_to_member_of_value(
-                to,
-                len,
-                Member {
-                    offset: 8,
-                    amount: 1,
-                },
-            );
-            ctx.emit_move_to_member_of_value(
-                to,
-                ptr,
-                Member {
-                    offset: 0,
-                    amount: 1,
-                },
-            );
-
-            to
-            */
-        }
-        NodeKind::ArrayToBuffer { length: _, array: _ } => {
-            todo!("ArrayToBuffer not yet done")
-            /*
-            let from = emit_node(ctx, *array);
-            let to = ctx.registers.create(ctx.ast.get(node).type_());
-
-            let len_reg = ctx
-                .registers
-                .create(Type::new(TypeKind::Int(IntTypeKind::Usize)));
-            ctx.emit_move_from_constant(len_reg, &length.to_le_bytes());
-
-            ctx.emit_move_to_member_of_value(
-                to,
-                from,
-                Member {
-                    offset: 0,
-                    amount: 1,
-                },
-            );
-            ctx.emit_move_to_member_of_value(
-                to,
-                len_reg,
-                Member {
-                    offset: 8,
-                    amount: 1,
-                },
-            );
-            to
-            */
-        }
         NodeKind::Constant(bytes, _) => {
-            if let TypeKind::Function { .. } = ctx.ast.get(node).type_().kind() {
+            if let type_infer::TypeKind::Function { .. } = ctx.types.get(ctx.ast.get(node).type_infer_value_id).kind() {
                 let function_id = unsafe { *(bytes.as_ptr() as *const FunctionId) };
                 if !ctx.calling.contains(&function_id) {
                     ctx.calling.push(function_id);
@@ -695,9 +505,10 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, node: NodeId) -> Value {
             to
         }
         NodeKind::ArrayLiteral(elements) => {
+            let node_type = ctx.types.get(ctx.ast.get(node).type_infer_value_id);
             let internal_type =
-                if let TypeKind::Array(internal, _) = ctx.ast.get(node).type_().kind() {
-                    *internal
+                if let type_infer::TypeKind::Array = node_type.kind() {
+                    node_type.kind.as_ref().unwrap().args.as_ref().unwrap()[0]
                 } else {
                     unreachable!()
                 };
@@ -710,10 +521,10 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, node: NodeId) -> Value {
             // This is a bit weird but it has to be checked here. The reason is we generate a temporary pointer to the elements
             // of the array, and this internal pointer does not account for the array being zero sized; i.e., getting a non zero
             // sized pointer from a zero sized type.
-            if !elements.is_empty() && internal_type.size() > 0 {
+            if !elements.is_empty() && ctx.types.get(internal_type).layout.size > 0 {
                 let to = ctx.registers.create(ctx.types, ctx.ast.get(node).type_infer_value_id, ctx.ast.get(node).type_());
                 let ref_type = Type::new(TypeKind::Reference {
-                    pointee: internal_type,
+                    pointee: ctx.types.value_to_compiler_type(internal_type),
                     permits: PtrPermits::READ_WRITE,
                 });
                 let internal_type_arg = internal_type_args[0];
@@ -832,7 +643,7 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, node: NodeId) -> Value {
         NodeKind::ResolvedGlobal(id, _) => {
             let (ptr, type_) = ctx.program.get_member_value(*id);
 
-            if let TypeKind::Function { .. } = type_.kind() {
+            if let type_infer::TypeKind::Function = ctx.types.get(ctx.ast.get(node).type_infer_value_id).kind() {
                 let function_id = unsafe { *(ptr.as_ptr() as *const FunctionId) };
                 if !ctx.calling.contains(&function_id) {
                     ctx.calling.push(function_id);
@@ -854,8 +665,8 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, node: NodeId) -> Value {
             }
 
             let typed_calling = ctx.ast.get(*typed_calling);
-            match typed_calling.type_().kind() {
-                TypeKind::Function { .. } => {
+            match ctx.types.get(typed_calling.type_infer_value_id).kind() {
+                type_infer::TypeKind::Function => {
                     ctx.emit_call(to, calling, args, typed_calling.loc);
                 }
                 _ => todo!("The emitter doesn't know how to emit this type of call"),
