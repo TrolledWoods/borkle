@@ -30,6 +30,22 @@ const put_char = fn(c: u8) {
     i_stdout_write(buf);
 };
 
+const take_until = fn(string: &rw []r u8, c: u8) -> []r u8 {
+    let new = #uninit;
+    // Why no typing error if you remove the dereference in (*string)???
+    new.ptr = (*string).ptr;
+    new.len = 0;
+
+    while 'loop (*string).len > 0 {
+        advance(string);
+
+        if *(*string).ptr == c  break 'loop;
+        new.len = new.len + 1;
+    };
+
+    new
+};
+
 const take_char = fn(string: &rw []r u8) -> u8 {
     let c = *(*string).ptr;
     advance(string);
@@ -43,12 +59,13 @@ const advance_by = fn(string: &rw []r u8, by: usize) {
 };
 
 const advance = fn(string: &rw []r u8) {
-    assert((*string).len > 0);
-    (*string).ptr = (*string).ptr + 1;
-    (*string).len = (*string).len - 1;
+    if (*string).len > 0 {
+        (*string).ptr = (*string).ptr + 1;
+        (*string).len = (*string).len - 1;
+    };
 };
 
-const empty = fn(string: &rw []r u8) -> bool   (*string).len == 0;
+const empty = fn(string: &r []r u8) -> bool   (*string).len == 0;
 
 const take_u64_with_base = fn(string: &rw []r u8, base: u64) -> u64 {
     let number = 0;
@@ -71,6 +88,21 @@ const take_u64 = fn(string: &rw []r u8) -> u64 {
     };
     number
 };
+
+const skip_num = fn(string: &rw []r u8) -> []r u8 {
+    let new = #uninit;
+    new.ptr = (*string).ptr;
+    new.len = 0;
+
+    while 'loop (*string).len > 0 {
+        advance(string);
+        if not(is_digit(*(*string).ptr))  break 'loop;
+        new.len = new.len + 1;
+    };
+
+    new
+};
+
 
 const take_word = fn(string: &rw []r u8) -> []r u8 {
     let length = 0;

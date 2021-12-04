@@ -1,0 +1,144 @@
+library "base.bo";
+library "intrinsics.bo";
+import "day4_input.bo";
+import "../main.bo";
+
+const TestAocDay4 = if DO_AOC {
+    defer ok("AOC day 4");
+    let results = aoc_day4();
+    assert(results.part_1 == 46920);
+    assert(results.part_2 == 12635);
+};
+
+const aoc_day4 = fn() -> { part_1: u64; part_2: u64; } {
+    let parse = INPUT;
+    take_whitespace(&parse);
+
+    // We defer the parsing of numbers until later, so we don't have to
+    // allocate a buffer for them
+    let numbers = take_until(&parse, *"\n".ptr);
+    take_whitespace(&parse);
+
+    // Count the number of boards
+    let boards_section = parse;
+    let num_boards = 0;
+    while not(empty(&parse)) {
+        while _iters < 25 {
+            skip_num(&parse);
+            take_whitespace(&parse);
+        };
+        num_boards = num_boards + 1;
+    };
+
+    let board_cells = #uninit : [] {
+        number: u16;
+        when_taken: u16;
+    };
+    board_cells.ptr = cast i_alloc(num_boards * 25 * 4);
+    // Oh no, this is terrible!
+    defer i_dealloc({
+        let buf = #0;
+        buf.ptr = cast board_cells.ptr;
+        buf.len = num_boards * 25 * 4;
+        buf
+    });
+    board_cells.len = num_boards * 25;
+
+    // Read the numbers into the boards
+    parse = boards_section;
+    for cell in board_cells {
+        assert(parse.len != 0);
+
+        (*cell).number = cast take_u64(&parse);
+        (*cell).when_taken = 0xffff;
+        take_whitespace(&parse);
+    };
+
+    // Go through and assign when each of the numbers was taken
+    let parse = numbers;
+    while not(empty(&parse)) {
+        let number = cast take_u64(&parse);
+        let cycle = _iters;
+        advance(&parse);
+
+        for cell in board_cells {
+            if (*cell).number == number {
+                assert((*cell).when_taken == 0xffff);
+                (*cell).when_taken = cast cycle;
+            };
+        };
+    };
+
+    // Now, go through every board
+    let best_board_i = 0;
+    let best_board_score = 0xffff;
+
+    let worst_board_i = 0;
+    let worst_board_score = 0;
+
+    while _iters < num_boards {
+        let base_i = _iters * 25;
+
+        let min = 0xffff;
+        // Horizontal bars
+        while _iters < 5 {
+            let x = _iters;
+            let line_max = 0;
+            while _iters < 5 {
+                let y = _iters;
+
+                let cell = board_cells.ptr + (base_i + y * 5 + x);
+                if (*cell).when_taken > line_max  line_max = (*cell).when_taken;
+            };
+            if line_max < min {
+                min = line_max;
+            };
+        };
+
+        // Vertical bars
+        while _iters < 5 {
+            let y = _iters;
+            let line_max = 0;
+            while _iters < 5 {
+                let x = _iters;
+
+                let cell = board_cells.ptr + (base_i + y * 5 + x);
+                if (*cell).when_taken > line_max  line_max = (*cell).when_taken;
+            };
+            if line_max < min {
+                min = line_max;
+            };
+        };
+
+        if min < best_board_score {
+            best_board_i = _iters;
+            best_board_score = min;
+        };
+
+        if min >= worst_board_score {
+            worst_board_i = _iters;
+            worst_board_score = min;
+        };
+    };
+
+    let unmarked_nums = 0;
+    let number_at_marked = 0;
+    while _iters < 25 {
+        let cell = board_cells.ptr + (best_board_i * 25 + _iters);
+        if (*cell).when_taken > best_board_score  unmarked_nums = unmarked_nums + cast (*cell).number;
+        if (*cell).when_taken == best_board_score  number_at_marked = cast (*cell).number;
+    };
+
+    let worst_unmarked_nums = 0;
+    let worst_number_at_marked = 0;
+    while _iters < 25 {
+        let cell = board_cells.ptr + (worst_board_i * 25 + _iters);
+        if (*cell).when_taken > worst_board_score  worst_unmarked_nums = worst_unmarked_nums + cast (*cell).number;
+        if (*cell).when_taken == worst_board_score  worst_number_at_marked = cast (*cell).number;
+    };
+
+    let result = #0;
+    result.part_1 = unmarked_nums * number_at_marked;
+    result.part_2 = worst_unmarked_nums * worst_number_at_marked;
+    result
+};
