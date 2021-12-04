@@ -111,7 +111,7 @@ pub struct Unknown;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TypeKind {
-    Error, 
+    Error,
     // bool, int size
     Int,
     // No arguments, the size of an integer, hidden type that the user cannot access
@@ -395,6 +395,7 @@ enum ConstraintKind {
     },
     Equal {
         values: [ValueId; 2],
+        creator: Option<ConstraintId>,
         variance: Variance,
     },
     EqualsField {
@@ -416,6 +417,7 @@ impl Constraint {
             ConstraintKind::Equal {
                 values: [a, b],
                 variance,
+                ..
             } => {
                 if a == b {
                     self.applied = true;
@@ -468,16 +470,18 @@ impl Constraint {
         }
     }
 
-    fn equal(a: ValueId, b: ValueId, variance: Variance) -> Self {
+    fn equal(a: ValueId, b: ValueId, variance: Variance, creator: Option<ConstraintId>) -> Self {
         let kind = if b >= a {
             ConstraintKind::Equal {
                 values: [a, b],
                 variance,
+                creator,
             }
         } else {
             ConstraintKind::Equal {
                 values: [b, a],
                 variance: variance.invert(),
+                creator,
             }
         };
 
@@ -502,8 +506,7 @@ impl Error {
 pub enum ErrorKind {
     NonexistantOperation,
     MixingTypesAndValues,
-    IncompatibleTypes,
-    IncompatibleValues,
+    IncompatibleTypes(ConstraintId),
     ValueAndTypesIntermixed,
     IndexOutOfBounds(usize),
     NonexistantName(Ustr),
@@ -1049,6 +1052,32 @@ impl TypeSystem {
             has_errors = true;
 
             match *error {
+                Error { a, b, kind: ErrorKind::IncompatibleTypes(creator) } => {
+                    let mut a_id = a;
+                    let mut b_id = b;
+                    let mut creator = Some(creator);
+                    while let Some(c) = creator {
+                        if let ConstraintKind::Equal { creator: c, values: [a, b], .. } = self.constraints[c].kind {
+                            creator = c;
+                            a_id = a;
+                            b_id = b;
+                        } else {
+                            break;
+                        }
+                    }
+
+                    dbg!((a_id, b_id));
+
+                    if let Some(loc) = get_loc_of_value(ast, locals, a_id) {
+                        errors.info(loc, format!("Here"));
+                    }
+
+                    if let Some(loc) = get_loc_of_value(ast, locals, b_id) {
+                        errors.info(loc, format!("Here"));
+                    }
+
+                    errors.global_error(format!("Incompatible types"));
+                },
                 _ => errors.global_error(format!("Temporary type-inference error: {:?}", error)),
             }
         }
@@ -1192,7 +1221,7 @@ impl TypeSystem {
             &mut self.constraints,
             &mut self.available_constraints,
             &mut self.queued_constraints,
-            Constraint::equal(a, b, variance),
+            Constraint::equal(a, b, variance, None),
         );
     }
 
@@ -1400,6 +1429,7 @@ impl TypeSystem {
             ConstraintKind::Equal {
                 values: [a_id, b_id],
                 variance,
+                creator: _,
             } => {
                 format!(
                     "{}({}) {} {}({})",
@@ -1744,7 +1774,7 @@ impl TypeSystem {
                                 &mut self.constraints,
                                 &mut self.available_constraints,
                                 &mut self.queued_constraints,
-                                Constraint::equal(field, b_id, variance),
+                                Constraint::equal(field, b_id, variance, Some(constraint_id)),
                             );
                         } else {
                             self.errors.push(Error::new(
@@ -1760,6 +1790,7 @@ impl TypeSystem {
             ConstraintKind::Equal {
                 values: [a_id, b_id],
                 variance: _,
+                creator: _,
             } => {
                 let Some((a_value, b_value)) = self.values.get_disjoint_mut(a_id, b_id) else {
                     return;
@@ -1773,11 +1804,8 @@ impl TypeSystem {
                     (Some(_), None) => (a_id, b_id),
                     (Some(a_type), Some(b_type)) => {
                         if a_type.kind != b_type.kind {
-                            a_value.value_sets.make_erroneous(&mut self.value_sets);
-                            *a_value.kind = Some(Type { kind: TypeKind::Error, args: Some(Box::new([])) });
-
-                            b_value.value_sets.make_erroneous(&mut self.value_sets);
-                            *b_value.kind = Some(Type { kind: TypeKind::Error, args: Some(Box::new([])) });
+                            self.errors.push(Error { a: a_id, b: b_id, kind: ErrorKind::IncompatibleTypes(constraint_id) });
+                            self.constraints[constraint_id].applied = true;
 
                             (a_id, b_id)
                         } else {
@@ -1787,18 +1815,15 @@ impl TypeSystem {
                                 (Some(_), None) => (a_id, b_id),
                                 (Some(a_args), Some(b_args)) => {
                                     if a_args.len() != b_args.len() {
-                                        a_value.value_sets.make_erroneous(&mut self.value_sets);
-                                        *a_value.kind = Some(Type { kind: TypeKind::Error, args: Some(Box::new([])) });
-
-                                        b_value.value_sets.make_erroneous(&mut self.value_sets);
-                                        *b_value.kind = Some(Type { kind: TypeKind::Error, args: Some(Box::new([])) });
+                                        self.errors.push(Error { a: a_id, b: b_id, kind: ErrorKind::IncompatibleTypes(constraint_id) });
+                                        self.constraints[constraint_id].applied = true;
                                     } else {
                                         for (a_arg, b_arg) in a_args.iter().zip(b_args.iter()) {
                                             insert_active_constraint(
                                                 &mut self.constraints,
                                                 &mut self.available_constraints,
                                                 &mut self.queued_constraints,
-                                                Constraint::equal(*a_arg, *b_arg, Variance::Variant),
+                                                Constraint::equal(*a_arg, *b_arg, Variance::Variant, Some(constraint_id)),
                                             );
                                         }
                                     }

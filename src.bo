@@ -1,6 +1,7 @@
 import "tests/main.bo";
 
-// global type, since we know what the type is
 #entry fn() -> u64 {
+    let a = #0 : u32 : u64;
+    a : u64;
     #0
 };
