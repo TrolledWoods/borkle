@@ -14,12 +14,36 @@ const aoc_day4 = fn() -> { part_1: u64; part_2: u64; } {
     let parse = INPUT;
     take_whitespace(&parse);
 
-    // We defer the parsing of numbers until later, so we don't have to
-    // allocate a buffer for them
-    let numbers = take_until(&parse, *"\n".ptr);
+    // Count the number of numbers
+    let max_number = 0;
+    while not(empty(&parse)) {
+        let number = cast take_u64(&parse);
+        if take_char(&parse) == NEW_LINE  break;
+        if number > max_number  max_number = number;
+    };
+
+    // Allocate a list, and fill it like a map from bingo number to when it is drawn.
+    let number_map = #uninit : [] u16;
+    number_map.ptr = cast i_alloc(cast max_number * 2);
+    number_map.len = max_number;
+    // Oh no, this is terrible!
+    defer i_dealloc({
+        let buf = #0;
+        buf.ptr = cast number_map.ptr;
+        buf.len = cast max_number * 2;
+        buf
+    });
+
+    parse = INPUT;
     take_whitespace(&parse);
+    while not(empty(&parse)) {
+        let number = cast take_u64(&parse);
+        if take_char(&parse) == NEW_LINE  break;
+        *(number_map.ptr + number) = cast _iters;
+    };
 
     // Count the number of boards
+    take_whitespace(&parse);
     let boards_section = parse;
     let num_boards = 0;
     while not(empty(&parse)) {
@@ -49,24 +73,10 @@ const aoc_day4 = fn() -> { part_1: u64; part_2: u64; } {
     for cell in board_cells {
         assert(parse.len != 0);
 
-        (*cell).number = cast take_u64(&parse);
-        (*cell).when_taken = 0xffff;
-        take_whitespace(&parse);
-    };
-
-    // Go through and assign when each of the numbers was taken
-    let parse = numbers;
-    while not(empty(&parse)) {
         let number = cast take_u64(&parse);
-        let cycle = _iters;
-        advance(&parse);
-
-        for cell in board_cells {
-            if (*cell).number == number {
-                assert((*cell).when_taken == 0xffff);
-                (*cell).when_taken = cast cycle;
-            };
-        };
+        (*cell).number = number;
+        (*cell).when_taken = *(number_map.ptr + cast number);
+        take_whitespace(&parse);
     };
 
     // Now, go through every board
