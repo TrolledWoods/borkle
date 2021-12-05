@@ -111,7 +111,6 @@ pub struct Unknown;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TypeKind {
-    Error,
     // bool, int size
     Int,
     // No arguments, the size of an integer, hidden type that the user cannot access
@@ -143,7 +142,7 @@ pub enum TypeKind {
 impl TypeKind {
     fn get_needed_children_for_layout<'a>(&self, children: &'a [ValueId]) -> &'a [ValueId] {
         match self {
-            TypeKind::Error | TypeKind::IntSize | TypeKind::Bool | TypeKind::Empty | TypeKind::Function | TypeKind::Reference | TypeKind::Buffer | TypeKind::ConstantValue(_) => &[],
+            TypeKind::IntSize | TypeKind::Bool | TypeKind::Empty | TypeKind::Function | TypeKind::Reference | TypeKind::Buffer | TypeKind::ConstantValue(_) => &[],
             TypeKind::Int => &children[1..2],
             TypeKind::Array => children,
             TypeKind::Struct(_) => children,
@@ -157,7 +156,6 @@ impl TypeKind {
 
 fn compute_type_layout(kind: &TypeKind, values: &Values, children: &[ValueId]) -> Layout {
     match kind {
-        TypeKind::Error => Layout { size: 0, align: 1 },
         TypeKind::Int => {
             let size = extract_constant_from_value(values, children[1]).unwrap();
             // @Correctness: We want to make sure that the type actually is a u8 here
@@ -615,7 +613,6 @@ fn type_kind_to_str(
 ) -> std::fmt::Result {
     use std::fmt::Write;
     match type_kind {
-        TypeKind::Error => write!(string, "error!"),
         TypeKind::Constant => write!(string, "constant"),
         TypeKind::ConstantValue(_) => write!(string, "<constant value>"),
         TypeKind::Int => write!(string, "int"),
@@ -1036,16 +1033,6 @@ impl TypeSystem {
         let mut has_errors = false;
         if self.value_sets.iter().any(|v| v.has_errors) {
             has_errors = true;
-
-            for node_id in 0..self.values.values.len() as _ {
-                if matches!(self.values.get(node_id).kind, Some(Type { kind: TypeKind::Error, .. })) {
-                    if let Some(loc) = get_loc_of_value(ast, locals, node_id) {
-                        errors.error(loc, "Typing error!".to_string());
-                    } else {
-                        errors.global_error("Typing error!".to_string());
-                    }
-                }
-            }
         }
 
         for error in &self.errors {
@@ -1095,7 +1082,6 @@ impl TypeSystem {
         };
 
         match *type_kind {
-            TypeKind::Error => unreachable!("Error value cannot be turned into a compiler type"),
             TypeKind::Constant | TypeKind::ConstantValue(_) => unreachable!("Constants aren't concrete types, cannot use them as node types"),
             TypeKind::IntSize => unreachable!("Int sizes are a hidden type for now, the user shouldn't be able to access them"),
             TypeKind::Int => {
@@ -1320,9 +1306,6 @@ impl TypeSystem {
                     num => format!("<invalid bool value {}>", num),
                 }
             }
-            Some(Type { kind: TypeKind::Error, .. }) => {
-                format!("error!")
-            }
             _ => {
                 format!("(cannot format {})", self.value_to_str(type_, rec))
             }
@@ -1334,7 +1317,6 @@ impl TypeSystem {
             return "...".to_string();
         }
         match &self.values.get(value).kind {
-            Some(Type { kind: TypeKind::Error, .. }) => format!("ERR"),
             Some(Type { kind: TypeKind::Bool, .. }) => "bool".to_string(),
             Some(Type { kind: TypeKind::Empty, .. }) => "Empty".to_string(),
             Some(Type { kind: TypeKind::IntSize, .. }) => "<size of int>".to_string(),
@@ -1640,11 +1622,6 @@ impl TypeSystem {
                 let a = get_value(&self.values, a_id);
 
                 match &a.kind {
-                    Some(Type { kind: TypeKind::Error, .. }) => {
-                        // TODO: Deal with this case somehow. I think that a good method would be just
-                        // to flag the child member as being dependant on an error, e.g. if we knew what this
-                        // type was it might be set, so just don't report incompleteness-errors on that value.
-                    }
                     None => {}
                     Some(Type { kind: TypeKind::Buffer, args, .. }) => {
                         match &*field_name {
@@ -1763,8 +1740,6 @@ impl TypeSystem {
                 let a = &get_value(&self.values, a_id).kind;
 
                 match a {
-                    Some(Type { kind: TypeKind::Error, .. }) => {
-                    }
                     None | Some(Type { args: None, .. }) => {}
                     Some(Type { args: Some(fields), .. }) => {
                         if let Some(&field) = fields.get(field_index) {
