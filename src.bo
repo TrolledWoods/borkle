@@ -1,6 +1,15 @@
 library "base.bo";
 import "tests/main.bo";
+import "tests/aoc/day5.bo";
 
 #entry fn() -> u64 {
-    #0
+    let a_result = aoc_day5(false);
+    let b_result = aoc_day5(true);
+    
+    print_u64(a_result);
+    print(" ");
+    print_u64(b_result);
+    print("\n");
+
+    0
 };
