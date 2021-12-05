@@ -1,7 +1,6 @@
+library "base.bo";
 import "tests/main.bo";
 
 #entry fn() -> u64 {
-    let a = #0 : u32 : u64;
-    a : u64;
     #0
 };

@@ -1066,8 +1066,6 @@ impl TypeSystem {
                         }
                     }
 
-                    dbg!((a_id, b_id));
-
                     if let Some(loc) = get_loc_of_value(ast, locals, a_id) {
                         errors.info(loc, format!("Here"));
                     }
@@ -1591,7 +1589,7 @@ impl TypeSystem {
 
                 match (op, (a.as_ref().map(|v| &v.kind), b.as_ref().map(|v| &v.kind), result.as_ref().map(|v| &v.kind))) {
                     (
-                        BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mult | BinaryOp::Div | BinaryOp::BitAnd | BinaryOp::BitOr,
+                        BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mult | BinaryOp::Div | BinaryOp::BitAnd | BinaryOp::BitOr | BinaryOp::ShiftLeft | BinaryOp::ShiftRight | BinaryOp::Modulo,
                         (Some(TypeKind::Int), Some(TypeKind::Int), _),
                     ) => {
                         self.set_equal(a_id, b_id, Variance::Invariant);

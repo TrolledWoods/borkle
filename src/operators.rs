@@ -105,6 +105,9 @@ operator!(BinaryOp {
     Or  = ("||", 6),
     Range = ("..", 48539),
 
+    ShiftLeft = ("<<", 99),
+    ShiftRight = (">>", 99),
+
     Equals = ("==", 8),
     NotEquals = ("!=", 8),
     LargerThanEquals = (">=", 8),
@@ -116,6 +119,7 @@ operator!(BinaryOp {
     Sub = ("-", 100),
     Mult = ("*", 101),
     Div = ("/", 101),
+    Modulo = ("%", 101),
     BitAnd = ("&", 7),
     BitOr = ("|", 7),
 
@@ -140,6 +144,12 @@ impl BinaryOp {
                 *output.cast() = *a.cast::<usize>() - *b.cast::<usize>() * pointee.size();
             }
 
+            (BinaryOp::ShiftLeft, TypeKind::Int(i1), TypeKind::Int(i2)) if i1 == i2 => {
+                all_int_types!(i1, output, (a, b), <<)
+            }
+            (BinaryOp::ShiftRight, TypeKind::Int(i1), TypeKind::Int(i2)) if i1 == i2 => {
+                all_int_types!(i1, output, (a, b), >>)
+            }
             (BinaryOp::Add, TypeKind::Int(i1), TypeKind::Int(i2)) if i1 == i2 => {
                 all_int_types!(i1, output, (a, b), +)
             }
@@ -169,7 +179,9 @@ impl BinaryOp {
             (BinaryOp::Mult, TypeKind::F64, TypeKind::F64) => {
                 *output.cast() = *a.cast::<f64>() * *b.cast::<f64>();
             }
-
+            (BinaryOp::Modulo, TypeKind::Int(i1), TypeKind::Int(i2)) if i1 == i2 => {
+                all_int_types!(i1, output, (a, b), %)
+            }
             (BinaryOp::Div, TypeKind::Int(i1), TypeKind::Int(i2)) if i1 == i2 => {
                 all_int_types!(i1, output, (a, b), /)
             }

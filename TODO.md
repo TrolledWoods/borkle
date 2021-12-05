@@ -12,3 +12,4 @@
 * The _iters variable in loops could be any integer type.
 * Investigate keeping the structure lookup thing sorted for cache friendliness
 * We need to make sure that when doing pointer arithmetic with a pointer, the size of the pointee is computed.
+* Arrays are busted

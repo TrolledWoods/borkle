@@ -43,6 +43,7 @@ pub fn begin() {
 /// # Panics
 /// * If `begin` hasn't been called.
 pub fn finish(filename: impl AsRef<Path>) {
+    #[cfg(feature = "profiling")]
     {
         // Write the profile to disk(this will happen even if the program crashes right now, but we could check is_panicking later)
         let global_data = GLOBAL_DATA

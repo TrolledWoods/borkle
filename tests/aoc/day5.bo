@@ -1,0 +1,102 @@
+library "intrinsics.bo";
+library "base.bo";
+import "day5_input.bo";
+import "../main.bo";
+
+const AocDay5Test = if DO_AOC {
+    ok("AOC day 5");
+    assert(aoc_day5(false) == 5608);
+    assert(aoc_day5(true) == 20299);
+};
+
+const aoc_day5 = fn(include_diagonals: bool) -> u64 {
+    let parse = INPUT;
+
+    // Get the bounds on the list
+    let maxx = 0;
+    let maxy = 0;
+    take_whitespace(&parse);
+    while not(empty(&parse)) { 'continue
+        let x1 = take_u64(&parse);
+        advance(&parse);
+        let y1 = take_u64(&parse);
+        advance_by(&parse, 4);
+        let x2 = take_u64(&parse);
+        advance_by(&parse, 1);
+        let y2 = take_u64(&parse);
+        take_whitespace(&parse);
+
+        if not(x1 == x2 || y1 == y2)  break 'continue;
+
+        if x1 > maxx  maxx = x1;
+        if x2 > maxx  maxx = x2;
+        if y1 > maxy  maxy = y1;
+        if y2 > maxy  maxy = y2;
+    };
+
+    // Allocate a list
+    let width = maxx + 1;
+    let height = maxy + 1;
+    // We need two bits per cell, on a 64 bit int, so 32 values per cell.
+    let width_cells = (width / 32) + 1;
+
+    let cells = #0 : [] u64;
+    cells.ptr = cast i_alloc(cast (width_cells * height * 8));
+    cells.len = cast (width_cells * height);
+    defer i_dealloc({
+        let b = #0;
+        b.ptr = cast cells.ptr;
+        b.len = cells.len * 8;
+        b
+    });
+
+    // Set all of it to zero
+    for cells { *_it = 0; };
+
+    let parse = INPUT;
+    take_whitespace(&parse);
+    let overlapping = 0;
+    while not(empty(&parse)) { 'continue
+        let x1 = take_u64(&parse);
+        advance(&parse);
+        let y1 = take_u64(&parse);
+        advance_by(&parse, 4);
+        let x2 = take_u64(&parse);
+        advance(&parse);
+        let y2 = take_u64(&parse);
+        take_whitespace(&parse);
+
+        if x1 != x2 && y1 != y2 && not(include_diagonals)  break 'continue;
+
+        let x_cell = x1 / 32;
+        let bit = (x1 % 32) * 2;
+        let count = if x1 < x2  x2 - x1 else x1 - x2;
+        if count == 0  count = if y1 < y2  y2 - y1 else y1 - y2;
+
+        let cell_id = y1 * width_cells + x_cell;
+
+        while _iters <= cast count {
+            let cell = (cells.ptr + cast cell_id);
+            let bits = (*cell >> bit) & 2b11;
+            if bits == 1  overlapping = overlapping + 1;
+            bits = (bits + 1) & 2b11;
+            *cell = *cell | (bits << bit);
+
+            if x1 < x2 {
+                bit = bit + 2;
+                if bit >= 64 { bit = 0; cell_id = cell_id + 1; };
+            } else if x1 > x2 {
+                if bit < 2 { bit = 64; cell_id = cell_id - 1; };
+                bit = bit - 2;
+            };
+
+            if y1 < y2 {
+                cell_id = cell_id + width_cells;
+            } else if y1 > y2 {
+                cell_id = cell_id - width_cells;
+            };
+        };
+    };
+
+    overlapping
+};

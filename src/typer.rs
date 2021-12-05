@@ -912,7 +912,6 @@ fn build_lvalue(
                 .set_equal(local_type_id, node_type_id, Variance::Invariant);
 
             if local.stack_frame_id != set {
-                dbg!(local.stack_frame_id);
                 ctx.errors.error(node_loc, "Variable is defined in a different execution context, you cannot access it here, other than for its type".to_string());
                 ctx.infer.value_sets.get_mut(set).has_errors = true;
             }
