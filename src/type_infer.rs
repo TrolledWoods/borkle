@@ -1238,14 +1238,14 @@ impl TypeSystem {
         // self.print_state();
 
         while let Some(available_id) = self.queued_constraints.pop() {
-            // println!("Applied constraint: {}", self.constraint_to_string(&self.constraints[available_id]));
+            println!("Applied constraint: {}", self.constraint_to_string(&self.constraints[available_id]));
 
-            self.apply_constraint(available_id);
+            // self.apply_constraint(available_id);
 
             // self.print_state();
         }
 
-        // self.print_state();
+        self.print_state();
         while let Some(computable_size) = self.computable_value_sizes.pop() {
             self.values.compute_size(&mut self.computable_value_sizes, computable_size);
         }
@@ -1779,8 +1779,7 @@ impl TypeSystem {
                         if a_type.kind != b_type.kind {
                             self.errors.push(Error { a: a_id, b: b_id, kind: ErrorKind::IncompatibleTypes(constraint_id) });
                             self.constraints[constraint_id].applied = true;
-
-                            (a_id, b_id)
+                            return;
                         } else {
                             match (&a_type.args, &b_type.args) {
                                 (None, None) => (a_id, b_id),
@@ -1790,6 +1789,7 @@ impl TypeSystem {
                                     if a_args.len() != b_args.len() {
                                         self.errors.push(Error { a: a_id, b: b_id, kind: ErrorKind::IncompatibleTypes(constraint_id) });
                                         self.constraints[constraint_id].applied = true;
+                                        return;
                                     } else {
                                         for (a_arg, b_arg) in a_args.iter().zip(b_args.iter()) {
                                             insert_active_constraint(
@@ -1854,7 +1854,7 @@ impl TypeSystem {
         )
     }
 
-    pub fn add_compiler_type(&mut self, type_: types::Type, set: ValueSetId) -> ValueId {
+    pub fn set_compiler_type(&mut self, id: ValueId, type_: types::Type, set: ValueSetId) -> ValueId {
         match *type_.kind() {
             types::TypeKind::Function { ref args, returns } => {
                 let mut new_args = Vec::with_capacity(args.len() + 1);
@@ -1866,29 +1866,28 @@ impl TypeSystem {
                     new_args.push(self.add_compiler_type(arg, set));
                 }
 
-                self.add_type(TypeKind::Function, &new_args[..], set)
+                self.set_type(id, TypeKind::Function, &new_args[..], set)
             }
             types::TypeKind::Int(int_type_kind) => {
-                let v = self.add_unknown_type();
-                self.set_int(v, int_type_kind, set);
-                v
+                self.set_int(id, int_type_kind, set);
+                id
             }
-            types::TypeKind::Empty => self.add_type(TypeKind::Empty, [], set),
-            types::TypeKind::Bool  => self.add_type(TypeKind::Bool, [], set),
+            types::TypeKind::Empty => self.set_type(id, TypeKind::Empty, [], set),
+            types::TypeKind::Bool  => self.set_type(id, TypeKind::Bool, [], set),
             types::TypeKind::Buffer { pointee, permits: _ } => {
                 // @Cleanup: This is ugly!
                 // @Correctness: We want to reintroduce these once the rework is complete
                 // let permits = self.add_access(Some(Access::disallows(!permits.read(), !permits.write())), set);
                 let pointee = self.add_compiler_type(pointee, set);
 
-                self.add_type(TypeKind::Buffer, [pointee], set)
+                self.set_type(id, TypeKind::Buffer, [pointee], set)
             }
             types::TypeKind::Reference { pointee, permits: _ } => {
                 // @Correctness: We want to reintroduce permits once the rework is complete
                 // let permits = self.add_access(Some(Access::disallows(!permits.read(), !permits.write())), set);
                 let pointee = self.add_compiler_type(pointee, set);
 
-                self.add_type(TypeKind::Reference, [pointee], set)
+                self.set_type(id, TypeKind::Reference, [pointee], set)
             }
             types::TypeKind::Array(_type_, _length) => {
                 todo!("We need a function for turning a compiler type into an actionable type that also takes the program");
@@ -1900,10 +1899,15 @@ impl TypeSystem {
                     // @TODO: We should append the sub-expression used to the reason as well.
                     .map(|&(_, v)| self.add_compiler_type(v, set))
                     .collect();
-                self.add_type(TypeKind::Struct(field_names), field_types, set)
+                self.set_type(id, TypeKind::Struct(field_names), field_types, set)
             }
             _ => todo!("This compiler type is not done yet"),
         }
+    }
+
+    pub fn add_compiler_type(&mut self, type_: types::Type, set: ValueSetId) -> ValueId {
+        let id = self.add_unknown_type();
+        self.set_compiler_type(id, type_, set)
     }
 
     #[track_caller]

@@ -1,15 +1,10 @@
-library "base.bo";
-import "tests/main.bo";
-import "tests/aoc/day5.bo";
+// library "base.bo";
+// import "tests/main.bo";
 
-#entry fn() -> u64 {
-    let a_result = aoc_day5(false);
-    let b_result = aoc_day5(true);
-    
-    print_u64(a_result);
-    print(" ");
-    print_u64(b_result);
-    print("\n");
+#entry fn() -> u64 { 'func
+    // The problem is that the constraints are deduplicated, wrongly
+    let a = 0 : u32 : u64;
+    let b = 0 : u64 : u8;
 
-    0
+    99
 };

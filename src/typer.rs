@@ -825,8 +825,8 @@ fn build_constraints(
                 .set_equal(value_type_id, node_type_id, Variance::Variant);
         }
         NodeKind::LiteralType(type_) => {
-            let compiler_type = ctx.infer.add_compiler_type(type_, set);
-            ctx.infer.set_equal(node_type_id, compiler_type, Variance::Invariant);
+            ctx.infer.set_compiler_type(node_type_id, type_, set);
+            // ctx.infer.set_equal(node_type_id, compiler_type, Variance::Invariant);
         }
         NodeKind::FunctionType { ref args, returns } => {
             // @Speed: Somewhat needless allocation
