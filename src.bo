@@ -1,7 +1,7 @@
 library "base.bo";
 import "tests/main.bo";
 
-const Thing[A] = 44 : _;
+const Thing[A] = A;
 
 #entry fn() -> u64 { 'func
     99

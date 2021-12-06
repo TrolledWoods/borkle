@@ -119,6 +119,8 @@ pub enum TypeKind {
     Bool,
     Empty,
 
+    Polymorph(usize),
+
     // return, (arg0, arg1, arg2, ...)
     Function,
     // element: type, length: int
@@ -142,6 +144,7 @@ pub enum TypeKind {
 impl TypeKind {
     fn get_needed_children_for_layout<'a>(&self, children: &'a [ValueId]) -> &'a [ValueId] {
         match self {
+            TypeKind::Polymorph(_) => unreachable!("We should never get here with a polymorph type, it should never have children defined"),
             TypeKind::IntSize | TypeKind::Bool | TypeKind::Empty | TypeKind::Function | TypeKind::Reference | TypeKind::Buffer | TypeKind::ConstantValue(_) => &[],
             TypeKind::Int => &children[1..2],
             TypeKind::Array => children,
@@ -156,6 +159,7 @@ impl TypeKind {
 
 fn compute_type_layout(kind: &TypeKind, values: &Values, children: &[ValueId]) -> Layout {
     match kind {
+        TypeKind::Polymorph(_) => unreachable!("We should never reach the point of computing the layout of a polymorph"),
         TypeKind::Int => {
             let size = extract_constant_from_value(values, children[1]).unwrap();
             // @Correctness: We want to make sure that the type actually is a u8 here
@@ -613,6 +617,7 @@ fn type_kind_to_str(
 ) -> std::fmt::Result {
     use std::fmt::Write;
     match type_kind {
+        TypeKind::Polymorph(index) => write!(string, "poly({})", index),
         TypeKind::Constant => write!(string, "constant"),
         TypeKind::ConstantValue(_) => write!(string, "<constant value>"),
         TypeKind::Int => write!(string, "int"),
@@ -1082,6 +1087,7 @@ impl TypeSystem {
         };
 
         match *type_kind {
+            TypeKind::Polymorph(_) => unreachable!("Cannot convert a polymorph to a compiler type, since it's never a complete type"),
             TypeKind::Constant | TypeKind::ConstantValue(_) => unreachable!("Constants aren't concrete types, cannot use them as node types"),
             TypeKind::IntSize => unreachable!("Int sizes are a hidden type for now, the user shouldn't be able to access them"),
             TypeKind::Int => {
@@ -1317,6 +1323,7 @@ impl TypeSystem {
             return "...".to_string();
         }
         match &self.values.get(value).kind {
+            Some(Type { kind: TypeKind::Polymorph(index), .. }) => format!("poly({})", index),
             Some(Type { kind: TypeKind::Bool, .. }) => "bool".to_string(),
             Some(Type { kind: TypeKind::Empty, .. }) => "Empty".to_string(),
             Some(Type { kind: TypeKind::IntSize, .. }) => "<size of int>".to_string(),

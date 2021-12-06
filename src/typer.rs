@@ -362,6 +362,9 @@ fn build_constraints(
 
     match node.kind {
         NodeKind::Uninit | NodeKind::Zeroed | NodeKind::ImplicitType => {}
+        NodeKind::PolymorphicArgument(index) => {
+            ctx.infer.set_type(node_type_id, TypeKind::Polymorph(index), (), set);
+        }
         NodeKind::Cast { value } => {
             let result_value = build_constraints(ctx, value, set);
             ctx.infer.set_cast(node_type_id, result_value);
