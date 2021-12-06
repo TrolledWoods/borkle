@@ -204,24 +204,23 @@ pub fn finish<'a>(
 
 fn subset_was_completed(ctx: &mut Context<'_, '_>, waiting_on: WaitingOnTypeInferrence, set: ValueSetId) {
     match waiting_on {
-        WaitingOnTypeInferrence::ArrayTypeInTyping { len, length_value } => {
-            let len_loc = ctx.ast.get(len).loc;
+        WaitingOnTypeInferrence::ValueIdFromConstantComputation { computation, value_id } => {
+            let len_loc = ctx.ast.get(computation).loc;
             match crate::interp::emit_and_run(
                 ctx.thread_context,
                 ctx.program,
                 ctx.locals,
                 ctx.infer,
                 ctx.ast,
-                len,
+                computation,
                 set,
                 &mut vec![len_loc],
             ) {
                 Ok(constant_ref) => {
-                    // @Hack: We get the usize from the variable so we don't have to add a reason for it
-                    let usize = ctx.ast.get(len).type_infer_value_id;
-                    let variable_count = ctx.infer.add_value(usize, constant_ref, set);
+                    let type_id = ctx.ast.get(computation).type_infer_value_id;
+                    let finished_value = ctx.infer.add_value(type_id, constant_ref, set);
                     
-                    ctx.infer.set_equal(variable_count, length_value, Variance::Invariant);
+                    ctx.infer.set_equal(finished_value, value_id, Variance::Invariant);
                 }
                 Err(call_stack) => {
                     for &caller in call_stack.iter().rev().skip(1) {
@@ -400,26 +399,14 @@ fn build_constraints(
                     }
 
                     let params = poly_params.clone();
-
-                    let mut sub_ctx = Context {
-                        thread_context: ctx.thread_context,
-                        errors: ctx.errors,
-                        program: ctx.program,
-                        locals: ctx.locals,
-                        emit_deps: ctx.emit_deps,
-                        poly_param_usages: ctx.poly_param_usages,
-                        ast: ctx.ast,
-                        infer: ctx.infer,
-                        runs: ctx.runs.combine(ExecutionTime::Typing),
-                    };
-                    let sub_set = sub_ctx.infer.value_sets.add(WaitingOnTypeInferrence::None);
-
+                    let sub_set = ctx.infer.value_sets.add(WaitingOnTypeInferrence::None);
+                    let mut param_values = Vec::with_capacity(params.len());
                     for &param in &params {
-                        build_constraints(&mut sub_ctx, param, sub_set);
+                        let (_, param_value_id) = build_inferrable_constant_value(ctx, param, sub_set);
+                        param_values.push(param_value_id);
                     }
 
-                    // ctx.ast.get_mut(node_id).kind = NodeKind::GlobalWithResolvingPolymorph(id, params);
-                    todo!("Not done!");
+                    todo!();
                 }
                 PolyOrMember::Member(id) => {
                     if !poly_params.is_empty() {
@@ -659,36 +646,12 @@ fn build_constraints(
                 .set_equal(operand_type_id, temp, Variance::Invariant);
         }
         NodeKind::ArrayType { len, members } => {
-            let mut sub_ctx = Context {
-                thread_context: ctx.thread_context,
-                errors: ctx.errors,
-                program: ctx.program,
-                locals: ctx.locals,
-                emit_deps: ctx.emit_deps,
-                poly_param_usages: ctx.poly_param_usages,
-                ast: ctx.ast,
-                infer: ctx.infer,
-                runs: ctx.runs.combine(ExecutionTime::Typing),
-            };
-            let sub_set = sub_ctx.infer.value_sets.add(WaitingOnTypeInferrence::None);
-
-            let len_type_id = build_constraints(&mut sub_ctx, len, sub_set);
-            let member_type_id = build_constraints(ctx, members, set);
-
+            let (length_type, length_value) = build_inferrable_constant_value(ctx, len, set);
             let usize_type = ctx.infer.add_int(IntTypeKind::Usize, set);
+            ctx.infer.set_equal(usize_type, length_type, Variance::Invariant);
 
-            ctx.infer.set_equal(usize_type, len_type_id, Variance::Invariant);
-
-            let length_value = ctx.infer.add_value(usize_type, (), set);
-
-            let array_type = ctx.infer.add_type(TypeKind::Array, [member_type_id, length_value], set);
-            
-            ctx.infer.set_waiting_on_value_set(sub_set, WaitingOnTypeInferrence::ArrayTypeInTyping {
-                len,
-                length_value,
-            });
-
-            ctx.infer.set_equal(node_type_id, array_type, Variance::Invariant);
+            let member_type_id = build_constraints(ctx, members, set);
+            ctx.infer.set_type(node_type_id, TypeKind::Array, [member_type_id, length_value], set);
         }
         NodeKind::FunctionDeclaration {
             ref args,
@@ -1034,29 +997,55 @@ fn build_lvalue(
     node_type_id
 }
 
+// The first return is the type of the constant, the second return is the value id of that constant, where the constant will later be stored.
 fn build_inferrable_constant_value(
     ctx: &mut Context<'_, '_>,
     node_id: NodeId,
-    // Where the constant value will be put.
-    _value_id: TypeId,
     set: ValueSetId,
-) -> type_infer::ValueId {
+) -> (type_infer::ValueId, type_infer::ValueId) {
     let node = ctx.ast.get(node_id);
     let _node_loc = node.loc;
     let node_type_id = node.type_infer_value_id;
 
-    // match node.kind {
-    //     _ => {
-    //         todo!();
-    //     }
-    // }
+    let value_id = match node.kind {
+        _ => {
+            // We can't figure it out in a clever way, so just compile time execute the node as a constant.
+            let mut sub_ctx = Context {
+                thread_context: ctx.thread_context,
+                errors: ctx.errors,
+                program: ctx.program,
+                locals: ctx.locals,
+                emit_deps: ctx.emit_deps,
+                poly_param_usages: ctx.poly_param_usages,
+                ast: ctx.ast,
+                infer: ctx.infer,
+                runs: ctx.runs.combine(ExecutionTime::Typing),
+            };
+            let sub_set = sub_ctx.infer.value_sets.add(WaitingOnTypeInferrence::None);
+
+            let constant_type_id = build_constraints(&mut sub_ctx, node_id, sub_set);
+            let value_id = ctx.infer.add_value(constant_type_id, (), set);
+            ctx.infer.set_equal(node_type_id, constant_type_id, Variance::Invariant);
+
+            ctx.infer.set_waiting_on_value_set(sub_set, WaitingOnTypeInferrence::ValueIdFromConstantComputation {
+                computation: node_id,
+                value_id,
+            });
+
+            // Because the set of the node is already set by build_constraints, we early return type
+            // @HACK because rust lints are BS
+            if (|| true)() {
+                return (node_type_id, value_id);
+            }
+
+            value_id
+        }
+    };
 
     ctx.infer.set_value_set(node_type_id, set);
     ctx.infer.value_sets.add_node_to_set(set, node_id);
 
-    todo!("Not done!");
-
-    node_type_id
+    (node_type_id, value_id)
 }
 
 #[derive(Clone)]
@@ -1079,9 +1068,9 @@ pub enum WaitingOnTypeInferrence {
         type_: TypeId,
         parent_set: ValueSetId,
     },
-    ArrayTypeInTyping {
-        len: NodeId,
-        length_value: TypeId,
+    ValueIdFromConstantComputation {
+        computation: NodeId,
+        value_id: type_infer::ValueId,
     },
     None,
 }

@@ -1,9 +1,10 @@
 library "base.bo";
 import "tests/main.bo";
 
-const Thing[A] = A;
+const infer_equal[A] = A;
 
 #entry fn() -> u64 { 'func
     // Thing[42 : u8];
+
     4
 };
