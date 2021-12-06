@@ -1,10 +1,11 @@
 library "base.bo";
 import "tests/main.bo";
 
-const Test[A] = A;
+const ConstIdentity[A, B] = A + B;
 
 #entry fn() -> u64 { 'func
-    Test[42 : u8];
+    print_u64(cast ConstIdentity[4 : u8, 6 : u8]);
+    print("!!!\n");
 
     4
 };

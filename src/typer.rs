@@ -16,12 +16,21 @@ pub struct YieldData {
     locals: LocalVariables,
     ast: Ast,
     infer: TypeSystem,
-    poly_param_usages: Vec<(usize, TypeId)>,
+    poly_param_usages: Vec<(usize, TypeId, NodeId, ValueSetId)>,
 }
 
 impl YieldData {
-    pub fn insert_poly_params(&mut self, _poly_args: &[(crate::types::Type, ConstantRef)]) {
-        todo!() 
+    pub fn insert_poly_params(&mut self, poly_args: &[(crate::types::Type, ConstantRef)]) {
+        // @HACK: For now, we just use the value set 0
+        let set = 0;
+        let type_values: Vec<_> = poly_args.iter().map(|&(v, _)| self.infer.add_compiler_type(v, set)).collect();
+
+        for (arg_id, value_id, node_id, set_id) in self.poly_param_usages.drain(..) {
+            self.infer.set_polymorph_value(value_id, type_values[arg_id]);
+
+            self.ast.get_mut(node_id).kind = NodeKind::Constant(poly_args[arg_id].1, None);
+            self.infer.value_sets.unlock(set_id);
+        }
     }
 }
 
@@ -34,7 +43,7 @@ struct Context<'a, 'b> {
     emit_deps: &'a mut DependencyList,
     ast: &'a mut Ast,
     infer: &'a mut TypeSystem,
-    poly_param_usages: &'a mut Vec<(usize, TypeId)>,
+    poly_param_usages: &'a mut Vec<(usize, TypeId, NodeId, ValueSetId)>,
     runs: ExecutionTime,
 }
 
@@ -388,7 +397,9 @@ fn build_constraints(
     match node.kind {
         NodeKind::Uninit | NodeKind::Zeroed | NodeKind::ImplicitType => {}
         NodeKind::PolymorphicArgument(index) => {
+            ctx.infer.value_sets.lock(set);
             ctx.infer.set_type(node_type_id, TypeKind::Polymorph(index), (), set);
+            ctx.poly_param_usages.push((index, node_type_id, node_id, set));
         }
         NodeKind::Cast { value } => {
             let result_value = build_constraints(ctx, value, set);

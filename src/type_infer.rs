@@ -1016,6 +1016,15 @@ impl TypeSystem {
         value_set.waiting_on_completion = waiting_on;
     }
 
+    pub fn set_polymorph_value(&mut self, id: ValueId, new_value_id: ValueId) {
+        let value = get_value_mut(&mut self.values, id);
+        debug_assert_eq!(value.layout.align, 0, "Cannot have figured out the layout of a polymorphic value");
+        // This is probably not entirely correct
+        debug_assert!(matches!(value.kind, Some(Type { kind: TypeKind::Polymorph(_), .. })));
+        *value.kind = None;
+        self.set_equal(id, new_value_id, Variance::Invariant);
+    }
+
     pub fn get(&self, id: ValueId) -> ValueBorrow<'_> {
         self.values.get(id)
     }
