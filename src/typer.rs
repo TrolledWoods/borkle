@@ -5,7 +5,7 @@ use crate::execution_time::ExecutionTime;
 use crate::locals::LocalVariables;
 use crate::operators::{BinaryOp, UnaryOp};
 pub use crate::parser::{ast::Node, ast::NodeId, ast::NodeKind, Ast};
-use crate::program::{PolyOrMember, Program, Task, constant::ConstantRef, FunctionId, BuiltinFunction};
+use crate::program::{PolyOrMember, PolyMemberId, Program, Task, constant::ConstantRef, FunctionId, BuiltinFunction};
 use crate::thread_pool::ThreadContext;
 use crate::type_infer::{self, ValueId as TypeId, TypeSystem, ValueSetId, Variance, TypeKind};
 use crate::types::{self, IntTypeKind, PtrPermits};
@@ -204,6 +204,25 @@ pub fn finish<'a>(
 
 fn subset_was_completed(ctx: &mut Context<'_, '_>, waiting_on: WaitingOnTypeInferrence, set: ValueSetId) {
     match waiting_on {
+        WaitingOnTypeInferrence::MonomorphiseMember { node_id, poly_member_id, when_needed, params, parent_set } => {
+            let mut fixed_up_params = Vec::with_capacity(params.len());
+            for param in params {
+                fixed_up_params.push(ctx.infer.extract_constant(param));
+            }
+
+            let wanted_dep = match when_needed {
+                ExecutionTime::Typing => MemberDep::ValueAndCallableIfFunction,
+                _ => MemberDep::Type,
+            };
+
+            if let Ok(member_id) = ctx.program.monomorphise_poly_member(ctx.errors, ctx.thread_context, poly_member_id, &fixed_up_params, wanted_dep) {
+                let (type_, meta_data) = ctx.program.get_member_meta_data(member_id);
+                let compiler_type = ctx.infer.add_compiler_type(type_, parent_set);
+                ctx.infer.set_equal(ctx.ast.get(node_id).type_infer_value_id, compiler_type, Variance::Invariant);
+                ctx.ast.get_mut(node_id).kind = NodeKind::ResolvedGlobal(member_id, meta_data.clone());
+                ctx.infer.value_sets.unlock(parent_set);
+            }
+        }
         WaitingOnTypeInferrence::ValueIdFromConstantComputation { computation, value_id } => {
             let len_loc = ctx.ast.get(computation).loc;
             match crate::interp::emit_and_run(
@@ -405,8 +424,16 @@ fn build_constraints(
                         let (_, param_value_id) = build_inferrable_constant_value(ctx, param, sub_set);
                         param_values.push(param_value_id);
                     }
+                    
+                    ctx.infer.value_sets.lock(set);
 
-                    todo!();
+                    ctx.infer.set_waiting_on_value_set(sub_set, WaitingOnTypeInferrence::MonomorphiseMember {
+                        node_id,
+                        poly_member_id: id,
+                        when_needed: ctx.runs,
+                        params: param_values,
+                        parent_set: set,
+                    });
                 }
                 PolyOrMember::Member(id) => {
                     if !poly_params.is_empty() {
@@ -1050,6 +1077,13 @@ fn build_inferrable_constant_value(
 
 #[derive(Clone)]
 pub enum WaitingOnTypeInferrence {
+    MonomorphiseMember {
+        node_id: NodeId,
+        poly_member_id: PolyMemberId,
+        when_needed: ExecutionTime,
+        params: Vec<type_infer::ValueId>,
+        parent_set: ValueSetId,
+    },
     FunctionDeclarationInTyping {
         node_id: NodeId,
         body: NodeId,

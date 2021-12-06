@@ -1087,6 +1087,17 @@ impl TypeSystem {
         layout
     }
 
+    // @Completeness: This should also support converting type values into constants.
+    pub fn extract_constant(&self, value_id: ValueId) -> (types::Type, ConstantRef) {
+        let Some(Type { kind: TypeKind::Constant, args: Some(type_args) }) = &get_value(&self.values, value_id).kind else {panic!() };
+        let &[type_, constant_ref] = &**type_args else { panic!() };
+        let &Some(Type { kind: TypeKind::ConstantValue(constant_ref), .. }) = get_value(&self.values, constant_ref).kind else { panic!() };
+
+        let type_ = self.value_to_compiler_type(type_);
+
+        (type_, constant_ref)
+    }
+
     pub fn value_to_compiler_type(&self, value_id: ValueId) -> types::Type {
         let Some(Type { kind: type_kind, args: Some(type_args) }) = &get_value(&self.values, value_id).kind else {
             panic!("Cannot call value_to_compiler_type on incomplete value")

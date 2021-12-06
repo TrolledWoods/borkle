@@ -538,6 +538,18 @@ impl Program {
         }
     }
 
+    pub fn set_yield_data_of_poly_member(&self, id: PolyMemberId, yield_data: crate::typer::YieldData) {
+        profile::profile!("program::set_yield_data_of_poly_member");
+        let yield_data = Arc::new(yield_data);
+        let mut poly_members = self.poly_members.write();
+        let old = std::mem::replace(
+            &mut poly_members[id].yield_data,
+            Some(yield_data),
+        );
+        drop(poly_members);
+        debug_assert!(old.is_none());
+    }
+
     /// # Locks
     /// * ``members`` write
     pub fn set_type_of_member(&self, id: MemberId, type_: Type, meta_data: MemberMetaData) {

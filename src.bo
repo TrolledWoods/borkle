@@ -1,10 +1,10 @@
 library "base.bo";
 import "tests/main.bo";
 
-const infer_equal[A] = A;
+const Test[A] = A;
 
 #entry fn() -> u64 { 'func
-    // Thing[42 : u8];
+    Test[42 : u8];
 
     4
 };
