@@ -187,13 +187,16 @@ fn constant(global: &mut DataContext<'_>) -> Result<(), ()> {
                 token.loc,
                 global.scope,
                 name,
-                locals,
-                tree,
                 polymorphic_arguments.len(),
             )?;
             global.program.queue_task(
                 dependencies.clone(),
-                Task::FlagPolyMember(id, MemberDep::Type, dependencies),
+                Task::TypePolyMember {
+                    member_id: id,
+                    locals,
+                    ast: tree,
+                    dependencies,
+                },
             );
         }
 

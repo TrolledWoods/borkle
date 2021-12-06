@@ -164,6 +164,9 @@ fn worker<'a>(alloc: &'a mut Bump, program: &'a Program) -> (ThreadContext<'a>, 
                     profile::profile!("Parse");
                     parse_file(&mut errors, program, &file, meta_data);
                 }
+                Task::TypePolyMember { .. } => { // member_id, ast, locals } => {
+                    todo!();
+                }
                 Task::TypeMember { member_id, ast, locals } => {
                     // If it's a polymorphic thing this task could have been scheduled twice, so we have to do this check.
                     if !program.member_is_typed(member_id) {

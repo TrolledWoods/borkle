@@ -5,7 +5,7 @@ use crate::execution_time::ExecutionTime;
 use crate::locals::LocalVariables;
 use crate::operators::{BinaryOp, UnaryOp};
 pub use crate::parser::{ast::Node, ast::NodeId, ast::NodeKind, Ast};
-use crate::program::{PolyOrMember, Program, Task};
+use crate::program::{PolyOrMember, Program, Task, constant::ConstantRef};
 use crate::thread_pool::ThreadContext;
 use crate::type_infer::{self, TypeSystem, ValueSetId, Variance, TypeKind};
 use crate::types::{self, IntTypeKind, PtrPermits};
@@ -16,6 +16,12 @@ pub struct YieldData {
     locals: LocalVariables,
     ast: Ast,
     infer: TypeSystem,
+}
+
+impl YieldData {
+    pub fn insert_poly_params(&mut self, _poly_args: &[(crate::types::Type, ConstantRef)]) {
+        todo!() 
+    }
 }
 
 struct Context<'a, 'b> {

@@ -609,15 +609,13 @@ impl Program {
         loc: Location,
         scope_id: ScopeId,
         name: Ustr,
-        locals: crate::locals::LocalVariables,
-        ast: crate::parser::Ast,
         num_args: usize,
     ) -> Result<PolyMemberId, ()> {
         profile::profile!("program::define_polymorphic_member");
         let id = self
             .poly_members
             .write()
-            .push(PolyMember::new(loc, name, locals, ast, num_args));
+            .push(PolyMember::new(loc, name, num_args));
 
         self.bind_member_to_name(errors, scope_id, name, loc, PolyOrMember::Poly(id), true)?;
         Ok(id)
@@ -629,14 +627,12 @@ impl Program {
 
     pub fn monomorphise_poly_member<'a>(
         &'a self,
-        _errors: &mut ErrorCtx,
-        _thread_context: &mut ThreadContext<'a>,
-        _id: PolyMemberId,
-        _poly_args: &[(Type, ConstantRef)],
-        _wanted_dep: MemberDep,
+        errors: &mut ErrorCtx,
+        thread_context: &mut ThreadContext<'a>,
+        id: PolyMemberId,
+        poly_args: &[(Type, ConstantRef)],
+        wanted_dep: MemberDep,
     ) -> Result<MemberId, ()> {
-        todo!("Monorphise poly member");
-        /*
         profile::profile!("program::monomorphise_poly_member");
 
         // FIXME: Some redundant work going on, but because we do not have a centralized location
@@ -655,8 +651,6 @@ impl Program {
             "There has to be the same number of polymorphic arguments passed as ones that exist."
         );
 
-        let name = poly_members[id].name;
-
         let cached = &poly_members[id].cached;
         let mut member_id = None;
         for (key, cached_member) in cached {
@@ -665,25 +659,18 @@ impl Program {
             }
         }
 
-        // Create a member to host the monomorphised thing, or grab one from the cache
+        // Create a member to host the monomorphised thing, or grab one from the cached
         let member_id = member_id.unwrap_or_else(|| {
-            // FIXME: This might lock up, but there is not really an option. I need to get some
-            // less restrictive rules on how to lock things, but for now I think this is fine since
-            // members and poly_members are not locked at the same tiem anywhere else. I think
-            // locks will break if we lock them in separate orders, but in this case it is MAYBE
-            // fine. Anyway, the point is we don't have a choice really, I do have to find a way to
-            // do this in the future if this particular way turns out to not work correctly.
-            let member_id = self.members.write().push(Member::new(name, true));
+            let poly_member = &poly_members[id];
+            let member_id = self.members.write().push(Member::new(poly_member.loc, poly_member.name, true));
             poly_members[id]
                 .cached
                 .push((poly_args.to_vec(), member_id));
             member_id
         });
 
-        let ast = poly_members[id].ast.clone();
+        let yield_data = poly_members[id].yield_data.as_ref().unwrap().clone();
         drop(poly_members);
-
-        let ast = (*ast).clone();
 
         // Is the thing we want already computed?
         match wanted_dep {
@@ -695,15 +682,13 @@ impl Program {
             _ => {}
         }
 
-        // FIXME: This is also happening in the thread_pool for the tasks there; should we try and
-        // combine the two?
-        let (locals, parsed_ast) = ast;
-        match crate::typer::process_ast(errors, thread_context, self, locals.clone(), parsed_ast, None, poly_args)? {
-            Ok((dependency_list, locals, typed_ast)) => {
-            }
-            Err((dependency_list, yield_info)) => {
-            }
-        }
+        let mut yield_data = (*yield_data).clone();
+        yield_data.insert_poly_params(poly_args);
+        crate::typer::solve(errors, thread_context, self, &mut yield_data);
+        let (dependency_list, mut locals, mut types, typed_ast) = match crate::typer::finish(errors, yield_data)? {
+            Ok(v) => v,
+            Err(_) => todo!("Not done!"),
+        };
 
         // FIXME: Calculate the member meta data here.
         self.set_type_of_member(member_id, typed_ast.get(typed_ast.root).type_(), MemberMetaData::None);
@@ -711,7 +696,12 @@ impl Program {
         if wanted_dep < MemberDep::Value {
             self.queue_task(
                 dependency_list,
-                Task::EmitMember(member_id, locals, typed_ast),
+                Task::EmitMember(
+                    member_id,
+                    locals,
+                    types,
+                    typed_ast,
+                )
             );
 
             // It's fine, it's already enough
@@ -720,13 +710,18 @@ impl Program {
 
         assert_ne!(wanted_dep, MemberDep::Value, "Depending on just the value shouldn't really happen in this place, because either you go full on callable or you depend on the type. If you need to depend on the value it monomorphises it by depending on the type and then calculates the type on the value individually.");
 
-        let (_, routine) = crate::emit::emit(thread_context, self, locals, &typed_ast, typed_ast.root);
+        // @HACK: Here we assume that stack frame id number 0 is the parent one.
+        let (_, routine) = crate::emit::emit(thread_context, self, &mut locals, &mut types, &typed_ast, typed_ast.root, 0);
         let mut stack = crate::interp::Stack::new(2048);
 
-        let result = crate::interp::interp(self, &mut stack, &routine);
+        let mut call_stack = Vec::new();
+        let Ok(result) = crate::interp::interp(self, &mut stack, &routine, &mut call_stack) else {
+            println!("TEMP: No call stack error for monomorphise_poly_member yet, we should deduplicate these.");
+            return Err(());
+        };
 
         self.logger
-            .log(format_args!("value '{}'", self.member_name(member_id),));
+            .log(format_args!("value '{}'", self.member_name(member_id)));
 
         let type_ = self.get_member_type(member_id);
         let value = self.insert_buffer(type_, result.as_ptr());
@@ -739,7 +734,6 @@ impl Program {
         }
 
         Ok(member_id)
-        */
     }
 
     /// # Locks
@@ -1053,7 +1047,7 @@ struct PolyMember {
     name: Ustr,
 
     loc: Location,
-    ast: Arc<(crate::locals::LocalVariables, crate::parser::Ast)>,
+    yield_data: Option<Arc<crate::typer::YieldData>>,
     num_args: usize,
 
     // These do not contain the actual types(because monomorphisation has to happen), however, they
@@ -1072,15 +1066,13 @@ impl PolyMember {
     fn new(
         loc: Location,
         name: Ustr,
-        locals: crate::locals::LocalVariables,
-        ast: crate::parser::Ast,
         num_args: usize,
     ) -> Self {
         Self {
             loc,
             name,
             num_args,
-            ast: Arc::new((locals, ast)),
+            yield_data: None,
 
             type_: DependableOption::None(default()),
             value: DependableOption::None(default()),
@@ -1214,6 +1206,12 @@ struct NonReadyTask {
 }
 
 pub enum Task {
+    TypePolyMember {
+        member_id: PolyMemberId, 
+        ast: Ast,
+        locals: crate::locals::LocalVariables,
+        dependencies: DependencyList,
+    },
     FlagPolyMember(PolyMemberId, MemberDep, DependencyList),
 
     Parse(Option<(Location, ScopeId)>, PathBuf),
@@ -1252,6 +1250,7 @@ impl fmt::Debug for Task {
 
             Task::Parse(_, buf) => write!(f, "parse({:?})", buf),
             Task::TypeMember { member_id, .. } => write!(f, "type_member({:?})", member_id),
+            Task::TypePolyMember { member_id, .. } => write!(f, "type_poly_member({:?})", member_id),
             Task::EmitMember(id, _, _, _) => write!(f, "emit_member({:?})", id),
             Task::EvaluateMember(id, _) => write!(f, "evaluate_member({:?})", id),
             Task::FlagMemberCallable(id) => write!(f, "flag_member_callable({:?})", id),
