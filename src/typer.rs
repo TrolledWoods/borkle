@@ -10,20 +10,12 @@ use crate::thread_pool::ThreadContext;
 use crate::type_infer::{self, TypeSystem, ValueSetId, Variance, TypeKind};
 use crate::types::{self, IntTypeKind, PtrPermits};
 
+#[derive(Clone)]
 pub struct YieldData {
     emit_deps: DependencyList,
     locals: LocalVariables,
     ast: Ast,
-}
-
-impl YieldData {
-    pub fn new(locals: LocalVariables, ast: Ast) -> Self {
-        Self {
-            emit_deps: DependencyList::new(),
-            ast,
-            locals,
-        }
-    }
+    infer: TypeSystem,
 }
 
 struct Context<'a, 'b> {
@@ -42,12 +34,22 @@ pub fn process_ast<'a>(
     errors: &mut ErrorCtx,
     thread_context: &mut ThreadContext<'a>,
     program: &'a Program,
-    from: YieldData,
+    locals: LocalVariables,
+    ast: Ast,
 ) -> Result<Result<(DependencyList, LocalVariables, TypeSystem, Ast), (DependencyList, YieldData)>, ()> {
-    profile::profile!("Type ast");
+    let mut yield_data = begin(errors, thread_context, program, locals, ast);
+    solve(errors, thread_context, program, &mut yield_data);
+    finish(errors, yield_data)
+}
 
-    let mut ast = from.ast;
-    let mut locals = from.locals;
+pub fn begin<'a>(
+    errors: &mut ErrorCtx,
+    thread_context: &mut ThreadContext<'a>,
+    program: &'a Program,
+    mut locals: LocalVariables,
+    mut ast: Ast,
+) -> YieldData {
+    let mut emit_deps = DependencyList::new();
     let mut infer = TypeSystem::new(program);
 
     // Create type inference variables for all variables and nodes, so that there's a way to talk about
@@ -64,8 +66,6 @@ pub fn process_ast<'a>(
         label.type_infer_value_id = infer.add_unknown_type();
     }
 
-    let mut emit_deps = from.emit_deps;
-
     let mut ctx = Context {
         thread_context,
         errors,
@@ -81,6 +81,33 @@ pub fn process_ast<'a>(
     let root = ctx.ast.root;
     let root_value_set = ctx.infer.value_sets.add(root);
     build_constraints(&mut ctx, root, root_value_set);
+
+    YieldData {
+        ast,
+        locals,
+        emit_deps,
+        infer,
+    }
+}
+
+/// Returns Ok
+pub fn solve<'a>(
+    errors: &mut ErrorCtx,
+    thread_context: &mut ThreadContext<'a>,
+    program: &'a Program,
+    data: &mut YieldData,
+) {
+    let mut ctx = Context {
+        thread_context,
+        errors,
+        program,
+        locals: &mut data.locals,
+        emit_deps: &mut data.emit_deps,
+        ast: &mut data.ast,
+        infer: &mut data.infer,
+        // This is only used in build_constraints, what it's set to doesn't matter
+        runs: ExecutionTime::Never,
+    };
 
     loop {
         ctx.infer.solve();
@@ -125,45 +152,41 @@ pub fn process_ast<'a>(
             break;
         }
     }
+}
 
-    // println!("\nLocals:\n");
-    // for local in ctx.locals.iter() {
-    //     println!(
-    //         "{}: {}",
-    //         local.name,
-    //         ctx.infer.value_to_str(local.type_infer_value_id, 0)
-    //     );
-    // }
-
+pub fn finish<'a>(
+    errors: &mut ErrorCtx,
+    mut from: YieldData,
+) -> Result<Result<(DependencyList, LocalVariables, TypeSystem, Ast), (DependencyList, YieldData)>, ()> {
     let mut are_incomplete_sets = false;
-    for value_set_id in ctx.infer.value_sets.iter_ids() {
-        let value_set = ctx.infer.value_sets.get(value_set_id);
+    for value_set_id in from.infer.value_sets.iter_ids() {
+        let value_set = from.infer.value_sets.get(value_set_id);
         if value_set.has_errors || value_set.uncomputed_values() > 0 {
-            ctx.errors.global_error(format!("Set {} is uncomputable! (uncomputability doesn't have a proper error yet, this is temporary)", value_set_id));
+            errors.global_error(format!("Set {} is uncomputable! (uncomputability doesn't have a proper error yet, this is temporary)", value_set_id));
             are_incomplete_sets = true;
         }
     }
 
-    if are_incomplete_sets | ctx.infer.output_errors(ctx.errors, ctx.ast, ctx.locals) {
-        ctx.infer.output_incompleteness_errors(ctx.errors, ctx.ast, ctx.locals);
-        ctx.infer.flag_all_values_as_complete();
+    if are_incomplete_sets | from.infer.output_errors(errors, &from.ast, &from.locals) {
+        from.infer.output_incompleteness_errors(errors, &from.ast, &from.locals);
+        from.infer.flag_all_values_as_complete();
         return Err(());
     }
 
     // @Temporary: Just to make it work for now, we should really only deal with the base set
-    for node in &mut ctx.ast.nodes {
+    for node in &mut from.ast.nodes {
         if node.type_.is_none() {
-            node.type_ = Some(ctx.infer.value_to_compiler_type(node.type_infer_value_id));
+            node.type_ = Some(from.infer.value_to_compiler_type(node.type_infer_value_id));
         }
     }
 
-    for local in ctx.locals.iter_mut() {
+    for local in from.locals.iter_mut() {
         if local.type_.is_none() {
-            local.type_ = Some(ctx.infer.value_to_compiler_type(local.type_infer_value_id));
+            local.type_ = Some(from.infer.value_to_compiler_type(local.type_infer_value_id));
         }
     }
 
-    Ok(Ok((emit_deps, locals, infer, ast)))
+    Ok(Ok((from.emit_deps, from.locals, from.infer, from.ast)))
 }
 
 fn emit_execution_context(ctx: &mut Context<'_, '_>, node_id: NodeId, set: ValueSetId) {

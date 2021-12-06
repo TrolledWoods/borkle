@@ -1,6 +1,5 @@
 library "base.bo";
 import "tests/main.bo";
-import "tests/aoc/day6.bo";
 
 #entry fn() -> u64 { 'func
     99

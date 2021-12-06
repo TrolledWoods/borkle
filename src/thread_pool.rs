@@ -164,8 +164,8 @@ fn worker<'a>(alloc: &'a mut Bump, program: &'a Program) -> (ThreadContext<'a>, 
                     profile::profile!("Parse");
                     parse_file(&mut errors, program, &file, meta_data);
                 }
-                Task::TypeMember(member_id, yield_info) => {
-                    // If it's a polymorphic thing anything could have happened, honestly
+                Task::TypeMember { member_id, ast, locals } => {
+                    // If it's a polymorphic thing this task could have been scheduled twice, so we have to do this check.
                     if !program.member_is_typed(member_id) {
                         profile::profile!("Task::TypeMember");
                         use crate::parser::ast::NodeKind;
@@ -174,7 +174,8 @@ fn worker<'a>(alloc: &'a mut Bump, program: &'a Program) -> (ThreadContext<'a>, 
                             &mut errors,
                             &mut thread_context,
                             program,
-                            yield_info,
+                            locals,
+                            ast,
                         ) {
                             Ok(Ok((dependencies, locals, types, ast))) => {
                                 let meta_data = match &ast.get(ast.root).kind {
@@ -204,11 +205,12 @@ fn worker<'a>(alloc: &'a mut Bump, program: &'a Program) -> (ThreadContext<'a>, 
                                     errors.error(ast.get(ast.root).loc, format!("'{}' cannot be stored in a constant, because it contains types that the compiler cannot reason about properly, such as '&any', '[] any', or similar", type_));
                                 }
                             }
-                            Ok(Err((dependencies, yield_info))) => {
-                                program.queue_task(
+                            Ok(Err(_)) => {
+                                todo!("Continue typing member");
+                                /*program.queue_task(
                                     dependencies,
-                                    Task::TypeMember(member_id, yield_info),
-                                );
+                                    Task::ContinueTypingMember { member_id, yield_info },
+                                );*/
                             }
                             Err(()) => {
                                 // TODO: Here we want to poison the Value parameter of the thing this

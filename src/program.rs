@@ -5,6 +5,7 @@ use crate::id::{Id, IdVec};
 use crate::ir::Routine;
 use crate::location::Location;
 use crate::logging::Logger;
+use crate::parser::Ast;
 use crate::thread_pool::{ThreadContext, WorkPile};
 use crate::types::{IntTypeKind, PointerInType, Type, TypeKind};
 use constant::{Constant, ConstantRef};
@@ -634,6 +635,7 @@ impl Program {
         _poly_args: &[(Type, ConstantRef)],
         _wanted_dep: MemberDep,
     ) -> Result<MemberId, ()> {
+        todo!("Monorphise poly member");
         /*
         profile::profile!("program::monomorphise_poly_member");
 
@@ -738,7 +740,6 @@ impl Program {
 
         Ok(member_id)
         */
-        panic!("Monomorphise poly member temporarily disabled");
     }
 
     /// # Locks
@@ -1216,7 +1217,11 @@ pub enum Task {
     FlagPolyMember(PolyMemberId, MemberDep, DependencyList),
 
     Parse(Option<(Location, ScopeId)>, PathBuf),
-    TypeMember(MemberId, crate::typer::YieldData),
+    TypeMember {
+        member_id: MemberId,
+        ast: Ast,
+        locals: crate::locals::LocalVariables,
+    },
     EmitMember(MemberId, crate::locals::LocalVariables, crate::type_infer::TypeSystem, crate::typer::Ast),
     EvaluateMember(MemberId, crate::ir::UserDefinedRoutine),
     FlagMemberCallable(MemberId),
@@ -1246,7 +1251,7 @@ impl fmt::Debug for Task {
             }
 
             Task::Parse(_, buf) => write!(f, "parse({:?})", buf),
-            Task::TypeMember(id, _) => write!(f, "type_member({:?})", id),
+            Task::TypeMember { member_id, .. } => write!(f, "type_member({:?})", member_id),
             Task::EmitMember(id, _, _, _) => write!(f, "emit_member({:?})", id),
             Task::EvaluateMember(id, _) => write!(f, "evaluate_member({:?})", id),
             Task::FlagMemberCallable(id) => write!(f, "flag_member_callable({:?})", id),

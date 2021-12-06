@@ -65,7 +65,7 @@ pub fn process_string(
 
                 context.program.queue_task(
                     dependencies,
-                    Task::TypeMember(id, crate::typer::YieldData::new(locals, tree)),
+                    Task::TypeMember { member_id: id, locals, ast: tree },
                 );
             }
             TokenKind::Keyword(Keyword::Library) => {
@@ -107,7 +107,7 @@ pub fn process_string(
                 )?;
                 context.program.queue_task(
                     dependencies,
-                    Task::TypeMember(id, crate::typer::YieldData::new(locals, tree)),
+                    Task::TypeMember { member_id: id, locals, ast: tree },
                 );
 
                 let mut entry_point = context.program.entry_point.lock();
@@ -179,7 +179,7 @@ fn constant(global: &mut DataContext<'_>) -> Result<(), ()> {
                 .define_member(global.errors, token.loc, global.scope, name)?;
             global.program.queue_task(
                 dependencies,
-                Task::TypeMember(id, crate::typer::YieldData::new(locals, tree)),
+                Task::TypeMember { member_id: id, locals, ast: tree },
             );
         } else {
             let id = global.program.define_polymorphic_member(
