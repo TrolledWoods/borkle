@@ -9,31 +9,25 @@ const AocDay6 = if DO_AOC {
 };
 
 const aoc_day6 = fn(time: usize) -> u64 {
-    let single_fish = #0 : [] u64;
-    let buffer_ptr = alloc(time * 8);
-    defer dealloc(buffer_ptr, time * 8);
-    single_fish.ptr = cast buffer_ptr;
-    single_fish.len = time;
-
-    for single_fish { *_it = 0; };
-
-    *single_fish.ptr = 1;
-
-    for num_fish in single_fish {
-        let offset = _iters + 9;
-
-        if _iters >= 7 {
-            *num_fish = *num_fish + *(num_fish - 7);
-        };
-        if _iters >= 9 {
-            *num_fish = *num_fish + *(num_fish - 9);
-        };
+    let array = #0 : [16] u64;
+    let array_ptr = cast &array : &u64;
+    let sum = 1;
+    while _iters < time {
+        let cell =
+            (if _iters == 0  1 else 0)
+            // -7 mod 16 is 9
+            + *(array_ptr + ((_iters + 9) & 15))
+            // -9 mod 16 is 7
+            + *(array_ptr + ((_iters + 7) & 15));
+        *(array_ptr + (_iters & 15)) = cell;
+        sum = sum + cell;
     };
 
-    let sum = 1;
-    for single_fish {
-        sum = sum + *_it;
-        *_it = sum;
+    let rolling_sum = #0 : [7] u64;
+    let rolling_sum_ptr = cast &rolling_sum : &u64;
+    while _iters < 7 {
+        *(rolling_sum_ptr + _iters) = sum;
+        sum = sum - *(array_ptr + ((time - 1 - _iters) & 15));
     };
 
     let parse = INPUT;
@@ -43,7 +37,7 @@ const aoc_day6 = fn(time: usize) -> u64 {
         let fish_timer = take_u64(&parse);
         advance(&parse);
 
-        total = total + *(single_fish.ptr + (time - 1 - cast fish_timer));
+        total = total + *(rolling_sum_ptr + cast fish_timer);
     };
 
     total
