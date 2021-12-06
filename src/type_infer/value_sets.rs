@@ -33,13 +33,13 @@ impl ValueSets {
         }
     }
 
-    pub fn add(&mut self, ast_node: crate::parser::ast::NodeId) -> ValueSetId {
+    pub fn add(&mut self, waiting_on_completion: crate::typer::WaitingOnTypeInferrence) -> ValueSetId {
         let id = self.sets.len();
         self.sets.push(ValueSet {
             uncomputed_values: 0,
             has_errors: false,
             related_nodes: Vec::new(),
-            ast_node,
+            waiting_on_completion,
             has_been_computed: false,
         });
         id
@@ -86,7 +86,7 @@ pub struct ValueSet {
     uncomputed_values: i32,
     pub has_errors: bool,
 
-    pub ast_node: crate::parser::ast::NodeId,
+    pub waiting_on_completion: crate::typer::WaitingOnTypeInferrence,
     pub has_been_computed: bool,
 }
 

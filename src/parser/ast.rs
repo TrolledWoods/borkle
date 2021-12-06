@@ -5,7 +5,7 @@ use crate::locals::{LabelId, LocalId};
 use crate::location::Location;
 use crate::operators::{BinaryOp, UnaryOp};
 use crate::program::constant::ConstantRef;
-use crate::program::{FunctionId, BuiltinFunction, MemberId, MemberMetaData, ScopeId};
+use crate::program::{FunctionId, BuiltinFunction, MemberId, PolyMemberId, MemberMetaData, ScopeId};
 use crate::types::{PtrPermits, Type};
 use std::fmt;
 use std::sync::Arc;
@@ -133,18 +133,12 @@ impl Node {
             }
             TypeOf(inner) => v(inner),
             BuiltinFunction(_) => {}
-            BuiltinFunctionInTyping { .. } => {}
 
             PolymorphicArgument(_) => {}
             ConstAtTyping { inner } => v(inner),
             ConstAtEvaluation { inner } => v(inner),
 
-            Global(_, _, ref nodes) => {
-                for &node in nodes {
-                    v(node);
-                }
-            }
-            GlobalForTyping(_, _, ref nodes) => {
+            Global(_, _, ref nodes) | GlobalForTyping(_, _, ref nodes) => {
                 for &node in nodes {
                     v(node);
                 }
@@ -190,16 +184,6 @@ impl Node {
                 v(returns);
                 v(body);
             }
-            FunctionDeclarationInTyping {
-                body,
-                function_type: _,
-                parent_set: _,
-                emit_deps: _,
-                function_id: _,
-                time: _,
-            } => {
-                v(body);
-            }
 
             BufferType(inner, _) | TypeAsValue(inner) => v(inner),
             NamedType {
@@ -222,9 +206,6 @@ impl Node {
             ArrayType { len, members } => {
                 v(len);
                 v(members);
-            }
-            ArrayTypeInTyping { len, length_value: _ } => {
-                v(len);
             }
             FunctionType { ref args, returns } => {
                 v(returns);
@@ -308,11 +289,6 @@ pub enum NodeKind {
     Literal(Literal),
     ArrayLiteral(Vec<NodeId>),
     BuiltinFunction(BuiltinFunction),
-    BuiltinFunctionInTyping {
-        function: BuiltinFunction,
-        type_: crate::type_infer::ValueId,
-        parent_set: crate::type_infer::ValueSetId,
-    },
 
     PolymorphicArgument(usize),
     ConstAtTyping {
@@ -359,18 +335,6 @@ pub enum NodeKind {
         returns: NodeId,
         body: NodeId,
     },
-    FunctionDeclarationInTyping {
-        body: NodeId,
-        /// A node containing the type of the value.
-        function_type: crate::type_infer::ValueId,
-        /// This is because function declaration create a constant in the
-        /// parent set, and we have to make sure that the parent set isn't
-        /// emitted before that constant is created.
-        parent_set: crate::type_infer::ValueSetId,
-        emit_deps: DependencyList,
-        function_id: FunctionId,
-        time: ExecutionTime,
-    },
 
     TypeOf(NodeId),
 
@@ -391,10 +355,6 @@ pub enum NodeKind {
     ArrayType {
         len: NodeId,
         members: NodeId,
-    },
-    ArrayTypeInTyping {
-        len: NodeId,
-        length_value: crate::type_infer::ValueId,
     },
     FunctionType {
         args: Vec<NodeId>,

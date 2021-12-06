@@ -1010,6 +1010,12 @@ impl TypeSystem {
         this
     }
 
+    pub fn set_waiting_on_value_set(&mut self, value_set_id: ValueSetId, waiting_on: crate::typer::WaitingOnTypeInferrence) {
+        let value_set = self.value_sets.get_mut(value_set_id);
+        debug_assert!(matches!(value_set.waiting_on_completion, crate::typer::WaitingOnTypeInferrence::None), "Cannot use set_on_waiting_on_value_set to override a previous waiter");
+        value_set.waiting_on_completion = waiting_on;
+    }
+
     pub fn get(&self, id: ValueId) -> ValueBorrow<'_> {
         self.values.get(id)
     }

@@ -5,9 +5,9 @@ use crate::execution_time::ExecutionTime;
 use crate::locals::LocalVariables;
 use crate::operators::{BinaryOp, UnaryOp};
 pub use crate::parser::{ast::Node, ast::NodeId, ast::NodeKind, Ast};
-use crate::program::{PolyOrMember, Program, Task, constant::ConstantRef};
+use crate::program::{PolyOrMember, Program, Task, constant::ConstantRef, FunctionId, BuiltinFunction};
 use crate::thread_pool::ThreadContext;
-use crate::type_infer::{self, TypeSystem, ValueSetId, Variance, TypeKind};
+use crate::type_infer::{self, ValueId as TypeId, TypeSystem, ValueSetId, Variance, TypeKind};
 use crate::types::{self, IntTypeKind, PtrPermits};
 
 #[derive(Clone)]
@@ -16,6 +16,7 @@ pub struct YieldData {
     locals: LocalVariables,
     ast: Ast,
     infer: TypeSystem,
+    poly_param_usages: Vec<(usize, TypeId)>,
 }
 
 impl YieldData {
@@ -33,6 +34,7 @@ struct Context<'a, 'b> {
     emit_deps: &'a mut DependencyList,
     ast: &'a mut Ast,
     infer: &'a mut TypeSystem,
+    poly_param_usages: &'a mut Vec<(usize, TypeId)>,
     runs: ExecutionTime,
 }
 
@@ -57,6 +59,7 @@ pub fn begin<'a>(
 ) -> YieldData {
     let mut emit_deps = DependencyList::new();
     let mut infer = TypeSystem::new(program);
+    let mut poly_param_usages = Vec::new();
 
     // Create type inference variables for all variables and nodes, so that there's a way to talk about
     // all of them.
@@ -78,6 +81,7 @@ pub fn begin<'a>(
         program,
         locals: &mut locals,
         emit_deps: &mut emit_deps,
+        poly_param_usages: &mut poly_param_usages,
         ast: &mut ast,
         infer: &mut infer,
         runs: ExecutionTime::RuntimeFunc,
@@ -85,7 +89,7 @@ pub fn begin<'a>(
 
     // Build the tree relationship between the different types.
     let root = ctx.ast.root;
-    let root_value_set = ctx.infer.value_sets.add(root);
+    let root_value_set = ctx.infer.value_sets.add(WaitingOnTypeInferrence::None);
     build_constraints(&mut ctx, root, root_value_set);
 
     YieldData {
@@ -93,6 +97,7 @@ pub fn begin<'a>(
         locals,
         emit_deps,
         infer,
+        poly_param_usages,
     }
 }
 
@@ -108,6 +113,7 @@ pub fn solve<'a>(
         program,
         locals: &mut data.locals,
         emit_deps: &mut data.emit_deps,
+        poly_param_usages: &mut data.poly_param_usages,
         ast: &mut data.ast,
         infer: &mut data.infer,
         // This is only used in build_constraints, what it's set to doesn't matter
@@ -146,9 +152,9 @@ pub fn solve<'a>(
             let value_set = ctx.infer.value_sets.get_mut(value_set_id);
             value_set.related_nodes = related_nodes;
             value_set.has_been_computed = true;
-            let node_id = value_set.ast_node;
+            let waiting_on = std::mem::replace(&mut value_set.waiting_on_completion, WaitingOnTypeInferrence::None);
 
-            emit_execution_context(&mut ctx, node_id, value_set_id);
+            subset_was_completed(&mut ctx, waiting_on, value_set_id);
 
             progress = true;
         }
@@ -163,6 +169,8 @@ pub fn finish<'a>(
     errors: &mut ErrorCtx,
     mut from: YieldData,
 ) -> Result<Result<(DependencyList, LocalVariables, TypeSystem, Ast), (DependencyList, YieldData)>, ()> {
+    debug_assert!(from.poly_param_usages.is_empty(), "Cannot finish something that still has poly params");
+
     let mut are_incomplete_sets = false;
     for value_set_id in from.infer.value_sets.iter_ids() {
         let value_set = from.infer.value_sets.get(value_set_id);
@@ -194,15 +202,10 @@ pub fn finish<'a>(
     Ok(Ok((from.emit_deps, from.locals, from.infer, from.ast)))
 }
 
-fn emit_execution_context(ctx: &mut Context<'_, '_>, node_id: NodeId, set: ValueSetId) {
-    let node = ctx.ast.get_mut(node_id);
-    let node_loc = node.loc;
-
-    // @Hack: We replace the kind with a temporary, since all the nodes here are only for this function,
-    // and have to replaced for emission anyway.
-    let kind = std::mem::replace(&mut node.kind, NodeKind::Empty);
-    match kind {
-        NodeKind::ArrayTypeInTyping { len, length_value } => {
+fn subset_was_completed(ctx: &mut Context<'_, '_>, waiting_on: WaitingOnTypeInferrence, set: ValueSetId) {
+    match waiting_on {
+        WaitingOnTypeInferrence::ArrayTypeInTyping { len, length_value } => {
+            let len_loc = ctx.ast.get(len).loc;
             match crate::interp::emit_and_run(
                 ctx.thread_context,
                 ctx.program,
@@ -211,7 +214,7 @@ fn emit_execution_context(ctx: &mut Context<'_, '_>, node_id: NodeId, set: Value
                 ctx.ast,
                 len,
                 set,
-                &mut vec![node_loc],
+                &mut vec![len_loc],
             ) {
                 Ok(constant_ref) => {
                     // @Hack: We get the usize from the variable so we don't have to add a reason for it
@@ -230,7 +233,8 @@ fn emit_execution_context(ctx: &mut Context<'_, '_>, node_id: NodeId, set: Value
                 }
             }
         }
-        NodeKind::FunctionDeclarationInTyping {
+        WaitingOnTypeInferrence::FunctionDeclarationInTyping {
+            node_id,
             body,
             function_type,
             parent_set,
@@ -270,7 +274,6 @@ fn emit_execution_context(ctx: &mut Context<'_, '_>, node_id: NodeId, set: Value
                     );
                 }
             }
-            // }
 
             let function_id_buffer = ctx
                 .program
@@ -293,11 +296,15 @@ fn emit_execution_context(ctx: &mut Context<'_, '_>, node_id: NodeId, set: Value
 
             ctx.infer.value_sets.unlock(parent_set);
         }
-        NodeKind::BuiltinFunctionInTyping {
+        WaitingOnTypeInferrence::BuiltinFunctionInTyping {
+            node_id,
             function,
             type_,
             parent_set,
         } => {
+            let node = ctx.ast.get_mut(node_id);
+            let node_loc = node.loc;
+
             let type_ = ctx.infer.value_to_compiler_type(type_);
 
             let function_id = ctx.program.insert_defined_function(
@@ -344,7 +351,7 @@ fn emit_execution_context(ctx: &mut Context<'_, '_>, node_id: NodeId, set: Value
 
             ctx.infer.value_sets.unlock(parent_set);
         }
-        _ => unreachable!("A {:?} doesn't define an execution context", node.kind),
+        WaitingOnTypeInferrence::None => {},
     }
 }
 
@@ -380,37 +387,76 @@ fn build_constraints(
         }
         // @Cleanup: We could unify these two nodes probably
         NodeKind::Global(scope, name, ref poly_params) | NodeKind::GlobalForTyping(scope, name, ref poly_params) => {
-            assert_eq!(poly_params.len(), 0, "polymorphic things not supported yet");
-
             let id = ctx.program.get_member_id(scope, name).expect("The dependency system should have made sure that this is defined");
 
-            let PolyOrMember::Member(id) = id else { todo!("Polymorphism!") };
+            match id {
+                PolyOrMember::Poly(id) => {
+                    let num_args = ctx.program.get_num_poly_args(id);
+                    if num_args != poly_params.len() {
+                        ctx.errors.error(node_loc, "Passed polymorphic parameters even though this value isn't polymorphic".to_string());
+                        // @Cleanup: This should probably just be a function on TypeSystem
+                        ctx.infer.value_sets.get_mut(set).has_errors |= true;
+                        return node_type_id;
+                    }
 
-            let (type_, meta_data) = ctx.program.get_member_meta_data(id);
+                    let params = poly_params.clone();
 
-            let type_id = ctx.infer.add_compiler_type(
-                type_,
-                set,
-            );
+                    let mut sub_ctx = Context {
+                        thread_context: ctx.thread_context,
+                        errors: ctx.errors,
+                        program: ctx.program,
+                        locals: ctx.locals,
+                        emit_deps: ctx.emit_deps,
+                        poly_param_usages: ctx.poly_param_usages,
+                        ast: ctx.ast,
+                        infer: ctx.infer,
+                        runs: ctx.runs.combine(ExecutionTime::Typing),
+                    };
+                    let sub_set = sub_ctx.infer.value_sets.add(WaitingOnTypeInferrence::None);
 
-            ctx.infer.set_equal(node_type_id, type_id, Variance::Invariant);
+                    for &param in &params {
+                        build_constraints(&mut sub_ctx, param, sub_set);
+                    }
 
-            match ctx.runs {
-                // This will never be emitted anyway so it doesn't matter if the value isn't accessible.
-                ExecutionTime::Never => {},
-                ExecutionTime::RuntimeFunc => {
-                    ctx.emit_deps.add(node_loc, DepKind::Member(id, MemberDep::Value));
+                    // ctx.ast.get_mut(node_id).kind = NodeKind::GlobalWithResolvingPolymorph(id, params);
+                    todo!("Not done!");
                 }
-                ExecutionTime::Emission => {
-                    ctx.emit_deps.add(node_loc, DepKind::Member(id, MemberDep::ValueAndCallableIfFunction));
-                }
-                ExecutionTime::Typing => {
-                    // The parser should have already made sure the value is accessible. We will run this node
-                    // through the emitter anyway though, so we don't have to make it into a constant or something.
+                PolyOrMember::Member(id) => {
+                    if !poly_params.is_empty() {
+                        // This is an error, since it's not polymorphic
+                        ctx.errors.error(node_loc, "Passed polymorphic parameters even though this value isn't polymorphic".to_string());
+                        // @Cleanup: This should probably just be a function on TypeSystem
+                        ctx.infer.value_sets.get_mut(set).has_errors |= true;
+                        return node_type_id;
+                    }
+
+                    let (type_, meta_data) = ctx.program.get_member_meta_data(id);
+
+                    let type_id = ctx.infer.add_compiler_type(
+                        type_,
+                        set,
+                    );
+
+                    ctx.infer.set_equal(node_type_id, type_id, Variance::Invariant);
+
+                    match ctx.runs {
+                        // This will never be emitted anyway so it doesn't matter if the value isn't accessible.
+                        ExecutionTime::Never => {},
+                        ExecutionTime::RuntimeFunc => {
+                            ctx.emit_deps.add(node_loc, DepKind::Member(id, MemberDep::Value));
+                        }
+                        ExecutionTime::Emission => {
+                            ctx.emit_deps.add(node_loc, DepKind::Member(id, MemberDep::ValueAndCallableIfFunction));
+                        }
+                        ExecutionTime::Typing => {
+                            // The parser should have already made sure the value is accessible. We will run this node
+                            // through the emitter anyway though, so we don't have to make it into a constant or something.
+                        }
+                    }
+
+                    ctx.ast.get_mut(node_id).kind = NodeKind::ResolvedGlobal(id, meta_data);
                 }
             }
-
-            ctx.ast.get_mut(node_id).kind = NodeKind::ResolvedGlobal(id, meta_data);
         }
         NodeKind::While {
             condition,
@@ -509,20 +555,20 @@ fn build_constraints(
             ctx.ast.get_mut(node_id).kind = NodeKind::Constant(ptr, None);
         }
         NodeKind::BuiltinFunction(function) => {
-            let sub_set = ctx.infer.value_sets.add(node_id);
+            let function_type_id = ctx.infer.add_unknown_type();
+            let sub_set = ctx.infer.value_sets.add(WaitingOnTypeInferrence::BuiltinFunctionInTyping {
+                node_id,
+                function,
+                type_: function_type_id,
+                parent_set: set,
+            });
 
             // The parent value set has to wait for this function declaration to be emitted until
             // it can continue, so we lock it to make sure it doesn't get emitted before then.
             ctx.infer.value_sets.lock(set);
 
-            let function_type_id = ctx.infer.add_type(TypeKind::Function, (), sub_set);
+            ctx.infer.set_type(function_type_id, TypeKind::Function, (), sub_set);
             ctx.infer.set_equal(node_type_id, function_type_id, Variance::Invariant);
-
-            ctx.ast.get_mut(node_id).kind = NodeKind::BuiltinFunctionInTyping {
-                function,
-                type_: function_type_id,
-                parent_set: set,
-            };
         }
         NodeKind::ArrayLiteral(ref args) => {
             let inner_type = ctx.infer.add_unknown_type_with_set(set);
@@ -619,11 +665,12 @@ fn build_constraints(
                 program: ctx.program,
                 locals: ctx.locals,
                 emit_deps: ctx.emit_deps,
+                poly_param_usages: ctx.poly_param_usages,
                 ast: ctx.ast,
                 infer: ctx.infer,
                 runs: ctx.runs.combine(ExecutionTime::Typing),
             };
-            let sub_set = sub_ctx.infer.value_sets.add(node_id);
+            let sub_set = sub_ctx.infer.value_sets.add(WaitingOnTypeInferrence::None);
 
             let len_type_id = build_constraints(&mut sub_ctx, len, sub_set);
             let member_type_id = build_constraints(ctx, members, set);
@@ -632,20 +679,14 @@ fn build_constraints(
 
             ctx.infer.set_equal(usize_type, len_type_id, Variance::Invariant);
 
-            // @Performance: We can add some checks to see if the length calculation is actually simple
-            // We don't check that it's part of the same set, because this is
-            // all to compute a type; if we figure out a valid set of types
-            // for the main thing but not for the array length, that's fine,
-            // even if we create an error later the types matched for a moment,
-            // enough to emit code.
             let length_value = ctx.infer.add_value(usize_type, (), set);
 
             let array_type = ctx.infer.add_type(TypeKind::Array, [member_type_id, length_value], set);
-
-            ctx.ast.get_mut(node_id).kind = NodeKind::ArrayTypeInTyping {
+            
+            ctx.infer.set_waiting_on_value_set(sub_set, WaitingOnTypeInferrence::ArrayTypeInTyping {
                 len,
                 length_value,
-            };
+            });
 
             ctx.infer.set_equal(node_type_id, array_type, Variance::Invariant);
         }
@@ -665,12 +706,13 @@ fn build_constraints(
                 program: ctx.program,
                 locals: ctx.locals,
                 emit_deps: &mut emit_deps,
+                poly_param_usages: ctx.poly_param_usages,
                 ast: ctx.ast,
                 infer: ctx.infer,
                 runs: ctx.runs.combine(ExecutionTime::RuntimeFunc),
             };
 
-            let sub_set = sub_ctx.infer.value_sets.add(node_id);
+            let sub_set = sub_ctx.infer.value_sets.add(WaitingOnTypeInferrence::None);
 
             // The parent value set has to wait for this function declaration to be emitted until
             // it can continue, so we lock it to make sure it doesn't get emitted before then.
@@ -703,14 +745,15 @@ fn build_constraints(
             let function_id = ctx.program.insert_function(node_loc);
             ctx.emit_deps.add(node_loc, DepKind::Callable(function_id));
 
-            ctx.ast.get_mut(node_id).kind = NodeKind::FunctionDeclarationInTyping {
+            ctx.infer.set_waiting_on_value_set(sub_set, WaitingOnTypeInferrence::FunctionDeclarationInTyping {
+                node_id,
                 body,
                 function_type: infer_type_id,
                 parent_set: set,
                 emit_deps,
                 function_id,
                 time: ctx.runs,
-            };
+            });
         }
         NodeKind::FunctionCall { calling, ref args } => {
             // @Speed: Somewhat needless allocation
@@ -989,4 +1032,56 @@ fn build_lvalue(
     ctx.infer.value_sets.add_node_to_set(set, node_id);
 
     node_type_id
+}
+
+fn build_inferrable_constant_value(
+    ctx: &mut Context<'_, '_>,
+    node_id: NodeId,
+    // Where the constant value will be put.
+    _value_id: TypeId,
+    set: ValueSetId,
+) -> type_infer::ValueId {
+    let node = ctx.ast.get(node_id);
+    let _node_loc = node.loc;
+    let node_type_id = node.type_infer_value_id;
+
+    // match node.kind {
+    //     _ => {
+    //         todo!();
+    //     }
+    // }
+
+    ctx.infer.set_value_set(node_type_id, set);
+    ctx.infer.value_sets.add_node_to_set(set, node_id);
+
+    todo!("Not done!");
+
+    node_type_id
+}
+
+#[derive(Clone)]
+pub enum WaitingOnTypeInferrence {
+    FunctionDeclarationInTyping {
+        node_id: NodeId,
+        body: NodeId,
+        function_type: TypeId,
+        /// This is because function declaration create a constant in the
+        /// parent set, and we have to make sure that the parent set isn't
+        /// emitted before that constant is created.
+        parent_set: ValueSetId,
+        emit_deps: DependencyList,
+        function_id: FunctionId,
+        time: ExecutionTime,
+    },
+    BuiltinFunctionInTyping {
+        node_id: NodeId,
+        function: BuiltinFunction,
+        type_: TypeId,
+        parent_set: ValueSetId,
+    },
+    ArrayTypeInTyping {
+        len: NodeId,
+        length_value: TypeId,
+    },
+    None,
 }

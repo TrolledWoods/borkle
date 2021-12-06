@@ -4,5 +4,6 @@ import "tests/main.bo";
 const Thing[A] = A;
 
 #entry fn() -> u64 { 'func
-    99
+    // Thing[42 : u8];
+    4
 };
