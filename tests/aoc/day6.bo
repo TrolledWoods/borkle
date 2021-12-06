@@ -16,14 +16,17 @@ const aoc_day6 = fn(time: usize) -> u64 {
     single_fish.len = time;
 
     for single_fish { *_it = 0; };
-    while _iters * 7 < time { *(single_fish.ptr + _iters * 7) = 1; };
+
+    *single_fish.ptr = 1;
 
     for num_fish in single_fish {
         let offset = _iters + 9;
 
-        while offset + _iters * 7 < time {
-            let v = single_fish.ptr + (offset + _iters * 7);
-            *v = *v + cast *num_fish;
+        if _iters >= 7 {
+            *num_fish = *num_fish + *(num_fish - 7);
+        };
+        if _iters >= 9 {
+            *num_fish = *num_fish + *(num_fish - 9);
         };
     };
 
