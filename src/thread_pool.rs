@@ -129,24 +129,10 @@ fn worker<'a>(alloc: &'a mut Bump, program: &'a Program) -> (ThreadContext<'a>, 
     loop {
         if let Some(task) = work.dequeue() {
             match task {
-                Task::FlagPolyMember(poly_member, MemberDep::Type, mut deps) => {
+                Task::FlagPolyMember(_, MemberDep::Type, _) => {
+                    unreachable!("Can't flag poly member as type, should use Task::TypePolyMember instead");
                     profile::profile!("Task::FlagPolyMember Type");
 
-                    program.logger.log(format_args!(
-                        "flagged poly member is typeable '{:?}'",
-                        poly_member
-                    ));
-                    program.flag_poly_member(poly_member, MemberDep::Type);
-
-                    deps.set_minimum_member_dep(MemberDep::ValueAndCallableIfFunction);
-                    program.queue_task(
-                        deps,
-                        Task::FlagPolyMember(
-                            poly_member,
-                            MemberDep::Value,
-                            DependencyList::new(), // Since the next thing ignores its dependencies anyway, we don't care to pass it. This might change later though
-                        ),
-                    );
                 }
                 Task::FlagPolyMember(poly_member, MemberDep::Value, _) => {
                     profile::profile!("Task::FlagPolyMember Value");
@@ -164,8 +150,28 @@ fn worker<'a>(alloc: &'a mut Bump, program: &'a Program) -> (ThreadContext<'a>, 
                     profile::profile!("Parse");
                     parse_file(&mut errors, program, &file, meta_data);
                 }
-                Task::TypePolyMember { .. } => { // member_id, ast, locals } => {
-                    todo!();
+                Task::TypePolyMember { member_id, ast, locals, mut dependencies } => {
+                    profile::profile!("Task::TypePolyMember");
+
+                    let mut yield_data = crate::typer::begin(&mut errors, &mut thread_context, program, locals, ast);
+                    crate::typer::solve(&mut errors, &mut thread_context, program, &mut yield_data);
+
+                    program.logger.log(format_args!(
+                        "typed poly member {:?}",
+                        member_id
+                    ));
+                    program.flag_poly_member(member_id, MemberDep::Type);
+
+                    // TODO: We should read the deps from the typer instead, it should know what the deps are after `begin`.
+                    dependencies.set_minimum_member_dep(MemberDep::ValueAndCallableIfFunction);
+                    program.queue_task(
+                        dependencies,
+                        Task::FlagPolyMember(
+                            member_id,
+                            MemberDep::Value,
+                            DependencyList::new(), // Since the next thing ignores its dependencies anyway, we don't care to pass it. This might change later though
+                        ),
+                    );
                 }
                 Task::TypeMember { member_id, ast, locals } => {
                     // If it's a polymorphic thing this task could have been scheduled twice, so we have to do this check.

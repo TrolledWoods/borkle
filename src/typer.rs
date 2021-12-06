@@ -96,7 +96,6 @@ pub fn begin<'a>(
     }
 }
 
-/// Returns Ok
 pub fn solve<'a>(
     errors: &mut ErrorCtx,
     thread_context: &mut ThreadContext<'a>,

@@ -1172,6 +1172,7 @@ fn maybe_parse_polymorphic_arguments(
     global: &mut DataContext<'_>,
 ) -> Result<Vec<(Location, Ustr)>, ()> {
     let mut args = Vec::new();
+
     if global.tokens.try_consume(&TokenKind::Open(Bracket::Square)) {
         loop {
             if global

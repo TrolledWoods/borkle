@@ -1,6 +1,8 @@
 library "base.bo";
 import "tests/main.bo";
 
+const Thing[A] = 44 : _;
+
 #entry fn() -> u64 { 'func
     99
 };
