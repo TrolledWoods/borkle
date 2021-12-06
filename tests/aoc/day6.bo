@@ -1,0 +1,47 @@
+library "base.bo";
+import "day6_input.bo";
+import "../main.bo";
+
+const AocDay6 = if DO_AOC {
+    defer ok("AOC day 6");
+    assert(aoc_day6(80) == 350917);
+    assert(aoc_day6(256) == 1592918715629);
+};
+
+const aoc_day6 = fn(time: usize) -> u64 {
+    let single_fish = #0 : [] u64;
+    let buffer_ptr = alloc(time * 8);
+    defer dealloc(buffer_ptr, time * 8);
+    single_fish.ptr = cast buffer_ptr;
+    single_fish.len = time;
+
+    for single_fish { *_it = 0; };
+    while _iters * 7 < time { *(single_fish.ptr + _iters * 7) = 1; };
+
+    for num_fish in single_fish {
+        let offset = _iters + 9;
+
+        while offset + _iters * 7 < time {
+            let v = single_fish.ptr + (offset + _iters * 7);
+            *v = *v + cast *num_fish;
+        };
+    };
+
+    let sum = 1;
+    for single_fish {
+        sum = sum + *_it;
+        *_it = sum;
+    };
+
+    let parse = INPUT;
+    take_whitespace(&parse);
+    let total = 0;
+    while not(empty(&parse)) {
+        let fish_timer = take_u64(&parse);
+        advance(&parse);
+
+        total = total + *(single_fish.ptr + (time - 1 - cast fish_timer));
+    };
+
+    total
+};

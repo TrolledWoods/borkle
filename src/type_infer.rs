@@ -1238,14 +1238,14 @@ impl TypeSystem {
         // self.print_state();
 
         while let Some(available_id) = self.queued_constraints.pop() {
-            println!("Applied constraint: {}", self.constraint_to_string(&self.constraints[available_id]));
+            // println!("Applied constraint: {}", self.constraint_to_string(&self.constraints[available_id]));
 
-            // self.apply_constraint(available_id);
+            self.apply_constraint(available_id);
 
             // self.print_state();
         }
 
-        self.print_state();
+        // self.print_state();
         while let Some(computable_size) = self.computable_value_sizes.pop() {
             self.values.compute_size(&mut self.computable_value_sizes, computable_size);
         }

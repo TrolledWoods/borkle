@@ -1,10 +1,6 @@
-// library "base.bo";
-// import "tests/main.bo";
+library "base.bo";
+import "tests/main.bo";
 
 #entry fn() -> u64 { 'func
-    // The problem is that the constraints are deduplicated, wrongly
-    let a = 0 : u32 : u64;
-    let b = 0 : u64 : u8;
-
     99
 };

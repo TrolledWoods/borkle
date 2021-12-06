@@ -10,6 +10,14 @@ const print = fn(string: [] u8) {
     i_stdout_flush();
 };
 
+const alloc = i_alloc;
+const dealloc = fn(ptr: &u8, len: usize) {
+    let buf = #0;
+    buf.ptr = ptr;
+    buf.len = len;
+    i_dealloc(buf);
+};
+
 const CHAR_0_ASCII_CODE = 48 : u8;
 
 // TEMPORARY until not operator is done a gain
