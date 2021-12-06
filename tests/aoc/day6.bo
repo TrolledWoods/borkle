@@ -31,11 +31,9 @@ const aoc_day6 = fn(time: usize) -> u64 {
     };
 
     let parse = INPUT;
-    take_whitespace(&parse);
     let total = 0;
-    while not(empty(&parse)) {
-        let fish_timer = take_u64(&parse);
-        advance(&parse);
+    while _iters * 2 < parse.len {
+        let fish_timer = *(parse.ptr + _iters * 2) - CHAR_0_ASCII_CODE;
 
         total = total + *(rolling_sum_ptr + cast fish_timer);
     };

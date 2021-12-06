@@ -3,8 +3,5 @@ import "tests/main.bo";
 import "tests/aoc/day6.bo";
 
 #entry fn() -> u64 { 'func
-    let result = aoc_day6(256);
-    print_u64(result);
-    print("\n");
     99
 };
