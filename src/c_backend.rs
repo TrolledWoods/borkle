@@ -209,7 +209,7 @@ pub fn routine_to_c(output: &mut String, routine: &Routine, arg_types: &[Type], 
             }
         }
         Routine::UserDefined(routine) => {
-            write!(output, "    // Declare registers\n").unwrap();
+            // write!(output, "    // Declare registers\n").unwrap();
             for (i, register) in routine
                 .registers
                 .locals
@@ -229,9 +229,9 @@ pub fn routine_to_c(output: &mut String, routine: &Routine, arg_types: &[Type], 
                 }
             }
 
-            write!(output, "    // Code\n").unwrap();
+            // write!(output, "    // Code\n").unwrap();
             for instr in &routine.instr {
-                write!(output, "    // {:?}\n", instr).unwrap();
+                // write!(output, "    // {:?}\n", instr).unwrap();
                 output.push_str("    ");
                 match instr {
                     Instr::TruncateInt { to, from, .. } | Instr::ExtendInt { to, from, .. } => {

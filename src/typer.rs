@@ -1,6 +1,7 @@
 use crate::dependencies::{DepKind, DependencyList, MemberDep};
 use crate::errors::ErrorCtx;
 use crate::literal::Literal;
+use crate::location::Location;
 use crate::execution_time::ExecutionTime;
 use crate::locals::LocalVariables;
 use crate::operators::{BinaryOp, UnaryOp};
@@ -9,14 +10,14 @@ use crate::program::{PolyOrMember, PolyMemberId, Program, Task, constant::Consta
 use crate::thread_pool::ThreadContext;
 use crate::type_infer::{self, ValueId as TypeId, TypeSystem, ValueSetId, Variance, TypeKind};
 use crate::types::{self, IntTypeKind, PtrPermits};
+use ustr::Ustr;
 
 #[derive(Clone)]
-struct PolyParamUsage {
-    param: usize,
-    value_id: TypeId,
-    node_id: NodeId,
-    is_type_expression: bool,
-    value_set_id: ValueSetId,
+pub struct PolyParam {
+    // is_type: bool,
+    loc: Location,
+    name: Ustr,
+    value_id: type_infer::ValueId,
 }
 
 #[derive(Clone)]
@@ -25,29 +26,20 @@ pub struct YieldData {
     locals: LocalVariables,
     ast: Ast,
     infer: TypeSystem,
-    poly_param_usages: Vec<PolyParamUsage>,
+    poly_params: Vec<PolyParam>,
 }
 
 impl YieldData {
     pub fn insert_poly_params(&mut self, poly_args: &[(crate::types::Type, ConstantRef)]) {
         // @HACK: For now, we just use the value set 0
         let set = 0;
-        let type_values: Vec<_> = poly_args.iter().map(|&(v, _)| self.infer.add_compiler_type(v, set)).collect();
 
-        for usage in self.poly_param_usages.drain(..) {
-            // @Cleanup: This is bad!!!
-            if usage.is_type_expression {
-                assert!(matches!(poly_args[usage.param].0.kind(), types::TypeKind::Type));
-                let compiler_type = unsafe { *poly_args[usage.param].1.as_ptr().cast::<types::Type>() };
-                let compiler_type_id = self.infer.add_compiler_type(compiler_type, set);
-                self.infer.set_polymorph_value(usage.value_id, compiler_type_id);
-                self.infer.value_sets.unlock(usage.value_set_id);
-            } else {
-                self.infer.set_polymorph_value(usage.value_id, type_values[usage.param]);
+        for (param, &(compiler_type, constant)) in self.poly_params.drain(..).zip(poly_args) {
+            let type_ = self.infer.add_compiler_type(compiler_type, set);
+            let value = self.infer.add_type(TypeKind::ConstantValue(constant), [], set);
+            let constant = self.infer.add_type(TypeKind::Constant, [type_, value], set);
 
-                self.ast.get_mut(usage.node_id).kind = NodeKind::Constant(poly_args[usage.param].1, None);
-                self.infer.value_sets.unlock(usage.value_set_id);
-            }
+            self.infer.set_equal(constant, param.value_id, Variance::Invariant);
         }
     }
 }
@@ -61,7 +53,7 @@ struct Context<'a, 'b> {
     emit_deps: &'a mut DependencyList,
     ast: &'a mut Ast,
     infer: &'a mut TypeSystem,
-    poly_param_usages: &'a mut Vec<PolyParamUsage>,
+    poly_params: &'a mut Vec<PolyParam>,
     runs: ExecutionTime,
 }
 
@@ -72,7 +64,7 @@ pub fn process_ast<'a>(
     locals: LocalVariables,
     ast: Ast,
 ) -> Result<Result<(DependencyList, LocalVariables, TypeSystem, Ast), (DependencyList, YieldData)>, ()> {
-    let mut yield_data = begin(errors, thread_context, program, locals, ast);
+    let mut yield_data = begin(errors, thread_context, program, locals, ast, Vec::new());
     solve(errors, thread_context, program, &mut yield_data);
     finish(errors, yield_data)
 }
@@ -83,10 +75,23 @@ pub fn begin<'a>(
     program: &'a Program,
     mut locals: LocalVariables,
     mut ast: Ast,
+    poly_params: Vec<(Location, Ustr)>,
 ) -> YieldData {
     let mut emit_deps = DependencyList::new();
     let mut infer = TypeSystem::new(program);
-    let mut poly_param_usages = Vec::new();
+
+    let mut poly_params: Vec<_> = poly_params
+        .into_iter()
+        .map(|(loc, name)| {
+            let value_id = infer.add_unknown_type();
+
+            PolyParam {
+                loc,
+                name,
+                value_id,
+            }
+        })
+        .collect();
 
     // Create type inference variables for all variables and nodes, so that there's a way to talk about
     // all of them.
@@ -108,7 +113,7 @@ pub fn begin<'a>(
         program,
         locals: &mut locals,
         emit_deps: &mut emit_deps,
-        poly_param_usages: &mut poly_param_usages,
+        poly_params: &mut poly_params,
         ast: &mut ast,
         infer: &mut infer,
         runs: ExecutionTime::RuntimeFunc,
@@ -125,7 +130,7 @@ pub fn begin<'a>(
         ast,
         locals,
         infer,
-        poly_param_usages,
+        poly_params,
     }
 }
 
@@ -142,7 +147,7 @@ pub fn solve<'a>(
         program,
         locals: &mut data.locals,
         emit_deps: &mut temp_emit_deps,
-        poly_param_usages: &mut data.poly_param_usages,
+        poly_params: &mut data.poly_params,
         ast: &mut data.ast,
         infer: &mut data.infer,
         // This is only used in build_constraints, what it's set to doesn't matter
@@ -200,7 +205,7 @@ pub fn finish<'a>(
     errors: &mut ErrorCtx,
     mut from: YieldData,
 ) -> Result<Result<(DependencyList, LocalVariables, TypeSystem, Ast), (DependencyList, YieldData)>, ()> {
-    debug_assert!(from.poly_param_usages.is_empty(), "Cannot finish something that still has poly params");
+    debug_assert!(from.poly_params.is_empty(), "Cannot finish something that still has poly params");
 
     let mut are_incomplete_sets = false;
     for value_set_id in from.infer.value_sets.iter_ids() {
@@ -237,6 +242,13 @@ pub fn finish<'a>(
 
 fn subset_was_completed(ctx: &mut Context<'_, '_>, waiting_on: WaitingOnTypeInferrence, set: ValueSetId) {
     match waiting_on {
+        WaitingOnTypeInferrence::ConstantFromValueId { value_id, to, parent_set } => {
+            // We expect the type to already be checked by some other mechanism,
+            // e.g., node_type_id should be equal to the type of the constant.
+            let constant_ref = type_infer::extract_constant_from_value(&ctx.infer.values, value_id).unwrap();
+            ctx.ast.get_mut(to).kind = NodeKind::Constant(constant_ref, None);
+            ctx.infer.value_sets.unlock(parent_set);
+        }
         WaitingOnTypeInferrence::TypeAsValue { type_id, node_id, parent_set } => {
             let compiler_type = ctx.infer.value_to_compiler_type(type_id);
             let constant_ref = ctx.program.insert_buffer(types::Type::new(types::TypeKind::Type), &compiler_type as *const _ as *const u8);
@@ -460,13 +472,15 @@ fn build_constraints(
         NodeKind::Uninit | NodeKind::Zeroed => {}
         NodeKind::PolymorphicArgument(index) => {
             ctx.infer.value_sets.lock(set);
-            ctx.infer.set_type(node_type_id, TypeKind::Polymorph(index), (), set);
-            ctx.poly_param_usages.push(PolyParamUsage {
-                param: index,
-                value_id: node_type_id,
-                node_id,
-                value_set_id: set,
-                is_type_expression: false,
+
+            let sub_set = ctx.infer.value_sets.add(WaitingOnTypeInferrence::None);
+            let value_id = ctx.infer.add_value(node_type_id, (), sub_set);
+            ctx.infer.set_equal(value_id, ctx.poly_params[index].value_id, Variance::Invariant);
+
+            ctx.infer.set_waiting_on_value_set(sub_set, WaitingOnTypeInferrence::ConstantFromValueId {
+                value_id,
+                to: node_id,
+                parent_set: set,
             });
         }
         NodeKind::SizeOf(inner) => {
@@ -773,7 +787,7 @@ fn build_constraints(
                 program: ctx.program,
                 locals: ctx.locals,
                 emit_deps: &mut emit_deps,
-                poly_param_usages: ctx.poly_param_usages,
+                poly_params: ctx.poly_params,
                 ast: ctx.ast,
                 infer: ctx.infer,
                 runs: ctx.runs.combine(ExecutionTime::RuntimeFunc),
@@ -1006,18 +1020,11 @@ fn build_type(
 
     match node.kind {
         NodeKind::ImplicitType => {},
-        NodeKind::PolymorphicArgument(index) => {
+        NodeKind::PolymorphicArgument(_) => {
             // We can't actually compute the type directly, because the polymorphic argument
             // will use a type id. So, we need to convert the type id into a value later.
             ctx.infer.value_sets.lock(set);
-            ctx.infer.set_type(node_type_id, TypeKind::Polymorph(index), (), set);
-            ctx.poly_param_usages.push(PolyParamUsage {
-                param: index,
-                value_id: node_type_id,
-                node_id,
-                value_set_id: set,
-                is_type_expression: true,
-            });
+            todo!("Not done");
         }
         NodeKind::Parenthesis(inner) => {
             let inner_type_id = build_type(ctx, inner, set);
@@ -1191,7 +1198,7 @@ fn build_inferrable_constant_value(
                 program: ctx.program,
                 locals: ctx.locals,
                 emit_deps: ctx.emit_deps,
-                poly_param_usages: ctx.poly_param_usages,
+                poly_params: ctx.poly_params,
                 ast: ctx.ast,
                 infer: ctx.infer,
                 runs: ctx.runs.combine(ExecutionTime::Typing),
@@ -1256,6 +1263,11 @@ pub enum WaitingOnTypeInferrence {
         node_id: NodeId,
         function: BuiltinFunction,
         type_: TypeId,
+        parent_set: ValueSetId,
+    },
+    ConstantFromValueId {
+        value_id: type_infer::ValueId,
+        to: NodeId,
         parent_set: ValueSetId,
     },
     ValueIdFromConstantComputation {

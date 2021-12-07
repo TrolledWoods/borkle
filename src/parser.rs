@@ -153,7 +153,7 @@ pub fn process_string(
 fn constant(global: &mut DataContext<'_>) -> Result<(), ()> {
     let token = global.tokens.expect_next(global.errors)?;
     if let TokenKind::Identifier(name) = token.kind {
-        let polymorphic_arguments = maybe_parse_polymorphic_arguments(global)?;
+        let poly_args = maybe_parse_polymorphic_arguments(global)?;
 
         if global.tokens.try_consume_operator_string("=").is_none() {
             global.error(token.loc, "Expected '=' after const".to_string());
@@ -168,12 +168,12 @@ fn constant(global: &mut DataContext<'_>) -> Result<(), ()> {
             &mut dependencies,
             &mut locals,
             false,
-            &polymorphic_arguments,
+            &poly_args,
         );
         let expr = expression(global, &mut imperative, &mut buffer)?;
         let tree = buffer.set_root(expr);
 
-        if polymorphic_arguments.is_empty() {
+        if poly_args.is_empty() {
             let id = global
                 .program
                 .define_member(global.errors, token.loc, global.scope, name)?;
@@ -187,7 +187,7 @@ fn constant(global: &mut DataContext<'_>) -> Result<(), ()> {
                 token.loc,
                 global.scope,
                 name,
-                polymorphic_arguments.len(),
+                poly_args.len(),
             )?;
             global.program.queue_task(
                 dependencies.clone(),
@@ -196,6 +196,7 @@ fn constant(global: &mut DataContext<'_>) -> Result<(), ()> {
                     locals,
                     ast: tree,
                     dependencies,
+                    poly_args,
                 },
             );
         }

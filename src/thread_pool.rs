@@ -151,10 +151,10 @@ fn worker<'a>(alloc: &'a mut Bump, program: &'a Program) -> (ThreadContext<'a>, 
                     profile::profile!("Parse");
                     parse_file(&mut errors, program, &file, meta_data);
                 }
-                Task::TypePolyMember { member_id, ast, locals, mut dependencies } => {
+                Task::TypePolyMember { member_id, ast, locals, mut dependencies, poly_args } => {
                     profile::profile!("Task::TypePolyMember");
 
-                    let mut yield_data = crate::typer::begin(&mut errors, &mut thread_context, program, locals, ast);
+                    let mut yield_data = crate::typer::begin(&mut errors, &mut thread_context, program, locals, ast, poly_args);
                     crate::typer::solve(&mut errors, &mut thread_context, program, &mut yield_data);
 
                     program.set_yield_data_of_poly_member(member_id, yield_data);

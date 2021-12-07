@@ -1,7 +1,9 @@
-library "base.bo";
-import "tests/main.bo";
+// library "base.bo";
+// import "tests/main.bo";
 
 const COMMA = *",".ptr;
+
+const Generic.(T) = T;
 
 #entry fn() -> u64 { 'func
     // This crashes for now
@@ -9,5 +11,8 @@ const COMMA = *",".ptr;
     //     count_matches.(u8)("Hello ,,,, ,, , , ,", fn(v) *v == COMMA)
     // ] u64;
 
-    2
+    Generic.({
+        let x = 49 : u64;
+        x
+    })
 };
