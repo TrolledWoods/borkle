@@ -452,7 +452,7 @@ fn build_constraints(
     ctx.infer.value_sets.add_node_to_set(set, node_id);
 
     match node.kind {
-        NodeKind::Uninit | NodeKind::Zeroed | NodeKind::ImplicitType => {}
+        NodeKind::Uninit | NodeKind::Zeroed => {}
         NodeKind::PolymorphicArgument(index) => {
             ctx.infer.value_sets.lock(set);
             ctx.infer.set_type(node_type_id, TypeKind::Polymorph(index), (), set);
@@ -999,6 +999,7 @@ fn build_type(
     ctx.infer.value_sets.add_node_to_set(set, node_id);
 
     match node.kind {
+        NodeKind::ImplicitType => {},
         NodeKind::PolymorphicArgument(index) => {
             // We can't actually compute the type directly, because the polymorphic argument
             // will use a type id. So, we need to convert the type id into a value later.

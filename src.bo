@@ -2,28 +2,41 @@ library "intrinsics.bo";
 library "base.bo";
 // import "tests/main.bo";
 
-const gen_alloc[T] = fn(count: usize) -> [] T {
+const gen_alloc.(T) = fn(count: usize) -> [] T {
     let buf = #0;
     buf.ptr = cast i_alloc(count * sizeof T);
     buf.len = count;
     buf
 };
 
-const gen_dealloc[T] = fn(buf: [] T) {
+const gen_dealloc.(T) = fn(buf: [] T) {
     let temp = #0;
     temp.ptr = cast buf.ptr;
     temp.len = buf.len * sizeof T;
     i_dealloc(temp);
 };
 
-const fill[T] = fn(buf: [] T, value: T) {
+const fill.(T) = fn(buf: [] T, value: T) {
     for buf { *_it = value; };
 };
 
+// By default generics are types, if you specify a type on them however, they turn into const generics.
+// Const generics can also hold type ids, but those cannot be inferred any better than normal constants.
+const fold.(F, T) = fn(buf: [] T, begin: F, func: fn(F, T) -> F) -> F {
+    for buf {
+        begin = func(begin, *_it);
+    };
+    begin
+};
+
+const sum.(T) = fn(buf: [] T, start: T) -> T {
+    fold.(T, T)(buf, start, fn(a: _, b: _) -> _  a + b)
+};
+
 #entry fn() -> u64 { 'func
-    let numbers = gen_alloc[u64](42);
-    defer gen_dealloc[u64](numbers);
-    fill[u64](numbers, 69);
+    let numbers = gen_alloc.(u64)(42);
+    defer gen_dealloc.(u64)(numbers);
+    fill.(u64)(numbers, 69);
 
     for numbers {
         print("The number at index ");
@@ -32,6 +45,10 @@ const fill[T] = fn(buf: [] T, value: T) {
         print_u64(*_it);
         print("!\n");
     };
+
+    print("The sum of the numbers is ");
+    print_u64(sum.(u64)(numbers, 0));
+    print("\n");
 
     4
 };

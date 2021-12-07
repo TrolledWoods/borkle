@@ -351,9 +351,6 @@ fn type_(
         TokenKind::Identifier(name) => {
             global.tokens.next();
 
-            let polymorphic_arguments =
-                parse_passed_polymorphic_arguments(global, imperative, buffer)?;
-
             if let Some(index) = imperative
                 .poly_args
                 .iter()
@@ -371,7 +368,7 @@ fn type_(
                 );
                 Ok(buffer.add(Node::new(
                     loc,
-                    NodeKind::GlobalForTyping(global.scope, name, polymorphic_arguments),
+                    NodeKind::GlobalForTyping(global.scope, name, Vec::new()),
                 )))
             }
         }
@@ -552,17 +549,7 @@ fn value_without_unaries(
     let token = global.tokens.expect_next(global.errors)?;
     let mut value = match token.kind {
         TokenKind::Identifier(name) => {
-            let polymorphic_arguments =
-                parse_passed_polymorphic_arguments(global, imperative, buffer)?;
-
             if let Some(local_id) = imperative.get_local(name) {
-                if !polymorphic_arguments.is_empty() {
-                    global.error(
-                        token.loc,
-                        "Cannot give a local polymorphic arguments".to_string(),
-                    );
-                    return Err(());
-                }
                 let local = imperative.locals.get_mut(local_id);
                 local.num_uses += 1;
                 let id = buffer.add(Node::new(token.loc, NodeKind::Local(local_id)));
@@ -585,7 +572,7 @@ fn value_without_unaries(
                 );
                 buffer.add(Node::new(
                     token.loc,
-                    NodeKind::GlobalForTyping(global.scope, name, polymorphic_arguments),
+                    NodeKind::GlobalForTyping(global.scope, name, Vec::new()),
                 ))
             } else {
                 imperative.dependencies.add(
@@ -594,7 +581,7 @@ fn value_without_unaries(
                 );
                 buffer.add(Node::new(
                     token.loc,
-                    NodeKind::Global(global.scope, name, polymorphic_arguments),
+                    NodeKind::Global(global.scope, name, Vec::new()),
                 ))
             }
         }
@@ -958,8 +945,68 @@ fn value_without_unaries(
             TokenKind::Operator(string) if string.as_str() == "." => {
                 global.tokens.next();
 
-                let (_, name) = global.tokens.expect_identifier(global.errors)?;
-                value = buffer.add(Node::new(loc, NodeKind::Member { of: value, name }));
+                let token = global.tokens.expect_next(global.errors)?;
+                match token.kind {
+                    TokenKind::Identifier(name) => {
+                        value = buffer.add(Node::new(loc, NodeKind::Member { of: value, name }));
+                    }
+                    TokenKind::Open(Bracket::Round) => {
+                        let mut polymorphic_arguments = Vec::new();
+
+                        let old_evaluate_at_typing = imperative.evaluate_at_typing;
+                        imperative.evaluate_at_typing = true;
+                        // @Cleanup: We should be able to deduplicate this code with function argument parsing...
+                        loop {
+                            if global
+                                .tokens
+                                .try_consume(&TokenKind::Close(Bracket::Round))
+                            {
+                                break;
+                            }
+
+                            let arg = expression(global, imperative, buffer)?;
+                            polymorphic_arguments.push(arg);
+                            buffer.get_mut(arg).parent = Some(value);
+
+                            let token = global.tokens.expect_next(global.errors)?;
+                            match token.kind {
+                                TokenKind::Close(Bracket::Round) => break,
+                                TokenKind::Comma => {}
+                                _ => {
+                                    global.error(token.loc, "Expected either ',' or ')'".to_string());
+                                    return Err(());
+                                }
+                            }
+                        }
+                        imperative.evaluate_at_typing = old_evaluate_at_typing;
+
+                        let prev = buffer.get_mut(value);
+                        match prev.kind {
+                            NodeKind::Global(scope, name, ref args) if args.is_empty() => {
+                                prev.kind = NodeKind::Global(scope, name, polymorphic_arguments);
+                            }
+                            NodeKind::Global(_, _, _) => {
+                                global.error(loc, "Cannot pass polymorphic arguments twice".to_string());
+                                return Err(());
+                            }
+                            NodeKind::GlobalForTyping(scope, name, ref args) if args.is_empty() => {
+                                prev.kind = NodeKind::GlobalForTyping(scope, name, polymorphic_arguments);
+                            }
+                            NodeKind::GlobalForTyping(_, _, _) => {
+                                global.error(loc, "Cannot pass polymorphic arguments twice".to_string());
+                                return Err(());
+                            }
+                            _ => {
+                                global.error(loc, "Cannot pass polymorphic arguments to anything other than a global value".to_string());
+                                return Err(());
+                            },
+                        }
+                    }
+                    _ => {
+                        global.error(token.loc, "Expected either an identifier, or a generic argument list".to_string());
+                        return Err(());
+                    }
+                }
             }
             TokenKind::Open(Bracket::Round) => {
                 global.tokens.next();
@@ -1136,48 +1183,14 @@ fn function_declaration(
     )))
 }
 
-// FIXME: The name of this is confusing af, just make it simple
-fn parse_passed_polymorphic_arguments(
-    global: &mut DataContext<'_>,
-    imperative: &mut ImperativeContext<'_>,
-    buffer: &mut AstBuilder,
-) -> Result<Vec<NodeId>, ()> {
-    let mut polymorphic_arguments = Vec::new();
-    if global.tokens.try_consume(&TokenKind::Open(Bracket::Square)) {
-        let old_evaluate_at_typing = imperative.evaluate_at_typing;
-        imperative.evaluate_at_typing = true;
-        loop {
-            if global
-                .tokens
-                .try_consume(&TokenKind::Close(Bracket::Square))
-            {
-                break;
-            }
-
-            let arg = expression(global, imperative, buffer)?;
-            polymorphic_arguments.push(arg);
-
-            let token = global.tokens.expect_next(global.errors)?;
-            match token.kind {
-                TokenKind::Close(Bracket::Square) => break,
-                TokenKind::Comma => {}
-                _ => {
-                    global.error(token.loc, "Expected either ',' or ']'".to_string());
-                    return Err(());
-                }
-            }
-        }
-        imperative.evaluate_at_typing = old_evaluate_at_typing;
-    }
-    Ok(polymorphic_arguments)
-}
-
 fn maybe_parse_polymorphic_arguments(
     global: &mut DataContext<'_>,
 ) -> Result<Vec<(Location, Ustr)>, ()> {
     let mut args = Vec::new();
 
-    if global.tokens.try_consume(&TokenKind::Open(Bracket::Square)) {
+    if global.tokens.try_consume_operator_string(".").is_some() {
+        global.tokens.expect_next_is(global.errors, &TokenKind::Open(Bracket::Round))?;
+
         loop {
             if global
                 .tokens
@@ -1191,10 +1204,10 @@ fn maybe_parse_polymorphic_arguments(
 
             let token = global.tokens.expect_next(global.errors)?;
             match token.kind {
-                TokenKind::Close(Bracket::Square) => break,
+                TokenKind::Close(Bracket::Round) => break,
                 TokenKind::Comma => {}
                 _ => {
-                    global.error(token.loc, "Expected either ',' or ']'".to_string());
+                    global.error(token.loc, "Expected either ',' or ')'".to_string());
                     return Err(());
                 }
             }

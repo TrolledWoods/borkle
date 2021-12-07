@@ -1650,6 +1650,12 @@ impl TypeSystem {
                     }
                     (
                         _,
+                        (Some(TypeKind::Polymorph(_)), Some(TypeKind::Polymorph(_)), Some(TypeKind::Polymorph(_))),
+                    ) => {
+                        return;
+                    }
+                    (
+                        _,
                         (Some(a), Some(b), Some(c)),
                     ) => unimplemented!("Operator {:?} with operands {:?}, {:?}, and returning {:?}, not supported in type inferrence yet", op, a, b, c),
                     _ => return,
