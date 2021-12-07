@@ -642,6 +642,10 @@ fn value_without_unaries(
                 buffer.add(Node::new(token.loc, NodeKind::ConstAtEvaluation { inner }))
             }
         }
+        TokenKind::Keyword(Keyword::SizeOf) => {
+            let t = type_(global, imperative, buffer)?;
+            buffer.add(Node::new(token.loc, NodeKind::SizeOf(t)))
+        }
         TokenKind::Keyword(Keyword::Type) => {
             let t = type_(global, imperative, buffer)?;
             buffer.add(Node::new(token.loc, NodeKind::TypeAsValue(t)))

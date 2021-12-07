@@ -132,6 +132,7 @@ impl Node {
                 }
             }
             TypeOf(inner) => v(inner),
+            SizeOf(inner) => v(inner),
             BuiltinFunction(_) => {}
 
             PolymorphicArgument(_) => {}
@@ -337,6 +338,7 @@ pub enum NodeKind {
     },
 
     TypeOf(NodeId),
+    SizeOf(NodeId),
 
     /// Any node within this node, is what I call a "type" node. These nodes, when typechecked, actually have their
     /// type set as their value instead of their type; their type is just "Type". The reason for that is that they're

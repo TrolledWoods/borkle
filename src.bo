@@ -1,11 +1,38 @@
+library "intrinsics.bo";
 library "base.bo";
 // import "tests/main.bo";
 
-const Buffer[T] = type [] T;
+const gen_alloc[T] = fn(count: usize) -> [] T {
+    let buf = #0;
+    buf.ptr = cast i_alloc(count * sizeof T);
+    buf.len = count;
+    buf
+};
 
-const BufferU8 = Buffer[u8];
+const gen_dealloc[T] = fn(buf: [] T) {
+    let temp = #0;
+    temp.ptr = cast buf.ptr;
+    temp.len = buf.len * sizeof T;
+    i_dealloc(temp);
+};
+
+const fill[T] = fn(buf: [] T, value: T) {
+    for buf { *_it = value; };
+};
 
 #entry fn() -> u64 { 'func
+    let numbers = gen_alloc[u64](42);
+    defer gen_dealloc[u64](numbers);
+    fill[u64](numbers, 69);
+
+    for numbers {
+        print("The number at index ");
+        print_u64(cast _iters);
+        print(" is ");
+        print_u64(*_it);
+        print("!\n");
+    };
+
     4
 };
 
