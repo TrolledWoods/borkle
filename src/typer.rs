@@ -786,18 +786,23 @@ fn build_constraints(
             sub_ctx.infer.value_sets.lock(set);
 
             let mut function_type_ids = Vec::with_capacity(args.len() + 1);
-            let returns_type_id = build_type(&mut sub_ctx, returns, sub_set);
+            let returns_type_id = match returns {
+                Some(returns) => build_type(&mut sub_ctx, returns, sub_set),
+                None => sub_ctx.infer.add_unknown_type_with_set(sub_set),
+            };
             function_type_ids.push(returns_type_id);
 
             for (local_id, type_node) in args {
                 let local = sub_ctx.locals.get_mut(local_id);
                 local.stack_frame_id = sub_set;
                 let local_type_id = local.type_infer_value_id;
-                let type_id = build_type(&mut sub_ctx, type_node, sub_set);
                 sub_ctx.infer.set_value_set(local_type_id, sub_set);
-                sub_ctx.infer
-                    .set_equal(type_id, local_type_id, Variance::Invariant);
-                function_type_ids.push(type_id);
+                if let Some(type_node) = type_node {
+                    let type_id = build_type(&mut sub_ctx, type_node, sub_set);
+                    sub_ctx.infer
+                        .set_equal(type_id, local_type_id, Variance::Invariant);
+                }
+                function_type_ids.push(local_type_id);
             }
 
             let body_type_id = build_constraints(&mut sub_ctx, body, sub_set);

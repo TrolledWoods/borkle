@@ -1130,16 +1130,12 @@ fn function_declaration(
             ..
         }) = global.tokens.next()
         {
+            let local_id = imperative.insert_local(Local::new(loc, name));
             if global.tokens.try_consume_operator_string(":").is_some() {
                 let arg_type = type_(global, imperative, buffer)?;
-                let local_id = imperative.insert_local(Local::new(loc, name));
-                args.push((local_id, arg_type));
+                args.push((local_id, Some(arg_type)));
             } else {
-                global.error(
-                    global.tokens.loc(),
-                    "Expected ':' for argument type".to_string(),
-                );
-                return Err(());
+                args.push((local_id, None));
             }
         } else {
             global.error(
@@ -1161,12 +1157,9 @@ fn function_declaration(
     }
 
     let returns = if global.tokens.try_consume_operator_string("->").is_some() {
-        type_(global, imperative, buffer)?
+        Some(type_(global, imperative, buffer)?)
     } else {
-        buffer.add(Node::new(
-            global.tokens.loc(),
-            NodeKind::LiteralType(TypeKind::Empty.into()),
-        ))
+        None
     };
 
     let body = expression(global, imperative, buffer)?;

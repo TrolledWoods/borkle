@@ -180,9 +180,13 @@ impl Node {
                 body,
             } => {
                 for &(_, arg) in args {
-                    v(arg);
+                    if let Some(arg) = arg {
+                        v(arg);
+                    }
                 }
-                v(returns);
+                if let Some(returns) = returns {
+                    v(returns);
+                }
                 v(body);
             }
 
@@ -332,8 +336,8 @@ pub enum NodeKind {
     },
 
     FunctionDeclaration {
-        args: Vec<(LocalId, NodeId)>,
-        returns: NodeId,
+        args: Vec<(LocalId, Option<NodeId>)>,
+        returns: Option<NodeId>,
         body: NodeId,
     },
 

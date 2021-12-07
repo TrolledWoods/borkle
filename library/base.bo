@@ -41,9 +41,9 @@ const slice.(T) = fn(buf: [] T, start: usize, end: usize) -> [] T {
     new
 };
 
-const count_matches.(T) = fn(buf: [] T, predicate: fn(T) -> bool) -> usize {
+const count_matches.(T) = fn(buf: [] T, predicate: fn(&T) -> bool) -> usize {
     let count = 0;
-    for buf  if predicate(*_it)  count = count + 1;
+    for buf  if predicate(_it)  count = count + 1;
     count
 };
 

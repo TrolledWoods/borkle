@@ -2,5 +2,5 @@ library "base.bo";
 import "tests/main.bo";
 
 #entry fn() -> u64 { 'func
-    4
+    2
 };
