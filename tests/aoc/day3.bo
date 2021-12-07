@@ -1,5 +1,4 @@
 library "base.bo";
-library "intrinsics.bo";
 import "day3_input.bo";
 import "../main.bo";
 
@@ -62,21 +61,10 @@ const aoc_day3_part2 = fn() -> u64 {
         lines = lines + 1;
     };
 
-    // Allocate a buffer (This should really just be one call to alloc in the future)
-    let numbers = #0 : []rw {
-        number: u32;
-        consider_for_a_rate: bool;
-        consider_for_b_rate: bool;
-    };
-    numbers.ptr = cast i_alloc(lines * (4 + 4));
-    numbers.len = lines;
-    // Oh no, this is terrible!
-    defer i_dealloc({
-        let buf = #0;
-        buf.ptr = cast numbers.ptr;
-        buf.len = lines * (4 + 4);
-        buf
-    });
+    let numbers = alloc
+        .(type { number: u32; consider_for_a_rate: bool; consider_for_b_rate: bool; })
+        (lines);
+    defer dealloc.(type typeof *numbers.ptr)(numbers);
 
     let input = INPUT;
     take_whitespace(&input);

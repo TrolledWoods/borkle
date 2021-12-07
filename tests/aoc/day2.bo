@@ -50,7 +50,7 @@ const aoc_day2_part_2 = fn(parse: []r u8) -> i64 {
 
         if cmp_strings(command, "forward") {
             pos = pos + cast number;
-            depth = depth + aim * number;
+            depth = depth + aim * cast number;
         } else if cmp_strings(command, "down") {
             aim = aim + cast number;
         } else if cmp_strings(command, "up") {

@@ -1,4 +1,3 @@
-library "intrinsics.bo";
 library "base.bo";
 import "day5_input.bo";
 import "../main.bo";
@@ -40,15 +39,8 @@ const aoc_day5 = fn(include_diagonals: bool) -> u64 {
     // We need two bits per cell, on a 64 bit int, so 32 values per cell.
     let width_cells = (width / 32) + 1;
 
-    let cells = #0 : [] u64;
-    cells.ptr = cast i_alloc(cast (width_cells * height * 8));
-    cells.len = cast (width_cells * height);
-    defer i_dealloc({
-        let b = #0;
-        b.ptr = cast cells.ptr;
-        b.len = cells.len * 8;
-        b
-    });
+    let cells = alloc.(u64)(cast (width_cells * height * 8));
+    defer dealloc.(u64)(cells);
 
     // Set all of it to zero
     for cells { *_it = 0; };

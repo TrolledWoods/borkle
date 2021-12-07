@@ -1063,6 +1063,12 @@ impl TypeSystem {
             has_errors = true;
 
             match *error {
+                Error { a, b: _, kind: ErrorKind::NonexistantName(name) } => {
+                    if let Some(loc) = get_loc_of_value(ast, locals, a) {
+                        errors.info(loc, format!("Here"));
+                    }
+                    errors.global_error(format!("Field '{}' doesn't exist on type {}", name, self.value_to_str(a, 0)));
+                }
                 Error { a, b, kind: ErrorKind::IncompatibleTypes(creator) } => {
                     let mut a_id = a;
                     let mut b_id = b;

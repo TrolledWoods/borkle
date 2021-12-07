@@ -1,5 +1,4 @@
 library "base.bo";
-library "intrinsics.bo";
 import "day4_input.bo";
 import "../main.bo";
 
@@ -22,17 +21,8 @@ const aoc_day4 = fn() -> { part_1: u64; part_2: u64; } {
         if number > max_number  max_number = number;
     };
 
-    // Allocate a list, and fill it like a map from bingo number to when it is drawn.
-    let number_map = #uninit : [] u16;
-    number_map.ptr = cast i_alloc(cast max_number * 2);
-    number_map.len = max_number;
-    // Oh no, this is terrible!
-    defer i_dealloc({
-        let buf = #0;
-        buf.ptr = cast number_map.ptr;
-        buf.len = cast max_number * 2;
-        buf
-    });
+    let number_map = alloc.(u16)(max_number);
+    defer dealloc.(u16)(number_map);
 
     parse = INPUT;
     take_whitespace(&parse);
@@ -54,16 +44,8 @@ const aoc_day4 = fn() -> { part_1: u64; part_2: u64; } {
         num_boards = num_boards + 1;
     };
 
-    let board_cells = #uninit : [] u16;
-    board_cells.ptr = cast i_alloc(num_boards * 25 * 2);
-    // Oh no, this is terrible!
-    defer i_dealloc({
-        let buf = #0;
-        buf.ptr = cast board_cells.ptr;
-        buf.len = num_boards * 25 * 2;
-        buf
-    });
-    board_cells.len = num_boards * 25;
+    let board_cells = alloc.(u16)(num_boards * 25);
+    defer dealloc.(u16)(board_cells);
 
     // Read the numbers into the boards
     parse = boards_section;

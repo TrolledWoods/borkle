@@ -322,15 +322,20 @@ fn subset_was_completed(ctx: &mut Context<'_, '_>, waiting_on: WaitingOnTypeInfe
             body,
             function_type,
             parent_set,
-            function_id,
             time,
         } => {
+            let node_loc = ctx.ast.get(node_id).loc;
+            let function_id = ctx.program.insert_function(node_loc);
+
             let type_ = ctx.infer.value_to_compiler_type(function_type);
             let emit_deps = ctx.infer.value_sets.get_mut(set).emit_deps.take().unwrap();
 
             match time {
                 ExecutionTime::Never => return,
                 ExecutionTime::RuntimeFunc | ExecutionTime::Emission => {
+                    let dependant_deps = ctx.infer.value_sets.get_mut(parent_set).emit_deps.as_mut().unwrap();
+                    dependant_deps.add(node_loc, DepKind::Callable(function_id));
+
                     ctx.program.queue_task(
                         emit_deps,
                         Task::EmitFunction(
@@ -804,15 +809,11 @@ fn build_constraints(
             ctx.infer
                 .set_equal(infer_type_id, node_type_id, Variance::Invariant);
 
-            let function_id = ctx.program.insert_function(node_loc);
-            ctx.emit_deps.add(node_loc, DepKind::Callable(function_id));
-
             ctx.infer.set_waiting_on_value_set(sub_set, WaitingOnTypeInferrence::FunctionDeclarationInTyping {
                 node_id,
                 body,
                 function_type: infer_type_id,
                 parent_set: set,
-                function_id,
                 time: ctx.runs,
             });
             let old_set = ctx.infer.value_sets.get_mut(sub_set).emit_deps.replace(emit_deps);
@@ -1244,7 +1245,6 @@ pub enum WaitingOnTypeInferrence {
         /// parent set, and we have to make sure that the parent set isn't
         /// emitted before that constant is created.
         parent_set: ValueSetId,
-        function_id: FunctionId,
         time: ExecutionTime,
     },
     BuiltinFunctionInTyping {
