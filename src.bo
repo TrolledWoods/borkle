@@ -1,12 +1,9 @@
-// library "base.bo";
-// import "tests/main.bo";
-
-const Generic.(V, T) = fn(v: typeof V, t: typeof T) v(t);
+library "base.bo";
+import "tests/main.bo";
 
 #entry fn() -> u64 { 'func
-    let value = Generic.(#0, #0)(fn(x) x, 49);
-
-    value
+    let thing = &[1, 2, 3] : [] _;
+    *thing.ptr
 };
 
 

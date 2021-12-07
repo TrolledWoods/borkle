@@ -1733,7 +1733,7 @@ impl TypeSystem {
                 let a = get_value(&self.values, a_id);
 
                 match &a.kind {
-                    None => {}
+                    None => return,
                     Some(Type { kind: TypeKind::Buffer, args, .. }) => {
                         match &*field_name {
                             "ptr" => {
@@ -1842,6 +1842,8 @@ impl TypeSystem {
                         return;
                     }
                 }
+
+                self.constraints[constraint_id].applied |= true;
             }
             ConstraintKind::EqualsField {
                 values: [a_id, b_id],
@@ -1868,6 +1870,8 @@ impl TypeSystem {
                             ));
                             return;
                         }
+
+                        self.constraints[constraint_id].applied |= true;
                     }
                 }
             }
