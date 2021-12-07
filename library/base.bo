@@ -10,42 +10,42 @@ const print = fn(string: [] u8) {
     i_stdout_flush();
 };
 
-const alloc.(T) = fn(count: usize) -> [] T {
-    let buf = #0;
-    buf.ptr = cast i_alloc(count * sizeof T);
-    buf.len = count;
-    buf
-};
-
-const dealloc.(T) = fn(buf: [] T) {
-    let temp = #0;
-    temp.ptr = cast buf.ptr;
-    temp.len = buf.len * sizeof T;
-    i_dealloc(temp);
-};
-
-const fill.(T) = fn(buf: [] T, value: T) {
-    for buf { *_it = value; };
-};
-
-const slice_to_end.(T) = fn(buf: [] T, start: usize) -> [] T {
-    slice.(T)(buf, start, buf.len)
-};
-
-const slice.(T) = fn(buf: [] T, start: usize, end: usize) -> [] T {
-    assert(start < end);
-    assert(end <= buf.len);
-    let new = #uninit;
-    new.ptr = buf.ptr + start;
-    new.len = end - start;
-    new
-};
-
-const count_matches.(T) = fn(buf: [] T, predicate: fn(&T) -> bool) -> usize {
-    let count = 0;
-    for buf  if predicate(_it)  count = count + 1;
-    count
-};
+// const alloc.(T) = fn(count: usize) -> [] T {
+//     let buf = #0;
+//     buf.ptr = cast i_alloc(count * sizeof T);
+//     buf.len = count;
+//     buf
+// };
+// 
+// const dealloc.(T) = fn(buf: [] T) {
+//     let temp = #0;
+//     temp.ptr = cast buf.ptr;
+//     temp.len = buf.len * sizeof T;
+//     i_dealloc(temp);
+// };
+// 
+// const fill.(T) = fn(buf: [] T, value: T) {
+//     for buf { *_it = value; };
+// };
+// 
+// const slice_to_end.(T) = fn(buf: [] T, start: usize) -> [] T {
+//     slice.(T)(buf, start, buf.len)
+// };
+// 
+// const slice.(T) = fn(buf: [] T, start: usize, end: usize) -> [] T {
+//     assert(start < end);
+//     assert(end <= buf.len);
+//     let new = #uninit;
+//     new.ptr = buf.ptr + start;
+//     new.len = end - start;
+//     new
+// };
+// 
+// const count_matches.(T) = fn(buf: [] T, predicate: fn(&T) -> bool) -> usize {
+//     let count = 0;
+//     for buf  if predicate(_it)  count = count + 1;
+//     count
+// };
 
 const CHAR_0_ASCII_CODE = 48 : u8;
 

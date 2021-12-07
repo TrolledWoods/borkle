@@ -1,18 +1,46 @@
-// library "base.bo";
+library "base.bo";
 // import "tests/main.bo";
 
-const CreateZeroed.(N) = fn(v: [N] u32) -> [N] u32  v;
+const copy_with_predicate.(A, B, T) = fn(input: &[A] typeof T, output: &[B] typeof T, pred: fn(&typeof T, &typeof T) -> bool) {
+    let output_ptr = cast &output : &typeof T;
 
-#entry fn() -> u64 { 'func
-    CreateZeroed.(_)(#0) : [39] _;
-    
-    5
+    let i = 0;
+    for cast input : &typeof T {
+        if i >= B  break;
+
+        if pred(_it, output_ptr + i) {
+            *(output_ptr + i) = *_it;
+        };
+    };
+};
+
+// This causes crash! Why?
+//
+// const copy.(A, T) = fn(input: &[A] typeof T, output: &[A] typeof T) {
+//     copy_with_predicate.(_, _, #0)(input, output, fn(v0, v1) true);
+// };
+
+const apply.(T) = fn(input: typeof T, func: fn(typeof T)) -> _ {
+    func(input)
+};
+
+const PrintVec3 = fn(v: [3] u64) {
+    print("x: ");
+    print_u64(v._0);
+    print("y: ");
+    print_u64(v._1);
+    print("z: ");
+    print_u64(v._2);
+    print("\n");
+};
+
+#entry fn() -> u64 {
+    4
 };
 
 
-
-
-    // This crashes for now
-    // let stack_array = #0 : [
-    //     count_matches.(u8)("Hello ,,,, ,, , , ,", fn(v) *v == COMMA)
-    // ] u64;
+// This crashes for now (polymorphics being resolved at typing time)
+//
+// let stack_array = #0 : [
+//     count_matches.(u8)("Hello ,,,, ,, , , ,", fn(v) *v == COMMA)
+// ] u64;

@@ -369,7 +369,7 @@ fn type_(
                 );
                 Ok(buffer.add(Node::new(
                     loc,
-                    NodeKind::GlobalForTyping(global.scope, name, Vec::new()),
+                    NodeKind::GlobalForTyping(global.scope, name, None),
                 )))
             }
         }
@@ -576,7 +576,7 @@ fn value_without_unaries(
                 );
                 buffer.add(Node::new(
                     token.loc,
-                    NodeKind::GlobalForTyping(global.scope, name, Vec::new()),
+                    NodeKind::GlobalForTyping(global.scope, name, None),
                 ))
             } else {
                 imperative.dependencies.add(
@@ -585,7 +585,7 @@ fn value_without_unaries(
                 );
                 buffer.add(Node::new(
                     token.loc,
-                    NodeKind::Global(global.scope, name, Vec::new()),
+                    NodeKind::Global(global.scope, name, None),
                 ))
             }
         }
@@ -986,17 +986,17 @@ fn value_without_unaries(
 
                         let prev = buffer.get_mut(value);
                         match prev.kind {
-                            NodeKind::Global(scope, name, ref args) if args.is_empty() => {
-                                prev.kind = NodeKind::Global(scope, name, polymorphic_arguments);
+                            NodeKind::Global(scope, name, None) => {
+                                prev.kind = NodeKind::Global(scope, name, Some(polymorphic_arguments));
                             }
-                            NodeKind::Global(_, _, _) => {
+                            NodeKind::Global(_, _, Some(_)) => {
                                 global.error(loc, "Cannot pass polymorphic arguments twice".to_string());
                                 return Err(());
                             }
-                            NodeKind::GlobalForTyping(scope, name, ref args) if args.is_empty() => {
-                                prev.kind = NodeKind::GlobalForTyping(scope, name, polymorphic_arguments);
+                            NodeKind::GlobalForTyping(scope, name, None) => {
+                                prev.kind = NodeKind::GlobalForTyping(scope, name, Some(polymorphic_arguments));
                             }
-                            NodeKind::GlobalForTyping(_, _, _) => {
+                            NodeKind::GlobalForTyping(_, _, Some(_)) => {
                                 global.error(loc, "Cannot pass polymorphic arguments twice".to_string());
                                 return Err(());
                             }

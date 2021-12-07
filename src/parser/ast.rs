@@ -140,8 +140,10 @@ impl Node {
             ConstAtEvaluation { inner } => v(inner),
 
             Global(_, _, ref nodes) | GlobalForTyping(_, _, ref nodes) => {
-                for &node in nodes {
-                    v(node);
+                if let Some(nodes) = nodes {
+                    for &node in nodes {
+                        v(node);
+                    }
                 }
             }
 
@@ -303,8 +305,8 @@ pub enum NodeKind {
         inner: NodeId,
     },
 
-    Global(ScopeId, Ustr, Vec<NodeId>),
-    GlobalForTyping(ScopeId, Ustr, Vec<NodeId>),
+    Global(ScopeId, Ustr, Option<Vec<NodeId>>),
+    GlobalForTyping(ScopeId, Ustr, Option<Vec<NodeId>>),
 
     Constant(ConstantRef, Option<Arc<MemberMetaData>>),
     ResolvedGlobal(MemberId, Arc<MemberMetaData>),

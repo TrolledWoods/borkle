@@ -515,19 +515,27 @@ fn build_constraints(
             match id {
                 PolyOrMember::Poly(id) => {
                     let num_args = ctx.program.get_num_poly_args(id);
-                    if num_args != poly_params.len() {
-                        ctx.errors.error(node_loc, format!("Passed {} arguments to polymorphic value, but the polymorphic value needs {} values", num_args, poly_params.len()));
-                        // @Cleanup: This should probably just be a function on TypeSystem
-                        ctx.infer.value_sets.get_mut(set).has_errors |= true;
-                        return node_type_id;
-                    }
 
-                    let params = poly_params.clone();
+                    let mut param_values = Vec::with_capacity(num_args);
                     let sub_set = ctx.infer.value_sets.add(WaitingOnTypeInferrence::None);
-                    let mut param_values = Vec::with_capacity(params.len());
-                    for &param in &params {
-                        let (_, param_value_id) = build_inferrable_constant_value(ctx, param, sub_set);
-                        param_values.push(param_value_id);
+                    if let Some(poly_params) = poly_params {
+                        if num_args != poly_params.len() {
+                            ctx.errors.error(node_loc, format!("Passed {} arguments to polymorphic value, but the polymorphic value needs {} values", poly_params.len(), num_args));
+                            // @Cleanup: This should probably just be a function on TypeSystem
+                            ctx.infer.value_sets.get_mut(set).has_errors |= true;
+                            return node_type_id;
+                        }
+
+                        let params = poly_params.clone();
+                        for &param in &params {
+                            let (_, param_value_id) = build_inferrable_constant_value(ctx, param, sub_set);
+                            param_values.push(param_value_id);
+                        }
+                    } else {
+                        for _ in 0..num_args {
+                            let param_value_id = ctx.infer.add_unknown_type_with_set(sub_set);
+                            param_values.push(param_value_id);
+                        }
                     }
 
                     let other_yield_data = ctx.program.get_polymember_yielddata(id);
@@ -553,7 +561,7 @@ fn build_constraints(
                     });
                 }
                 PolyOrMember::Member(id) => {
-                    if !poly_params.is_empty() {
+                    if !poly_params.as_ref().map_or(true, |v| v.is_empty()) {
                         // This is an error, since it's not polymorphic
                         ctx.errors.error(node_loc, "Passed polymorphic parameters even though this value isn't polymorphic".to_string());
                         // @Cleanup: This should probably just be a function on TypeSystem
