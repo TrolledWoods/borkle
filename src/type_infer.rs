@@ -734,6 +734,10 @@ impl Values {
             Some(v)
         })
     }
+    
+    fn structure_id_of_value(&self, value_id: ValueId) -> u32 {
+        self.values[value_id as usize].structure_id
+    }
 
     // @Cleanup: Move this out of function? It's going to get pretty situation specific I feel like
     fn structurally_combine(&mut self, computable_sizes: &mut Vec<ValueId>, value_sets: &mut ValueSets, a: ValueId, b: ValueId) {
@@ -752,17 +756,26 @@ impl Values {
         let b_structure = mem::take(&mut self.structure[old_b_structure_id as usize]);
         let a_structure = &mut self.structure[structure_id as usize];
         a_structure.num_values += b_structure.num_values;
-        if a_structure.layout.align > 0 {
-            for dependant in b_structure.layout_dependants {
-                let dependant_structure_id = self.values[dependant as usize].structure_id;
-                let dependant_structure = &mut self.structure[dependant_structure_id as usize];
-                dependant_structure.layout.size -= 1;
-                if dependant_structure.layout.size == 0 {
-                    computable_sizes.push(dependant);
+        match (a_structure.layout.align > 0, b_structure.layout.align > 0) {
+            (true, false) => {
+                for dependant in b_structure.layout_dependants {
+                    let dependant_structure_id = self.values[dependant as usize].structure_id;
+                    let dependant_structure = &mut self.structure[dependant_structure_id as usize];
+                    // @TODO: Fix this! Oh god
+                    // debug_assert_eq!(dependant_structure.layout.align, 0);
+                    dependant_structure.layout.size -= 1;
+                    if dependant_structure.layout.size == 0 {
+                        computable_sizes.push(dependant);
+                    }
                 }
             }
-        } else {
-            a_structure.layout_dependants.extend(b_structure.layout_dependants);
+            (false, false) => {
+                debug_assert_eq!(b_structure.layout.align, 0);
+                a_structure.layout.size += b_structure.layout.size;
+                a_structure.layout_dependants.extend(b_structure.layout_dependants);
+            }
+            (true, true) => {}
+            (false, true) => unreachable!("This shouldn't happen"),
         }
 
         // Join the two linked lists together
@@ -932,12 +945,17 @@ fn slice_get_two_mut<T>(slice: &mut [T], a: usize, b: usize) -> Option<(&mut T, 
     }
 }
 
-fn get_loc_of_value(ast: &crate::parser::Ast, locals: &crate::locals::LocalVariables, value: ValueId) -> Option<Location> {
+fn get_loc_of_value(poly_args: &[crate::typer::PolyParam], ast: &crate::parser::Ast, locals: &crate::locals::LocalVariables, value: ValueId) -> Option<Location> {
     let mut loc_id = value;
     if loc_id < static_values::STATIC_VALUES_SIZE {
         return None;
     }
     loc_id -= static_values::STATIC_VALUES_SIZE;
+
+    if loc_id < poly_args.len() as _ {
+        return Some(poly_args[loc_id as usize].loc);
+    }
+    loc_id -= poly_args.len() as ValueId;
 
     if loc_id < ast.nodes.len() as _ {
         return Some(ast.get(loc_id).loc);
@@ -1009,6 +1027,66 @@ impl TypeSystem {
         this
     }
 
+    // @TODO: We should deal with recursive types later on.
+    fn map_value_from_other_typesystem_to_this(
+        &mut self,
+        other: &TypeSystem,
+        other_id: ValueId,
+        already_converted: &mut Vec<(u32, ValueId)>,
+        set: ValueSetId,
+    ) -> ValueId {
+        // Static values are the same in both sets
+        if other_id < static_values::STATIC_VALUES_SIZE {
+            return other_id;
+        }
+
+        // Check if we've already converted the value
+        let value_structure_id = other.values.structure_id_of_value(other_id);
+        for &(from_structure_id, converted_value) in already_converted.iter() {
+            if from_structure_id == value_structure_id {
+                // @TODO: This does not deal with variance at all
+                return converted_value;
+            }
+        }
+
+        // We're going to need a new value
+        let value_id = self.add_unknown_type_with_set(set);
+        already_converted.push((value_structure_id, value_id));
+
+        let other_value = other.values.get(other_id);
+        match other_value.kind {
+            Some(Type { kind, args: Some(ref args) }) => {
+                let new_args: Box<[_]> = args.iter()
+                    .map(|&v|
+                        self.map_value_from_other_typesystem_to_this(other, v, already_converted, set)
+                    )
+                    .collect();
+                self.set_type(value_id, kind.clone(), new_args, set);
+            }
+            Some(Type { kind, args: None }) => {
+                self.set_type(value_id, kind.clone(), (), set);
+            }
+            None => {},
+        }
+
+        value_id
+    }
+
+    pub fn add_subtree_from_other_typesystem(
+        &mut self,
+        other: &TypeSystem,
+        // The first one is the id of the this typesystem, the second one is the id in the other
+        to_convert: impl IntoIterator<Item = (ValueId, ValueId)>,
+        set: ValueSetId,
+    ) {
+        let mut already_converted = Vec::new();
+        for (this_id, other_id) in to_convert {
+            let new_id = self.map_value_from_other_typesystem_to_this(other, other_id, &mut already_converted, set);
+            // @TODO: Deal with variance
+            self.set_equal(new_id, this_id, Variance::Invariant);
+        }
+    }
+
     pub fn set_waiting_on_value_set(&mut self, value_set_id: ValueSetId, waiting_on: crate::typer::WaitingOnTypeInferrence) {
         let value_set = self.value_sets.get_mut(value_set_id);
         debug_assert!(matches!(value_set.waiting_on_completion, crate::typer::WaitingOnTypeInferrence::None), "Cannot use set_on_waiting_on_value_set to override a previous waiter");
@@ -1026,11 +1104,11 @@ impl TypeSystem {
         }
     }
 
-    pub fn output_incompleteness_errors(&self, errors: &mut ErrorCtx, ast: &crate::parser::Ast, locals: &crate::locals::LocalVariables) {
+    pub fn output_incompleteness_errors(&self, errors: &mut ErrorCtx, poly_args: &[crate::typer::PolyParam], ast: &crate::parser::Ast, locals: &crate::locals::LocalVariables) {
         for node_id in 0..self.values.values.len() as ValueId {
             if !self.values.get(node_id).value_sets.is_complete() {
                 // Generate an error
-                if let Some(loc) = get_loc_of_value(ast, locals, node_id) {
+                if let Some(loc) = get_loc_of_value(poly_args, ast, locals, node_id) {
                     errors.error(loc, format!("Ambiguous type"));
                 } else {
                     errors.global_error(format!("Ambiguous type"));
@@ -1039,7 +1117,7 @@ impl TypeSystem {
         }
     }
 
-    pub fn output_errors(&self, errors: &mut ErrorCtx, ast: &crate::parser::Ast, locals: &crate::locals::LocalVariables) -> bool {
+    pub fn output_errors(&self, errors: &mut ErrorCtx, poly_args: &[crate::typer::PolyParam], ast: &crate::parser::Ast, locals: &crate::locals::LocalVariables) -> bool {
         let mut has_errors = false;
         if self.value_sets.iter().any(|v| v.has_errors) {
             has_errors = true;
@@ -1050,7 +1128,7 @@ impl TypeSystem {
 
             match *error {
                 Error { a, b: _, kind: ErrorKind::NonexistantName(name) } => {
-                    if let Some(loc) = get_loc_of_value(ast, locals, a) {
+                    if let Some(loc) = get_loc_of_value(poly_args, ast, locals, a) {
                         errors.info(loc, format!("Here"));
                     }
                     errors.global_error(format!("Field '{}' doesn't exist on type {}", name, self.value_to_str(a, 0)));
@@ -1069,11 +1147,11 @@ impl TypeSystem {
                         }
                     }
 
-                    if let Some(loc) = get_loc_of_value(ast, locals, a_id) {
+                    if let Some(loc) = get_loc_of_value(poly_args, ast, locals, a_id) {
                         errors.info(loc, format!("Here"));
                     }
 
-                    if let Some(loc) = get_loc_of_value(ast, locals, b_id) {
+                    if let Some(loc) = get_loc_of_value(poly_args, ast, locals, b_id) {
                         errors.info(loc, format!("Here"));
                     }
 
@@ -1834,7 +1912,11 @@ impl TypeSystem {
                                         }
                                     }
 
-                                    (a_id, b_id)
+                                    if self.values.get(b_id).layout.align > 0 {
+                                        (b_id, a_id)
+                                    } else {
+                                        (a_id, b_id)
+                                    }
                                 }
                             }
                         }

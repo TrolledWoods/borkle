@@ -310,6 +310,12 @@ impl Program {
         *members[id].value.unwrap()
     }
 
+    pub fn get_polymember_yielddata(&self, id: PolyMemberId) -> Arc<crate::typer::YieldData> {
+        profile::profile!("Get polymember yielddata");
+        let poly_members = self.poly_members.read();
+        poly_members[id].yield_data.as_ref().unwrap().clone()
+    }
+
     /// Locks
     /// * ``members`` read
     pub fn get_member_type(&self, id: MemberId) -> Type {

@@ -1,18 +1,24 @@
 // library "base.bo";
 // import "tests/main.bo";
 
-const COMMA = *",".ptr;
-
-const Generic.(T) = T;
+const Generic.(V, T) = fn(v: typeof V, t: typeof T) v(t);
 
 #entry fn() -> u64 { 'func
+    let value = Generic.(#0, #0)(fn(x) x, 49);
+
+    value
+};
+
+
+
+
+
+
+
+
+
     // This crashes for now
     // let stack_array = #0 : [
     //     count_matches.(u8)("Hello ,,,, ,, , , ,", fn(v) *v == COMMA)
     // ] u64;
 
-    Generic.({
-        let x = 49 : u64;
-        x
-    })
-};

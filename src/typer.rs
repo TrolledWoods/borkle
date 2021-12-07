@@ -15,7 +15,7 @@ use ustr::Ustr;
 #[derive(Clone)]
 pub struct PolyParam {
     // is_type: bool,
-    loc: Location,
+    pub loc: Location,
     name: Ustr,
     value_id: type_infer::ValueId,
 }
@@ -23,6 +23,7 @@ pub struct PolyParam {
 #[derive(Clone)]
 pub struct YieldData {
     root_set_id: ValueSetId,
+    root_value_id: type_infer::ValueId,
     locals: LocalVariables,
     ast: Ast,
     infer: TypeSystem,
@@ -31,10 +32,9 @@ pub struct YieldData {
 
 impl YieldData {
     pub fn insert_poly_params(&mut self, poly_args: &[(crate::types::Type, ConstantRef)]) {
-        // @HACK: For now, we just use the value set 0
-        let set = 0;
+        let set = self.root_set_id;
 
-        for (param, &(compiler_type, constant)) in self.poly_params.drain(..).zip(poly_args) {
+        for (param, &(compiler_type, constant)) in self.poly_params.iter().zip(poly_args) {
             let type_ = self.infer.add_compiler_type(compiler_type, set);
             let value = self.infer.add_type(TypeKind::ConstantValue(constant), [], set);
             let constant = self.infer.add_type(TypeKind::Constant, [type_, value], set);
@@ -122,11 +122,12 @@ pub fn begin<'a>(
     // Build the tree relationship between the different types.
     let root = ctx.ast.root;
     let root_set_id = ctx.infer.value_sets.add(WaitingOnTypeInferrence::None);
-    build_constraints(&mut ctx, root, root_set_id);
+    let root_value_id = build_constraints(&mut ctx, root, root_set_id);
     infer.value_sets.get_mut(root_set_id).emit_deps = Some(emit_deps);
 
     YieldData {
         root_set_id,
+        root_value_id,
         ast,
         locals,
         infer,
@@ -205,8 +206,6 @@ pub fn finish<'a>(
     errors: &mut ErrorCtx,
     mut from: YieldData,
 ) -> Result<Result<(DependencyList, LocalVariables, TypeSystem, Ast), (DependencyList, YieldData)>, ()> {
-    debug_assert!(from.poly_params.is_empty(), "Cannot finish something that still has poly params");
-
     let mut are_incomplete_sets = false;
     for value_set_id in from.infer.value_sets.iter_ids() {
         let value_set = from.infer.value_sets.get(value_set_id);
@@ -216,8 +215,8 @@ pub fn finish<'a>(
         }
     }
 
-    if are_incomplete_sets | from.infer.output_errors(errors, &from.ast, &from.locals) {
-        from.infer.output_incompleteness_errors(errors, &from.ast, &from.locals);
+    if are_incomplete_sets | from.infer.output_errors(errors, &from.poly_params, &from.ast, &from.locals) {
+        from.infer.output_incompleteness_errors(errors, &from.poly_params, &from.ast, &from.locals);
         from.infer.flag_all_values_as_complete();
         return Err(());
     }
@@ -530,7 +529,19 @@ fn build_constraints(
                         let (_, param_value_id) = build_inferrable_constant_value(ctx, param, sub_set);
                         param_values.push(param_value_id);
                     }
-                    
+
+                    let other_yield_data = ctx.program.get_polymember_yielddata(id);
+
+                    ctx.infer.add_subtree_from_other_typesystem(
+                        &other_yield_data.infer, 
+                        param_values.iter().zip(&other_yield_data.poly_params)
+                            .map(|(&this_id, other_yield_arg)| (this_id, other_yield_arg.value_id))
+                            .chain(std::iter::once((node_type_id, other_yield_data.root_value_id))),
+                        // This should technically not need a set, because nothing depends on this, it's just some
+                        // scaffolding to allow the things that people depend on to be inferred.
+                        sub_set,
+                    );
+
                     ctx.infer.value_sets.lock(set);
 
                     ctx.infer.set_waiting_on_value_set(sub_set, WaitingOnTypeInferrence::MonomorphiseMember {
