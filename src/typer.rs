@@ -658,13 +658,6 @@ fn build_constraints(
             ctx.infer
                 .set_field_name_equal(of_type_id, name, node_type_id, Variance::Invariant);
         }
-        NodeKind::TypeOf(inner) => {
-            let old = ctx.runs;
-            ctx.runs = ctx.runs.combine(ExecutionTime::Never);
-            let type_ = build_constraints(ctx, inner, set);
-            ctx.runs = old;
-            ctx.infer.set_equal(node_type_id, type_, Variance::Invariant);
-        }
         NodeKind::Local(local_id) => {
             let local = ctx.locals.get(local_id);
             let local_type_id = local.type_infer_value_id;
@@ -716,14 +709,6 @@ fn build_constraints(
             ctx.infer
                 .set_equal(operand_type_id, temp, Variance::Invariant);
         }
-        NodeKind::ArrayType { len, members } => {
-            let (length_type, length_value) = build_inferrable_constant_value(ctx, len, set);
-            let usize_type = ctx.infer.add_int(IntTypeKind::Usize, set);
-            ctx.infer.set_equal(usize_type, length_type, Variance::Invariant);
-
-            let member_type_id = build_constraints(ctx, members, set);
-            ctx.infer.set_type(node_type_id, TypeKind::Array, [member_type_id, length_value], set);
-        }
         NodeKind::FunctionDeclaration {
             ref args,
             returns,
@@ -753,14 +738,14 @@ fn build_constraints(
             sub_ctx.infer.value_sets.lock(set);
 
             let mut function_type_ids = Vec::with_capacity(args.len() + 1);
-            let returns_type_id = build_constraints(&mut sub_ctx, returns, sub_set);
+            let returns_type_id = build_type(&mut sub_ctx, returns, sub_set);
             function_type_ids.push(returns_type_id);
 
             for (local_id, type_node) in args {
                 let local = sub_ctx.locals.get_mut(local_id);
                 local.stack_frame_id = sub_set;
                 let local_type_id = local.type_infer_value_id;
-                let type_id = build_constraints(&mut sub_ctx, type_node, sub_set);
+                let type_id = build_type(&mut sub_ctx, type_node, sub_set);
                 sub_ctx.infer.set_value_set(local_type_id, sub_set);
                 sub_ctx.infer
                     .set_equal(type_id, local_type_id, Variance::Invariant);
@@ -926,9 +911,10 @@ fn build_constraints(
                 .set_equal(inner_type_id, node_type_id, Variance::Invariant);
         }
         NodeKind::TypeAsValue(inner) => {
-            let old_runs = std::mem::replace(&mut ctx.runs, ExecutionTime::Typing);
+            let old_runs = ctx.runs;
+            ctx.runs = ctx.runs.combine(ExecutionTime::Typing);
             let subset = ctx.infer.value_sets.add(WaitingOnTypeInferrence::None);
-            let type_id = build_constraints(ctx, inner, set);
+            let type_id = build_type(ctx, inner, set);
 
             ctx.infer.value_sets.lock(set);
             ctx.infer.set_waiting_on_value_set(subset, WaitingOnTypeInferrence::TypeAsValue {
@@ -941,12 +927,39 @@ fn build_constraints(
             ctx.runs = old_runs;
         }
         NodeKind::TypeBound { value, bound } => {
-            let bound_type_id = build_constraints(ctx, bound, set);
+            let bound_type_id = build_type(ctx, bound, set);
             ctx.infer
                 .set_equal(node_type_id, bound_type_id, Variance::Invariant);
             let value_type_id = build_constraints(ctx, value, set);
             ctx.infer
                 .set_equal(value_type_id, node_type_id, Variance::Variant);
+        }
+        _ => unimplemented!(
+            "Ast node does not have a typing relationship yet {:?}",
+            node.kind
+        ),
+    }
+
+    node_type_id
+}
+
+fn build_type(
+    ctx: &mut Context<'_, '_>,
+    node_id: NodeId,
+    set: ValueSetId,
+) -> type_infer::ValueId {
+    let node = ctx.ast.get(node_id);
+    // let node_loc = node.loc;
+    let node_type_id = node.type_infer_value_id;
+
+    ctx.infer.set_value_set(node_type_id, set);
+    ctx.infer.value_sets.add_node_to_set(set, node_id);
+
+    match node.kind {
+        NodeKind::Parenthesis(inner) => {
+            let inner_type_id = build_type(ctx, inner, set);
+            ctx.infer
+                .set_equal(inner_type_id, node_type_id, Variance::Invariant);
         }
         NodeKind::LiteralType(type_) => {
             ctx.infer.set_compiler_type(node_type_id, type_, set);
@@ -957,11 +970,11 @@ fn build_constraints(
             let args = args.to_vec();
 
             let mut function_type_ids = Vec::with_capacity(args.len() + 1);
-            let returns_type_id = build_constraints(ctx, returns, set);
+            let returns_type_id = build_type(ctx, returns, set);
             function_type_ids.push(returns_type_id);
 
             for type_node in args {
-                let type_id = build_constraints(ctx, type_node, set);
+                let type_id = build_type(ctx, type_node, set);
                 function_type_ids.push(type_id);
             }
 
@@ -975,12 +988,12 @@ fn build_constraints(
             let fields = fields.iter().map(|v| v.1).collect::<Vec<_>>();
             let fields: Box<_> = fields
                 .into_iter()
-                .map(|v| build_constraints(ctx, v, set))
+                .map(|v| build_type(ctx, v, set))
                 .collect();
             ctx.infer.set_type(node_type_id, TypeKind::Struct(names), fields, set);
         }
         NodeKind::ReferenceType(inner, _permits) => {
-            let inner = build_constraints(ctx, inner, set);
+            let inner = build_type(ctx, inner, set);
             // let access = permits_to_access(permits);
             // let access = ctx.infer.add_access(Some(access), set);
             ctx.infer.set_type(
@@ -990,7 +1003,7 @@ fn build_constraints(
             );
         }
         NodeKind::BufferType(inner, _permits) => {
-            let inner = build_constraints(ctx, inner, set);
+            let inner = build_type(ctx, inner, set);
             // let access = permits_to_access(permits);
             // let access = ctx.infer.add_access(Some(access), set);
             ctx.infer.set_type(
@@ -999,10 +1012,22 @@ fn build_constraints(
                 set,
             );
         }
-        _ => unimplemented!(
-            "Ast node does not have a typing relationship yet {:?}",
-            node.kind
-        ),
+        NodeKind::ArrayType { len, members } => {
+            let (length_type, length_value) = build_inferrable_constant_value(ctx, len, set);
+            let usize_type = ctx.infer.add_int(IntTypeKind::Usize, set);
+            ctx.infer.set_equal(usize_type, length_type, Variance::Invariant);
+
+            let member_type_id = build_type(ctx, members, set);
+            ctx.infer.set_type(node_type_id, TypeKind::Array, [member_type_id, length_value], set);
+        }
+        NodeKind::TypeOf(inner) => {
+            let old = ctx.runs;
+            ctx.runs = ctx.runs.combine(ExecutionTime::Never);
+            let type_ = build_constraints(ctx, inner, set);
+            ctx.runs = old;
+            ctx.infer.set_equal(node_type_id, type_, Variance::Invariant);
+        }
+        _ => unreachable!("Node {:?} is not a valid type (at least not yet)", node.kind),
     }
 
     node_type_id

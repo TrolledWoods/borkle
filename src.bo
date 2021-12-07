@@ -2,14 +2,16 @@ library "base.bo";
 // import "tests/main.bo";
 
 const string_buffer = "Hi!\n"; 
+
+#entry fn() -> u64 { 'func
+    let thing = "Hello, world!\n" : typeof string_buffer;
+    print(thing);
+    4
+};
+
+
 // {
 //     let buffer_type = if (1 : u8) > 0  type [] u8 else type u8;
 // 
 //     buffer_type
 // };
-
-#entry fn() -> u64 { 'func
-    let thing = "Hello, world!\n" : string_buffer;
-    print(thing);
-    4
-};
