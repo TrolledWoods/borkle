@@ -1,0 +1,65 @@
+library "base.bo";
+import "../main.bo";
+import "day7_input.bo";
+
+const COMMA = *",".ptr;
+
+const AocDay7Test = if DO_AOC {
+    defer ok("AOC day 7");
+    let result = aoc_day7();
+    assert(result.part_1 == 348996);
+    assert(result.part_2 == 98231647);
+};
+
+const aoc_day7 = fn() -> { part_1: u64; part_2: u64 } {
+    let parse = INPUT;
+    let count = 1 + count_matches.(u8)(
+        parse,
+        fn(v: _) -> _  v == COMMA,
+    );
+
+    let crabs = alloc.(u64)(count);
+    defer dealloc.(u64)(crabs);
+
+    take_whitespace(&parse);
+    let min = 99999999999999;
+    let max = 0;
+    while not(empty(&parse)) {
+        let number = cast take_u64(&parse);
+        *(crabs.ptr + _iters) = number;
+        if number < min  min = number;
+        if number > max  max = number;
+        advance(&parse);
+    };
+
+    let best_cost_i = 0;
+    let best_cost = 9999999999999;
+
+    let best_cost_b_i = 0;
+    let best_cost_b = 9999999999999999;
+    while cast _iters < max - min {
+        let i = min + cast _iters;
+        let cost = 0;
+        let cost_b = 0;
+        for crab in crabs {
+            let crab_cost = if *crab < i  i - *crab else *crab - i;
+            cost = cost + crab_cost;
+            cost_b = cost_b + (crab_cost * (crab_cost + 1)) / 2;
+        };
+
+        if cost < best_cost {
+            best_cost = cost;
+            best_cost_i = _iters;
+        };
+
+        if cost_b < best_cost_b {
+            best_cost_b = cost_b;
+            best_cost_b_i = _iters;
+        };
+    };
+
+    let out = #0;
+    out.part_1 = best_cost;
+    out.part_2 = best_cost_b;
+    out
+};

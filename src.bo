@@ -1,4 +1,3 @@
-library "intrinsics.bo";
 library "base.bo";
 import "tests/main.bo";
 

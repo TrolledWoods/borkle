@@ -6,8 +6,9 @@ import "aoc/day3.bo";
 import "aoc/day4.bo";
 import "aoc/day5.bo";
 import "aoc/day6.bo";
+import "aoc/day7.bo";
 
-const DO_AOC = false;
+const DO_AOC = true;
 
 const ok = fn(name: []r u8) {
     print("[OK] ");
