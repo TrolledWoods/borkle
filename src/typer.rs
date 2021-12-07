@@ -11,12 +11,21 @@ use crate::type_infer::{self, ValueId as TypeId, TypeSystem, ValueSetId, Varianc
 use crate::types::{self, IntTypeKind, PtrPermits};
 
 #[derive(Clone)]
+struct PolyParamUsage {
+    param: usize,
+    value_id: TypeId,
+    node_id: NodeId,
+    is_type_expression: bool,
+    value_set_id: ValueSetId,
+}
+
+#[derive(Clone)]
 pub struct YieldData {
     root_set_id: ValueSetId,
     locals: LocalVariables,
     ast: Ast,
     infer: TypeSystem,
-    poly_param_usages: Vec<(usize, TypeId, NodeId, ValueSetId)>,
+    poly_param_usages: Vec<PolyParamUsage>,
 }
 
 impl YieldData {
@@ -25,11 +34,20 @@ impl YieldData {
         let set = 0;
         let type_values: Vec<_> = poly_args.iter().map(|&(v, _)| self.infer.add_compiler_type(v, set)).collect();
 
-        for (arg_id, value_id, node_id, set_id) in self.poly_param_usages.drain(..) {
-            self.infer.set_polymorph_value(value_id, type_values[arg_id]);
+        for usage in self.poly_param_usages.drain(..) {
+            // @Cleanup: This is bad!!!
+            if usage.is_type_expression {
+                assert!(matches!(poly_args[usage.param].0.kind(), types::TypeKind::Type));
+                let compiler_type = unsafe { *poly_args[usage.param].1.as_ptr().cast::<types::Type>() };
+                let compiler_type_id = self.infer.add_compiler_type(compiler_type, set);
+                self.infer.set_polymorph_value(usage.value_id, compiler_type_id);
+                self.infer.value_sets.unlock(usage.value_set_id);
+            } else {
+                self.infer.set_polymorph_value(usage.value_id, type_values[usage.param]);
 
-            self.ast.get_mut(node_id).kind = NodeKind::Constant(poly_args[arg_id].1, None);
-            self.infer.value_sets.unlock(set_id);
+                self.ast.get_mut(usage.node_id).kind = NodeKind::Constant(poly_args[usage.param].1, None);
+                self.infer.value_sets.unlock(usage.value_set_id);
+            }
         }
     }
 }
@@ -43,7 +61,7 @@ struct Context<'a, 'b> {
     emit_deps: &'a mut DependencyList,
     ast: &'a mut Ast,
     infer: &'a mut TypeSystem,
-    poly_param_usages: &'a mut Vec<(usize, TypeId, NodeId, ValueSetId)>,
+    poly_param_usages: &'a mut Vec<PolyParamUsage>,
     runs: ExecutionTime,
 }
 
@@ -432,7 +450,13 @@ fn build_constraints(
         NodeKind::PolymorphicArgument(index) => {
             ctx.infer.value_sets.lock(set);
             ctx.infer.set_type(node_type_id, TypeKind::Polymorph(index), (), set);
-            ctx.poly_param_usages.push((index, node_type_id, node_id, set));
+            ctx.poly_param_usages.push(PolyParamUsage {
+                param: index,
+                value_id: node_type_id,
+                node_id,
+                value_set_id: set,
+                is_type_expression: false,
+            });
         }
         NodeKind::Cast { value } => {
             let result_value = build_constraints(ctx, value, set);
@@ -914,7 +938,7 @@ fn build_constraints(
             let old_runs = ctx.runs;
             ctx.runs = ctx.runs.combine(ExecutionTime::Typing);
             let subset = ctx.infer.value_sets.add(WaitingOnTypeInferrence::None);
-            let type_id = build_type(ctx, inner, set);
+            let type_id = build_type(ctx, inner, subset);
 
             ctx.infer.value_sets.lock(set);
             ctx.infer.set_waiting_on_value_set(subset, WaitingOnTypeInferrence::TypeAsValue {
@@ -956,6 +980,19 @@ fn build_type(
     ctx.infer.value_sets.add_node_to_set(set, node_id);
 
     match node.kind {
+        NodeKind::PolymorphicArgument(index) => {
+            // We can't actually compute the type directly, because the polymorphic argument
+            // will use a type id. So, we need to convert the type id into a value later.
+            ctx.infer.value_sets.lock(set);
+            ctx.infer.set_type(node_type_id, TypeKind::Polymorph(index), (), set);
+            ctx.poly_param_usages.push(PolyParamUsage {
+                param: index,
+                value_id: node_type_id,
+                node_id,
+                value_set_id: set,
+                is_type_expression: true,
+            });
+        }
         NodeKind::Parenthesis(inner) => {
             let inner_type_id = build_type(ctx, inner, set);
             ctx.infer

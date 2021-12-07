@@ -1,11 +1,11 @@
 library "base.bo";
 // import "tests/main.bo";
 
-const string_buffer = "Hi!\n"; 
+const Buffer[T] = type [] T;
+
+const BufferU8 = Buffer[u8];
 
 #entry fn() -> u64 { 'func
-    let thing = "Hello, world!\n" : typeof string_buffer;
-    print(thing);
     4
 };
 
