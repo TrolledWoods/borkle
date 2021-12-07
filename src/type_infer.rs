@@ -21,6 +21,7 @@ pub mod static_values {
     pub const STATIC_VALUES_SIZE : u32 = 18;
 }
 
+use crate::program::Program;
 use crate::errors::ErrorCtx;
 use crate::location::Location;
 use crate::operators::BinaryOp;
@@ -1973,16 +1974,16 @@ impl TypeSystem {
         )
     }
 
-    pub fn set_compiler_type(&mut self, id: ValueId, type_: types::Type, set: ValueSetId) -> ValueId {
+    pub fn set_compiler_type(&mut self, program: &Program, id: ValueId, type_: types::Type, set: ValueSetId) -> ValueId {
         match *type_.kind() {
             types::TypeKind::Function { ref args, returns } => {
                 let mut new_args = Vec::with_capacity(args.len() + 1);
 
                 // @TODO: We should append the sub-expression used to the reason as well.
-                new_args.push(self.add_compiler_type(returns, set));
+                new_args.push(self.add_compiler_type(program, returns, set));
 
                 for &arg in args {
-                    new_args.push(self.add_compiler_type(arg, set));
+                    new_args.push(self.add_compiler_type(program, arg, set));
                 }
 
                 self.set_type(id, TypeKind::Function, &new_args[..], set)
@@ -2000,26 +2001,33 @@ impl TypeSystem {
                 // @Cleanup: This is ugly!
                 // @Correctness: We want to reintroduce these once the rework is complete
                 // let permits = self.add_access(Some(Access::disallows(!permits.read(), !permits.write())), set);
-                let pointee = self.add_compiler_type(pointee, set);
+                let pointee = self.add_compiler_type(program, pointee, set);
 
                 self.set_type(id, TypeKind::Buffer, [pointee], set)
             }
             types::TypeKind::Reference { pointee, permits: _ } => {
                 // @Correctness: We want to reintroduce permits once the rework is complete
                 // let permits = self.add_access(Some(Access::disallows(!permits.read(), !permits.write())), set);
-                let pointee = self.add_compiler_type(pointee, set);
+                let pointee = self.add_compiler_type(program, pointee, set);
 
                 self.set_type(id, TypeKind::Reference, [pointee], set)
             }
-            types::TypeKind::Array(_type_, _length) => {
-                todo!("We need a function for turning a compiler type into an actionable type that also takes the program");
+            types::TypeKind::Array(type_, length) => {
+                let inner = self.add_compiler_type(program, type_, set);
+                let usize_type = static_values::USIZE;
+                let constant_ref_length = program.insert_buffer(
+                    types::Type::new(types::TypeKind::Int(IntTypeKind::Usize)),
+                    &length as *const _ as *const u8,
+                );
+                let length_value = self.add_value(usize_type, constant_ref_length, set);
+                self.set_type(id, TypeKind::Array, [inner, length_value], set)
             }
             types::TypeKind::Struct(ref fields) => {
                 let field_names = fields.iter().map(|&(v, _)| v).collect();
                 let field_types: Box<[_]> = fields
                     .iter()
                     // @TODO: We should append the sub-expression used to the reason as well.
-                    .map(|&(_, v)| self.add_compiler_type(v, set))
+                    .map(|&(_, v)| self.add_compiler_type(program, v, set))
                     .collect();
                 self.set_type(id, TypeKind::Struct(field_names), field_types, set)
             }
@@ -2027,9 +2035,9 @@ impl TypeSystem {
         }
     }
 
-    pub fn add_compiler_type(&mut self, type_: types::Type, set: ValueSetId) -> ValueId {
+    pub fn add_compiler_type(&mut self, program: &Program, type_: types::Type, set: ValueSetId) -> ValueId {
         let id = self.add_unknown_type();
-        self.set_compiler_type(id, type_, set)
+        self.set_compiler_type(program, id, type_, set)
     }
 
     #[track_caller]

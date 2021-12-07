@@ -549,6 +549,9 @@ fn value_without_unaries(
 ) -> Result<NodeId, ()> {
     let token = global.tokens.expect_next(global.errors)?;
     let mut value = match token.kind {
+        TokenKind::Keyword(Keyword::Underscore) => {
+            buffer.add(Node::new(token.loc, NodeKind::ImplicitType))
+        }
         TokenKind::Identifier(name) => {
             if let Some(local_id) = imperative.get_local(name) {
                 let local = imperative.locals.get_mut(local_id);

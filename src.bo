@@ -1,15 +1,13 @@
-library "base.bo";
-import "tests/main.bo";
+// library "base.bo";
+// import "tests/main.bo";
+
+const CreateZeroed.(N) = fn(v: [N] u32) -> [N] u32  v;
 
 #entry fn() -> u64 { 'func
-    let thing = &[1, 2, 3] : [] _;
-    *thing.ptr
+    CreateZeroed.(_)(#0) : [39] _;
+    
+    5
 };
-
-
-
-
-
 
 
 
@@ -18,4 +16,3 @@ import "tests/main.bo";
     // let stack_array = #0 : [
     //     count_matches.(u8)("Hello ,,,, ,, , , ,", fn(v) *v == COMMA)
     // ] u64;
-

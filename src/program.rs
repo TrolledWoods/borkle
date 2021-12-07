@@ -703,7 +703,7 @@ impl Program {
         }
 
         let mut yield_data = (*yield_data).clone();
-        yield_data.insert_poly_params(poly_args);
+        yield_data.insert_poly_params(self, poly_args);
         crate::typer::solve(errors, thread_context, self, &mut yield_data);
         let (dependency_list, mut locals, mut types, typed_ast) = match crate::typer::finish(errors, yield_data)? {
             Ok(v) => v,

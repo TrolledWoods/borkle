@@ -31,11 +31,11 @@ pub struct YieldData {
 }
 
 impl YieldData {
-    pub fn insert_poly_params(&mut self, poly_args: &[(crate::types::Type, ConstantRef)]) {
+    pub fn insert_poly_params(&mut self, program: &Program, poly_args: &[(crate::types::Type, ConstantRef)]) {
         let set = self.root_set_id;
 
         for (param, &(compiler_type, constant)) in self.poly_params.iter().zip(poly_args) {
-            let type_ = self.infer.add_compiler_type(compiler_type, set);
+            let type_ = self.infer.add_compiler_type(program, compiler_type, set);
             let value = self.infer.add_type(TypeKind::ConstantValue(constant), [], set);
             let constant = self.infer.add_type(TypeKind::Constant, [type_, value], set);
 
@@ -276,7 +276,7 @@ fn subset_was_completed(ctx: &mut Context<'_, '_>, waiting_on: WaitingOnTypeInfe
 
             if let Ok(member_id) = ctx.program.monomorphise_poly_member(ctx.errors, ctx.thread_context, poly_member_id, &fixed_up_params, wanted_dep) {
                 let (type_, meta_data) = ctx.program.get_member_meta_data(member_id);
-                let compiler_type = ctx.infer.add_compiler_type(type_, parent_set);
+                let compiler_type = ctx.infer.add_compiler_type(ctx.program, type_, parent_set);
                 ctx.infer.set_equal(ctx.ast.get(node_id).type_infer_value_id, compiler_type, Variance::Invariant);
                 ctx.ast.get_mut(node_id).kind = NodeKind::ResolvedGlobal(member_id, meta_data.clone());
 
@@ -564,6 +564,7 @@ fn build_constraints(
                     let (type_, meta_data) = ctx.program.get_member_meta_data(id);
 
                     let type_id = ctx.infer.add_compiler_type(
+                        ctx.program,
                         type_,
                         set,
                     );
@@ -1043,7 +1044,7 @@ fn build_type(
                 .set_equal(inner_type_id, node_type_id, Variance::Invariant);
         }
         NodeKind::LiteralType(type_) => {
-            ctx.infer.set_compiler_type(node_type_id, type_, set);
+            ctx.infer.set_compiler_type(ctx.program, node_type_id, type_, set);
             // ctx.infer.set_equal(node_type_id, compiler_type, Variance::Invariant);
         }
         NodeKind::FunctionType { ref args, returns } => {
@@ -1201,6 +1202,16 @@ fn build_inferrable_constant_value(
     let node_type_id = node.type_infer_value_id;
 
     let value_id = match node.kind {
+        NodeKind::PolymorphicArgument(index) => {
+            let value_id = ctx.infer.add_value(node_type_id, (), set);
+            ctx.infer.set_equal(ctx.poly_params[index].value_id, value_id, Variance::Invariant);
+            value_id
+        }
+        NodeKind::ImplicitType => {
+            // Nothing at all is known about it, _except_ that the type of this node is equal to the
+            // value.
+            ctx.infer.add_value(node_type_id, (), set)
+        }
         _ => {
             // We can't figure it out in a clever way, so just compile time execute the node as a constant.
             let mut sub_ctx = Context {
