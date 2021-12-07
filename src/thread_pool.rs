@@ -35,8 +35,8 @@ impl WorkPile {
         // on the circumstances.
         let mut queue = self.queue.lock();
         if queue.len() > 0 {
-            let seed = self.start.elapsed().as_nanos() as usize;
-            let i = seed % queue.len();
+            // let seed = self.start.elapsed().as_nanos() as usize;
+            let i = 0; // seed % queue.len();
             Some(queue.remove(i))
         } else {
             None

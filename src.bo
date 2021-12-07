@@ -1,11 +1,9 @@
 library "base.bo";
-import "tests/main.bo";
+// import "tests/main.bo";
 
-const ConstIdentity[A, B] = A + B;
+const Identity[A] = A;
 
 #entry fn() -> u64 { 'func
-    print_u64(cast ConstIdentity[4 : u8, 6 : u8]);
-    print("!!!\n");
-
+    Identity[print]("Hello, world!\n");
     4
 };

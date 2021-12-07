@@ -236,6 +236,7 @@ impl Program {
     /// * ``members`` read
     pub fn get_member_value(&self, id: MemberId) -> (ConstantRef, Type) {
         profile::profile!("Get member value");
+
         let members = self.members.read();
         let member = &members[id];
 
@@ -611,6 +612,7 @@ impl Program {
 
     /// # Locks
     /// Locks ``non_ready_tasks`` with write.
+    #[track_caller]
     fn resolve_dependency(&self, id: TaskId) {
         self.modify_dependency_count(id, -1);
     }

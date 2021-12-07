@@ -12,7 +12,7 @@ use crate::types::{self, IntTypeKind, PtrPermits};
 
 #[derive(Clone)]
 pub struct YieldData {
-    emit_deps: DependencyList,
+    root_set_id: ValueSetId,
     locals: LocalVariables,
     ast: Ast,
     infer: TypeSystem,
@@ -98,13 +98,14 @@ pub fn begin<'a>(
 
     // Build the tree relationship between the different types.
     let root = ctx.ast.root;
-    let root_value_set = ctx.infer.value_sets.add(WaitingOnTypeInferrence::None);
-    build_constraints(&mut ctx, root, root_value_set);
+    let root_set_id = ctx.infer.value_sets.add(WaitingOnTypeInferrence::None);
+    build_constraints(&mut ctx, root, root_set_id);
+    infer.value_sets.get_mut(root_set_id).emit_deps = Some(emit_deps);
 
     YieldData {
+        root_set_id,
         ast,
         locals,
-        emit_deps,
         infer,
         poly_param_usages,
     }
@@ -116,12 +117,13 @@ pub fn solve<'a>(
     program: &'a Program,
     data: &mut YieldData,
 ) {
+    let mut temp_emit_deps = DependencyList::new();
     let mut ctx = Context {
         thread_context,
         errors,
         program,
         locals: &mut data.locals,
-        emit_deps: &mut data.emit_deps,
+        emit_deps: &mut temp_emit_deps,
         poly_param_usages: &mut data.poly_param_usages,
         ast: &mut data.ast,
         infer: &mut data.infer,
@@ -172,6 +174,8 @@ pub fn solve<'a>(
             break;
         }
     }
+
+    debug_assert!(temp_emit_deps.is_empty(), "Didn't expect context to gain more emit_deps here, should clean up the code to not even have this case be possible");
 }
 
 pub fn finish<'a>(
@@ -208,12 +212,15 @@ pub fn finish<'a>(
         }
     }
 
-    Ok(Ok((from.emit_deps, from.locals, from.infer, from.ast)))
+    let emit_deps = from.infer.value_sets.get_mut(from.root_set_id).emit_deps.take().unwrap();
+
+    Ok(Ok((emit_deps, from.locals, from.infer, from.ast)))
 }
 
 fn subset_was_completed(ctx: &mut Context<'_, '_>, waiting_on: WaitingOnTypeInferrence, set: ValueSetId) {
     match waiting_on {
         WaitingOnTypeInferrence::MonomorphiseMember { node_id, poly_member_id, when_needed, params, parent_set } => {
+            let node_loc = ctx.ast.get(node_id).loc;
             let mut fixed_up_params = Vec::with_capacity(params.len());
             for param in params {
                 fixed_up_params.push(ctx.infer.extract_constant(param));
@@ -224,12 +231,32 @@ fn subset_was_completed(ctx: &mut Context<'_, '_>, waiting_on: WaitingOnTypeInfe
                 _ => MemberDep::Type,
             };
 
+            ctx.infer.value_sets.unlock(parent_set);
+
             if let Ok(member_id) = ctx.program.monomorphise_poly_member(ctx.errors, ctx.thread_context, poly_member_id, &fixed_up_params, wanted_dep) {
                 let (type_, meta_data) = ctx.program.get_member_meta_data(member_id);
                 let compiler_type = ctx.infer.add_compiler_type(type_, parent_set);
                 ctx.infer.set_equal(ctx.ast.get(node_id).type_infer_value_id, compiler_type, Variance::Invariant);
                 ctx.ast.get_mut(node_id).kind = NodeKind::ResolvedGlobal(member_id, meta_data.clone());
-                ctx.infer.value_sets.unlock(parent_set);
+
+                match when_needed {
+                    // This will never be emitted anyway so it doesn't matter if the value isn't accessible.
+                    ExecutionTime::Never => {},
+                    ExecutionTime::RuntimeFunc => {
+                        let emit_deps = ctx.infer.value_sets.get_mut(parent_set).emit_deps.as_mut().unwrap();
+                        emit_deps.add(node_loc, DepKind::Member(member_id, MemberDep::Value));
+                    }
+                    ExecutionTime::Emission => {
+                        let emit_deps = ctx.infer.value_sets.get_mut(parent_set).emit_deps.as_mut().unwrap();
+                        emit_deps.add(node_loc, DepKind::Member(member_id, MemberDep::ValueAndCallableIfFunction));
+                    }
+                    ExecutionTime::Typing => {
+                        // The parser should have already made sure the value is accessible. We will run this node
+                        // through the emitter anyway though, so we don't have to make it into a constant or something.
+                    }
+                }
+            } else {
+                ctx.infer.value_sets.get_mut(parent_set).has_errors |= true;
             }
         }
         WaitingOnTypeInferrence::ValueIdFromConstantComputation { computation, value_id } => {
@@ -247,7 +274,7 @@ fn subset_was_completed(ctx: &mut Context<'_, '_>, waiting_on: WaitingOnTypeInfe
                 Ok(constant_ref) => {
                     let type_id = ctx.ast.get(computation).type_infer_value_id;
                     let finished_value = ctx.infer.add_value(type_id, constant_ref, set);
-                    
+
                     ctx.infer.set_equal(finished_value, value_id, Variance::Invariant);
                 }
                 Err(call_stack) => {
@@ -265,11 +292,11 @@ fn subset_was_completed(ctx: &mut Context<'_, '_>, waiting_on: WaitingOnTypeInfe
             body,
             function_type,
             parent_set,
-            emit_deps,
             function_id,
             time,
         } => {
             let type_ = ctx.infer.value_to_compiler_type(function_type);
+            let emit_deps = ctx.infer.value_sets.get_mut(set).emit_deps.take().unwrap();
 
             match time {
                 ExecutionTime::Never => return,
@@ -422,7 +449,7 @@ fn build_constraints(
                 PolyOrMember::Poly(id) => {
                     let num_args = ctx.program.get_num_poly_args(id);
                     if num_args != poly_params.len() {
-                        ctx.errors.error(node_loc, "Passed polymorphic parameters even though this value isn't polymorphic".to_string());
+                        ctx.errors.error(node_loc, format!("Passed {} arguments to polymorphic value, but the polymorphic value needs {} values", num_args, poly_params.len()));
                         // @Cleanup: This should probably just be a function on TypeSystem
                         ctx.infer.value_sets.get_mut(set).has_errors |= true;
                         return node_type_id;
@@ -751,10 +778,11 @@ fn build_constraints(
                 body,
                 function_type: infer_type_id,
                 parent_set: set,
-                emit_deps,
                 function_id,
                 time: ctx.runs,
             });
+            let old_set = ctx.infer.value_sets.get_mut(sub_set).emit_deps.replace(emit_deps);
+            debug_assert!(old_set.is_none());
         }
         NodeKind::FunctionCall { calling, ref args } => {
             // @Speed: Somewhat needless allocation
@@ -1103,7 +1131,6 @@ pub enum WaitingOnTypeInferrence {
         /// parent set, and we have to make sure that the parent set isn't
         /// emitted before that constant is created.
         parent_set: ValueSetId,
-        emit_deps: DependencyList,
         function_id: FunctionId,
         time: ExecutionTime,
     },

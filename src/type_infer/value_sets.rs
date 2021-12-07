@@ -1,15 +1,3 @@
-//!
-//! Value sets are broken out into a separate module because they
-//! are very particular to work with.
-//!
-//! It's very hard to manually manage the `uncomputed_values` correctly,
-//! so this module is to force you(with the borrow checking rules), or at
-//! least guide you, to correct code, so you never forget to increment
-//! or decrement the values.
-//!
-//! This is also why `ValueSetHandles` doesn't implement `Clone`, since
-//! cloning it requires you to increment the uncomputed values.
-//!
 use std::panic::Location;
 
 pub type ValueSetId = usize;
@@ -39,6 +27,7 @@ impl ValueSets {
             uncomputed_values: 0,
             has_errors: false,
             related_nodes: Vec::new(),
+            emit_deps: None,
             waiting_on_completion,
             has_been_computed: false,
         });
@@ -86,7 +75,11 @@ pub struct ValueSet {
     uncomputed_values: i32,
     pub has_errors: bool,
 
+    // @Cleanup: I need to think about what a `ValueSet` is supposed to be, but the idea is that they
+    // have to do with sub-sections of an Ast that can be emitted separately.
     pub waiting_on_completion: crate::typer::WaitingOnTypeInferrence,
+    pub emit_deps: Option<crate::dependencies::DependencyList>,
+
     pub has_been_computed: bool,
 }
 
