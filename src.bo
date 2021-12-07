@@ -1,6 +1,13 @@
 library "base.bo";
 import "tests/main.bo";
 
+const COMMA = *",".ptr;
+
 #entry fn() -> u64 { 'func
+    // This crashes for now
+    // let stack_array = #0 : [
+    //     count_matches.(u8)("Hello ,,,, ,, , , ,", fn(v) *v == COMMA)
+    // ] u64;
+
     2
 };

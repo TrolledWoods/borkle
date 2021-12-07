@@ -134,7 +134,10 @@ fn worker<'a>(alloc: &'a mut Bump, program: &'a Program) -> (ThreadContext<'a>, 
                     profile::profile!("Task::FlagPolyMember Type");
 
                 }
-                Task::FlagPolyMember(poly_member, MemberDep::Value, _) => {
+                Task::FlagPolyMember(_, MemberDep::Value, _) => {
+                    unreachable!("Flag poly member with just a value should never happen");
+                }
+                Task::FlagPolyMember(poly_member, MemberDep::ValueAndCallableIfFunction, _) => {
                     profile::profile!("Task::FlagPolyMember Value");
                     program.logger.log(format_args!(
                         "flagged poly member is value and callable '{:?}'",
@@ -143,8 +146,6 @@ fn worker<'a>(alloc: &'a mut Bump, program: &'a Program) -> (ThreadContext<'a>, 
                     program.flag_poly_member(poly_member, MemberDep::Value);
                     program.flag_poly_member(poly_member, MemberDep::ValueAndCallableIfFunction);
                 }
-                // FIXME: Think about if we can be less conservative and use this anyway.
-                Task::FlagPolyMember(_, MemberDep::ValueAndCallableIfFunction, _) => {}
 
                 Task::Parse(meta_data, file) => {
                     profile::profile!("Parse");
@@ -170,7 +171,7 @@ fn worker<'a>(alloc: &'a mut Bump, program: &'a Program) -> (ThreadContext<'a>, 
                         dependencies,
                         Task::FlagPolyMember(
                             member_id,
-                            MemberDep::Value,
+                            MemberDep::ValueAndCallableIfFunction,
                             DependencyList::new(), // Since the next thing ignores its dependencies anyway, we don't care to pass it. This might change later though
                         ),
                     );
