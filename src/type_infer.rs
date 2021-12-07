@@ -118,6 +118,7 @@ pub enum TypeKind {
 
     Bool,
     Empty,
+    Type,
 
     Polymorph(usize),
 
@@ -145,7 +146,7 @@ impl TypeKind {
     fn get_needed_children_for_layout<'a>(&self, children: &'a [ValueId]) -> &'a [ValueId] {
         match self {
             TypeKind::Polymorph(_) => unreachable!("We should never get here with a polymorph type, it should never have children defined"),
-            TypeKind::IntSize | TypeKind::Bool | TypeKind::Empty | TypeKind::Function | TypeKind::Reference | TypeKind::Buffer | TypeKind::ConstantValue(_) => &[],
+            TypeKind::Type | TypeKind::IntSize | TypeKind::Bool | TypeKind::Empty | TypeKind::Function | TypeKind::Reference | TypeKind::Buffer | TypeKind::ConstantValue(_) => &[],
             TypeKind::Int => &children[1..2],
             TypeKind::Array => children,
             TypeKind::Struct(_) => children,
@@ -177,7 +178,9 @@ fn compute_type_layout(kind: &TypeKind, values: &Values, children: &[ValueId]) -
         TypeKind::IntSize => Layout { size: 1, align: 1 },
         TypeKind::Bool => Layout { size: 1, align: 1 },
         TypeKind::Empty => Layout { size: 0, align: 1 },
-        TypeKind::Buffer | TypeKind::Reference | TypeKind::Function => Layout { size: 8, align: 8 },
+        TypeKind::Buffer => Layout { size: 16, align: 8 },
+        TypeKind::Type => Layout { size: 8, align: 8 },
+        TypeKind::Reference | TypeKind::Function => Layout { size: 8, align: 8 },
         TypeKind::Array => {
             // @Correctness: We want to make sure that the type actually is a usize here
             let length = extract_constant_from_value(values, children[1]).unwrap();
@@ -617,6 +620,7 @@ fn type_kind_to_str(
 ) -> std::fmt::Result {
     use std::fmt::Write;
     match type_kind {
+        TypeKind::Type => write!(string, "type"),
         TypeKind::Polymorph(index) => write!(string, "poly({})", index),
         TypeKind::Constant => write!(string, "constant"),
         TypeKind::ConstantValue(_) => write!(string, "<constant value>"),
@@ -1113,6 +1117,7 @@ impl TypeSystem {
         };
 
         match *type_kind {
+            TypeKind::Type => types::Type::new(types::TypeKind::Type),
             TypeKind::Polymorph(_) => unreachable!("Cannot convert a polymorph to a compiler type, since it's never a complete type"),
             TypeKind::Constant | TypeKind::ConstantValue(_) => unreachable!("Constants aren't concrete types, cannot use them as node types"),
             TypeKind::IntSize => unreachable!("Int sizes are a hidden type for now, the user shouldn't be able to access them"),
@@ -1291,6 +1296,10 @@ impl TypeSystem {
 
     fn constant_to_str(&self, type_: ValueId, value: ConstantRef, rec: usize) -> String {
         match &get_value(&self.values, type_).kind {
+            Some(Type { kind: TypeKind::Type, .. }) => {
+                let compiler_type = unsafe { *value.as_ptr().cast::<types::Type>() };
+                format!("{}", compiler_type)
+            }
             Some(Type { kind: TypeKind::IntSize, .. }) => {
                 let byte;
                 unsafe {
@@ -1349,6 +1358,7 @@ impl TypeSystem {
             return "...".to_string();
         }
         match &self.values.get(value).kind {
+            Some(Type { kind: TypeKind::Type, .. }) => "type".to_string(),
             Some(Type { kind: TypeKind::Polymorph(index), .. }) => format!("poly({})", index),
             Some(Type { kind: TypeKind::Bool, .. }) => "bool".to_string(),
             Some(Type { kind: TypeKind::Empty, .. }) => "Empty".to_string(),
@@ -1900,6 +1910,9 @@ impl TypeSystem {
                 }
 
                 self.set_type(id, TypeKind::Function, &new_args[..], set)
+            }
+            types::TypeKind::Type => {
+                self.set_type(id, TypeKind::Type, [], set)
             }
             types::TypeKind::Int(int_type_kind) => {
                 self.set_int(id, int_type_kind, set);

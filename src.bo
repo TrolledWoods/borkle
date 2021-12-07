@@ -1,9 +1,15 @@
 library "base.bo";
 // import "tests/main.bo";
 
-const Identity[A] = A;
+const string_buffer = "Hi!\n"; 
+// {
+//     let buffer_type = if (1 : u8) > 0  type [] u8 else type u8;
+// 
+//     buffer_type
+// };
 
 #entry fn() -> u64 { 'func
-    Identity[print]("Hello, world!\n");
+    let thing = "Hello, world!\n" : string_buffer;
+    print(thing);
     4
 };

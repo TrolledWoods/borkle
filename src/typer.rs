@@ -219,6 +219,12 @@ pub fn finish<'a>(
 
 fn subset_was_completed(ctx: &mut Context<'_, '_>, waiting_on: WaitingOnTypeInferrence, set: ValueSetId) {
     match waiting_on {
+        WaitingOnTypeInferrence::TypeAsValue { type_id, node_id, parent_set } => {
+            let compiler_type = ctx.infer.value_to_compiler_type(type_id);
+            let constant_ref = ctx.program.insert_buffer(types::Type::new(types::TypeKind::Type), &compiler_type as *const _ as *const u8);
+            ctx.ast.get_mut(node_id).kind = NodeKind::Constant(constant_ref, None);
+            ctx.infer.value_sets.unlock(parent_set);
+        }
         WaitingOnTypeInferrence::MonomorphiseMember { node_id, poly_member_id, when_needed, params, parent_set } => {
             let node_loc = ctx.ast.get(node_id).loc;
             let mut fixed_up_params = Vec::with_capacity(params.len());
@@ -919,6 +925,21 @@ fn build_constraints(
             ctx.infer
                 .set_equal(inner_type_id, node_type_id, Variance::Invariant);
         }
+        NodeKind::TypeAsValue(inner) => {
+            let old_runs = std::mem::replace(&mut ctx.runs, ExecutionTime::Typing);
+            let subset = ctx.infer.value_sets.add(WaitingOnTypeInferrence::None);
+            let type_id = build_constraints(ctx, inner, set);
+
+            ctx.infer.value_sets.lock(set);
+            ctx.infer.set_waiting_on_value_set(subset, WaitingOnTypeInferrence::TypeAsValue {
+                type_id,
+                node_id,
+                parent_set: set,
+            });
+            
+            ctx.infer.set_type(node_type_id, TypeKind::Type, [], set);
+            ctx.runs = old_runs;
+        }
         NodeKind::TypeBound { value, bound } => {
             let bound_type_id = build_constraints(ctx, bound, set);
             ctx.infer
@@ -1116,6 +1137,11 @@ fn build_inferrable_constant_value(
 
 #[derive(Clone)]
 pub enum WaitingOnTypeInferrence {
+    TypeAsValue {
+        type_id: type_infer::ValueId,
+        node_id: NodeId,
+        parent_set: ValueSetId,
+    },
     MonomorphiseMember {
         node_id: NodeId,
         poly_member_id: PolyMemberId,
