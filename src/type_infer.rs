@@ -1172,14 +1172,24 @@ impl TypeSystem {
     }
 
     // @Completeness: This should also support converting type values into constants.
-    pub fn extract_constant(&self, value_id: ValueId) -> (types::Type, ConstantRef) {
-        let Some(Type { kind: TypeKind::Constant, args: Some(type_args) }) = &get_value(&self.values, value_id).kind else {panic!() };
-        let &[type_, constant_ref] = &**type_args else { panic!() };
-        let &Some(Type { kind: TypeKind::ConstantValue(constant_ref), .. }) = get_value(&self.values, constant_ref).kind else { panic!() };
+    pub fn extract_constant(&self, program: &Program, value_id: ValueId) -> (types::Type, ConstantRef) {
+        match &get_value(&self.values, value_id).kind {
+            Some(Type { kind: TypeKind::Constant, args: Some(type_args) }) => {
+                let &[type_, constant_ref] = &**type_args else { panic!() };
+                let &Some(Type { kind: TypeKind::ConstantValue(constant_ref), .. }) = get_value(&self.values, constant_ref).kind else { panic!() };
 
-        let type_ = self.value_to_compiler_type(type_);
+                let type_ = self.value_to_compiler_type(type_);
 
-        (type_, constant_ref)
+                (type_, constant_ref)
+            }
+            Some(_) => {
+                let type_id = self.value_to_compiler_type(value_id);
+                let type_ = types::Type::new(types::TypeKind::Type);
+                let constant_ref = program.insert_buffer(type_, &type_id as *const _ as *const u8);
+                (type_, constant_ref)
+            }
+            _ => unreachable!("Should not have called extract_constant on an incomplete value"),
+        }
     }
 
     pub fn value_to_compiler_type(&self, value_id: ValueId) -> types::Type {

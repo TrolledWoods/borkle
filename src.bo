@@ -1,11 +1,11 @@
 library "base.bo";
 // import "tests/main.bo";
 
-const copy_with_predicate.(A, B, T) = fn(input: &[A] typeof T, output: &[B] typeof T, pred: fn(&typeof T, &typeof T) -> bool) {
-    let output_ptr = cast &output : &typeof T;
+const copy_with_predicate.(A, B, T) = fn(input: &[A] T, output: &[B] T, pred: fn(&T, &T) -> bool) {
+    let output_ptr = cast &output : &T;
 
     let i = 0;
-    for cast input : &typeof T {
+    for cast input : &T {
         if i >= B  break;
 
         if pred(_it, output_ptr + i) {
@@ -20,7 +20,7 @@ const copy_with_predicate.(A, B, T) = fn(input: &[A] typeof T, output: &[B] type
 //     copy_with_predicate.(_, _, #0)(input, output, fn(v0, v1) true);
 // };
 
-const apply.(T) = fn(input: typeof T, func: fn(typeof T)) -> _ {
+const apply.(T, R) = fn(input: T, func: fn(T) -> R) -> R {
     func(input)
 };
 
@@ -35,7 +35,7 @@ const PrintVec3 = fn(v: [3] u64) {
 };
 
 #entry fn() -> u64 {
-    4
+    apply(5, fn(v) v)
 };
 
 

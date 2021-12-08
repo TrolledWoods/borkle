@@ -14,10 +14,29 @@ use ustr::Ustr;
 
 #[derive(Clone)]
 pub struct PolyParam {
-    // is_type: bool,
+    used_as_type: Option<Location>,
+    used_as_value: Option<Location>,
     pub loc: Location,
     name: Ustr,
     value_id: type_infer::ValueId,
+}
+
+impl PolyParam {
+    fn is_type(&self) -> bool {
+        self.used_as_type.is_some()
+    }
+
+    // Returns true on failure.
+    fn check_for_dual_purpose(&self, errors: &mut ErrorCtx) -> bool {
+        if let (Some(type_usage), Some(value_usage)) = (self.used_as_type, self.used_as_value) {
+            errors.info(type_usage, "Used as a type here".to_string());
+            errors.info(value_usage, "Used as a value here(to use types as values, you may need `type` before the generic)".to_string());
+            errors.global_error("Used generic as both type and value".to_string());
+            true
+        } else {
+            false
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -35,11 +54,19 @@ impl YieldData {
         let set = self.root_set_id;
 
         for (param, &(compiler_type, constant)) in self.poly_params.iter().zip(poly_args) {
-            let type_ = self.infer.add_compiler_type(program, compiler_type, set);
-            let value = self.infer.add_type(TypeKind::ConstantValue(constant), [], set);
-            let constant = self.infer.add_type(TypeKind::Constant, [type_, value], set);
+            if param.is_type() {
+                debug_assert_eq!(compiler_type, types::Type::new(types::TypeKind::Type));
+                let type_ = unsafe { *constant.as_ptr().cast::<types::Type>() };
+                let type_id = self.infer.add_compiler_type(program, type_, set);
 
-            self.infer.set_equal(constant, param.value_id, Variance::Invariant);
+                self.infer.set_equal(param.value_id, type_id, Variance::Invariant);
+            } else {
+                let type_ = self.infer.add_compiler_type(program, compiler_type, set);
+                let value = self.infer.add_type(TypeKind::ConstantValue(constant), [], set);
+                let constant = self.infer.add_type(TypeKind::Constant, [type_, value], set);
+
+                self.infer.set_equal(constant, param.value_id, Variance::Invariant);
+            }
         }
     }
 }
@@ -89,6 +116,8 @@ pub fn begin<'a>(
                 loc,
                 name,
                 value_id,
+                used_as_type: None,
+                used_as_value: None,
             }
         })
         .collect();
@@ -264,7 +293,7 @@ fn subset_was_completed(ctx: &mut Context<'_, '_>, waiting_on: WaitingOnTypeInfe
             let node_loc = ctx.ast.get(node_id).loc;
             let mut fixed_up_params = Vec::with_capacity(params.len());
             for param in params {
-                fixed_up_params.push(ctx.infer.extract_constant(param));
+                fixed_up_params.push(ctx.infer.extract_constant(ctx.program, param));
             }
 
             let wanted_dep = match when_needed {
@@ -472,9 +501,15 @@ fn build_constraints(
         NodeKind::PolymorphicArgument(index) => {
             ctx.infer.value_sets.lock(set);
 
+            let poly_param = &mut ctx.poly_params[index];
+            poly_param.used_as_value.get_or_insert(node_loc);
+            if poly_param.check_for_dual_purpose(ctx.errors) {
+                ctx.infer.value_sets.get_mut(set).has_errors |= true;
+            }
+
             let sub_set = ctx.infer.value_sets.add(WaitingOnTypeInferrence::None);
             let value_id = ctx.infer.add_value(node_type_id, (), sub_set);
-            ctx.infer.set_equal(value_id, ctx.poly_params[index].value_id, Variance::Invariant);
+            ctx.infer.set_equal(value_id, poly_param.value_id, Variance::Invariant);
 
             ctx.infer.set_waiting_on_value_set(sub_set, WaitingOnTypeInferrence::ConstantFromValueId {
                 value_id,
@@ -515,6 +550,7 @@ fn build_constraints(
             match id {
                 PolyOrMember::Poly(id) => {
                     let num_args = ctx.program.get_num_poly_args(id);
+                    let other_yield_data = ctx.program.get_polymember_yielddata(id);
 
                     let mut param_values = Vec::with_capacity(num_args);
                     let sub_set = ctx.infer.value_sets.add(WaitingOnTypeInferrence::None);
@@ -527,9 +563,14 @@ fn build_constraints(
                         }
 
                         let params = poly_params.clone();
-                        for &param in &params {
-                            let (_, param_value_id) = build_inferrable_constant_value(ctx, param, sub_set);
-                            param_values.push(param_value_id);
+                        for (&param, other_poly_arg) in params.iter().zip(&other_yield_data.poly_params) {
+                            if other_poly_arg.is_type() {
+                                let type_id = build_type(ctx, param, sub_set);
+                                param_values.push(type_id);
+                            } else {
+                                let (_, param_value_id) = build_inferrable_constant_value(ctx, param, sub_set);
+                                param_values.push(param_value_id);
+                            }
                         }
                     } else {
                         for _ in 0..num_args {
@@ -537,8 +578,6 @@ fn build_constraints(
                             param_values.push(param_value_id);
                         }
                     }
-
-                    let other_yield_data = ctx.program.get_polymember_yielddata(id);
 
                     ctx.infer.add_subtree_from_other_typesystem(
                         &other_yield_data.infer, 
@@ -1032,7 +1071,7 @@ fn build_type(
     set: ValueSetId,
 ) -> type_infer::ValueId {
     let node = ctx.ast.get(node_id);
-    // let node_loc = node.loc;
+    let node_loc = node.loc;
     let node_type_id = node.type_infer_value_id;
 
     ctx.infer.set_value_set(node_type_id, set);
@@ -1040,11 +1079,13 @@ fn build_type(
 
     match node.kind {
         NodeKind::ImplicitType => {},
-        NodeKind::PolymorphicArgument(_) => {
-            // We can't actually compute the type directly, because the polymorphic argument
-            // will use a type id. So, we need to convert the type id into a value later.
-            ctx.infer.value_sets.lock(set);
-            todo!("Not done");
+        NodeKind::PolymorphicArgument(index) => {
+            let poly_param = &mut ctx.poly_params[index];
+            poly_param.used_as_type.get_or_insert(node_loc);
+            if poly_param.check_for_dual_purpose(ctx.errors) {
+                ctx.infer.value_sets.get_mut(set).has_errors |= true;
+            }
+            ctx.infer.set_equal(poly_param.value_id, node_type_id, Variance::Invariant);
         }
         NodeKind::Parenthesis(inner) => {
             let inner_type_id = build_type(ctx, inner, set);
@@ -1206,13 +1247,18 @@ fn build_inferrable_constant_value(
     set: ValueSetId,
 ) -> (type_infer::ValueId, type_infer::ValueId) {
     let node = ctx.ast.get(node_id);
-    let _node_loc = node.loc;
+    let node_loc = node.loc;
     let node_type_id = node.type_infer_value_id;
 
     let value_id = match node.kind {
         NodeKind::PolymorphicArgument(index) => {
             let value_id = ctx.infer.add_value(node_type_id, (), set);
-            ctx.infer.set_equal(ctx.poly_params[index].value_id, value_id, Variance::Invariant);
+            let poly_param = &mut ctx.poly_params[index];
+            poly_param.used_as_value.get_or_insert(node_loc);
+            if poly_param.check_for_dual_purpose(ctx.errors) {
+                ctx.infer.value_sets.get_mut(set).has_errors |= true;
+            }
+            ctx.infer.set_equal(poly_param.value_id, value_id, Variance::Invariant);
             value_id
         }
         NodeKind::ImplicitType => {
