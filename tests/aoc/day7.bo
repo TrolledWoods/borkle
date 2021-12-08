@@ -12,17 +12,17 @@ const AocDay7Test = if DO_AOC {
 };
 
 const aoc_day7 = fn() -> { part_1: u64; part_2: u64 } {
-    let count = 1 + count_matches.(u8)(INPUT, fn(v) *v == COMMA);
+    let count = 1 + count_matches(INPUT, fn(v) *v == COMMA);
 
-    let crabs = alloc.(u64)(count);
-    defer dealloc.(u64)(crabs);
+    let crabs = alloc(count);
+    defer dealloc(crabs);
 
     let parse = INPUT;
     take_whitespace(&parse);
     let min = 99999999999999;
     let max = 0;
     while not(empty(&parse)) {
-        let number = cast take_u64(&parse);
+        let number = take_u64(&parse);
         *(crabs.ptr + _iters) = number;
         if number < min  min = number;
         if number > max  max = number;

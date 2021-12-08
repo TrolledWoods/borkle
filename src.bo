@@ -1,5 +1,5 @@
 library "base.bo";
-// import "tests/main.bo";
+import "tests/main.bo";
 
 const copy_with_predicate.(A, B, T) = fn(input: &[A] T, output: &[B] T, pred: fn(&T, &T) -> bool) {
     let output_ptr = cast &output : &T;
@@ -14,6 +14,19 @@ const copy_with_predicate.(A, B, T) = fn(input: &[A] T, output: &[B] T, pred: fn
     };
 };
 
+const to_buffer.(T, N) = fn(input: &[N] T) -> [] T {
+    let buf = #0;
+    buf.ptr = cast input;
+    buf.len = N;
+    buf
+};
+
+const fold.(T, V) = fn(list: [] T, initial_value: V, folder: fn(V, &T) -> V) -> V {
+    for list  initial_value = folder(initial_value, _it);
+
+    initial_value
+};
+
 // This causes crash! Why?
 //
 // const copy.(A, T) = fn(input: &[A] typeof T, output: &[A] typeof T) {
@@ -24,18 +37,19 @@ const apply.(T, R) = fn(input: T, func: fn(T) -> R) -> R {
     func(input)
 };
 
-const PrintVec3 = fn(v: [3] u64) {
+const PrintVec3.(T) = fn(v: [3] T) {
     print("x: ");
-    print_u64(v._0);
+    print_u64(cast v._0);
     print("y: ");
-    print_u64(v._1);
+    print_u64(cast v._1);
     print("z: ");
-    print_u64(v._2);
+    print_u64(cast v._2);
     print("\n");
 };
 
 #entry fn() -> u64 {
-    apply(5, fn(v) v)
+    let arr = [1, 2, 3] : [_] u8;
+    fold(to_buffer(&arr), 0, fn(s, x) s + cast *x)
 };
 
 

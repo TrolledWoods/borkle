@@ -64,7 +64,7 @@ const aoc_day3_part2 = fn() -> u64 {
     let numbers = alloc
         .(type { number: u32; consider_for_a_rate: bool; consider_for_b_rate: bool; })
         (lines);
-    defer dealloc.(type typeof *numbers.ptr)(numbers);
+    defer dealloc(numbers);
 
     let input = INPUT;
     take_whitespace(&input);

@@ -1087,7 +1087,10 @@ fn build_type(
             }
             ctx.infer.set_equal(poly_param.value_id, node_type_id, Variance::Invariant);
         }
-        NodeKind::Parenthesis(inner) => {
+        // @Cleanup: I don't really want TypeAsValue here, but since the typer has more information than the parser
+        // the parser might need it as a "hint", so until type expressions and normal values have the same syntax,
+        // this'll have to do.
+        NodeKind::Parenthesis(inner) | NodeKind::TypeAsValue(inner) => {
             let inner_type_id = build_type(ctx, inner, set);
             ctx.infer
                 .set_equal(inner_type_id, node_type_id, Variance::Invariant);

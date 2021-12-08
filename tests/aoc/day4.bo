@@ -22,7 +22,7 @@ const aoc_day4 = fn() -> { part_1: u64; part_2: u64; } {
     };
 
     let number_map = alloc.(u16)(max_number);
-    defer dealloc.(u16)(number_map);
+    defer dealloc(number_map);
 
     parse = INPUT;
     take_whitespace(&parse);
@@ -45,7 +45,7 @@ const aoc_day4 = fn() -> { part_1: u64; part_2: u64; } {
     };
 
     let board_cells = alloc.(u16)(num_boards * 25);
-    defer dealloc.(u16)(board_cells);
+    defer dealloc(board_cells);
 
     // Read the numbers into the boards
     parse = boards_section;
