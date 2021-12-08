@@ -10,14 +10,21 @@ const vec_new.(T) = fn() -> typeof Vec.(T)  #0;
 
 const INITIAL_SIZE = 16 : usize;
 
+const vec_as_buffer.(T) = fn(vec: &typeof Vec.(T)) -> [] T {
+    let buf = #0;
+    buf.ptr = (*vec).ptr;
+    buf.len = (*vec).len;
+    buf
+};
+
 const vec_reserve.(T) = fn(vec: &typeof Vec.(T), requested: usize) {
-    if requested > vec.capacity {
-        if vec.capacity == 0 {
+    if requested > (*vec).capacity {
+        if (*vec).capacity == 0 {
             let buffer = alloc(INITIAL_SIZE);
             (*vec).ptr = buffer.ptr;
             (*vec).capacity = buffer.len;
         } else {
-            let old_buf = #uninit : [] u8;
+            let old_buf = #uninit : [] T;
             old_buf.ptr = (*vec).ptr;
             old_buf.len = (*vec).capacity;
 
@@ -30,7 +37,7 @@ const vec_reserve.(T) = fn(vec: &typeof Vec.(T), requested: usize) {
             (*vec).ptr = new.ptr;
             (*vec).capacity = new.len;
 
-            while _iters < new.len {
+            while _iters < (*vec).len {
                 *(new.ptr + _iters) = *(old_buf.ptr + _iters);
             };
 
@@ -39,11 +46,13 @@ const vec_reserve.(T) = fn(vec: &typeof Vec.(T), requested: usize) {
     };
 };
 
-const vec_free.(T) = fn(vec: &typeof Vec.(T)) {
-    let buf = #uninit : [] u8;
-    buf.ptr = (*vec).ptr;
-    buf.len = (*vec).capacity;
-    dealloc(buf);
+const vec_free.(T) = fn(vec: typeof Vec.(T)) {
+    if vec.capacity > 0 {
+        let buf = #uninit : [] T;
+        buf.ptr = vec.ptr;
+        buf.len = vec.capacity;
+        dealloc(buf);
+    };
 };
 
 const vec_get.(T) = fn(vec: &typeof Vec.(T), index: usize) -> &T {

@@ -834,7 +834,10 @@ impl Values {
         let mut layout = Layout::default();
         if let Type { args: Some(args), kind } = &kind {
             let mut number = 0;
-            for &needed in kind.get_needed_children_for_layout(&args) {
+            // @Improvement: We need to figure out how to recursively determine
+            // type completion, for when we're going to insert it as a type
+            // id.
+            for &needed in args.iter() { // kind.get_needed_children_for_layout(&args) {
                 let structure = &mut self.structure[self.values[needed as usize].structure_id as usize];
                 if structure.layout.align == 0 {
                     number += 1;

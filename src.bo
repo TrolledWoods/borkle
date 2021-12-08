@@ -1,60 +1,59 @@
 library "base.bo";
-import "tests/main.bo";
+// import "tests/main.bo";
+import "tests/aoc/day8.bo";
 
-const copy_with_predicate.(A, B, T) = fn(input: &[A] T, output: &[B] T, pred: fn(&T, &T) -> bool) {
-    let output_ptr = cast &output : &T;
+const Stream.(S, T) = #0 : {
+    state: S;
+    next: fn(&S, &T) -> bool;
+};
 
-    let i = 0;
-    for cast input : &T {
-        if i >= B  break;
-
-        if pred(_it, output_ptr + i) {
-            *(output_ptr + i) = *_it;
-        };
+const stream_buffer.(T) = fn(buf: [] T) -> typeof Stream.(type [] T, type &T) {
+    let value = #0;
+    value.state = buf;
+    // Somehow, commenting out the types here makes it break!?
+    value.next = fn(s: &[] T, v: &&T) -> bool {
+        if (*s).len > 0 {
+            (*s).len = (*s).len - 1;
+            *v = (*s).ptr;
+            (*s).ptr = (*s).ptr + 1;
+            true
+        } else {
+            false
+        }
     };
+    value
 };
 
-const to_buffer.(T, N) = fn(input: &[N] T) -> [] T {
-    let buf = #0;
-    buf.ptr = cast input;
-    buf.len = N;
-    buf
-};
-
-const fold.(T, V) = fn(list: [] T, initial_value: V, folder: fn(V, &T) -> V) -> V {
-    for list  initial_value = folder(initial_value, _it);
-
-    initial_value
-};
-
-// This causes crash! Why?
-//
-// const copy.(A, T) = fn(input: &[A] typeof T, output: &[A] typeof T) {
-//     copy_with_predicate.(_, _, #0)(input, output, fn(v0, v1) true);
-// };
-
-const apply.(T, R) = fn(input: T, func: fn(T) -> R) -> R {
-    func(input)
-};
-
-const PrintVec3.(T) = fn(v: [3] T) {
-    print("x: ");
-    print_u64(cast v._0);
-    print("y: ");
-    print_u64(cast v._1);
-    print("z: ");
-    print_u64(cast v._2);
-    print("\n");
+const fold.(S, V, T) = fn(stream: typeof Stream.(S, T), state: V, folder: fn(V, T) -> V) -> V {
+    let value = #0;
+    while (stream.next)(&stream.state, &value) {
+        state = folder(state, value);
+    };
+    state
 };
 
 #entry fn() -> u64 {
-    let arr = [1, 2, 3] : [_] u8;
-    fold(to_buffer(&arr), 0, fn(s, x) s + cast *x)
-};
+    // Also crashes!?
+    // let array = [1, 2, 3, 4];
+    // let buf = cast &array : [] _;
+    // let value = stream_buffer.(u64)(buf);
+    // fold(value, 0, fn(v: u64, x: &u64) v + *x)
 
+    aoc_day8();
+
+    0
+};
 
 // This crashes for now (polymorphics being resolved at typing time)
 //
 // let stack_array = #0 : [
 //     count_matches.(u8)("Hello ,,,, ,, , , ,", fn(v) *v == COMMA)
 // ] u64;
+
+// const OtherThing.(T) = fn(x: T) -> T  x;
+// 
+// const Thing.(T) = fn(v: T) -> T {
+//     // Function is sized bro!!!!
+//     OtherThing(fn(x) x)(v)
+// };
+
