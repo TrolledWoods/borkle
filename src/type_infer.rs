@@ -28,7 +28,7 @@ use crate::errors::ErrorCtx;
 use crate::location::Location;
 use crate::operators::BinaryOp;
 use crate::types::{self, IntTypeKind};
-use std::collections::HashMap;
+use std::collections::{hash_map, HashMap};
 use std::mem;
 use ustr::Ustr;
 use crate::program::constant::ConstantRef;
@@ -111,6 +111,54 @@ pub struct Empty;
 pub struct Var(pub ValueId);
 #[derive(Clone, Copy)]
 pub struct Unknown;
+
+// A struct that maps from value ids to Poly args / Ast node / Local / Label ids or vice versa
+#[derive(Clone)]
+pub struct IdMapper {
+    pub poly_args: usize,
+    pub ast_nodes: usize,
+    pub locals: usize,
+    pub labels: usize,
+}
+
+pub enum MappedId {
+    PolyArg(usize),
+    AstNode(crate::parser::NodeId),
+    Local(crate::locals::LocalId),
+    Label(crate::locals::LabelId),
+    None,
+}
+
+impl IdMapper {
+    pub fn map(&self, value: ValueId) -> MappedId {
+        let mut id = value;
+        if id < static_values::STATIC_VALUES_SIZE {
+            return MappedId::None;
+        }
+        id -= static_values::STATIC_VALUES_SIZE;
+
+        if id < self.poly_args as _ {
+            return MappedId::PolyArg(id as usize);
+        }
+        id -= self.poly_args as ValueId;
+
+        if id < self.ast_nodes as _ {
+            return MappedId::AstNode(id);
+        }
+        id -= self.ast_nodes as ValueId;
+
+        if id < self.locals as _ {
+            return MappedId::Local(crate::locals::LocalId(id as _));
+        }
+        id -= self.locals as ValueId;
+
+        if id < self.labels as _ {
+            return MappedId::Label(crate::locals::LabelId(id as _));
+        }
+
+        MappedId::None
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TypeKind {
@@ -375,6 +423,49 @@ impl Type {
 
 type ConstraintId = usize;
 
+#[derive(Debug)]
+pub struct ReasoningChain {
+    pub chain: Vec<Reason>,
+}
+
+impl ReasoningChain {
+    pub fn output(&self, errors: &mut ErrorCtx, ast: &crate::parser::Ast) {
+        let mut chain = &self.chain[..];
+
+        loop {
+            match chain {
+                [Reason { kind: ReasonKind::TypeBound, .. }, b @ Reason { kind: ReasonKind::LiteralType, .. }, rest @ ..] => {
+                    errors.info(ast.get(b.node).loc, format!("it's bound here"));
+                    chain = rest;
+                }
+                [Reason { kind: ReasonKind::Passed | ReasonKind::TypeBound, .. }, rest @ ..] => {
+                    // Passed or just a type bound are trivial enough we just don't output them
+                    chain = rest;
+                }
+                [a @ Reason { kind: ReasonKind::IntLiteral, .. }, rest @ ..] => {
+                    errors.info(ast.get(a.node).loc, format!("this is an int"));
+                    chain = rest;
+                }
+                [a @ Reason { kind: ReasonKind::LocalVariableIs(name), .. }, b @ Reason { kind: ReasonKind::LocalVariableIs(_), .. }, Reason { kind: ReasonKind::Declaration, .. }, rest @ ..] => {
+                    errors.info(ast.get(a.node).loc, format!("`{}` is used here", name));
+                    errors.info(ast.get(b.node).loc, format!("`{}` is declared here", name));
+                    chain = rest;
+                }
+                [a @ Reason { kind: ReasonKind::LocalVariableIs(name), .. }, b @ Reason { kind: ReasonKind::LocalVariableIs(_), .. }, rest @ ..] => {
+                    errors.info(ast.get(a.node).loc, format!("`{}` is used here", name));
+                    errors.info(ast.get(b.node).loc, format!("the type of `{}` can be inferred from here", name));
+                    chain = rest;
+                }
+                [v, rest @ ..] => {
+                    errors.info(ast.get(v.node).loc, format!("{:?}", v.kind));
+                    chain = rest;
+                }
+                [] => break,
+            }
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy)]
 pub struct Reason {
     node: crate::parser::NodeId,
@@ -398,6 +489,11 @@ impl Reason {
 #[derive(Debug, Clone, Copy)]
 pub enum ReasonKind {
     Passed,
+    LocalVariableIs(Ustr),
+    LiteralType,
+    TypeBound,
+    Declaration,
+    IntLiteral,
     // Some thing is literally a type, like the global `Thing` is of some specific type.
     IsOfType,
     Temp(&'static std::panic::Location<'static>),
@@ -685,6 +781,7 @@ pub type ValueId = u32;
 #[derive(Debug, Clone)]
 struct Value {
     value_sets: ValueSetHandles,
+    is_base_value: bool,
 }
 
 #[derive(Clone, Copy)]
@@ -692,6 +789,7 @@ pub struct ValueBorrow<'a> {
     pub kind: &'a Option<Type>,
     pub layout: &'a Layout,
     value_sets: &'a ValueSetHandles,
+    is_base_value: &'a bool,
 }
 
 impl ValueBorrow<'_> {
@@ -704,6 +802,7 @@ pub struct ValueBorrowMut<'a> {
     pub kind: &'a mut Option<Type>,
     pub layout: &'a mut Layout,
     value_sets: &'a mut ValueSetHandles,
+    pub is_base_value: &'a mut bool,
 }
 
 struct LookupElement {
@@ -934,7 +1033,7 @@ impl Values {
             num_values: 1,
         });
         self.values.push(ValueWrapper {
-            value: Value { value_sets: value_set_handles },
+            value: Value { value_sets: value_set_handles, is_base_value: false },
             structure_id,
             next_in_structure_group: u32::MAX,
         });
@@ -959,6 +1058,7 @@ impl Values {
             kind: &structure.kind,
             layout: &structure.layout,
             value_sets: &value.value.value_sets,
+            is_base_value: &value.value.is_base_value,
         }
     }
 
@@ -969,6 +1069,7 @@ impl Values {
             kind: &mut structure.kind,
             layout: &mut structure.layout,
             value_sets: &mut value.value.value_sets,
+            is_base_value: &mut value.value.is_base_value,
         }
     }
 
@@ -987,11 +1088,13 @@ impl Values {
                 kind: &mut structure_a.kind,
                 layout: &mut structure_a.layout,
                 value_sets: &mut a.value.value_sets,
+                is_base_value: &mut a.value.is_base_value,
             },
             ValueBorrowMut {
                 kind: &mut structure_b.kind,
                 layout: &mut structure_b.layout,
                 value_sets: &mut b.value.value_sets,
+                is_base_value: &mut b.value.is_base_value,
             },
         ))
     }
@@ -1010,32 +1113,20 @@ fn slice_get_two_mut<T>(slice: &mut [T], a: usize, b: usize) -> Option<(&mut T, 
 }
 
 fn get_loc_of_value(poly_args: &[crate::typer::PolyParam], ast: &crate::parser::Ast, locals: &crate::locals::LocalVariables, value: ValueId) -> Option<Location> {
-    let mut loc_id = value;
-    if loc_id < static_values::STATIC_VALUES_SIZE {
-        return None;
-    }
-    loc_id -= static_values::STATIC_VALUES_SIZE;
+    let mapper = IdMapper {
+        poly_args: poly_args.len(),
+        ast_nodes: ast.nodes.len(),
+        locals: locals.num_locals(),
+        labels: locals.num_labels(),
+    };
 
-    if loc_id < poly_args.len() as _ {
-        return Some(poly_args[loc_id as usize].loc);
+    match mapper.map(value) {
+        MappedId::PolyArg(id) => Some(poly_args[id].loc),
+        MappedId::AstNode(id) => Some(ast.get(id).loc),
+        MappedId::Local(id) => Some(locals.get(id).loc),
+        MappedId::Label(id) => Some(locals.get_label(id).loc),
+        MappedId::None => None,
     }
-    loc_id -= poly_args.len() as ValueId;
-
-    if loc_id < ast.nodes.len() as _ {
-        return Some(ast.get(loc_id).loc);
-    }
-    loc_id -= ast.nodes.len() as ValueId;
-
-    if loc_id < locals.num_locals() as _ {
-        return Some(locals.get(crate::locals::LocalId(loc_id as _)).loc);
-    }
-
-    loc_id -= locals.num_locals() as ValueId;
-    if loc_id < locals.num_labels() as _ {
-        return Some(locals.get_label(crate::locals::LabelId(loc_id as _)).loc);
-    }
-
-    None
 }
 
 #[derive(Clone)]
@@ -1536,11 +1627,32 @@ impl TypeSystem {
             },
             Some(Type { kind, args: None, .. }) => format!("{:?}", kind),
             Some(Type { kind: TypeKind::Int, args: Some(c) }) => match &**c {
-                [signed, size] => format!(
-                    "int({}, {})",
-                    self.value_to_str(*signed, rec + 1),
-                    self.value_to_str(*size, rec + 1),
-                ),
+                [signed, size] => {
+                    if let (Some(sign), Some(size)) = (extract_constant_from_value(&self.values, *signed), extract_constant_from_value(&self.values, *size)) {
+                        let sign = unsafe { *sign.as_ptr().cast::<u8>() } > 0;
+                        let size = unsafe { *size.as_ptr().cast::<u8>() };
+
+                        match (sign, size) {
+                            (true, 0) => "isize",
+                            (true, 1) => "i8",
+                            (true, 2) => "i16",
+                            (true, 4) => "i32",
+                            (true, 8) => "i64",
+                            (false, 0) => "usize",
+                            (false, 1) => "u8",
+                            (false, 2) => "u16",
+                            (false, 4) => "u32",
+                            (false, 8) => "u64",
+                            _ => "<int with invalid size>",
+                        }.to_string()
+                    } else {
+                        format!(
+                            "int({}, {})",
+                            self.value_to_str(*signed, rec + 1),
+                            self.value_to_str(*size, rec + 1),
+                        )
+                    }
+                },
                 _ => unreachable!("A function pointer type has to have at least a return type"),
             }
             Some(Type { kind: TypeKind::Function, args: Some(c) }) => match &**c {
@@ -2115,6 +2227,103 @@ impl TypeSystem {
         }
     }
 
+    pub fn get_reasons(&self, base_value: ValueId, mapper: &IdMapper, ast: &crate::parser::Ast) -> Vec<ReasoningChain> {
+        #[derive(Default)]
+        struct Node {
+            source: Option<ValueId>,
+            reason: Option<Reason>,
+            distance: u32,
+        }
+
+        struct Frontier {
+            source: ValueId,
+            distance: u32,
+            constraint_id: ConstraintId,
+        }
+
+        fn reason_from_values(system: &TypeSystem, base_value: ValueId, mut graph: HashMap<ValueId, Node>, mut frontier: Vec<Frontier>) -> ReasoningChain {
+            while let Some(Frontier { source, distance, constraint_id }) = frontier.pop() {
+                let constraint = &system.constraints[constraint_id];
+                for &value_id in constraint.values() {
+                    let new_node = Node {
+                        source: Some(source),
+                        distance,
+                        reason: Some(constraint.reason),
+                    };
+
+                    let progress = match graph.entry(value_id) {
+                        hash_map::Entry::Occupied(mut entry) => {
+                            let entry = entry.get_mut();
+                            if entry.distance > new_node.distance {
+                                *entry = new_node;
+                                true
+                            } else {
+                                false
+                            }
+                        }
+                        hash_map::Entry::Vacant(entry) => {
+                            entry.insert(new_node);
+                            true
+                        }
+                    };
+
+                    if progress {
+                        if let Some(constraints) = system.available_constraints.get(&value_id) {
+                            frontier.extend(constraints.iter().map(|&constraint_id| Frontier {
+                                source: value_id,
+                                distance: distance + 1,
+                                constraint_id,
+                            }));
+                        }
+                    }
+                }
+            }
+
+            let mut chain = Vec::new();
+            let mut next = Some(base_value);
+            while let Some(value_id) = next {
+                let node = &graph[&value_id];
+                if let Some(reason) = node.reason {
+                    chain.push(reason);
+                }
+                next = node.source;
+            }
+
+            ReasoningChain {
+                chain,
+            }
+        }
+
+        let mut reasons = Vec::new();
+        for value_id in self.values.iter_values_in_structure(base_value) {
+            if *self.values.get(value_id).is_base_value {
+                let mut graph = HashMap::new();
+                let mut frontier = Vec::new();
+                // It's a base value, which means that we can draw a chain of reasoning from it.
+                let node = Node {
+                    source: None,
+                    reason: match mapper.map(value_id) {
+                        MappedId::AstNode(id) => Some(crate::typer::explain_given_type(ast, id)),
+                        _ => None,
+                    },
+                    distance: 0,
+                };
+                graph.insert(value_id, node);
+
+                if let Some(constraints) = self.available_constraints.get(&value_id) {
+                    frontier.extend(constraints.iter().map(|&constraint_id| Frontier {
+                        source: value_id,
+                        distance: 1,
+                        constraint_id,
+                    }));
+                    reasons.push(reason_from_values(self, base_value, graph, frontier));
+                }
+            }
+        }
+        
+        reasons
+    }
+
     pub fn add_compiler_type(&mut self, program: &Program, type_: types::Type, set: ValueSetId) -> ValueId {
         let id = self.add_unknown_type();
         self.set_compiler_type(program, id, type_, set)
@@ -2125,6 +2334,7 @@ impl TypeSystem {
         let args = args.into_box_slice();
         let value_sets = set.add_set(&mut self.value_sets);
         self.values.set(value_id, Type { kind, args }, &mut self.value_sets, value_sets);
+        *self.values.get_mut(value_id).is_base_value = true;
 
         value_id
     }
@@ -2185,6 +2395,7 @@ impl TypeSystem {
             &mut self.value_sets,
             value_sets,
         );
+        *self.values.get_mut(constant_value_id).is_base_value = true;
         self.set_type(value_id, TypeKind::Constant, [type_, constant_value_id], set);
     }
 

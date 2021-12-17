@@ -78,24 +78,6 @@ impl AstBuilder {
         self.nodes.push(node);
         id
     }
-
-    /*pub fn has_to_be_alone(&self, id: NodeId) -> bool {
-        match self.get(id).kind {
-            NodeKind::ConstAtTyping { .. }
-            | NodeKind::ConstAtEvaluation { .. }
-            | NodeKind::If { .. }
-            | NodeKind::For { .. }
-            | NodeKind::While { .. } => true,
-            NodeKind::BitCast {
-                value: operand, ..
-            }
-            NodeKind::Cast {
-                value: operand, ..
-            }
-            | NodeKind::Unary { operand, .. } => self.has_to_be_alone(operand),
-            _ => false,
-        }
-    }*/
 }
 
 #[derive(Clone)]
@@ -124,7 +106,7 @@ impl Node {
     fn child_nodes(&self, mut v: impl FnMut(NodeId)) {
         use NodeKind::*;
         match self.kind {
-            Parenthesis(inner) => v(inner),
+            Explain(inner) | Parenthesis(inner) => v(inner),
             Literal(_) => {}
             ArrayLiteral(ref nodes) => {
                 for &node in nodes {
@@ -296,6 +278,8 @@ pub enum NodeKind {
     Literal(Literal),
     ArrayLiteral(Vec<NodeId>),
     BuiltinFunction(BuiltinFunction),
+
+    Explain(NodeId),
 
     PolymorphicArgument(usize),
     ConstAtTyping {

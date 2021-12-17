@@ -47,6 +47,7 @@ pub struct YieldData {
     ast: Ast,
     infer: TypeSystem,
     poly_params: Vec<PolyParam>,
+    needs_explaining: Vec<(NodeId, type_infer::ValueId)>,
 }
 
 impl YieldData {
@@ -82,6 +83,7 @@ struct Context<'a, 'b> {
     infer: &'a mut TypeSystem,
     poly_params: &'a mut Vec<PolyParam>,
     runs: ExecutionTime,
+    needs_explaining: &'a mut Vec<(NodeId, type_infer::ValueId)>,
 }
 
 pub fn process_ast<'a>(
@@ -111,6 +113,7 @@ pub fn begin<'a>(
         .into_iter()
         .map(|(loc, name)| {
             let value_id = infer.add_unknown_type();
+            *infer.values.get_mut(value_id).is_base_value = true;
 
             PolyParam {
                 loc,
@@ -136,6 +139,7 @@ pub fn begin<'a>(
         label.type_infer_value_id = infer.add_unknown_type();
     }
 
+    let mut needs_explaining = Vec::new();
     let mut ctx = Context {
         thread_context,
         errors,
@@ -146,6 +150,7 @@ pub fn begin<'a>(
         ast: &mut ast,
         infer: &mut infer,
         runs: ExecutionTime::RuntimeFunc,
+        needs_explaining: &mut needs_explaining,
     };
 
     // Build the tree relationship between the different types.
@@ -161,6 +166,7 @@ pub fn begin<'a>(
         locals,
         infer,
         poly_params,
+        needs_explaining,
     }
 }
 
@@ -182,6 +188,7 @@ pub fn solve<'a>(
         infer: &mut data.infer,
         // This is only used in build_constraints, what it's set to doesn't matter
         runs: ExecutionTime::Never,
+        needs_explaining: &mut data.needs_explaining,
     };
 
     loop {
@@ -235,6 +242,19 @@ pub fn finish<'a>(
     errors: &mut ErrorCtx,
     mut from: YieldData,
 ) -> Result<Result<(DependencyList, LocalVariables, TypeSystem, Ast), (DependencyList, YieldData)>, ()> {
+    for (node_id, needs_explaining) in from.needs_explaining {
+        let id_mapper = type_infer::IdMapper {
+            poly_args: from.poly_params.len(),
+            ast_nodes: from.ast.nodes.len(),
+            locals: from.locals.num_locals(),
+            labels: from.locals.num_labels(),
+        };
+        for chain in from.infer.get_reasons(needs_explaining, &id_mapper, &from.ast) {
+            chain.output(errors, &from.ast);
+            errors.note(from.ast.get(node_id).loc, format!("The type is `{}` because...", from.infer.value_to_str(needs_explaining, 0)));
+        }
+    }
+
     let mut are_incomplete_sets = false;
     for value_set_id in from.infer.value_sets.iter_ids() {
         let value_set = from.infer.value_sets.get(value_set_id);
@@ -518,6 +538,11 @@ fn build_constraints(
                 parent_set: set,
             });
         }
+        NodeKind::Explain(inner) => {
+            let inner = build_constraints(ctx, inner, set);
+            ctx.infer.set_equal(node_type_id, inner, Variance::Invariant, Reason::new(node_id, ReasonKind::Passed));
+            ctx.needs_explaining.push((node_id, inner));
+        }
         NodeKind::SizeOf(inner) => {
             let subset = ctx.infer.value_sets.add(WaitingOnTypeInferrence::None);
             let inner = build_type(ctx, inner, subset);
@@ -784,7 +809,7 @@ fn build_constraints(
             let local = ctx.locals.get(local_id);
             let local_type_id = local.type_infer_value_id;
             ctx.infer
-                .set_equal(local_type_id, node_type_id, Variance::Invariant, Reason::new(node_id, ReasonKind::Passed));
+                .set_equal(local_type_id, node_type_id, Variance::Invariant, Reason::new(node_id, ReasonKind::LocalVariableIs(local.name)));
 
             if ctx.runs != ExecutionTime::Never && local.stack_frame_id != set {
                 dbg!(local.stack_frame_id);
@@ -850,6 +875,7 @@ fn build_constraints(
                 poly_params: ctx.poly_params,
                 ast: ctx.ast,
                 infer: ctx.infer,
+                needs_explaining: ctx.needs_explaining,
                 runs: ctx.runs.combine(ExecutionTime::RuntimeFunc),
             };
 
@@ -947,7 +973,7 @@ fn build_constraints(
             let right_type_id = build_constraints(ctx, right, set);
 
             ctx.infer
-                .set_equal(left_type_id, right_type_id, Variance::Covariant, Reason::temp(node_id));
+                .set_equal(left_type_id, right_type_id, Variance::Covariant, Reason::new(node_id, ReasonKind::Declaration));
 
             ctx.infer.set_type(
                 node_type_id,
@@ -1052,10 +1078,10 @@ fn build_constraints(
         NodeKind::TypeBound { value, bound } => {
             let bound_type_id = build_type(ctx, bound, set);
             ctx.infer
-                .set_equal(node_type_id, bound_type_id, Variance::Invariant, Reason::temp(node_id));
+                .set_equal(node_type_id, bound_type_id, Variance::Invariant, Reason::new(node_id, ReasonKind::TypeBound));
             let value_type_id = build_constraints(ctx, value, set);
             ctx.infer
-                .set_equal(value_type_id, node_type_id, Variance::Variant, Reason::temp(node_id));
+                .set_equal(value_type_id, node_type_id, Variance::Variant, Reason::new(node_id, ReasonKind::Passed));
         }
         _ => unimplemented!(
             "Ast node does not have a typing relationship yet {:?}",
@@ -1168,6 +1194,13 @@ fn build_type(
     node_type_id
 }
 
+pub fn type_reason_of_node(ast: &Ast, node_id: NodeId) -> Reason {
+    match ast.get(node_id).kind {
+        NodeKind::LiteralType(_) => Reason::new(node_id, ReasonKind::LiteralType),
+        _ => Reason::temp(node_id),
+    }
+}
+
 /// Normal values are assumed to be readonly, because they are temporaries, it doesn't really make sense to
 /// write to them. However, in some cases the value isn't a temporary at all, but actually refers to a value
 /// inside of another value. That's what this is for. Instead of forcing the value to be readonly, we can make
@@ -1193,7 +1226,7 @@ fn build_lvalue(
             let local = ctx.locals.get(local_id);
             let local_type_id = local.type_infer_value_id;
             ctx.infer
-                .set_equal(local_type_id, node_type_id, Variance::Invariant, Reason::temp(node_id));
+                .set_equal(local_type_id, node_type_id, Variance::Invariant, Reason::new(node_id, ReasonKind::LocalVariableIs(local.name)));
 
             if local.stack_frame_id != set {
                 ctx.errors.error(node_loc, "Variable is defined in a different execution context, you cannot access it here, other than for its type".to_string());
@@ -1282,6 +1315,7 @@ fn build_inferrable_constant_value(
                 ast: ctx.ast,
                 infer: ctx.infer,
                 runs: ctx.runs.combine(ExecutionTime::Typing),
+                needs_explaining: ctx.needs_explaining,
             };
             let sub_set = sub_ctx.infer.value_sets.add(WaitingOnTypeInferrence::None);
 
@@ -1308,6 +1342,14 @@ fn build_inferrable_constant_value(
     ctx.infer.value_sets.add_node_to_set(set, node_id);
 
     (node_type_id, value_id)
+}
+
+pub fn explain_given_type(ast: &Ast, node_id: NodeId) -> Reason {
+    match ast.get(node_id).kind {
+        NodeKind::LiteralType(_) => Reason::new(node_id, ReasonKind::LiteralType),
+        NodeKind::Literal(Literal::Int(_)) => Reason::new(node_id, ReasonKind::IntLiteral),
+        _ => Reason::temp(node_id),
+    }
 }
 
 #[derive(Clone)]

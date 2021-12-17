@@ -13,39 +13,44 @@ pub struct ErrorId(usize);
 
 type InfoList = Vec<(Location, String)>;
 
+#[derive(Default)]
 pub struct ErrorCtx {
     temp_info: Vec<(Location, String)>,
     errors: Vec<(Option<Location>, String, InfoList)>,
     warnings: Vec<(Location, String, InfoList)>,
-}
-
-impl Default for ErrorCtx {
-    fn default() -> Self {
-        Self::new()
-    }
+    notes: Vec<(Location, String, InfoList)>,
 }
 
 impl ErrorCtx {
-    pub const fn new() -> Self {
-        Self {
-            temp_info: Vec::new(),
-            errors: Vec::new(),
-            warnings: Vec::new(),
-        }
+    pub fn new() -> Self {
+        Self::default()
     }
 
     pub fn join(&mut self, mut other: Self) {
         self.errors.append(&mut other.errors);
         self.warnings.append(&mut other.warnings);
+        self.notes.append(&mut other.notes);
     }
 
     pub fn clear(&mut self) {
         self.temp_info.clear();
         self.errors.clear();
         self.warnings.clear();
+        self.notes.clear();
     }
 
     pub fn print(&self, file_contents: &UstrMap<String>) -> bool {
+        for &(loc, ref message, ref info) in &self.notes {
+            println!("NOTE: ");
+            print_loc(loc, message, file_contents);
+
+            for &(info_loc, ref info_message) in info {
+                print_loc(info_loc, info_message, file_contents);
+            }
+
+            println!();
+        }
+
         for &(loc, ref message, ref info) in &self.errors {
             print!("{}ERROR: {}", ANSI_RED, ANSI_DEFAULT);
             if let Some(loc) = loc {
@@ -98,6 +103,11 @@ impl ErrorCtx {
     pub fn warning(&mut self, loc: Location, message: String) {
         let info = self.consume_info();
         self.warnings.push((loc, message, info));
+    }
+
+    pub fn note(&mut self, loc: Location, message: String) {
+        let info = self.consume_info();
+        self.notes.push((loc, message, info));
     }
 }
 

@@ -673,7 +673,7 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, node: NodeId) -> Value {
             }
             to
         }
-        NodeKind::TypeBound { value, bound: _ } | NodeKind::Parenthesis(value) => {
+        NodeKind::TypeBound { value, bound: _ } | NodeKind::Parenthesis(value) | NodeKind::Explain(value) => {
             emit_node(ctx, *value)
         }
         c => unreachable!("This node should not reach emission: {:?}", c),

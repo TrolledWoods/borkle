@@ -55,6 +55,7 @@ pub enum Keyword {
     While,
     Else,
     Function,
+    Explain,
     Cast,
     BitCast,
     Uninit,
@@ -138,6 +139,7 @@ pub fn process_string(errors: &mut ErrorCtx, file: Ustr, string: &str) -> Result
                 );
 
                 match identifier {
+                    "explain" => TokenKind::Keyword(Keyword::Explain),
                     "const" => TokenKind::Keyword(Keyword::Const),
                     "type" => TokenKind::Keyword(Keyword::Type),
                     "break" => TokenKind::Keyword(Keyword::Break),
