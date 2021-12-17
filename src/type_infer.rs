@@ -81,24 +81,24 @@ impl IntoConstant for () {
 }
 
 pub trait IntoValueSet {
-    fn add_set(&self, value_sets: &mut ValueSets, already_complete: bool) -> ValueSetHandles;
+    fn add_set(&self, value_sets: &mut ValueSets) -> ValueSetHandles;
 }
 
 impl IntoValueSet for () {
-    fn add_set(&self, _value_sets: &mut ValueSets, already_complete: bool) -> ValueSetHandles {
-        ValueSetHandles::empty(already_complete)
+    fn add_set(&self, _value_sets: &mut ValueSets) -> ValueSetHandles {
+        ValueSetHandles::empty()
     }
 }
 
 impl IntoValueSet for &ValueSetHandles {
-    fn add_set(&self, value_sets: &mut ValueSets, already_complete: bool) -> ValueSetHandles {
-        (*self).clone(value_sets, already_complete)
+    fn add_set(&self, value_sets: &mut ValueSets) -> ValueSetHandles {
+        (*self).clone(value_sets)
     }
 }
 
 impl IntoValueSet for ValueSetId {
-    fn add_set(&self, value_sets: &mut ValueSets, already_complete: bool) -> ValueSetHandles {
-        value_sets.with_one(*self, already_complete)
+    fn add_set(&self, value_sets: &mut ValueSets) -> ValueSetHandles {
+        value_sets.with_one(*self)
     }
 }
 
@@ -813,7 +813,7 @@ impl Values {
         }
     }
 
-    fn compute_size(&mut self, computable_sizes: &mut Vec<ValueId>, id: ValueId) {
+    fn compute_size(&mut self, computable_sizes: &mut Vec<ValueId>, id: ValueId, value_sets: &mut ValueSets) {
         let id = self.values[id as usize].structure_id;
         let structure = &self.structure[id as usize];
         if structure.layout.align > 0 {
@@ -827,6 +827,18 @@ impl Values {
 
         let structure = &mut self.structure[id as usize];
         structure.layout = layout;
+
+        // Because we've computed the layout, we can complete all the value sets.
+        let mut value_id = structure.first_value;
+        loop {
+            let value = &mut self.values[value_id as usize];
+            value.value.value_sets.complete(value_sets);
+            if value.next_in_structure_group == u32::MAX {
+                break;
+            }
+            value_id = value.next_in_structure_group;
+        }
+
         computable_sizes.extend(structure.layout_dependants.drain(..));
     }
 
@@ -834,10 +846,6 @@ impl Values {
         let value = &mut self.values[id as usize];
         let structure_id = value.structure_id;
 
-        let is_complete = kind.args.is_some();
-        if is_complete {
-            value.value.value_sets.complete(value_sets);
-        }
         value.value.value_sets.take_from(value_set_handles, value_sets);
 
         let mut layout = Layout::default();
@@ -856,6 +864,10 @@ impl Values {
 
             if number == 0 {
                 layout = compute_type_layout(kind, self, args);
+
+                // Since there is only one value in the structure, this is fine
+                let value = &mut self.values[id as usize];
+                value.value.value_sets.complete(value_sets);
             } else {
                 layout.size = number;
             }
@@ -1385,7 +1397,7 @@ impl TypeSystem {
         }
 
         while let Some(computable_size) = self.computable_value_sizes.pop() {
-            self.values.compute_size(&mut self.computable_value_sizes, computable_size);
+            self.values.compute_size(&mut self.computable_value_sizes, computable_size, &mut self.value_sets);
         }
 
         // self.print_state();
@@ -1774,10 +1786,6 @@ impl TypeSystem {
                                         unreachable!("All buffer types should have two arguments")
                                     };
 
-                                    // @Performance: This is mega-spam of values, we want to later cache this value
-                                    // so we don't have to re-add it over and over.
-                                    let value_sets = a.value_sets.clone(&mut self.value_sets, true);
-
                                     // @Correctness: We want to reintroduce variances here after the rework
                                     let new_value_id = self.values.add(
                                         Some(Type {
@@ -1785,24 +1793,14 @@ impl TypeSystem {
                                             args: Some(Box::new([pointee])),
                                         }),
                                         &mut self.value_sets,
-                                        value_sets,
+                                        ValueSetHandles::empty(),
                                     );
 
                                     self.set_equal(new_value_id, b_id, variance);
                                 }
                             }
                             "len" => {
-                                // @Performance: This is mega-spam of values, we want to later cache this value
-                                // so we don't have to re-add it over and over.
-
-                                let value_sets = a.value_sets.clone(&mut self.value_sets, true);
-                                // @TODO: We want EqualNamedField constraints to store locations, since these constraints
-                                // are very tightly linked with where they're created, as opposed to Equal.
-                                // And then we can generate a good reason here.
-                                // These reasons aren't correct at all....
-                                let field_type = self.add_int(IntTypeKind::Usize, &value_sets);
-
-                                self.set_equal(field_type, b_id, variance);
+                                self.set_equal(static_values::USIZE, b_id, variance);
 
                                 self.constraints[constraint_id].applied = true;
                             }
@@ -1993,11 +1991,11 @@ impl TypeSystem {
         debug_assert!(matches!(value.kind, None));
 
         // We don't want to worry about sorting or binary searching
-        value.value_sets.set_to(self.value_sets.with_one(value_set_id, false));
+        value.value_sets.set_to(self.value_sets.with_one(value_set_id));
     }
 
     pub fn add_unknown_type_with_set(&mut self, set: ValueSetId) -> ValueId {
-        let value_set_handles = self.value_sets.with_one(set, false);
+        let value_set_handles = self.value_sets.with_one(set);
         self.values.add(
             None,
             &mut self.value_sets,
@@ -2074,8 +2072,7 @@ impl TypeSystem {
     #[track_caller]
     pub fn set_type(&mut self, value_id: ValueId, kind: TypeKind, args: impl IntoBoxSlice<ValueId>, set: impl IntoValueSet) -> ValueId {
         let args = args.into_box_slice();
-        let is_complete = args.is_some();
-        let value_sets = set.add_set(&mut self.value_sets, is_complete);
+        let value_sets = set.add_set(&mut self.value_sets);
         self.values.set(value_id, Type { kind, args }, &mut self.value_sets, value_sets);
 
         value_id
@@ -2107,8 +2104,7 @@ impl TypeSystem {
 
     pub fn add_type(&mut self, kind: TypeKind, args: impl IntoBoxSlice<ValueId>, set: impl IntoValueSet) -> ValueId {
         let args = args.into_box_slice();
-        let is_complete = args.is_some();
-        let value_sets = set.add_set(&mut self.value_sets, is_complete);
+        let value_sets = set.add_set(&mut self.value_sets);
         self.values.add(
             Some(Type {
                 kind,
@@ -2123,14 +2119,13 @@ impl TypeSystem {
         self.values.add(
             None,
             &mut self.value_sets,
-            ValueSetHandles::empty(false),
+            ValueSetHandles::empty(),
         )
     }
 
     pub fn set_value(&mut self, value_id: ValueId, type_: ValueId, value: impl IntoConstant, set: impl IntoValueSet) {
         let value = value.into_constant();
-        let is_complete =  value.is_some();
-        let value_sets = set.add_set(&mut self.value_sets, is_complete);
+        let value_sets = set.add_set(&mut self.value_sets);
         let constant_value_id = self.values.add(
             value.map(|v| Type {
                 kind: TypeKind::ConstantValue(v),

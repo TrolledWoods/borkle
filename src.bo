@@ -1,25 +1,16 @@
-library "base.bo";
-import "tests/main.bo";
+// library "base.bo";
+// import "tests/main.bo";
 
-const deference = fn(x: &u64) -> _ {
-    *x
-};
-
-#entry fn() -> u64 {
-    print("Hello!\n");
-    0
-};
-
-// This crashes for now (polymorphics being resolved at typing time)
+// This crashes for now
 //
 // let stack_array = #0 : [
 //     count_matches.(u8)("Hello ,,,, ,, , , ,", fn(v) *v == COMMA)
 // ] u64;
 
-// const OtherThing.(T) = fn(x: T) -> T  x;
-// 
-// const Thing.(T) = fn(v: T) -> T {
-//     // Function is sized bro!!!!
-//     OtherThing(fn(x) x)(v)
-// };
+const OtherThing.(T) = fn(x: T) -> T  x;
+
+const Thing.(T) = fn(v: T) -> T {
+    // OtherThing.(type fn(T) -> T)(fn(x: T) -> T  x)(v)
+    OtherThing(fn(x: T) -> T  x)(v)
+};
 

@@ -1,5 +1,4 @@
 use std::panic::Location;
-
 pub type ValueSetId = usize;
 
 #[derive(Clone, Default)]
@@ -9,14 +8,12 @@ pub struct ValueSets {
 
 impl ValueSets {
     #[track_caller]
-    pub fn with_one(&mut self, set_id: ValueSetId, is_complete: bool) -> ValueSetHandles {
-        if !is_complete {
-            self.sets[set_id].uncomputed_values += 1;
-        }
+    pub fn with_one(&mut self, set_id: ValueSetId) -> ValueSetHandles {
+        self.sets[set_id].uncomputed_values += 1;
 
         ValueSetHandles {
             sets: Some(set_id),
-            is_complete,
+            is_complete: false,
             caller_location: Location::caller(),
         }
     }
@@ -100,16 +97,16 @@ pub struct ValueSetHandles {
 impl Default for ValueSetHandles {
     #[track_caller]
     fn default() -> Self {
-        Self::empty(false)
+        Self::empty()
     }
 }
 
 impl ValueSetHandles {
     #[track_caller]
-    pub fn empty(is_complete: bool) -> Self {
+    pub fn empty() -> Self {
         Self {
             sets: None,
-            is_complete,
+            is_complete: false,
             caller_location: Location::caller(),
         }
     }
@@ -160,18 +157,16 @@ impl ValueSetHandles {
     }
 
     #[track_caller]
-    pub fn clone(&self, value_sets: &mut ValueSets, already_complete: bool) -> Self {
+    pub fn clone(&self, value_sets: &mut ValueSets) -> Self {
         let sets = self.sets;
-        // We need all these already_complete flags, because make_erroneous needs to know all the
-        // sets, so it can set all the ones that matter to erroneous.
-        if !already_complete {
-            if let Some(set) = sets {
-                value_sets.sets[set].uncomputed_values += 1;
-            }
+
+        if let Some(set) = sets {
+            value_sets.sets[set].uncomputed_values += 1;
         }
+
         Self {
             sets,
-            is_complete: already_complete,
+            is_complete: false,
             caller_location: Location::caller(),
         }
     }
@@ -185,6 +180,7 @@ impl ValueSetHandles {
 
         if let Some(set) = self.sets {
             value_sets.sets[set].uncomputed_values -= 1;
+            debug_assert!(value_sets.sets[set].uncomputed_values >= 0);
         }
 
         self.is_complete = true;

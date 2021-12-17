@@ -190,7 +190,7 @@ pub fn solve<'a>(
         let mut progress = false;
         for value_set_id in ctx.infer.value_sets.iter_ids() {
             let value_set = ctx.infer.value_sets.get_mut(value_set_id);
-            if value_set_id == 0 // <- We don't want the base node, it's a special case, since it can't be dealt with by emit_execution_context; it can be any node.
+            if value_set_id == 0 // <- Temporary from old things, we can deal with this case now, so do that!
             || value_set.has_errors
             || value_set.has_been_computed
             || value_set.uncomputed_values() > 0
@@ -292,6 +292,8 @@ fn subset_was_completed(ctx: &mut Context<'_, '_>, waiting_on: WaitingOnTypeInfe
         WaitingOnTypeInferrence::MonomorphiseMember { node_id, poly_member_id, when_needed, params, parent_set } => {
             let node_loc = ctx.ast.get(node_id).loc;
             let mut fixed_up_params = Vec::with_capacity(params.len());
+
+            ctx.infer.print_state();
             for param in params {
                 fixed_up_params.push(ctx.infer.extract_constant(ctx.program, param));
             }
@@ -357,7 +359,7 @@ fn subset_was_completed(ctx: &mut Context<'_, '_>, waiting_on: WaitingOnTypeInfe
                 }
             }
         }
-        WaitingOnTypeInferrence::FunctionDeclarationInTyping {
+        WaitingOnTypeInferrence::FunctionDeclaration {
             node_id,
             body,
             function_type,
@@ -887,7 +889,7 @@ fn build_constraints(
             ctx.infer
                 .set_equal(infer_type_id, node_type_id, Variance::Invariant);
 
-            ctx.infer.set_waiting_on_value_set(sub_set, WaitingOnTypeInferrence::FunctionDeclarationInTyping {
+            ctx.infer.set_waiting_on_value_set(sub_set, WaitingOnTypeInferrence::FunctionDeclaration {
                 node_id,
                 body,
                 function_type: infer_type_id,
@@ -1328,7 +1330,7 @@ pub enum WaitingOnTypeInferrence {
         params: Vec<type_infer::ValueId>,
         parent_set: ValueSetId,
     },
-    FunctionDeclarationInTyping {
+    FunctionDeclaration {
         node_id: NodeId,
         body: NodeId,
         function_type: TypeId,
