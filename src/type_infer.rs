@@ -193,6 +193,7 @@ fn compute_type_layout(kind: &TypeKind, values: &Values, children: &[ValueId]) -
             let mut align = 1;
             for &child in children {
                 let child_layout = values.get(child).layout;
+                debug_assert_ne!(child_layout.align, 0);
                 size += child_layout.size;
                 align = align.max(child_layout.align);
                 size = crate::types::to_align(size, child_layout.align);
@@ -839,7 +840,16 @@ impl Values {
             value_id = value.next_in_structure_group;
         }
 
-        computable_sizes.extend(structure.layout_dependants.drain(..));
+        let layout_dependants = mem::take(&mut structure.layout_dependants);
+        for dependant in layout_dependants {
+            let value = self.get_mut(dependant);
+            if value.layout.align == 0 {
+                value.layout.size -= 1;
+                if value.layout.size == 0 {
+                    computable_sizes.push(dependant);
+                }
+            }
+        }
     }
 
     fn set(&mut self, id: ValueId, kind: Type, value_sets: &mut ValueSets, value_set_handles: ValueSetHandles) {
@@ -877,7 +887,7 @@ impl Values {
         debug_assert_eq!(structure.layout.size, 0);
         debug_assert_eq!(structure.layout.align, 0);
         debug_assert_eq!(structure.num_values, 1);
-        debug_assert!(structure.layout_dependants.is_empty());
+        // debug_assert!(structure.layout_dependants.is_empty());
         structure.kind = Some(kind);
         structure.layout = layout;
     }

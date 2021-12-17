@@ -1,0 +1,161 @@
+library "base.bo";
+library "vec.bo";
+
+const Iterator.(State, Item) = #0 : {
+    state: State;
+    next: fn(&rw State, &w Item) -> bool;
+};
+
+//
+// -- Creation --
+//
+
+const array_iter.(N, T) = fn(array: [N] T) -> typeof Iterator.(_, type T) {
+    let stream = #0;
+    stream.state : { array: _; index: _; };
+    stream.state.array = array;
+    stream.state.index = 0;
+
+    stream.next = fn(state, out) {
+        if (*state).index < N {
+            *out = *(array_ptr(&(*state).array) + (*state).index);
+            (*state).index = (*state).index + 1;
+            true
+        } else {
+            false
+        }
+    };
+    stream
+};
+
+const buf_iter.(T) = fn(buffer: [] T) -> typeof Iterator.(_, type &T) {
+    range(buffer.ptr, buffer.ptr + buffer.len)
+};
+
+const range.(T) = fn(start: T, end: T) -> typeof Iterator.(_, type T) {
+    let stream = #0;
+    stream.state : { start: T; end: T; };
+    stream.state.start = start;
+    stream.state.end = end;
+
+    stream.next = fn(state, out) {
+        if (*state).start < (*state).end {
+            *out = (*state).start;
+            (*state).start = (*state).start + 1;
+            true
+        } else {
+            false
+        }
+    };
+
+    stream
+};
+
+//
+// -- Manipulation --
+//
+
+const zip.(StateA, ItemA, StateB, ItemB) = fn(a: typeof Iterator.(StateA, ItemA), b: typeof Iterator.(StateB, ItemB)) -> typeof Iterator.(_, type { a: ItemA; b: ItemB; }) {
+    let stream = #uninit;
+    stream.state : { a: _; b: _; };
+    stream.state.a = a;
+    stream.state.b = b;
+
+    stream.next = fn(state, out) {
+        let a_success = (*state).a.next(&(*state).a.state, &(*out).a);
+        let b_success = (*state).b.next(&(*state).b.state, &(*out).b);
+        a_success && b_success
+    };
+
+    stream
+};
+
+const scan.(Scanner, State, FromItem, ToItem) = fn(scanner: Scanner, from_stream: typeof Iterator.(State, FromItem), mapper: fn(&Scanner, FromItem) -> ToItem) -> typeof Iterator.(_, ToItem) {
+    let stream = #uninit;
+    stream.state : {
+        scanner: _;
+        inner: _;
+        mapper: _;
+    };
+    stream.state.scanner = scanner;
+    stream.state.inner = from_stream;
+    stream.state.mapper = mapper;
+
+    stream.next = fn(state, out) {
+        let temp = #uninit;
+        if (*state).inner.next(&(*state).inner.state, &temp) {
+            *out = (*state).mapper(&(*state).scanner, temp);
+            true
+        } else {
+            false
+        }
+    };
+
+    stream
+};
+
+const map.(State, FromItem, ToItem) = fn(from_stream: typeof Iterator.(State, FromItem), mapper: fn(FromItem) -> ToItem) -> typeof Iterator.(_, ToItem) {
+    let stream = #uninit;
+    stream.state : {
+        inner: _;
+        mapper: _;
+    };
+    stream.state.inner = from_stream;
+    stream.state.mapper = mapper;
+
+    stream.next = fn(state, out) {
+        let temp = #uninit;
+        if (*state).inner.next(&(*state).inner.state, &temp) {
+            *out = (*state).mapper(temp);
+            true
+        } else {
+            false
+        }
+    };
+
+    stream
+};
+
+const filter.(State, Item) = fn(inner: typeof Iterator.(State, Item), filter: fn(&Item) -> bool) -> typeof Iterator.(_, Item) {
+    let stream = #uninit;
+    stream.state : { inner: _; filter: _; };
+    stream.state.inner = inner;
+    stream.state.filter = filter;
+
+    stream.next = fn(state, out) { 'func
+        let temp = #uninit;
+        while true {
+            if not((*state).inner.next(&(*state).inner.state, &temp)) {
+                break 'func false;
+            };
+
+            if (*state).filter(&temp) {
+                *out = temp;
+                break 'func true;
+            };
+        };
+
+        false
+    };
+
+    stream
+};
+
+//
+// -- Collection --
+//
+
+const count.(State, Item) = fn(stream: typeof Iterator.(State, Item)) -> usize {
+    let count = 0;
+    let temp = #uninit;
+    while stream.next(&stream.state, &temp)  count = count + 1;
+
+    count
+};
+
+const vec_from_iter.(State, Item) = fn(stream: typeof Iterator.(State, Item)) -> typeof Vec.(Item) {
+    let vec = vec_new();
+    let item = #uninit;
+    while stream.next(&stream.state, &item)  vec_push(&vec, item);
+    vec
+};

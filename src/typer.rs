@@ -293,7 +293,6 @@ fn subset_was_completed(ctx: &mut Context<'_, '_>, waiting_on: WaitingOnTypeInfe
             let node_loc = ctx.ast.get(node_id).loc;
             let mut fixed_up_params = Vec::with_capacity(params.len());
 
-            ctx.infer.print_state();
             for param in params {
                 fixed_up_params.push(ctx.infer.extract_constant(ctx.program, param));
             }

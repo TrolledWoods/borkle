@@ -5,6 +5,9 @@ const false = 1 < (0 : u8);
 
 const assert = i_assert;
 
+const array_ptr   .(N, T) = fn(array: &[N] T) ->   &T    cast array;
+const array_to_buf.(N, T) = fn(array: &[N] T) -> [] T    cast array;
+
 const print = fn(string: [] u8) {
     i_stdout_write(string);
     i_stdout_flush();
@@ -14,6 +17,14 @@ const filled_array.(N, T) = fn(v: T) -> [N] T {
     let arr = #uninit : [N] T;
     for cast &arr : [] T  { *_it = v; };
     arr
+};
+
+const copy.(T) = fn(to: &w T, from: &r T, size: usize) {
+    i_copy(cast to, cast from, size * sizeof T);
+};
+
+const copy_nonoverlapping.(T) = fn(to: &w T, from: &r T, size: usize) {
+    i_copy_nonoverlapping(cast to, cast from, size * sizeof T);
 };
 
 const alloc.(T) = fn(count: usize) -> [] T {
