@@ -10,6 +10,12 @@ const print = fn(string: [] u8) {
     i_stdout_flush();
 };
 
+const filled_array.(N, T) = fn(v: T) -> [N] T {
+    let arr = #uninit : [N] T;
+    for cast &arr : [] T  { *_it = v; };
+    arr
+};
+
 const alloc.(T) = fn(count: usize) -> [] T {
     let buf = #0;
     buf.ptr = cast i_alloc(count * sizeof T);
@@ -47,6 +53,16 @@ const count_matches.(T) = fn(buf: [] T, predicate: fn(&T) -> bool) -> usize {
     count
 };
 
+const count_ones.(T) = fn(number: T) -> usize {
+    let bit = 1;
+    let num_bits = 0;
+    while _iters < (8 * sizeof T) && bit <= number {
+        if (number & bit) > 0  num_bits = num_bits + 1;
+        bit = bit << 1;
+    };
+    num_bits
+};
+
 const CHAR_0_ASCII_CODE = 48 : u8;
 
 // TEMPORARY until not operator is done a gain
@@ -67,6 +83,7 @@ const put_char = fn(c: u8) {
     i_stdout_write(buf);
 };
 
+// This doesn't really work, it looks liike!!!!
 const take_until = fn(string: &rw []r u8, c: u8) -> []r u8 {
     let new = #uninit;
     // Why no typing error if you remove the dereference in (*string)???
@@ -74,10 +91,10 @@ const take_until = fn(string: &rw []r u8, c: u8) -> []r u8 {
     new.len = 0;
 
     while 'loop (*string).len > 0 {
-        advance(string);
-
         if *(*string).ptr == c  break 'loop;
         new.len = new.len + 1;
+
+        advance(string);
     };
 
     new
@@ -182,6 +199,29 @@ const is_whitespace = fn(c: u8) -> bool {
 
 const is_digit = fn(c: u8) -> bool {
     c >= CHAR_0_ASCII_CODE && c < CHAR_0_ASCII_CODE + 10
+};
+
+const print_u64_with_base = fn(num: u64, base: u64, align: u64) { 'func_block
+    if num == 0 {
+        put_char(CHAR_0_ASCII_CODE);
+        break 'func_block;
+    };
+
+    let factor = 1;
+
+    if align > 0 {
+        while _iters < cast align  factor = factor * base;
+    } else {
+        while factor <= num        factor = factor * base;
+    };
+
+    while factor >= base {
+        factor = factor / base;
+        let digit = num / factor;
+        num = num - digit * factor;
+
+        put_char(CHAR_0_ASCII_CODE + (cast digit : u8));
+    };
 };
 
 const print_u64 = fn(num: u64) { 'func_block

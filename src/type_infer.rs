@@ -2,6 +2,8 @@
 //!
 //! # Will try and document more later once I feel fairly done with the first version of this system, but for now just some generic info I want to put here
 
+const DEBUG: bool = false;
+
 pub mod static_values {
     //! Static value header, e.g. value indices we know what their values are statically, for very common types,
     //! like integers and so on.
@@ -191,7 +193,6 @@ fn compute_type_layout(kind: &TypeKind, values: &Values, children: &[ValueId]) -
             let mut align = 1;
             for &child in children {
                 let child_layout = values.get(child).layout;
-                debug_assert!(child_layout.align != 0);
                 size += child_layout.size;
                 align = align.max(child_layout.align);
                 size = crate::types::to_align(size, child_layout.align);
@@ -762,11 +763,18 @@ impl Values {
                 for dependant in b_structure.layout_dependants {
                     let dependant_structure_id = self.values[dependant as usize].structure_id;
                     let dependant_structure = &mut self.structure[dependant_structure_id as usize];
-                    // @TODO: Fix this! Oh god
-                    // debug_assert_eq!(dependant_structure.layout.align, 0);
-                    dependant_structure.layout.size -= 1;
-                    if dependant_structure.layout.size == 0 {
-                        computable_sizes.push(dependant);
+
+                    // This seems scary, but in the cases we're in right now, where a complete structure combines
+                    // with an incomplete structure, and the incomplete structure _has children_, those children
+                    // will still have the incomplete parent as a layout dependant. Those children will reach this
+                    // point in the code, with the dependant structure align already being 0. The reason this works
+                    // at all, is that the only case where the align isn't 0, is this case. In all other cases, we
+                    // can combine the sizes of the two incomplete structures, and then the dependants are all happy.
+                    if dependant_structure.layout.align == 0 {
+                        dependant_structure.layout.size -= 1;
+                        if dependant_structure.layout.size == 0 {
+                            computable_sizes.push(dependant);
+                        }
                     }
                 }
             }
@@ -816,6 +824,7 @@ impl Values {
             unreachable!("Cannot call compute_size on an incomplete value")
         };
         let layout = compute_type_layout(kind, self, args);
+
         let structure = &mut self.structure[id as usize];
         structure.layout = layout;
         computable_sizes.extend(structure.layout_dependants.drain(..));
@@ -1355,17 +1364,26 @@ impl TypeSystem {
         // @Performance: I think this might be more performant than not sorting, but not 100% sure.
         // self.queued_constraints.sort_unstable_by_key(|v| matches!(&self.constraints[*v], ConstraintKind::Equal { variance: Variance::Invariant, .. }));
 
-        // self.print_state();
+        if DEBUG {
+            self.print_state();
+        }
 
         while let Some(available_id) = self.queued_constraints.pop() {
-            // println!("Applied constraint: {}", self.constraint_to_string(&self.constraints[available_id]));
+            if DEBUG {
+                println!("Applied constraint: {}", self.constraint_to_string(&self.constraints[available_id]));
+            }
 
             self.apply_constraint(available_id);
 
-            // self.print_state();
+            if DEBUG {
+                self.print_state();
+            }
         }
 
-        // self.print_state();
+        if DEBUG {
+            self.print_state();
+        }
+
         while let Some(computable_size) = self.computable_value_sizes.pop() {
             self.values.compute_size(&mut self.computable_value_sizes, computable_size);
         }

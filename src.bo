@@ -1,46 +1,12 @@
 library "base.bo";
-// import "tests/main.bo";
-import "tests/aoc/day8.bo";
+import "tests/main.bo";
 
-const Stream.(S, T) = #0 : {
-    state: S;
-    next: fn(&S, &T) -> bool;
-};
-
-const stream_buffer.(T) = fn(buf: [] T) -> typeof Stream.(type [] T, type &T) {
-    let value = #0;
-    value.state = buf;
-    // Somehow, commenting out the types here makes it break!?
-    value.next = fn(s: &[] T, v: &&T) -> bool {
-        if (*s).len > 0 {
-            (*s).len = (*s).len - 1;
-            *v = (*s).ptr;
-            (*s).ptr = (*s).ptr + 1;
-            true
-        } else {
-            false
-        }
-    };
-    value
-};
-
-const fold.(S, V, T) = fn(stream: typeof Stream.(S, T), state: V, folder: fn(V, T) -> V) -> V {
-    let value = #0;
-    while (stream.next)(&stream.state, &value) {
-        state = folder(state, value);
-    };
-    state
+const deference = fn(x: &u64) -> _ {
+    *x
 };
 
 #entry fn() -> u64 {
-    // Also crashes!?
-    // let array = [1, 2, 3, 4];
-    // let buf = cast &array : [] _;
-    // let value = stream_buffer.(u64)(buf);
-    // fold(value, 0, fn(v: u64, x: &u64) v + *x)
-
-    aoc_day8();
-
+    print("Hello!\n");
     0
 };
 

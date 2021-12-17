@@ -1,7 +1,4 @@
-library "io.bo";
-library "slice.bo";
-
-const FormatSpec = type [15] u64;
+library "base.bo";
 
 type Format {
     data: FormatSpec;
