@@ -7,6 +7,9 @@ library "iter.bo";
     let results = vec_from_iter(
         filter(map(range(0, 10), fn(x) x * 3), fn(x) *x % 2 != 0)
     );
+
+    // explain results;
+
     defer vec_free(results);
 
     for vec_as_buffer(&results) {

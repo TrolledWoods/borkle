@@ -376,9 +376,38 @@ impl Type {
 type ConstraintId = usize;
 
 #[derive(Debug, Clone, Copy)]
+pub struct Reason {
+    node: crate::parser::NodeId,
+    kind: ReasonKind,
+}
+
+impl Reason {
+    pub fn new(node: crate::parser::NodeId, kind: ReasonKind) -> Self {
+        Self { node, kind }
+    }
+
+    #[track_caller]
+    pub fn temp(node: crate::parser::NodeId) -> Self {
+        Self {
+            node,
+            kind: ReasonKind::Temp(std::panic::Location::caller()),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum ReasonKind {
+    Passed,
+    // Some thing is literally a type, like the global `Thing` is of some specific type.
+    IsOfType,
+    Temp(&'static std::panic::Location<'static>),
+}
+
+#[derive(Debug, Clone, Copy)]
 struct Constraint {
     kind: ConstraintKind,
     applied: bool,
+    reason: Reason,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -474,7 +503,7 @@ impl Constraint {
         }
     }
 
-    fn equal(a: ValueId, b: ValueId, variance: Variance, creator: Option<ConstraintId>) -> Self {
+    fn equal(a: ValueId, b: ValueId, variance: Variance, creator: Option<ConstraintId>, reason: Reason) -> Self {
         let kind = if b >= a {
             ConstraintKind::Equal {
                 values: [a, b],
@@ -489,7 +518,7 @@ impl Constraint {
             }
         };
 
-        Self { kind, applied: false }
+        Self { kind, reason, applied: false }
     }
 }
 
@@ -1118,7 +1147,7 @@ impl TypeSystem {
         for (this_id, other_id) in to_convert {
             let new_id = self.map_value_from_other_typesystem_to_this(other, other_id, &mut already_converted, set);
             // @TODO: Deal with variance
-            self.set_equal(new_id, this_id, Variance::Invariant);
+            self.set_equal(new_id, this_id, Variance::Invariant, Reason::temp(0));
         }
     }
 
@@ -1321,7 +1350,7 @@ impl TypeSystem {
         }
     }
     
-    pub fn set_op_equal(&mut self, op: BinaryOp, a: ValueId, b: ValueId, result: ValueId) {
+    pub fn set_op_equal(&mut self, op: BinaryOp, a: ValueId, b: ValueId, result: ValueId, reason: Reason) {
         insert_active_constraint(
             &mut self.constraints,
             &mut self.available_constraints,
@@ -1331,12 +1360,13 @@ impl TypeSystem {
                     values: [a, b, result],
                     op,
                 },
+                reason,
                 applied: false,
             },
         );
     }
 
-    pub fn set_cast(&mut self, to: ValueId, from: ValueId) {
+    pub fn set_cast(&mut self, to: ValueId, from: ValueId, reason: Reason) {
         insert_active_constraint(
             &mut self.constraints,
             &mut self.available_constraints,
@@ -1344,11 +1374,12 @@ impl TypeSystem {
             Constraint {
                 kind: ConstraintKind::Relation { kind: Relation::Cast, values: [to, from] },
                 applied: false,
+                reason,
             }
         );
     }
 
-    pub fn set_equal(&mut self, a: ValueId, b: ValueId, variance: Variance) {
+    pub fn set_equal(&mut self, a: ValueId, b: ValueId, variance: Variance, reason: Reason) {
         if a == b {
             return;
         }
@@ -1356,7 +1387,7 @@ impl TypeSystem {
             &mut self.constraints,
             &mut self.available_constraints,
             &mut self.queued_constraints,
-            Constraint::equal(a, b, variance, None),
+            Constraint::equal(a, b, variance, None, reason),
         );
     }
 
@@ -1366,6 +1397,7 @@ impl TypeSystem {
         field_name: Ustr,
         b: ValueId,
         variance: Variance,
+        reason: Reason,
     ) {
         insert_active_constraint(
             &mut self.constraints,
@@ -1377,6 +1409,7 @@ impl TypeSystem {
                     index: field_name,
                     variance,
                 },
+                reason,
                 applied: false,
             },
         );
@@ -1674,6 +1707,7 @@ impl TypeSystem {
                             Constraint {
                                 kind: ConstraintKind::Relation { kind: Relation::BufferEqualsArray, values: [to_id, new_from] },
                                 applied: false,
+                                reason: constraint.reason,
                             }
                         );
                     }
@@ -1688,7 +1722,7 @@ impl TypeSystem {
                         None,
                     ) => {
                         let int_t = self.add_type(TypeKind::Int, (), ());
-                        self.set_equal(from_id, int_t, Variance::Invariant);
+                        self.set_equal(from_id, int_t, Variance::Invariant, constraint.reason);
                     }
                     (
                         Relation::Cast,
@@ -1696,10 +1730,11 @@ impl TypeSystem {
                         Some(Type { kind: TypeKind::Int, args: _ }),
                     ) => {
                         let int_t = self.add_type(TypeKind::Int, (), ());
-                        self.set_equal(to_id, int_t, Variance::Invariant);
+                        self.set_equal(to_id, int_t, Variance::Invariant, constraint.reason);
                     }
                     (
                         Relation::Cast,
+                        // @TODO: We could remove the `Some` here
                         Some(Type { kind: TypeKind::Reference, args: Some(_) }),
                         Some(Type { kind: TypeKind::Reference, args: Some(_), .. }),
                     ) => {
@@ -1712,7 +1747,7 @@ impl TypeSystem {
                     ) => {
                         let a = to_args[0];
                         let b = from_args[0];
-                        self.set_equal(a, b, Variance::Invariant);
+                        self.set_equal(a, b, Variance::Invariant, constraint.reason);
                     }
                     (
                         _,
@@ -1739,8 +1774,8 @@ impl TypeSystem {
                         BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mult | BinaryOp::Div | BinaryOp::BitAnd | BinaryOp::BitOr | BinaryOp::ShiftLeft | BinaryOp::ShiftRight | BinaryOp::Modulo,
                         (Some(TypeKind::Int), Some(TypeKind::Int), _),
                     ) => {
-                        self.set_equal(a_id, b_id, Variance::Invariant);
-                        self.set_equal(a_id, result_id, Variance::Invariant);
+                        self.set_equal(a_id, b_id, Variance::Invariant, constraint.reason);
+                        self.set_equal(a_id, result_id, Variance::Invariant, constraint.reason);
                     }
                     (
                         BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mult | BinaryOp::Div | BinaryOp::BitAnd | BinaryOp::BitOr,
@@ -1748,8 +1783,8 @@ impl TypeSystem {
                     ) => {
                         // No reason given for why the type is a usize....
                         let usize = self.add_int(IntTypeKind::Usize, ());
-                        self.set_equal(usize, b_id, Variance::Invariant);
-                        self.set_equal(a_id, result_id, Variance::Invariant);
+                        self.set_equal(usize, b_id, Variance::Invariant, constraint.reason);
+                        self.set_equal(a_id, result_id, Variance::Invariant, constraint.reason);
                     }
                     (
                         BinaryOp::And | BinaryOp::Or,
@@ -1757,9 +1792,9 @@ impl TypeSystem {
                     ) => {
                         // Temporary: No type validation, just equality :)
                         let bool = self.add_type(TypeKind::Bool, [], ());
-                        self.set_equal(bool, a_id, Variance::Invariant);
-                        self.set_equal(bool, b_id, Variance::Invariant);
-                        self.set_equal(bool, result_id, Variance::Invariant);
+                        self.set_equal(bool, a_id, Variance::Invariant, constraint.reason);
+                        self.set_equal(bool, b_id, Variance::Invariant, constraint.reason);
+                        self.set_equal(bool, result_id, Variance::Invariant, constraint.reason);
                     }
                     (
                         BinaryOp::Equals | BinaryOp::NotEquals | BinaryOp::LargerThanEquals | BinaryOp::LargerThan | BinaryOp::LessThanEquals | BinaryOp::LessThan,
@@ -1767,8 +1802,8 @@ impl TypeSystem {
                     ) => {
                         let id = self.add_type(TypeKind::Bool, [], ());
 
-                        self.set_equal(result_id, id, Variance::Invariant);
-                        self.set_equal(a_id, b_id, Variance::DontCare);
+                        self.set_equal(result_id, id, Variance::Invariant, constraint.reason);
+                        self.set_equal(a_id, b_id, Variance::DontCare, constraint.reason);
                     }
                     (
                         _,
@@ -1806,11 +1841,11 @@ impl TypeSystem {
                                         ValueSetHandles::empty(),
                                     );
 
-                                    self.set_equal(new_value_id, b_id, variance);
+                                    self.set_equal(new_value_id, b_id, variance, constraint.reason);
                                 }
                             }
                             "len" => {
-                                self.set_equal(static_values::USIZE, b_id, variance);
+                                self.set_equal(static_values::USIZE, b_id, variance, constraint.reason);
 
                                 self.constraints[constraint_id].applied = true;
                             }
@@ -1826,6 +1861,7 @@ impl TypeSystem {
                     }
                     Some(Type { kind: TypeKind::Struct(names), .. }) => {
                         if let Some(pos) = names.iter().position(|&v| v == field_name) {
+                            let reason = constraint.reason;
                             insert_active_constraint(
                                 &mut self.constraints,
                                 &mut self.available_constraints,
@@ -1836,6 +1872,7 @@ impl TypeSystem {
                                         index: pos,
                                         variance,
                                     },
+                                    reason,
                                     applied: false,
                                 },
                             );
@@ -1851,6 +1888,7 @@ impl TypeSystem {
                     Some(Type { kind: TypeKind::Array, .. }) => {
                         // @Correctness: We should have a check that the argument is in range
                         if let Some(_) = field_name.strip_prefix("_").and_then(|v| v.parse::<usize>().ok()) {
+                            let reason = constraint.reason;
                             insert_active_constraint(
                                 &mut self.constraints,
                                 &mut self.available_constraints,
@@ -1861,6 +1899,7 @@ impl TypeSystem {
                                         index: 0,
                                         variance,
                                     },
+                                    reason,
                                     applied: false,
                                 },
                             );
@@ -1896,11 +1935,12 @@ impl TypeSystem {
                     None | Some(Type { args: None, .. }) => {}
                     Some(Type { args: Some(fields), .. }) => {
                         if let Some(&field) = fields.get(field_index) {
+                            let reason = constraint.reason;
                             insert_active_constraint(
                                 &mut self.constraints,
                                 &mut self.available_constraints,
                                 &mut self.queued_constraints,
-                                Constraint::equal(field, b_id, variance, Some(constraint_id)),
+                                Constraint::equal(field, b_id, variance, Some(constraint_id), reason),
                             );
                         } else {
                             self.errors.push(Error::new(
@@ -1947,11 +1987,12 @@ impl TypeSystem {
                                         return;
                                     } else {
                                         for (a_arg, b_arg) in a_args.iter().zip(b_args.iter()) {
+                                            let reason = self.constraints[constraint_id].reason;
                                             insert_active_constraint(
                                                 &mut self.constraints,
                                                 &mut self.available_constraints,
                                                 &mut self.queued_constraints,
-                                                Constraint::equal(*a_arg, *b_arg, Variance::Variant, Some(constraint_id)),
+                                                Constraint::equal(*a_arg, *b_arg, Variance::Variant, Some(constraint_id), reason),
                                             );
                                         }
                                     }
