@@ -33,6 +33,9 @@ use std::mem;
 use ustr::Ustr;
 use crate::program::constant::ConstantRef;
 
+mod explain;
+pub use explain::{get_reasons, Reason, ReasonKind};
+
 mod value_sets;
 pub use value_sets::{ValueSets, ValueSetId, ValueSetHandles, ValueSet};
 
@@ -422,82 +425,6 @@ impl Type {
 }
 
 type ConstraintId = usize;
-
-#[derive(Debug)]
-pub struct ReasoningChain {
-    pub chain: Vec<Reason>,
-}
-
-impl ReasoningChain {
-    pub fn output(&self, errors: &mut ErrorCtx, ast: &crate::parser::Ast) {
-        let mut chain = &self.chain[..];
-
-        loop {
-            match chain {
-                [Reason { kind: ReasonKind::TypeBound, .. }, b @ Reason { kind: ReasonKind::LiteralType, .. }, rest @ ..] => {
-                    errors.info(ast.get(b.node).loc, format!("it's bound here"));
-                    chain = rest;
-                }
-                [Reason { kind: ReasonKind::Passed | ReasonKind::TypeBound, .. }, rest @ ..] => {
-                    // Passed or just a type bound are trivial enough we just don't output them
-                    chain = rest;
-                }
-                [a @ Reason { kind: ReasonKind::IntLiteral, .. }, rest @ ..] => {
-                    errors.info(ast.get(a.node).loc, format!("this is an int"));
-                    chain = rest;
-                }
-                [a @ Reason { kind: ReasonKind::LocalVariableIs(name), .. }, b @ Reason { kind: ReasonKind::LocalVariableIs(_), .. }, Reason { kind: ReasonKind::Declaration, .. }, rest @ ..] => {
-                    errors.info(ast.get(a.node).loc, format!("`{}` is used here", name));
-                    errors.info(ast.get(b.node).loc, format!("`{}` is declared here", name));
-                    chain = rest;
-                }
-                [a @ Reason { kind: ReasonKind::LocalVariableIs(name), .. }, b @ Reason { kind: ReasonKind::LocalVariableIs(_), .. }, rest @ ..] => {
-                    errors.info(ast.get(a.node).loc, format!("`{}` is used here", name));
-                    errors.info(ast.get(b.node).loc, format!("the type of `{}` can be inferred from here", name));
-                    chain = rest;
-                }
-                [v, rest @ ..] => {
-                    errors.info(ast.get(v.node).loc, format!("{:?}", v.kind));
-                    chain = rest;
-                }
-                [] => break,
-            }
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy)]
-pub struct Reason {
-    node: crate::parser::NodeId,
-    kind: ReasonKind,
-}
-
-impl Reason {
-    pub fn new(node: crate::parser::NodeId, kind: ReasonKind) -> Self {
-        Self { node, kind }
-    }
-
-    #[track_caller]
-    pub fn temp(node: crate::parser::NodeId) -> Self {
-        Self {
-            node,
-            kind: ReasonKind::Temp(std::panic::Location::caller()),
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy)]
-pub enum ReasonKind {
-    Passed,
-    LocalVariableIs(Ustr),
-    LiteralType,
-    TypeBound,
-    Declaration,
-    IntLiteral,
-    // Some thing is literally a type, like the global `Thing` is of some specific type.
-    IsOfType,
-    Temp(&'static std::panic::Location<'static>),
-}
 
 #[derive(Debug, Clone, Copy)]
 struct Constraint {
@@ -2225,103 +2152,6 @@ impl TypeSystem {
             }
             _ => todo!("This compiler type is not done yet"),
         }
-    }
-
-    pub fn get_reasons(&self, base_value: ValueId, mapper: &IdMapper, ast: &crate::parser::Ast) -> Vec<ReasoningChain> {
-        #[derive(Default)]
-        struct Node {
-            source: Option<ValueId>,
-            reason: Option<Reason>,
-            distance: u32,
-        }
-
-        struct Frontier {
-            source: ValueId,
-            distance: u32,
-            constraint_id: ConstraintId,
-        }
-
-        fn reason_from_values(system: &TypeSystem, base_value: ValueId, mut graph: HashMap<ValueId, Node>, mut frontier: Vec<Frontier>) -> ReasoningChain {
-            while let Some(Frontier { source, distance, constraint_id }) = frontier.pop() {
-                let constraint = &system.constraints[constraint_id];
-                for &value_id in constraint.values() {
-                    let new_node = Node {
-                        source: Some(source),
-                        distance,
-                        reason: Some(constraint.reason),
-                    };
-
-                    let progress = match graph.entry(value_id) {
-                        hash_map::Entry::Occupied(mut entry) => {
-                            let entry = entry.get_mut();
-                            if entry.distance > new_node.distance {
-                                *entry = new_node;
-                                true
-                            } else {
-                                false
-                            }
-                        }
-                        hash_map::Entry::Vacant(entry) => {
-                            entry.insert(new_node);
-                            true
-                        }
-                    };
-
-                    if progress {
-                        if let Some(constraints) = system.available_constraints.get(&value_id) {
-                            frontier.extend(constraints.iter().map(|&constraint_id| Frontier {
-                                source: value_id,
-                                distance: distance + 1,
-                                constraint_id,
-                            }));
-                        }
-                    }
-                }
-            }
-
-            let mut chain = Vec::new();
-            let mut next = Some(base_value);
-            while let Some(value_id) = next {
-                let node = &graph[&value_id];
-                if let Some(reason) = node.reason {
-                    chain.push(reason);
-                }
-                next = node.source;
-            }
-
-            ReasoningChain {
-                chain,
-            }
-        }
-
-        let mut reasons = Vec::new();
-        for value_id in self.values.iter_values_in_structure(base_value) {
-            if *self.values.get(value_id).is_base_value {
-                let mut graph = HashMap::new();
-                let mut frontier = Vec::new();
-                // It's a base value, which means that we can draw a chain of reasoning from it.
-                let node = Node {
-                    source: None,
-                    reason: match mapper.map(value_id) {
-                        MappedId::AstNode(id) => Some(crate::typer::explain_given_type(ast, id)),
-                        _ => None,
-                    },
-                    distance: 0,
-                };
-                graph.insert(value_id, node);
-
-                if let Some(constraints) = self.available_constraints.get(&value_id) {
-                    frontier.extend(constraints.iter().map(|&constraint_id| Frontier {
-                        source: value_id,
-                        distance: 1,
-                        constraint_id,
-                    }));
-                    reasons.push(reason_from_values(self, base_value, graph, frontier));
-                }
-            }
-        }
-        
-        reasons
     }
 
     pub fn add_compiler_type(&mut self, program: &Program, type_: types::Type, set: ValueSetId) -> ValueId {

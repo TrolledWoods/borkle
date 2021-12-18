@@ -249,7 +249,7 @@ pub fn finish<'a>(
             locals: from.locals.num_locals(),
             labels: from.locals.num_labels(),
         };
-        for chain in from.infer.get_reasons(needs_explaining, &id_mapper, &from.ast) {
+        for chain in type_infer::get_reasons(needs_explaining, &from.infer, &id_mapper, &from.ast) {
             chain.output(errors, &from.ast);
             errors.note(from.ast.get(node_id).loc, format!("The type is `{}` because...", from.infer.value_to_str(needs_explaining, 0)));
         }
@@ -803,7 +803,7 @@ fn build_constraints(
         NodeKind::Member { of, name } => {
             let of_type_id = build_constraints(ctx, of, set);
             ctx.infer
-                .set_field_name_equal(of_type_id, name, node_type_id, Variance::Invariant, Reason::temp(node_id));
+                .set_field_name_equal(of_type_id, name, node_type_id, Variance::Invariant, Reason::new(node_id, ReasonKind::NamedField(name)));
         }
         NodeKind::Local(local_id) => {
             let local = ctx.locals.get(local_id);
@@ -908,7 +908,7 @@ fn build_constraints(
             let body_type_id = build_constraints(&mut sub_ctx, body, sub_set);
 
             ctx.infer
-                .set_equal(body_type_id, returns_type_id, Variance::Variant, Reason::new(node_id, ReasonKind::Passed));
+                .set_equal(body_type_id, returns_type_id, Variance::Variant, Reason::new(node_id, ReasonKind::ReturnedFromFunction));
 
             let infer_type_id = ctx.infer.add_type(TypeKind::Function, function_type_ids.into_boxed_slice(), sub_set);
             ctx.infer
@@ -990,7 +990,7 @@ fn build_constraints(
             let right_type_id = build_constraints(ctx, right, set);
 
             ctx.infer
-                .set_equal(left_type_id, right_type_id, Variance::Covariant, Reason::temp(node_id));
+                .set_equal(left_type_id, right_type_id, Variance::Covariant, Reason::new(node_id, ReasonKind::Assigned));
 
             ctx.infer.set_type(
                 node_type_id,
@@ -1030,7 +1030,7 @@ fn build_constraints(
 
             let last_type_id = build_constraints(ctx, last, set);
             ctx.infer
-                .set_equal(node_type_id, last_type_id, Variance::Invariant, Reason::temp(node_id));
+                .set_equal(node_type_id, last_type_id, Variance::Invariant, Reason::new(node_id, ReasonKind::Passed));
         }
         NodeKind::Break {
             label,
@@ -1186,7 +1186,7 @@ fn build_type(
             ctx.runs = ctx.runs.combine(ExecutionTime::Never);
             let type_ = build_constraints(ctx, inner, set);
             ctx.runs = old;
-            ctx.infer.set_equal(node_type_id, type_, Variance::Invariant, Reason::temp(node_id));
+            ctx.infer.set_equal(node_type_id, type_, Variance::Invariant, Reason::new(node_id, ReasonKind::TypeOf));
         }
         _ => unreachable!("Node {:?} is not a valid type (at least not yet)", node.kind),
     }
@@ -1220,7 +1220,7 @@ fn build_lvalue(
         NodeKind::Member { of, name } => {
             let of_type_id = build_lvalue(ctx, of, set);
             ctx.infer
-                .set_field_name_equal(of_type_id, name, node_type_id, Variance::Invariant, Reason::temp(node_id));
+                .set_field_name_equal(of_type_id, name, node_type_id, Variance::Invariant, Reason::new(node_id, ReasonKind::NamedField(name)));
         }
         NodeKind::Local(local_id) => {
             let local = ctx.locals.get(local_id);

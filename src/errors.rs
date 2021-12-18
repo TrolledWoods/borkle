@@ -1,5 +1,5 @@
 use crate::location::Location;
-use ustr::UstrMap;
+use ustr::{Ustr, UstrMap};
 
 const ANSI_RED:     &str = "\x1b[31m";
 const ANSI_YELLOW:  &str = "\x1b[33m";
@@ -41,26 +41,28 @@ impl ErrorCtx {
 
     pub fn print(&self, file_contents: &UstrMap<String>) -> bool {
         for &(loc, ref message, ref info) in &self.notes {
+            let mut prev_file = None;
             println!("NOTE: ");
-            print_loc(loc, message, file_contents);
+            print_loc(&mut prev_file, loc, message, file_contents);
 
             for &(info_loc, ref info_message) in info {
-                print_loc(info_loc, info_message, file_contents);
+                print_loc(&mut prev_file, info_loc, info_message, file_contents);
             }
 
             println!();
         }
 
         for &(loc, ref message, ref info) in &self.errors {
+            let mut prev_file = None;
             print!("{}ERROR: {}", ANSI_RED, ANSI_DEFAULT);
             if let Some(loc) = loc {
-                print_loc(loc, message, file_contents);
+                print_loc(&mut prev_file, loc, message, file_contents);
             } else {
                 println!("{}", message);
             }
 
             for &(info_loc, ref info_message) in info {
-                print_loc(info_loc, info_message, file_contents);
+                print_loc(&mut prev_file, info_loc, info_message, file_contents);
             }
 
             println!();
@@ -68,11 +70,12 @@ impl ErrorCtx {
 
         if self.errors.is_empty() {
             for &(loc, ref message, ref info) in &self.warnings {
+                let mut prev_file = None;
                 println!("{}WARNING: {}", ANSI_YELLOW, ANSI_DEFAULT);
-                print_loc(loc, message, file_contents);
+                print_loc(&mut prev_file, loc, message, file_contents);
 
                 for &(info_loc, ref info_message) in info {
-                    print_loc(info_loc, info_message, file_contents);
+                    print_loc(&mut prev_file, info_loc, info_message, file_contents);
                 }
             }
 
@@ -111,7 +114,7 @@ impl ErrorCtx {
     }
 }
 
-fn print_loc(loc: Location, message: &str, file_contents: &UstrMap<String>) {
+fn print_loc(prev_file: &mut Option<Ustr>, loc: Location, message: &str, file_contents: &UstrMap<String>) {
     // Hacky method of getting the relative path from a canonalized path.
     let current_dir = std::fs::canonicalize(".\\").map_or_else(|_| String::new(), |p| p.to_string_lossy().into_owned() + "\\");
     let file = loc.file.strip_prefix(&current_dir).unwrap_or(&loc.file);
@@ -120,8 +123,14 @@ fn print_loc(loc: Location, message: &str, file_contents: &UstrMap<String>) {
         if let Some(line) = content.lines().nth(loc.line as usize - 1) {
             let prefix = format!("{:>4} | ", loc.line);
 
-            println!("{}in {}:", ANSI_DIM, file);
-            println!("{}{}{}", prefix, ANSI_RESET_DIM, line);
+            // Only print the file name if we're in a new file
+            if prev_file.as_ref().map_or(true, |v| *v != loc.file) {
+                println!("{}in {}:{}", ANSI_DIM, file, ANSI_RESET_DIM);
+            } else {
+                println!();
+            }
+
+            println!("{}{}{}{}", ANSI_DIM, prefix, ANSI_RESET_DIM, line);
 
             print!("{}", " ".repeat(prefix.len()));
             for c in line.chars().take(loc.character as usize - 1) {
@@ -143,4 +152,6 @@ fn print_loc(loc: Location, message: &str, file_contents: &UstrMap<String>) {
     } else {
         println!("{} {}: {}", file, loc.line, message);
     }
+
+    *prev_file = Some(loc.file);
 }
