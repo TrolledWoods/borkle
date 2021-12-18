@@ -889,7 +889,7 @@ fn value_without_unaries(
                         global.tokens.next();
                         let token = global.tokens.expect_next(global.errors)?;
                         if let TokenKind::Identifier(name) = token.kind {
-                            global
+                            let equals = global
                                 .tokens
                                 .try_consume_operator_string("=")
                                 .ok_or_else(|| {
@@ -905,7 +905,7 @@ fn value_without_unaries(
                             imperative.locals.get_mut(id).uses.push(dummy_local_node);
 
                             let declaration = buffer.add(Node::new(
-                                token.loc,
+                                equals,
                                 NodeKind::Declare {
                                     local: id,
                                     value,

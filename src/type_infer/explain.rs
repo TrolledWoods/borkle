@@ -21,11 +21,13 @@ pub fn get_reasons(base_value: ValueId, types: &TypeSystem, mapper: &IdMapper, a
     fn reason_from_values(system: &TypeSystem, base_value: ValueId, mut graph: HashMap<ValueId, Node>, mut frontier: Vec<Frontier>) -> ReasoningChain {
         while let Some(Frontier { source, distance, constraint_id }) = frontier.pop() {
             let constraint = &system.constraints[constraint_id];
-            for &value_id in constraint.values() {
+            for (i, &value_id) in constraint.values().iter().enumerate() {
+                let mut reason = constraint.reason;
+                reason.forward ^= i > 0;
                 let new_node = Node {
                     source: Some(source),
                     distance,
-                    reason: Some(constraint.reason),
+                    reason: Some(reason),
                 };
 
                 let progress = match graph.entry(value_id) {
@@ -130,45 +132,57 @@ fn get_concise_explanation(errors: &mut ErrorCtx, ast: &Ast, chain: &[Reason]) -
         [Reason { kind: ReasonKind::Passed, .. }, rest @ ..] => (get_concise_explanation(errors, ast, rest), &[]),
 
         // A declaration should only appear after a usage of a local variable.
-        [Reason { kind: ReasonKind::LocalVariableIs(_), .. }, Reason { kind: ReasonKind::Declaration, node }, Reason { kind: ReasonKind::TypeBound, .. }, rest @ ..] => (
+        [Reason { kind: ReasonKind::LocalVariableIs(_), .. }, Reason { kind: ReasonKind::Declaration, node, forward: true, .. }, Reason { kind: ReasonKind::TypeBound, .. }, rest @ ..] => (
             Explanation::new(*node, ExpressionKind::Used, "declared as"),
             rest,
         ),
-        [Reason { kind: ReasonKind::LocalVariableIs(_), .. }, Reason { kind: ReasonKind::Declaration, node }, rest @ ..] => (
+        [Reason { kind: ReasonKind::LocalVariableIs(_), .. }, Reason { kind: ReasonKind::Declaration, node, forward: true, .. }, rest @ ..] => (
             Explanation::new(*node, ExpressionKind::Used, "declared to"),
             rest,
         ),
-        [Reason { kind: ReasonKind::LocalVariableIs(_), .. }, Reason { kind: ReasonKind::Assigned, node }, Reason { kind: ReasonKind::TypeBound, .. }, rest @ ..] => (
+        [Reason { kind: ReasonKind::LocalVariableIs(_), .. }, Reason { kind: ReasonKind::Assigned, node, forward: true, .. }, Reason { kind: ReasonKind::TypeBound, .. }, rest @ ..] => (
             Explanation::new(*node, ExpressionKind::Used, "assigned as"),
             rest,
         ),
-        [Reason { kind: ReasonKind::LocalVariableIs(_), .. }, Reason { kind: ReasonKind::Assigned, node }, rest @ ..] => (
+        [Reason { kind: ReasonKind::LocalVariableIs(_), .. }, Reason { kind: ReasonKind::Assigned, forward: true, node, .. }, rest @ ..] => (
             Explanation::new(*node, ExpressionKind::Used, "assigned to"),
             rest,
         ),
-        [Reason { kind: ReasonKind::LocalVariableIs(name), node }, rest @ ..] => (
-            Explanation::new(*node, ExpressionKind::Used, format!("`{}`, which is", name)),
+        [Reason { kind: ReasonKind::Declaration | ReasonKind::Assigned, node, forward: false, .. }, Reason { kind: ReasonKind::LocalVariableIs(name), .. }, rest @ ..] => (
+            Explanation::new(*node, ExpressionKind::Used, format!("a value which we put into `{}`, which is", name)),
+            rest,
+        ),
+        [Reason { kind: ReasonKind::Declaration | ReasonKind::Assigned, node, forward: false, .. }, rest @ ..] => (
+            Explanation::new(*node, ExpressionKind::Used, "a value which we put into"),
+            rest,
+        ),
+        [Reason { kind: ReasonKind::LocalVariableIs(name), node, forward, .. }, rest @ ..] => (
+            Explanation::new(*node, ExpressionKind::Used, if *forward { format!("`{}`", name) } else { format!("`{}`, which is", name) }),
             rest,
         ),
 
-        [Reason { kind: ReasonKind::TypeOf, node }, rest @ ..] => (
-            Explanation::new(*node, ExpressionKind::Used, "the type of"),
+        [Reason { kind: ReasonKind::TypeOf, node, forward, .. }, rest @ ..] => (
+            Explanation::new(*node, ExpressionKind::Used, if *forward { "the type of" } else { ", the type of which" }),
             rest,
         ),
-        [Reason { kind: ReasonKind::NamedField(name), node }, rest @ ..] => (
+        [Reason { kind: ReasonKind::NamedField(name), node, .. }, rest @ ..] => (
             Explanation::new(*node, ExpressionKind::Used, format!("the field `{}`, which is", name)),
             rest,
         ),
-        [Reason { kind: ReasonKind::ReturnedFromFunction, node }, rest @ ..] => (
-            Explanation::new(*node, ExpressionKind::Used, "returned from a function, whose return type is"),
+        [Reason { kind: ReasonKind::ReturnedFromFunction, node, forward, .. }, rest @ ..] => (
+            Explanation::new(*node, ExpressionKind::Used, if *forward {
+                "returned from a function, whose return type is"
+            } else {
+                "is the return type of this function, which returns"
+            }),
             rest,
         ),
-        [Reason { kind: ReasonKind::Assigned, node }, rest @ ..] => (
+        [Reason { kind: ReasonKind::Assigned, node, .. }, rest @ ..] => (
             Explanation::new(*node, ExpressionKind::Used, "assigned to"),
             rest,
         ),
-        [Reason { kind: ReasonKind::TypeBound, node }, rest @ ..] => (
-            Explanation::new(*node, ExpressionKind::Used, "a value bound as"),
+        [Reason { kind: ReasonKind::TypeBound, node, forward, .. }, rest @ ..] => (
+            Explanation::new(*node, ExpressionKind::Used, if *forward { "a value bound as" } else { "use this type to bind" }),
             rest,
         ),
         [Reason { kind: ReasonKind::IntLiteral, node, .. }] => (
@@ -235,7 +249,7 @@ impl ReasoningChain {
             next = &thing.next;
             errors.info(
                 ast.get(thing.node).loc,
-                thing.message.clone(),
+                (thing.message.strip_prefix(", ").unwrap_or(&thing.message)).to_string(),
             );
         }
     }
@@ -245,6 +259,7 @@ impl ReasoningChain {
 pub struct Reason {
     node: crate::parser::NodeId,
     kind: ReasonKind,
+    forward: bool,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -266,7 +281,7 @@ pub enum ReasonKind {
 
 impl Reason {
     pub fn new(node: crate::parser::NodeId, kind: ReasonKind) -> Self {
-        Self { node, kind }
+        Self { node, kind, forward: true }
     }
 
     #[track_caller]
@@ -274,6 +289,7 @@ impl Reason {
         Self {
             node,
             kind: ReasonKind::Temp(std::panic::Location::caller()),
+            forward: true,
         }
     }
 }

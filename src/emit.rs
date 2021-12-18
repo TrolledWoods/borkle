@@ -5,7 +5,7 @@ use crate::operators::{BinaryOp, UnaryOp};
 use crate::parser::ast::{Ast, NodeId, NodeKind};
 use crate::program::{FunctionId, Program};
 use crate::thread_pool::ThreadContext;
-use crate::type_infer::{TypeSystem, self};
+use crate::type_infer::{TypeSystem, Reason, Args, self};
 use crate::types::{IntTypeKind, PtrPermits, Type, TypeKind};
 
 mod context;
@@ -528,7 +528,7 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, node: NodeId) -> Value {
                     permits: PtrPermits::READ_WRITE,
                 });
                 let internal_type_arg = internal_type_args[0];
-                let ref_type_id = ctx.types.add_type(type_infer::TypeKind::Reference, [internal_type_arg], ()); 
+                let ref_type_id = ctx.types.add_type(type_infer::TypeKind::Reference, Args([(internal_type_arg, Reason::temp(0))]), ()); 
                 let reference = ctx.registers.create(ctx.types, ref_type_id, ref_type);
                 ctx.emit_pointer_to_member_of_value(reference, to, Member::default());
                 for (i, element) in elements.iter().enumerate() {

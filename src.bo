@@ -4,14 +4,15 @@
 // import "tests/main.bo";
 
 #entry fn() -> u64 {
-    let outer = 99;
+    let x = 40;
 
-    let thing = #0 : { x: _; };
-    thing.x = outer;
+    let y = 39;
+    x = y;
 
-    explain thing.x;
+    explain x;
+    explain y;
 
-    thing.x
+    y
 };
 
 // This crashes!

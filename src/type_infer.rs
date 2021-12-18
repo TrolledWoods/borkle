@@ -39,34 +39,6 @@ pub use explain::{get_reasons, Reason, ReasonKind};
 mod value_sets;
 pub use value_sets::{ValueSets, ValueSetId, ValueSetHandles, ValueSet};
 
-pub trait IntoBoxSlice<T> {
-    fn into_box_slice(self) -> Option<Box<[T]>>;
-}
-
-impl<T> IntoBoxSlice<T> for Box<[T]> {
-    fn into_box_slice(self) -> Option<Box<[T]>> {
-        Some(self)
-    }
-}
-
-impl<'a, T: Copy> IntoBoxSlice<T> for &'a [T] {
-    fn into_box_slice(self) -> Option<Box<[T]>> {
-        Some(self.to_vec().into_boxed_slice())
-    }
-}
-
-impl<T, const N: usize> IntoBoxSlice<T> for [T; N] {
-    fn into_box_slice(self) -> Option<Box<[T]>> {
-        Some(Box::new(self))
-    }
-}
-
-impl<T> IntoBoxSlice<T> for () {
-    fn into_box_slice(self) -> Option<Box<[T]>> {
-        None
-    }
-}
-
 pub trait IntoConstant {
     fn into_constant(self) -> Option<ConstantRef>;
 }
@@ -80,6 +52,29 @@ impl IntoConstant for ConstantRef {
 impl IntoConstant for () {
     fn into_constant(self) -> Option<ConstantRef> {
         None
+    }
+}
+
+pub trait IntoValueArgs {
+    type IntoIter: IntoIterator<Item = (ValueId, Reason)>;
+
+    fn into_value_args(self) -> Option<Self::IntoIter>;
+}
+
+impl IntoValueArgs for () {
+    type IntoIter = std::iter::Empty<(ValueId, Reason)>;
+
+    fn into_value_args(self) -> Option<Self::IntoIter> {
+        None
+    }
+}
+
+pub struct Args<T>(pub T);
+impl<T> IntoValueArgs for Args<T> where T: IntoIterator<Item = (ValueId, Reason)> {
+    type IntoIter = T;
+
+    fn into_value_args(self) -> Option<Self::IntoIter> {
+        Some(self.0)
     }
 }
 
@@ -527,18 +522,10 @@ impl Constraint {
     }
 
     fn equal(a: ValueId, b: ValueId, variance: Variance, creator: Option<ConstraintId>, reason: Reason) -> Self {
-        let kind = if b >= a {
-            ConstraintKind::Equal {
-                values: [a, b],
-                variance,
-                creator,
-            }
-        } else {
-            ConstraintKind::Equal {
-                values: [b, a],
-                variance: variance.invert(),
-                creator,
-            }
+        let kind = ConstraintKind::Equal {
+            values: [a, b],
+            variance,
+            creator,
         };
 
         Self { kind, reason, applied: false }
@@ -1090,8 +1077,8 @@ impl TypeSystem {
             errors: Vec::new(),
         };
 
-        this.add_type(TypeKind::IntSize, [], ());
-        this.add_type(TypeKind::Bool, [], ());
+        this.add_type(TypeKind::IntSize, Args([]), ());
+        this.add_type(TypeKind::Bool, Args([]), ());
 
         for i in [0, 1, 2, 4, 8_u8] {
             let buffer = program.insert_buffer(u8_type, &i);
@@ -1103,7 +1090,7 @@ impl TypeSystem {
             this.add_value(static_values::BOOL, buffer, ());
         }
 
-        this.add_type(TypeKind::Empty, [], ());
+        this.add_type(TypeKind::Empty, Args([]), ());
         this.add_int(IntTypeKind::Usize, ());
 
         this
@@ -1138,12 +1125,13 @@ impl TypeSystem {
         let other_value = other.values.get(other_id);
         match other_value.kind {
             Some(Type { kind, args: Some(ref args) }) => {
-                let new_args: Box<[_]> = args.iter()
-                    .map(|&v|
-                        self.map_value_from_other_typesystem_to_this(other, v, already_converted, set)
-                    )
-                    .collect();
-                self.set_type(value_id, kind.clone(), new_args, set);
+                let new_args = args.iter()
+                    .map(|&v| (
+                        self.map_value_from_other_typesystem_to_this(other, v, already_converted, set),
+                        Reason::temp(0),
+                    ))
+                    .collect::<Vec<_>>();
+                self.set_type(value_id, kind.clone(), Args(new_args), set);
             }
             Some(Type { kind, args: None }) => {
                 self.set_type(value_id, kind.clone(), (), set);
@@ -1830,7 +1818,7 @@ impl TypeSystem {
                         (_, _, _),
                     ) => {
                         // Temporary: No type validation, just equality :)
-                        let bool = self.add_type(TypeKind::Bool, [], ());
+                        let bool = self.add_type(TypeKind::Bool, Args([]), ());
                         self.set_equal(bool, a_id, Variance::Invariant, constraint.reason);
                         self.set_equal(bool, b_id, Variance::Invariant, constraint.reason);
                         self.set_equal(bool, result_id, Variance::Invariant, constraint.reason);
@@ -1839,7 +1827,7 @@ impl TypeSystem {
                         BinaryOp::Equals | BinaryOp::NotEquals | BinaryOp::LargerThanEquals | BinaryOp::LargerThan | BinaryOp::LessThanEquals | BinaryOp::LessThan,
                         (Some(TypeKind::Int), Some(TypeKind::Int), _) | (Some(TypeKind::Reference), Some(TypeKind::Reference), _) | (Some(TypeKind::Bool), Some(TypeKind::Bool), _)
                     ) => {
-                        let id = self.add_type(TypeKind::Bool, [], ());
+                        let id = self.add_type(TypeKind::Bool, Args([]), ());
 
                         self.set_equal(result_id, id, Variance::Invariant, constraint.reason);
                         self.set_equal(a_id, b_id, Variance::DontCare, constraint.reason);
@@ -2099,37 +2087,37 @@ impl TypeSystem {
                 let mut new_args = Vec::with_capacity(args.len() + 1);
 
                 // @TODO: We should append the sub-expression used to the reason as well.
-                new_args.push(self.add_compiler_type(program, returns, set));
+                new_args.push((self.add_compiler_type(program, returns, set), Reason::temp(0)));
 
                 for &arg in args {
-                    new_args.push(self.add_compiler_type(program, arg, set));
+                    new_args.push((self.add_compiler_type(program, arg, set), Reason::temp(0)));
                 }
 
-                self.set_type(id, TypeKind::Function, &new_args[..], set)
+                self.set_type(id, TypeKind::Function, Args(new_args), set)
             }
             types::TypeKind::Type => {
-                self.set_type(id, TypeKind::Type, [], set)
+                self.set_type(id, TypeKind::Type, Args([]), set)
             }
             types::TypeKind::Int(int_type_kind) => {
                 self.set_int(id, int_type_kind, set);
                 id
             }
-            types::TypeKind::Empty => self.set_type(id, TypeKind::Empty, [], set),
-            types::TypeKind::Bool  => self.set_type(id, TypeKind::Bool, [], set),
+            types::TypeKind::Empty => self.set_type(id, TypeKind::Empty, Args([]), set),
+            types::TypeKind::Bool  => self.set_type(id, TypeKind::Bool, Args([]), set),
             types::TypeKind::Buffer { pointee, permits: _ } => {
                 // @Cleanup: This is ugly!
                 // @Correctness: We want to reintroduce these once the rework is complete
                 // let permits = self.add_access(Some(Access::disallows(!permits.read(), !permits.write())), set);
                 let pointee = self.add_compiler_type(program, pointee, set);
 
-                self.set_type(id, TypeKind::Buffer, [pointee], set)
+                self.set_type(id, TypeKind::Buffer, Args([(pointee, Reason::temp(0))]), set)
             }
             types::TypeKind::Reference { pointee, permits: _ } => {
                 // @Correctness: We want to reintroduce permits once the rework is complete
                 // let permits = self.add_access(Some(Access::disallows(!permits.read(), !permits.write())), set);
                 let pointee = self.add_compiler_type(program, pointee, set);
 
-                self.set_type(id, TypeKind::Reference, [pointee], set)
+                self.set_type(id, TypeKind::Reference, Args([(pointee, Reason::temp(0))]), set)
             }
             types::TypeKind::Array(type_, length) => {
                 let inner = self.add_compiler_type(program, type_, set);
@@ -2139,16 +2127,16 @@ impl TypeSystem {
                     &length as *const _ as *const u8,
                 );
                 let length_value = self.add_value(usize_type, constant_ref_length, set);
-                self.set_type(id, TypeKind::Array, [inner, length_value], set)
+                self.set_type(id, TypeKind::Array, Args([(inner, Reason::temp(0)), (length_value, Reason::temp(0))]), set)
             }
             types::TypeKind::Struct(ref fields) => {
                 let field_names = fields.iter().map(|&(v, _)| v).collect();
-                let field_types: Box<[_]> = fields
+                let field_types: Vec<_> = fields
                     .iter()
                     // @TODO: We should append the sub-expression used to the reason as well.
-                    .map(|&(_, v)| self.add_compiler_type(program, v, set))
+                    .map(|&(_, v)| (self.add_compiler_type(program, v, set), Reason::temp(0)))
                     .collect();
-                self.set_type(id, TypeKind::Struct(field_names), field_types, set)
+                self.set_type(id, TypeKind::Struct(field_names), Args(field_types), set)
             }
             _ => todo!("This compiler type is not done yet"),
         }
@@ -2160,8 +2148,8 @@ impl TypeSystem {
     }
 
     #[track_caller]
-    pub fn set_type(&mut self, value_id: ValueId, kind: TypeKind, args: impl IntoBoxSlice<ValueId>, set: impl IntoValueSet) -> ValueId {
-        let args = args.into_box_slice();
+    pub fn set_type(&mut self, value_id: ValueId, kind: TypeKind, args: impl IntoValueArgs, set: impl IntoValueSet) -> ValueId {
+        let args = args.into_value_args().map(|v| v.into_iter().map(|(v, _)| v).collect());
         let value_sets = set.add_set(&mut self.value_sets);
         self.values.set(value_id, Type { kind, args }, &mut self.value_sets, value_sets);
         *self.values.get_mut(value_id).is_base_value = true;
@@ -2190,11 +2178,11 @@ impl TypeSystem {
             IntTypeKind::Isize => (static_values::TRUE,  static_values::POINTER),
         };
 
-        self.set_type(value_id, TypeKind::Int, [signed, size], set);
+        self.set_type(value_id, TypeKind::Int, Args([(signed, Reason::temp(0)), (size, Reason::temp(0))]), set);
     }
 
-    pub fn add_type(&mut self, kind: TypeKind, args: impl IntoBoxSlice<ValueId>, set: impl IntoValueSet) -> ValueId {
-        let args = args.into_box_slice();
+    pub fn add_type(&mut self, kind: TypeKind, args: impl IntoValueArgs, set: impl IntoValueSet) -> ValueId {
+        let args = args.into_value_args().map(|v| v.into_iter().map(|(v, _)| v).collect());
         let value_sets = set.add_set(&mut self.value_sets);
         self.values.add(
             Some(Type {
@@ -2226,7 +2214,7 @@ impl TypeSystem {
             value_sets,
         );
         *self.values.get_mut(constant_value_id).is_base_value = true;
-        self.set_type(value_id, TypeKind::Constant, [type_, constant_value_id], set);
+        self.set_type(value_id, TypeKind::Constant, Args([(type_, Reason::temp(0)), (constant_value_id, Reason::temp(0))]), set);
     }
 
     pub fn add_value(&mut self, type_: ValueId, value: impl IntoConstant, set: impl IntoValueSet) -> ValueId {

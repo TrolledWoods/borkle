@@ -8,7 +8,7 @@ use crate::operators::{BinaryOp, UnaryOp};
 pub use crate::parser::{ast::Node, ast::NodeId, ast::NodeKind, Ast};
 use crate::program::{PolyOrMember, PolyMemberId, Program, Task, constant::ConstantRef, FunctionId, BuiltinFunction};
 use crate::thread_pool::ThreadContext;
-use crate::type_infer::{self, ValueId as TypeId, TypeSystem, ValueSetId, Variance, TypeKind, Reason, ReasonKind};
+use crate::type_infer::{self, ValueId as TypeId, Args, TypeSystem, ValueSetId, Variance, TypeKind, Reason, ReasonKind};
 use crate::types::{self, IntTypeKind, PtrPermits};
 use ustr::Ustr;
 
@@ -63,8 +63,8 @@ impl YieldData {
                 self.infer.set_equal(param.value_id, type_id, Variance::Invariant, Reason::temp(0));
             } else {
                 let type_ = self.infer.add_compiler_type(program, compiler_type, set);
-                let value = self.infer.add_type(TypeKind::ConstantValue(constant), [], set);
-                let constant = self.infer.add_type(TypeKind::Constant, [type_, value], set);
+                let value = self.infer.add_type(TypeKind::ConstantValue(constant), Args([]), set);
+                let constant = self.infer.add_type(TypeKind::Constant, Args([(type_, Reason::temp(0)), (value, Reason::temp(0))]), set);
 
                 self.infer.set_equal(constant, param.value_id, Variance::Invariant, Reason::temp(0));
             }
@@ -566,7 +566,7 @@ fn build_constraints(
         NodeKind::Empty => {
             // @Performance: We could set the type directly(because no inferrence has happened yet),
             // this is a roundabout way of doing things.
-            let temp = ctx.infer.add_type(type_infer::TypeKind::Empty, [], set);
+            let temp = ctx.infer.add_type(type_infer::TypeKind::Empty, Args([]), set);
             ctx.infer.set_equal(node_type_id, temp, Variance::Invariant, Reason::new(node_id, ReasonKind::IsOfType));
         }
         // @Cleanup: We could unify these two nodes probably
@@ -676,7 +676,7 @@ fn build_constraints(
             ctx.infer.set_int(ctx.locals.get(iteration_var).type_infer_value_id, IntTypeKind::Usize, set);
 
             let condition_type_id = build_constraints(ctx, condition, set);
-            let bool_type = ctx.infer.add_type(TypeKind::Bool, [], set);
+            let bool_type = ctx.infer.add_type(TypeKind::Bool, Args([]), set);
             ctx.infer.set_equal(condition_type_id, bool_type, Variance::Invariant, Reason::new(node_id, ReasonKind::IsOfType));
 
             let label_type_infer_id = ctx.locals.get_label(label).type_infer_value_id;
@@ -689,7 +689,7 @@ fn build_constraints(
                     ctx.infer.set_equal(label_type_infer_id, else_type, Variance::Invariant, Reason::new(node_id, ReasonKind::Passed));
                 }
                 None => {
-                    let empty_type = ctx.infer.add_type(TypeKind::Empty, [], set);
+                    let empty_type = ctx.infer.add_type(TypeKind::Empty, Args([]), set);
                     ctx.infer.set_equal(label_type_infer_id, empty_type, Variance::Invariant, Reason::new(node_id, ReasonKind::Passed));
                 }
             }
@@ -725,7 +725,7 @@ fn build_constraints(
                     ctx.infer.set_equal(label_type_infer_id, else_type, Variance::Invariant, Reason::new(node_id, ReasonKind::Passed));
                 }
                 None => {
-                    let empty_type = ctx.infer.add_type(TypeKind::Empty, [], set);
+                    let empty_type = ctx.infer.add_type(TypeKind::Empty, Args([]), set);
                     ctx.infer.set_equal(label_type_infer_id, empty_type, Variance::Invariant, Reason::new(node_id, ReasonKind::IsOfType));
                 }
             }
@@ -738,7 +738,7 @@ fn build_constraints(
         NodeKind::Defer { deferring } => {
             build_constraints(ctx, deferring, set);
             let empty_id = ctx.infer.add_type(
-                TypeKind::Empty, [],
+                TypeKind::Empty, Args([]),
                 set,
             );
 
@@ -746,7 +746,7 @@ fn build_constraints(
         }
         NodeKind::Literal(Literal::String(ref data)) => {
             let u8_type = ctx.infer.add_int(IntTypeKind::U8, set);
-            ctx.infer.set_type(node_type_id, TypeKind::Buffer, [u8_type], set);
+            ctx.infer.set_type(node_type_id, TypeKind::Buffer, Args([(u8_type, Reason::temp(node_id))]), set);
 
             let u8_type = types::Type::new(types::TypeKind::Int(IntTypeKind::U8));
             let type_ = types::Type::new(types::TypeKind::Buffer { permits: PtrPermits::READ, pointee: u8_type });
@@ -794,7 +794,7 @@ fn build_constraints(
             );
 
             let array_type = ctx.infer.add_type(
-                TypeKind::Array, [inner_type, variable_count],
+                TypeKind::Array, Args([(inner_type, Reason::temp(node_id)), (variable_count, Reason::temp(node_id))]),
                 set,
             );
 
@@ -824,7 +824,7 @@ fn build_constraints(
         } => {
             let condition_type_id = build_constraints(ctx, condition, set);
             // @Performance: This could be better, I really want a constraint for this kind of thing...
-            let condition_type = ctx.infer.add_type(TypeKind::Bool, [], set);
+            let condition_type = ctx.infer.add_type(TypeKind::Bool, Args([]), set);
             ctx.infer
                 .set_equal(condition_type_id, condition_type, Variance::Invariant, Reason::new(node_id, ReasonKind::IsOfType));
 
@@ -832,7 +832,7 @@ fn build_constraints(
             let false_body_id = match false_body {
                 Some(id) => build_constraints(ctx, id, set),
                 None => ctx.infer.add_type(
-                    TypeKind::Empty, [],
+                    TypeKind::Empty, Args([]),
                     set,
                 ),
             };
@@ -850,7 +850,7 @@ fn build_constraints(
 
             let temp = ctx.infer.add_type(
                 TypeKind::Reference,
-                [node_type_id],
+                Args([(node_type_id, Reason::temp(node_id))]),
                 set,
             );
             ctx.infer
@@ -890,7 +890,7 @@ fn build_constraints(
                 Some(returns) => build_type(&mut sub_ctx, returns, sub_set),
                 None => sub_ctx.infer.add_unknown_type_with_set(sub_set),
             };
-            function_type_ids.push(returns_type_id);
+            function_type_ids.push((returns_type_id, Reason::temp(node_id)));
 
             for (local_id, type_node) in args {
                 let local = sub_ctx.locals.get_mut(local_id);
@@ -902,15 +902,15 @@ fn build_constraints(
                     sub_ctx.infer
                         .set_equal(type_id, local_type_id, Variance::Invariant, Reason::new(node_id, ReasonKind::Passed));
                 }
-                function_type_ids.push(local_type_id);
+                function_type_ids.push((local_type_id, Reason::temp(node_id)));
             }
 
             let body_type_id = build_constraints(&mut sub_ctx, body, sub_set);
 
             ctx.infer
-                .set_equal(body_type_id, returns_type_id, Variance::Variant, Reason::new(node_id, ReasonKind::ReturnedFromFunction));
+                .set_equal(body_type_id, returns_type_id, Variance::Variant, Reason::new(returns.unwrap_or(node_id), ReasonKind::ReturnedFromFunction));
 
-            let infer_type_id = ctx.infer.add_type(TypeKind::Function, function_type_ids.into_boxed_slice(), sub_set);
+            let infer_type_id = ctx.infer.add_type(TypeKind::Function, Args(function_type_ids), sub_set);
             ctx.infer
                 .set_equal(infer_type_id, node_type_id, Variance::Invariant, Reason::new(node_id, ReasonKind::Passed));
 
@@ -936,17 +936,17 @@ fn build_constraints(
             let return_type = node_type_id;
 
             let mut typer_args = Vec::with_capacity(args.len() + 1);
-            typer_args.push(return_type);
+            typer_args.push((return_type, Reason::temp(node_id)));
 
             for &arg in &args {
                 let function_arg_type_id = ctx.infer.add_unknown_type();
                 let arg_type_id = build_constraints(ctx, arg, set);
                 ctx.infer.set_equal(function_arg_type_id, arg_type_id, Variance::Covariant, Reason::new(node_id, ReasonKind::Passed));
-                typer_args.push(function_arg_type_id);
+                typer_args.push((function_arg_type_id, Reason::temp(node_id)));
             }
 
             // Specify that the caller has to be a function type
-            let type_id = ctx.infer.add_type(TypeKind::Function, typer_args.into_boxed_slice(), set);
+            let type_id = ctx.infer.add_type(TypeKind::Function, Args(typer_args), set);
             ctx.infer
                 .set_equal(calling_type_id, type_id, Variance::Invariant, Reason::new(node_id, ReasonKind::Passed));
 
@@ -977,7 +977,7 @@ fn build_constraints(
 
             ctx.infer.set_type(
                 node_type_id,
-                TypeKind::Empty, [],
+                TypeKind::Empty, Args([]),
                 set,
             );
         }
@@ -994,7 +994,7 @@ fn build_constraints(
 
             ctx.infer.set_type(
                 node_type_id,
-                TypeKind::Empty, [],
+                TypeKind::Empty, Args([]),
                 set,
             );
         }
@@ -1008,7 +1008,7 @@ fn build_constraints(
             ctx.infer.set_type(
                 node_type_id,
                 TypeKind::Reference,
-                [inner],
+                Args([(inner, Reason::temp(node_id))]),
                 set,
             );
         }
@@ -1050,14 +1050,14 @@ fn build_constraints(
 
             ctx.infer.set_type(
                 node_type_id,
-                TypeKind::Empty, [],
+                TypeKind::Empty, Args([]),
                 set,
             );
         }
         NodeKind::Parenthesis(inner) => {
             let inner_type_id = build_constraints(ctx, inner, set);
             ctx.infer
-                .set_equal(inner_type_id, node_type_id, Variance::Invariant, Reason::temp(node_id));
+                .set_equal(inner_type_id, node_type_id, Variance::Invariant, Reason::new(node_id, ReasonKind::Passed));
         }
         NodeKind::TypeAsValue(inner) => {
             let old_runs = ctx.runs;
@@ -1072,7 +1072,7 @@ fn build_constraints(
                 parent_set: set,
             });
             
-            ctx.infer.set_type(node_type_id, TypeKind::Type, [], set);
+            ctx.infer.set_type(node_type_id, TypeKind::Type, Args([]), set);
             ctx.runs = old_runs;
         }
         NodeKind::TypeBound { value, bound } => {
@@ -1132,14 +1132,14 @@ fn build_type(
 
             let mut function_type_ids = Vec::with_capacity(args.len() + 1);
             let returns_type_id = build_type(ctx, returns, set);
-            function_type_ids.push(returns_type_id);
+            function_type_ids.push((returns_type_id, Reason::temp(node_id)));
 
             for type_node in args {
                 let type_id = build_type(ctx, type_node, set);
-                function_type_ids.push(type_id);
+                function_type_ids.push((type_id, Reason::temp(node_id)));
             }
 
-            let infer_type_id = ctx.infer.add_type(TypeKind::Function, function_type_ids.into_boxed_slice(), set);
+            let infer_type_id = ctx.infer.add_type(TypeKind::Function, Args(function_type_ids), set);
             ctx.infer
                 .set_equal(infer_type_id, node_type_id, Variance::Invariant, Reason::temp(node_id));
         }
@@ -1147,11 +1147,11 @@ fn build_type(
             // @Performance: Many allocations
             let names = fields.iter().map(|v| v.0).collect();
             let fields = fields.iter().map(|v| v.1).collect::<Vec<_>>();
-            let fields: Box<_> = fields
+            let fields: Vec<_> = fields
                 .into_iter()
-                .map(|v| build_type(ctx, v, set))
+                .map(|v| (build_type(ctx, v, set), Reason::temp(node_id)))
                 .collect();
-            ctx.infer.set_type(node_type_id, TypeKind::Struct(names), fields, set);
+            ctx.infer.set_type(node_type_id, TypeKind::Struct(names), Args(fields), set);
         }
         NodeKind::ReferenceType(inner, _permits) => {
             let inner = build_type(ctx, inner, set);
@@ -1159,7 +1159,7 @@ fn build_type(
             // let access = ctx.infer.add_access(Some(access), set);
             ctx.infer.set_type(
                 node_type_id,
-                TypeKind::Reference, [inner],
+                TypeKind::Reference, Args([(inner, Reason::temp(node_id))]),
                 set,
             );
         }
@@ -1169,7 +1169,7 @@ fn build_type(
             // let access = ctx.infer.add_access(Some(access), set);
             ctx.infer.set_type(
                 node_type_id,
-                TypeKind::Buffer, [inner],
+                TypeKind::Buffer, Args([(inner, Reason::temp(node_id))]),
                 set,
             );
         }
@@ -1179,7 +1179,7 @@ fn build_type(
             ctx.infer.set_equal(usize_type, length_type, Variance::Invariant, Reason::temp(node_id));
 
             let member_type_id = build_type(ctx, members, set);
-            ctx.infer.set_type(node_type_id, TypeKind::Array, [member_type_id, length_value], set);
+            ctx.infer.set_type(node_type_id, TypeKind::Array, Args([(member_type_id, Reason::temp(node_id)), (length_value, Reason::temp(node_id))]), set);
         }
         NodeKind::TypeOf(inner) => {
             let old = ctx.runs;
@@ -1256,7 +1256,7 @@ fn build_lvalue(
         } => {
             let temp = ctx.infer.add_type(
                 TypeKind::Reference,
-                [node_type_id],
+                Args([(node_type_id, Reason::temp(node_id))]),
                 set,
             );
 
