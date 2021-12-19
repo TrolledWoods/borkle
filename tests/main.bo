@@ -16,7 +16,7 @@ const ok = fn(name: []r u8) {
     print("\n");
 };
 
-const TestBasic = {
+{
     defer ok("TestBasic");
 
     let a = 99;
@@ -34,7 +34,7 @@ const TestBasic = {
     assert(a >= 2);
 };
 
-const TestBlocksAndBreaks = {
+{
     defer ok("TestBlocksAndBreaks");
 
     let set_order = fn(order: &u32, wanted: u32) {
@@ -68,3 +68,13 @@ const TestBlocksAndBreaks = {
 
     };
 };
+
+/* Doesn't work right now!
+{
+    defer ok("TestSomething");
+
+    let value = (fn(x) x)(fn(x) x)(fn(x) x)(fn(x) x)(fn(x) x)(fn(x) x)(fn(x) x)(fn(x) x)(fn(x) x)(fn(x) x)(fn(x) x)(fn(x) x)(fn(x) x)(fn(x) x)(fn(x) x)(fn(x) x)(fn(x) x)(fn(x) x)(fn(x) x)(fn(x) x)(fn(x) x)(fn(x) x)(fn(x) x)(fn(x) x)(fn(x) x)(fn(x) x)(fn(x) x)(fn(x) x)(fn(x) x)(fn(x) x)(fn(x) x)(fn(x) x)(fn(x) x)(fn(x) x)(fn(x) x)(fn(x) x)(fn(x) x)(fn(x) x)(fn(x) x)(fn(x) x)(fn(x) x)(fn(x) x)(fn(x) x)(fn(x) x)(fn(x) x)(fn(x) x)(fn(x) x)(fn(x) x)(fn(x) x)(fn(x) x)(fn(x) x)(fn(x) x)(fn(x) x)(fn(x) x)(fn(x) x)(fn(x) x)(99) : u64;
+
+    assert(value == 99);
+};
+*/

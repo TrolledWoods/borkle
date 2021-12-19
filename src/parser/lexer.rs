@@ -87,7 +87,7 @@ pub fn process_string(errors: &mut ErrorCtx, file: Ustr, string: &str) -> Result
         })
         .peekable();
 
-    while let Some(&(loc, _, character)) = chars.peek() {
+    while let Some(&(loc, index, character)) = chars.peek() {
         let kind = match character {
             c if c.is_whitespace() => {
                 chars.next();
@@ -185,12 +185,73 @@ pub fn process_string(errors: &mut ErrorCtx, file: Ustr, string: &str) -> Result
             '"' => TokenKind::Literal(Literal::String(string_literal(errors, &mut chars)?)),
 
             c if is_operator_token(c) => {
-                let string = slice_while(string, &mut chars, is_operator_token);
-
                 // FIXME: Is this the best place to put comment checking?
                 // It's certainly versatile, but maybe we want a separate place
                 // for them?
-                if string.starts_with("//") {
+                if string[index..].starts_with("/*") {
+                    chars.next();
+
+                    let mut blocks = Vec::new();
+
+                    let mut building_new = true;
+                    let mut num_stars = 0;
+                    let mut finished = false;
+                    let mut building_loc = loc;
+                    for (location, _, c) in &mut chars {
+                        if c == '*' {
+                            num_stars += 1;
+                        } else {
+                            if c == '/' {
+                                if num_stars > 0 {
+                                    if building_new {
+                                        // This is a case like /****/, which we just ignore. May still be the out-most block though, so we have to check for completion
+                                        building_new = false;
+                                        if blocks.is_empty() {
+                                            finished = true;
+                                            break;
+                                        }
+                                    } else {
+                                        // A closing thing, like this: '***/'
+                                        let &(opened_pos, last) = blocks.last().unwrap();
+
+                                        if last < num_stars {
+                                            errors.info(opened_pos, format!("Opened here"));
+                                            errors.error(location, format!("Tried closing a block comment with {} stars, but the opening only had {}\n(you can use more stars on the outer block comment to ignore the inner, like this: `/*** /*  ***/`)", num_stars, last));
+                                        };
+
+                                        if last == num_stars {
+                                            blocks.pop();
+
+                                            if blocks.is_empty() {
+                                                finished = true;
+                                                break;
+                                            }
+                                        }
+                                    }
+                                } else {
+                                    // There are no stars in front, so we can just set building new as true
+                                    building_new = true;
+                                    building_loc = location;
+                                }
+                            } else if building_new {
+                                if num_stars > 0 {
+                                    blocks.push((building_loc, num_stars));
+                                }
+
+                                building_new = false;
+                            }
+                            
+                            num_stars = 0;
+                        }
+                    }
+
+                    if !finished {
+                        errors.error(loc, format!("Unclosed block comment"));
+                        return Err(());
+                    }
+
+                    continue;
+                } else if string[index..].starts_with("//") {
                     for (_, _, c) in &mut chars {
                         if c == '\n' {
                             break;
@@ -200,6 +261,7 @@ pub fn process_string(errors: &mut ErrorCtx, file: Ustr, string: &str) -> Result
                     continue;
                 }
 
+                let string = slice_while(string, &mut chars, is_operator_token);
                 TokenKind::Operator(string.into())
             }
             c => {
