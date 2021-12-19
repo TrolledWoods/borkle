@@ -60,13 +60,13 @@ impl YieldData {
                 let type_ = unsafe { *constant.as_ptr().cast::<types::Type>() };
                 let type_id = self.infer.add_compiler_type(program, type_, set);
 
-                self.infer.set_equal(param.value_id, type_id, Variance::Invariant, Reason::temp(0));
+                self.infer.set_equal(param.value_id, type_id, Variance::Invariant, Reason::temp_zero());
             } else {
                 let type_ = self.infer.add_compiler_type(program, compiler_type, set);
                 let value = self.infer.add_type(TypeKind::ConstantValue(constant), Args([]), set);
-                let constant = self.infer.add_type(TypeKind::Constant, Args([(type_, Reason::temp(0)), (value, Reason::temp(0))]), set);
+                let constant = self.infer.add_type(TypeKind::Constant, Args([(type_, Reason::temp_zero()), (value, Reason::temp_zero())]), set);
 
-                self.infer.set_equal(constant, param.value_id, Variance::Invariant, Reason::temp(0));
+                self.infer.set_equal(constant, param.value_id, Variance::Invariant, Reason::temp_zero());
             }
         }
     }
@@ -886,33 +886,34 @@ fn build_constraints(
             sub_ctx.infer.value_sets.lock(set);
 
             let mut function_type_ids = Vec::with_capacity(args.len() + 1);
-            let returns_type_id = match returns {
-                Some(returns) => build_type(&mut sub_ctx, returns, sub_set),
-                None => sub_ctx.infer.add_unknown_type_with_set(sub_set),
+            let (returns_type_id, returns_type_reason) = match returns {
+                Some(returns) => (build_type(&mut sub_ctx, returns, sub_set), Reason::new(returns, ReasonKind::FunctionDeclReturnType)),
+                None => (sub_ctx.infer.add_unknown_type_with_set(sub_set), Reason::new(node_id, ReasonKind::FunctionDeclReturnType)),
             };
-            function_type_ids.push((returns_type_id, Reason::temp(node_id)));
+            function_type_ids.push((returns_type_id, returns_type_reason));
 
             for (local_id, type_node) in args {
                 let local = sub_ctx.locals.get_mut(local_id);
+                let name = local.name;
                 local.stack_frame_id = sub_set;
                 let local_type_id = local.type_infer_value_id;
                 sub_ctx.infer.set_value_set(local_type_id, sub_set);
                 if let Some(type_node) = type_node {
                     let type_id = build_type(&mut sub_ctx, type_node, sub_set);
                     sub_ctx.infer
-                        .set_equal(type_id, local_type_id, Variance::Invariant, Reason::new(node_id, ReasonKind::Passed));
+                        .set_equal(type_id, local_type_id, Variance::Invariant, Reason::new(type_node, ReasonKind::FunctionDeclArgumentType(name)));
                 }
-                function_type_ids.push((local_type_id, Reason::temp(node_id)));
+                function_type_ids.push((local_type_id, Reason::new(node_id, ReasonKind::FunctionDeclArgumentDeclaration(name))));
             }
 
             let body_type_id = build_constraints(&mut sub_ctx, body, sub_set);
 
             ctx.infer
-                .set_equal(body_type_id, returns_type_id, Variance::Variant, Reason::new(returns.unwrap_or(node_id), ReasonKind::ReturnedFromFunction));
+                .set_equal(body_type_id, returns_type_id, Variance::Variant, Reason::new(returns.unwrap_or(node_id), ReasonKind::FunctionDeclReturned));
 
             let infer_type_id = ctx.infer.add_type(TypeKind::Function, Args(function_type_ids), sub_set);
             ctx.infer
-                .set_equal(infer_type_id, node_type_id, Variance::Invariant, Reason::new(node_id, ReasonKind::Passed));
+                .set_equal(infer_type_id, node_type_id, Variance::Invariant, Reason::new(node_id, ReasonKind::FunctionDecl));
 
             ctx.infer.set_waiting_on_value_set(sub_set, WaitingOnTypeInferrence::FunctionDeclaration {
                 node_id,
@@ -936,19 +937,19 @@ fn build_constraints(
             let return_type = node_type_id;
 
             let mut typer_args = Vec::with_capacity(args.len() + 1);
-            typer_args.push((return_type, Reason::temp(node_id)));
+            typer_args.push((return_type, Reason::new(node_id, ReasonKind::FunctionCallReturn)));
 
             for &arg in &args {
                 let function_arg_type_id = ctx.infer.add_unknown_type();
                 let arg_type_id = build_constraints(ctx, arg, set);
                 ctx.infer.set_equal(function_arg_type_id, arg_type_id, Variance::Covariant, Reason::new(node_id, ReasonKind::Passed));
-                typer_args.push((function_arg_type_id, Reason::temp(node_id)));
+                typer_args.push((function_arg_type_id, Reason::new(node_id, ReasonKind::FunctionCallArgument)));
             }
 
             // Specify that the caller has to be a function type
             let type_id = ctx.infer.add_type(TypeKind::Function, Args(typer_args), set);
             ctx.infer
-                .set_equal(calling_type_id, type_id, Variance::Invariant, Reason::new(node_id, ReasonKind::Passed));
+                .set_equal(calling_type_id, type_id, Variance::Invariant, Reason::new(node_id, ReasonKind::FunctionCall));
 
             ctx.ast.get_mut(node_id).kind = NodeKind::ResolvedFunctionCall {
                 calling,

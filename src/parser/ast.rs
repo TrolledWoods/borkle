@@ -11,7 +11,8 @@ use std::fmt;
 use std::sync::Arc;
 use ustr::Ustr;
 
-pub type NodeId = u32;
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
+pub struct NodeId(pub u32);
 
 #[derive(Clone, Debug)]
 pub struct Ast {
@@ -47,7 +48,7 @@ impl AstBuilder {
         // @Performance: This is not necessary, it's just to make sure that everything
         // is correct
         for (i, node) in self.nodes.iter().enumerate().rev().skip(1).rev() {
-            if i as u32 != root && node.parent.is_none() {
+            if i as u32 != root.0 && node.parent.is_none() {
                 panic!("Node without a parent {:?}", node);
             }
         }
@@ -59,19 +60,19 @@ impl AstBuilder {
     }
 
     pub fn get(&self, id: NodeId) -> &Node {
-        let id = id as usize;
+        let id = id.0 as usize;
         debug_assert!(id < self.nodes.len());
         unsafe { self.nodes.get_unchecked(id) }
     }
 
     pub fn get_mut(&mut self, id: NodeId) -> &mut Node {
-        let id = id as usize;
+        let id = id.0 as usize;
         debug_assert!(id < self.nodes.len());
         unsafe { self.nodes.get_unchecked_mut(id) }
     }
 
     pub fn add(&mut self, node: Node) -> NodeId {
-        let id = self.nodes.len() as u32;
+        let id = NodeId(self.nodes.len() as u32);
 
         node.child_nodes(|v| self.get_mut(v).parent = Some(id));
 

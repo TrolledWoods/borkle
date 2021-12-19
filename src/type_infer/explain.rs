@@ -1,44 +1,69 @@
-use super::{TypeSystem, ConstraintId, ValueId, IdMapper, MappedId};
+use super::{static_values, TypeSystem, ConstraintId, ValueId, IdMapper, MappedId, ConstraintKind};
 use std::collections::{hash_map, HashMap};
 use crate::errors::ErrorCtx;
 use crate::parser::Ast;
 use ustr::Ustr;
 
 pub fn get_reasons(base_value: ValueId, types: &TypeSystem, mapper: &IdMapper, ast: &crate::parser::Ast) -> Vec<ReasoningChain> {
-    #[derive(Default)]
+    #[derive(Debug, Default)]
     struct Node {
-        source: Option<ValueId>,
+        source: Option<(ValueId, Vec<usize>)>,
         reason: Option<Reason>,
         distance: u32,
     }
 
     struct Frontier {
-        source: ValueId,
+        source: (ValueId, Vec<usize>),
         distance: u32,
         constraint_id: ConstraintId,
     }
 
-    fn reason_from_values(system: &TypeSystem, base_value: ValueId, mut graph: HashMap<ValueId, Node>, mut frontier: Vec<Frontier>) -> ReasoningChain {
-        while let Some(Frontier { source, distance, constraint_id }) = frontier.pop() {
+    fn reason_from_values(system: &TypeSystem, base_value: ValueId, mut graph: HashMap<(ValueId, Vec<usize>), Node>, mut frontier: Vec<Frontier>) -> ReasoningChain {
+        'path_loop: loop {
+            let Some((index, _)) = frontier.iter().enumerate().min_by_key(|(_, v)| v.distance) else { panic!("Exited too early I think") };
+            let Frontier { source, distance, constraint_id } = frontier.swap_remove(index);
+
+            if source.0 < static_values::STATIC_VALUES_SIZE {
+                continue;
+            }
+
             let constraint = &system.constraints[constraint_id];
-            for (i, &value_id) in constraint.values().iter().enumerate() {
+            
+            // We only deal with these two kinds of constraints
+            let values = match constraint.kind {
+                ConstraintKind::EqualsField { values, .. } => { values }
+                ConstraintKind::Equal { values, .. } => { values }
+                _ => continue,
+            };
+
+            for (i, value_id) in values.into_iter().enumerate() {
+                if value_id == source.0 { continue; }
+
                 let mut reason = constraint.reason;
+                if reason.kind == ReasonKind::Ignore { continue; }
                 reason.forward ^= i > 0;
+
                 let new_node = Node {
-                    source: Some(source),
+                    source: Some(source.clone()),
                     distance,
                     reason: Some(reason),
                 };
 
-                let progress = match graph.entry(value_id) {
-                    hash_map::Entry::Occupied(mut entry) => {
-                        let entry = entry.get_mut();
-                        if entry.distance > new_node.distance {
-                            *entry = new_node;
-                            true
-                        } else {
-                            false
-                        }
+                let mut new_source = (value_id, source.1.clone());
+                match constraint.kind {
+                    ConstraintKind::EqualsField { index, .. } => if i == 0 {
+                        new_source.1.push(index);
+                    } else {
+                        let Some(old_index) = new_source.1.pop() else { continue };
+                        // We can't use this constraint to explain things.
+                        if old_index != index { continue; }
+                    }
+                    _ => {}
+                }
+
+                let progress = match graph.entry(new_source.clone()) {
+                    hash_map::Entry::Occupied(_) => {
+                        false
                     }
                     hash_map::Entry::Vacant(entry) => {
                         entry.insert(new_node);
@@ -46,10 +71,14 @@ pub fn get_reasons(base_value: ValueId, types: &TypeSystem, mapper: &IdMapper, a
                     }
                 };
 
+                if value_id == base_value && new_source.1.is_empty() {
+                    break 'path_loop;
+                }
+
                 if progress {
                     if let Some(constraints) = system.available_constraints.get(&value_id) {
                         frontier.extend(constraints.iter().map(|&constraint_id| Frontier {
-                            source: value_id,
+                            source: new_source.clone(),
                             distance: distance + 1,
                             constraint_id,
                         }));
@@ -58,14 +87,21 @@ pub fn get_reasons(base_value: ValueId, types: &TypeSystem, mapper: &IdMapper, a
             }
         }
 
+        debug_assert!(graph.contains_key(&(base_value, Vec::new())));
+
         let mut chain = Vec::new();
-        let mut next = Some(base_value);
+        let mut next = &Some((base_value, Vec::new()));
+        let mut i = 0;
         while let Some(value_id) = next {
-            let node = &graph[&value_id];
+            i = i + 1;
+            if i > 500 { break; }
+            let node = &graph[value_id];
             if let Some(reason) = node.reason {
-                chain.push(reason);
+                if reason.kind != ReasonKind::Passed {
+                    chain.push(reason);
+                }
             }
-            next = node.source;
+            next = &node.source;
         }
 
         ReasoningChain {
@@ -87,11 +123,12 @@ pub fn get_reasons(base_value: ValueId, types: &TypeSystem, mapper: &IdMapper, a
                 },
                 distance: 0,
             };
-            graph.insert(value_id, node);
+
+            graph.insert((value_id, Vec::new()), node);
 
             if let Some(constraints) = types.available_constraints.get(&value_id) {
                 frontier.extend(constraints.iter().map(|&constraint_id| Frontier {
-                    source: value_id,
+                    source: (value_id, Vec::new()),
                     distance: 1,
                     constraint_id,
                 }));
@@ -128,32 +165,74 @@ impl Explanation {
 }
 
 fn get_concise_explanation(errors: &mut ErrorCtx, ast: &Ast, chain: &[Reason]) -> Explanation {
+    let mut needs_break = false;
+
     let (explanation, rest) : (_, &[_]) = match chain {
-        [Reason { kind: ReasonKind::Passed, .. }, rest @ ..] => (get_concise_explanation(errors, ast, rest), &[]),
+        //
+        // -- Function declaration --
+        //
+        [Reason { kind: ReasonKind::Declaration, forward: true, .. }, Reason { kind: ReasonKind::FunctionDecl, node, .. }, rest @ ..] => {
+            needs_break = true;
+            (
+                Explanation::new(*node, ExpressionKind::Used, "declared to a function"),
+                rest,
+            )
+        }
+        [Reason { kind: ReasonKind::FunctionDecl, node, .. }, rest @ ..] => {
+            needs_break = true;
+            (
+                Explanation::new(*node, ExpressionKind::Used, "a function"),
+                rest,
+            )
+        }
+        [Reason { kind: ReasonKind::FunctionDeclReturnType, .. }, Reason { kind: ReasonKind::FunctionDeclReturned, node, .. }, rest @ ..] => (
+            Explanation::new(*node, ExpressionKind::Used, "which returns"),
+            rest,
+        ),
+        [Reason { kind: ReasonKind::FunctionDeclReturnType, node, .. }, rest @ ..] => (
+            Explanation::new(*node, ExpressionKind::Used, "where the return type is"),
+            rest,
+        ),
+        [Reason { kind: ReasonKind::FunctionDeclArgumentDeclaration(_), node, .. }, rest @ ..] => (
+            Explanation::new(*node, ExpressionKind::Used, ", which is an argument of"),
+            rest,
+        ),
+        [Reason { kind: ReasonKind::FunctionDeclReturned, node, forward, .. }, rest @ ..] => (
+            Explanation::new(*node, ExpressionKind::Used, if *forward {
+                "inferred from what is returned, which is"
+            } else {
+                "inferred from what is returned, which is"
+            }),
+            rest,
+        ),
 
         // A declaration should only appear after a usage of a local variable.
-        [Reason { kind: ReasonKind::LocalVariableIs(_), .. }, Reason { kind: ReasonKind::Declaration, node, forward: true, .. }, Reason { kind: ReasonKind::TypeBound, .. }, rest @ ..] => (
+        [Reason { kind: ReasonKind::Declaration, node, forward: true, .. }, Reason { kind: ReasonKind::TypeBound, .. }, rest @ ..] => (
             Explanation::new(*node, ExpressionKind::Used, "declared as"),
             rest,
         ),
-        [Reason { kind: ReasonKind::LocalVariableIs(_), .. }, Reason { kind: ReasonKind::Declaration, node, forward: true, .. }, rest @ ..] => (
+        [Reason { kind: ReasonKind::Declaration, node, forward: true, .. }, rest @ ..] => (
             Explanation::new(*node, ExpressionKind::Used, "declared to"),
             rest,
         ),
-        [Reason { kind: ReasonKind::LocalVariableIs(_), .. }, Reason { kind: ReasonKind::Assigned, node, forward: true, .. }, Reason { kind: ReasonKind::TypeBound, .. }, rest @ ..] => (
+        [Reason { kind: ReasonKind::Assigned, node, forward: true, .. }, Reason { kind: ReasonKind::TypeBound, .. }, rest @ ..] => (
             Explanation::new(*node, ExpressionKind::Used, "assigned as"),
             rest,
         ),
-        [Reason { kind: ReasonKind::LocalVariableIs(_), .. }, Reason { kind: ReasonKind::Assigned, forward: true, node, .. }, rest @ ..] => (
+        [Reason { kind: ReasonKind::Assigned, forward: true, node, .. }, rest @ ..] => (
             Explanation::new(*node, ExpressionKind::Used, "assigned to"),
             rest,
         ),
-        [Reason { kind: ReasonKind::Declaration | ReasonKind::Assigned, node, forward: false, .. }, Reason { kind: ReasonKind::LocalVariableIs(name), .. }, rest @ ..] => (
-            Explanation::new(*node, ExpressionKind::Used, format!("a value which we put into `{}`, which is", name)),
+        [Reason { kind: ReasonKind::Declaration | ReasonKind::Assigned, node, forward: false, .. }, Reason { kind: ReasonKind::LocalVariableIs(name), .. }, Reason { kind: ReasonKind::LocalVariableIs(_), .. }, rest @ ..] => (
+            Explanation::new(*node, ExpressionKind::Used, format!(", which we assign to `{}`, which is", name)),
             rest,
         ),
         [Reason { kind: ReasonKind::Declaration | ReasonKind::Assigned, node, forward: false, .. }, rest @ ..] => (
             Explanation::new(*node, ExpressionKind::Used, "a value which we put into"),
+            rest,
+        ),
+        [Reason { kind: ReasonKind::LocalVariableIs(name), node, forward, .. }, Reason { kind: ReasonKind::LocalVariableIs(_), .. }, rest @ ..] => (
+            Explanation::new(*node, ExpressionKind::Used, if *forward { format!("`{}`", name) } else { format!("`{}`, which is", name) }),
             rest,
         ),
         [Reason { kind: ReasonKind::LocalVariableIs(name), node, forward, .. }, rest @ ..] => (
@@ -165,16 +244,8 @@ fn get_concise_explanation(errors: &mut ErrorCtx, ast: &Ast, chain: &[Reason]) -
             Explanation::new(*node, ExpressionKind::Used, if *forward { "the type of" } else { ", the type of which" }),
             rest,
         ),
-        [Reason { kind: ReasonKind::NamedField(name), node, .. }, rest @ ..] => (
-            Explanation::new(*node, ExpressionKind::Used, format!("the field `{}`, which is", name)),
-            rest,
-        ),
-        [Reason { kind: ReasonKind::ReturnedFromFunction, node, forward, .. }, rest @ ..] => (
-            Explanation::new(*node, ExpressionKind::Used, if *forward {
-                "returned from a function, whose return type is"
-            } else {
-                "is the return type of this function, which returns"
-            }),
+        [Reason { kind: ReasonKind::NamedField(name), node, forward, .. }, rest @ ..] => (
+            Explanation::new(*node, ExpressionKind::Used, if !*forward { format!("the field `{}` of", name) } else { format!("a value, that has a field `{}`, that is", name) }),
             rest,
         ),
         [Reason { kind: ReasonKind::Assigned, node, .. }, rest @ ..] => (
@@ -190,9 +261,28 @@ fn get_concise_explanation(errors: &mut ErrorCtx, ast: &Ast, chain: &[Reason]) -
             &[],
         ),
         [Reason { kind: ReasonKind::LiteralType, node, .. }] => (
-            Explanation::new(*node, ExpressionKind::Used, "this type"),
+            Explanation::new(*node, ExpressionKind::Used, "the type"),
             &[],
         ),
+
+        //
+        // -- Function call --
+        //
+        [Reason { kind: ReasonKind::FunctionCallReturn, .. }, Reason { kind: ReasonKind::FunctionCall, node, .. }, rest @ ..] => {
+            (
+                Explanation::new(*node, ExpressionKind::Used, "a call to"),
+                rest,
+            )
+        }
+        [Reason { kind: ReasonKind::FunctionCall, .. }, Reason { kind: ReasonKind::FunctionCallArgument, node, .. }, rest @ ..] => (
+            Explanation::new(*node, ExpressionKind::Used, "called with"),
+            rest,
+        ),
+        [Reason { kind: ReasonKind::FunctionCallArgument, node, .. }, Reason { kind: ReasonKind::FunctionCall, .. }, rest @ ..] => (
+            Explanation::new(*node, ExpressionKind::Used, ", an argument of a call to"),
+            rest,
+        ),
+
         [base, rest @ ..] => (
             Explanation::new(base.node, ExpressionKind::Used, format!("{:?}", base.kind)),
             rest,
@@ -204,7 +294,7 @@ fn get_concise_explanation(errors: &mut ErrorCtx, ast: &Ast, chain: &[Reason]) -
         explanation
     } else {
         let inner = get_concise_explanation(errors, ast, rest);
-        if ast.get(inner.node).loc.line == ast.get(explanation.node).loc.line {
+        if !needs_break && inner.message.len() < 100 && ast.get(inner.node).loc.line == ast.get(explanation.node).loc.line {
             Explanation {
                 message: explanation.message + " " + &inner.message,
                 node: inner.node,
@@ -257,25 +347,37 @@ impl ReasoningChain {
 
 #[derive(Debug, Clone, Copy)]
 pub struct Reason {
-    node: crate::parser::NodeId,
+    pub node: crate::parser::NodeId,
     kind: ReasonKind,
     forward: bool,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ReasonKind {
     Passed,
+
+    FunctionCall,
+    FunctionCallReturn,
+    FunctionCallArgument,
+
+    FunctionDecl,
+    FunctionDeclArgumentType(Ustr),
+    FunctionDeclArgumentDeclaration(Ustr),
+    FunctionDeclReturnType,
+    FunctionDeclReturned,
+
     LocalVariableIs(Ustr),
     LiteralType,
     TypeOf,
     TypeBound,
-    ReturnedFromFunction,
     Declaration,
     NamedField(Ustr),
     Assigned,
     IntLiteral,
     // Some thing is literally a type, like the global `Thing` is of some specific type.
     IsOfType,
+    // This reason means that we may have skipped a bunch of steps, so we should never add this to the chain unless we have no other choice(which would indicate a compiler bug).
+    Ignore,
     Temp(&'static std::panic::Location<'static>),
 }
 
@@ -291,5 +393,10 @@ impl Reason {
             kind: ReasonKind::Temp(std::panic::Location::caller()),
             forward: true,
         }
+    }
+
+    #[track_caller]
+    pub fn temp_zero() -> Self {
+        Self::temp(crate::parser::NodeId(0))
     }
 }

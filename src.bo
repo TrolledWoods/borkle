@@ -4,15 +4,13 @@
 // import "tests/main.bo";
 
 #entry fn() -> u64 {
-    let x = 40;
+    let my_function = fn(x, y) x(y);
 
-    let y = 39;
-    x = y;
+    let x = my_function(fn(z) z, #0 : u64);
 
     explain x;
-    explain y;
 
-    y
+    0
 };
 
 // This crashes!
