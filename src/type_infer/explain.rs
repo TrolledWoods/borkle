@@ -108,12 +108,14 @@ pub fn get_reasons(base_value: ValueId, types: &TypeSystem, mapper: &IdMapper, a
         }
 
         ReasoningChain {
+            explaining: base_value,
             distance,
             chain,
         }
     }
 
     let mut best_reason: Option<ReasoningChain> = None;
+
     for value_id in types.values.iter_values_in_structure(base_value) {
         if *types.values.get(value_id).is_base_value {
             let mut graph = HashMap::new();
@@ -327,34 +329,57 @@ fn get_concise_explanation(errors: &mut ErrorCtx, ast: &Ast, chain: &[Reason]) -
 
 #[derive(Debug)]
 pub struct ReasoningChain {
+    pub explaining: ValueId,
     pub distance: u32,
     pub chain: Vec<Reason>,
 }
 
 impl ReasoningChain {
-    pub fn output(&self, errors: &mut ErrorCtx, ast: &Ast) {
+    pub fn output(&self, errors: &mut ErrorCtx, ast: &Ast, types: &TypeSystem) {
         let chain = &self.chain[..];
 
         let explanation = get_concise_explanation(errors, ast, chain);
-        errors.info(
-            ast.get(explanation.node).loc,
-            format!(
-                "we {} {}",
-                match explanation.kind {
-                    ExpressionKind::Used => "use",
-                    ExpressionKind::Created => "create",
-                },
-                explanation.message
-            )
-        );
+        if explanation.next.is_none() {
+            errors.info(
+                ast.get(explanation.node).loc,
+                format!(
+                    "we {} {}, which is `{}`",
+                    match explanation.kind {
+                        ExpressionKind::Used => "use",
+                        ExpressionKind::Created => "create",
+                    },
+                    explanation.message,
+                    types.value_to_str(self.explaining, 0),
+                )
+            );
+        } else {
+            errors.info(
+                ast.get(explanation.node).loc,
+                format!(
+                    "we {} {}",
+                    match explanation.kind {
+                        ExpressionKind::Used => "use",
+                        ExpressionKind::Created => "create",
+                    },
+                    explanation.message
+                )
+            );
+        }
 
         let mut next = &explanation.next;
         while let Some(thing) = next {
             next = &thing.next;
-            errors.info(
-                ast.get(thing.node).loc,
-                (thing.message.strip_prefix(", ").unwrap_or(&thing.message)).to_string(),
-            );
+            if next.is_none() {
+                errors.info(
+                    ast.get(thing.node).loc,
+                    format!("{}, which is `{}`", (thing.message.strip_prefix(", ").unwrap_or(&thing.message)), types.value_to_str(self.explaining, 0)),
+                );
+            } else {
+                errors.info(
+                    ast.get(thing.node).loc,
+                    (thing.message.strip_prefix(", ").unwrap_or(&thing.message)).to_string(),
+                );
+            }
         }
     }
 }

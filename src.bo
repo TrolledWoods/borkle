@@ -1,9 +1,11 @@
 library "base.bo";
-import "tests/main.bo";
 
-#entry (fn(x) x)(fn(x) x)(fn(x) x)(fn(x) x)(main);
-const main = fn() -> u64 {
-    print("Hello, world!\n");
+#entry fn() -> u64 {
+
+    let x = "Hello!";
+
+    x : u32;
+    print("Hello!\n");
 
     0
 };

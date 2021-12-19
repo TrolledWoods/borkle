@@ -1217,15 +1217,23 @@ impl TypeSystem {
                         }
                     }
 
-                    if let Some(loc) = get_loc_of_value(poly_args, ast, locals, a_id) {
-                        errors.info(loc, format!("Here"));
+                    // @TODO: This is not a very good way to print errors, but it's fine for nowj
+                    let mapper = IdMapper {
+                        poly_args: poly_args.len(),
+                        ast_nodes: ast.nodes.len(),
+                        locals: locals.num_locals(),
+                        labels: locals.num_labels(),
+                    };
+
+                    for chain in explain::get_reasons(a_id, self, &mapper, ast) {
+                        chain.output(errors, ast, self);
                     }
 
-                    if let Some(loc) = get_loc_of_value(poly_args, ast, locals, b_id) {
-                        errors.info(loc, format!("Here"));
+                    for chain in explain::get_reasons(b_id, self, &mapper, ast) {
+                        chain.output(errors, ast, self);
                     }
 
-                    errors.global_error(format!("Incompatible types"));
+                    errors.global_error(format!("Incompatible types, `{}` and `{}`", self.value_to_str(a_id, 0), self.value_to_str(b_id, 0)));
                 },
                 _ => errors.global_error(format!("Temporary type-inference error: {:?}", error)),
             }

@@ -250,7 +250,7 @@ pub fn finish<'a>(
             labels: from.locals.num_labels(),
         };
         for chain in type_infer::get_reasons(needs_explaining, &from.infer, &id_mapper, &from.ast) {
-            chain.output(errors, &from.ast);
+            chain.output(errors, &from.ast, &from.infer);
             errors.note(from.ast.get(node_id).loc, format!("The type is `{}` because...", from.infer.value_to_str(needs_explaining, 0)));
         }
     }
