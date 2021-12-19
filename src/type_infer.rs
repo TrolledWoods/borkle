@@ -1146,14 +1146,14 @@ impl TypeSystem {
         &mut self,
         other: &TypeSystem,
         // The first one is the id of the this typesystem, the second one is the id in the other
-        to_convert: impl IntoIterator<Item = (ValueId, ValueId)>,
+        to_convert: impl IntoIterator<Item = (ValueId, ValueId, Reason)>,
         set: ValueSetId,
     ) {
         let mut already_converted = Vec::new();
-        for (this_id, other_id) in to_convert {
+        for (this_id, other_id, reason) in to_convert {
             let new_id = self.map_value_from_other_typesystem_to_this(other, other_id, &mut already_converted, set);
             // @TODO: Deal with variance
-            self.set_equal(new_id, this_id, Variance::Invariant, Reason::temp_zero());
+            self.set_equal(new_id, this_id, Variance::Invariant, reason);
         }
     }
 

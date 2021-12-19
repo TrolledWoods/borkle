@@ -579,6 +579,7 @@ fn build_constraints(
                     let other_yield_data = ctx.program.get_polymember_yielddata(id);
 
                     let mut param_values = Vec::with_capacity(num_args);
+                    let mut param_reasons = Vec::with_capacity(num_args);
                     let sub_set = ctx.infer.value_sets.add(WaitingOnTypeInferrence::None);
                     if let Some(poly_params) = poly_params {
                         if num_args != poly_params.len() {
@@ -589,27 +590,30 @@ fn build_constraints(
                         }
 
                         let params = poly_params.clone();
-                        for (&param, other_poly_arg) in params.iter().zip(&other_yield_data.poly_params) {
+                        for (i, (&param, other_poly_arg)) in params.iter().zip(&other_yield_data.poly_params).enumerate() {
                             if other_poly_arg.is_type() {
                                 let type_id = build_type(ctx, param, sub_set);
                                 param_values.push(type_id);
+                                param_reasons.push((type_id, other_poly_arg.value_id, Reason::new(param, ReasonKind::PolyParam(i))));
                             } else {
                                 let (_, param_value_id) = build_inferrable_constant_value(ctx, param, sub_set);
                                 param_values.push(param_value_id);
+                                param_reasons.push((param_value_id, other_poly_arg.value_id, Reason::new(param, ReasonKind::PolyParam(i))));
                             }
                         }
                     } else {
-                        for _ in 0..num_args {
+                        for (i, other_poly_arg) in other_yield_data.poly_params.iter().enumerate() {
                             let param_value_id = ctx.infer.add_unknown_type_with_set(sub_set);
                             param_values.push(param_value_id);
+                            param_reasons.push((param_value_id, other_poly_arg.value_id, Reason::new(node_id, ReasonKind::InferredPolyParam(i))));
                         }
                     }
 
+                    param_reasons.push((node_type_id, other_yield_data.root_value_id, Reason::new(node_id, ReasonKind::PolyMember(id))));
+
                     ctx.infer.add_subtree_from_other_typesystem(
                         &other_yield_data.infer, 
-                        param_values.iter().zip(&other_yield_data.poly_params)
-                            .map(|(&this_id, other_yield_arg)| (this_id, other_yield_arg.value_id))
-                            .chain(std::iter::once((node_type_id, other_yield_data.root_value_id))),
+                        param_reasons.into_iter(),
                         // This should technically not need a set, because nothing depends on this, it's just some
                         // scaffolding to allow the things that people depend on to be inferred.
                         sub_set,
@@ -850,7 +854,7 @@ fn build_constraints(
 
             let temp = ctx.infer.add_type(
                 TypeKind::Reference,
-                Args([(node_type_id, Reason::temp(node_id))]),
+                Args([(node_type_id, Reason::new(node_id, ReasonKind::Dereference))]),
                 set,
             );
             ctx.infer

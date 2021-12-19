@@ -762,12 +762,14 @@ impl Program {
         &self,
         errors: &mut ErrorCtx,
         loc: Location,
-        scope_id: ScopeId,
+        scope_id: Option<ScopeId>,
         name: Ustr,
     ) -> Result<MemberId, ()> {
         let id = self.members.write().push(Member::new(loc, name, false));
 
-        self.bind_member_to_name(errors, scope_id, name, loc, PolyOrMember::Member(id), true)?;
+        if let Some(scope_id) = scope_id {
+            self.bind_member_to_name(errors, scope_id, name, loc, PolyOrMember::Member(id), true)?;
+        }
         Ok(id)
     }
 

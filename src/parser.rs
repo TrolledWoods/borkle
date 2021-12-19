@@ -34,10 +34,17 @@ pub fn process_string(
 
     let mut context = DataContext::new(errors, program, &mut tokens, Path::new(&*file), scope);
 
-    while let Some(token) = context.tokens.next() {
+    while let Some(token) = context.tokens.peek() {
+        // @Hack: Workaround for the borrowing errors
+        let token = token.clone();
+
         match token.kind {
-            TokenKind::Keyword(Keyword::Const) => constant(&mut context)?,
+            TokenKind::Keyword(Keyword::Const) => {
+                context.tokens.next();
+                constant(&mut context)?
+            }
             TokenKind::Keyword(Keyword::Type) => {
+                context.tokens.next();
                 // This is a named type!
 
                 let (loc, name) = context.tokens.expect_identifier(context.errors)?;
@@ -59,7 +66,7 @@ pub fn process_string(
                 let id = context.program.define_member(
                     context.errors,
                     token.loc,
-                    context.scope,
+                    Some(context.scope),
                     name,
                 )?;
 
@@ -69,6 +76,7 @@ pub fn process_string(
                 );
             }
             TokenKind::Keyword(Keyword::Library) => {
+                context.tokens.next();
                 let name = context.tokens.expect_next(context.errors)?;
                 if let TokenKind::Literal(Literal::String(name)) = name.kind {
                     context
@@ -87,6 +95,8 @@ pub fn process_string(
                 }
             }
             TokenKind::Keyword(Keyword::Entry) => {
+                context.tokens.next();
+
                 let mut buffer = AstBuilder::new();
                 let mut dependencies = DependencyList::new();
                 let mut locals = LocalVariables::new();
@@ -102,8 +112,8 @@ pub fn process_string(
                 let id = context.program.define_member(
                     context.errors,
                     token.loc,
-                    context.scope,
-                    "__entry_point".into(),
+                    None,
+                    "<entry_point>".into(),
                 )?;
                 context.program.queue_task(
                     dependencies,
@@ -121,6 +131,8 @@ pub fn process_string(
                 *entry_point = Some(id);
             }
             TokenKind::Keyword(Keyword::Import) => {
+                context.tokens.next();
+
                 let name = context.tokens.expect_next(context.errors)?;
                 if let TokenKind::Literal(Literal::String(name)) = name.kind {
                     context
@@ -141,8 +153,31 @@ pub fn process_string(
                 }
             }
             _ => {
-                context.error(token.loc, "Expected 'const' or 'import'".to_string());
-                return Err(());
+                let mut buffer = AstBuilder::new();
+
+                let mut dependencies = DependencyList::new();
+                let mut locals = LocalVariables::new();
+                let mut imperative = ImperativeContext::new(
+                    &mut dependencies,
+                    &mut locals,
+                    false,
+                    &[],
+                );
+                let expr = expression(&mut context, &mut imperative, &mut buffer)?;
+                let tree = buffer.set_root(expr);
+
+                let id = context
+                    .program
+                    .define_member(context.errors, token.loc, None, "<anonymous>".into())?;
+
+                context.program.queue_task(
+                    dependencies,
+                    Task::TypeMember { member_id: id, locals, ast: tree },
+                );
+
+                context
+                    .tokens
+                    .expect_next_is(context.errors, &TokenKind::SemiColon)?;
             }
         }
     }
@@ -176,7 +211,7 @@ fn constant(global: &mut DataContext<'_>) -> Result<(), ()> {
         if poly_args.is_empty() {
             let id = global
                 .program
-                .define_member(global.errors, token.loc, global.scope, name)?;
+                .define_member(global.errors, token.loc, Some(global.scope), name)?;
             global.program.queue_task(
                 dependencies,
                 Task::TypeMember { member_id: id, locals, ast: tree },

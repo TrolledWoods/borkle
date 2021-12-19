@@ -1,32 +1,7 @@
-// library "base.bo";
-// library "vec.bo";
-// library "iter.bo";
-// import "tests/main.bo";
+library "base.bo";
 
 #entry fn() -> u64 {
-    let my_function = fn(x, y) x(y);
-
-    let x = my_function(fn(z) z, #0 : u64);
-
-    explain x;
+    print("Hello, world!\n");
 
     0
 };
-
-// This crashes!
-//
-// const COMMA = *",".ptr;
-// 
-// const array_length.(N, T) = fn(v: &[N] T) -> usize  N;
-// 
-// #entry fn() -> u64 {
-//     let array = #0 : [
-//         count_matches("Hello ,,,, ,, , , ,", fn(v) *v == COMMA)
-//     ] u64;
-// 
-//     print("The array length is ");
-//     print_u64(cast array_length(&array));
-//     print("!\n");
-// 
-//     0
-// };

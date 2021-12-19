@@ -199,6 +199,7 @@ fn worker<'a>(alloc: &'a mut Bump, program: &'a Program) -> (ThreadContext<'a>, 
                                     }
                                     _ => MemberMetaData::None,
                                 };
+
                                 let type_ = ast.get(ast.root).type_();
 
                                 if type_.can_be_stored_in_constant() {

@@ -1,6 +1,7 @@
 use super::{static_values, TypeSystem, ConstraintId, ValueId, IdMapper, MappedId, ConstraintKind};
 use std::collections::{hash_map, HashMap};
 use crate::errors::ErrorCtx;
+use crate::program::{Program, PolyMemberId};
 use crate::parser::Ast;
 use ustr::Ustr;
 
@@ -79,7 +80,7 @@ pub fn get_reasons(base_value: ValueId, types: &TypeSystem, mapper: &IdMapper, a
                     if let Some(constraints) = system.available_constraints.get(&value_id) {
                         frontier.extend(constraints.iter().map(|&constraint_id| Frontier {
                             source: new_source.clone(),
-                            distance: distance + 1,
+                            distance: distance + system.constraints[constraint_id].reason.kind.weight(),
                             constraint_id,
                         }));
                     }
@@ -88,6 +89,8 @@ pub fn get_reasons(base_value: ValueId, types: &TypeSystem, mapper: &IdMapper, a
         }
 
         debug_assert!(graph.contains_key(&(base_value, Vec::new())));
+
+        let distance = graph[&(base_value, Vec::new())].distance;
 
         let mut chain = Vec::new();
         let mut next = &Some((base_value, Vec::new()));
@@ -105,11 +108,12 @@ pub fn get_reasons(base_value: ValueId, types: &TypeSystem, mapper: &IdMapper, a
         }
 
         ReasoningChain {
+            distance,
             chain,
         }
     }
 
-    let mut reasons = Vec::new();
+    let mut best_reason: Option<ReasoningChain> = None;
     for value_id in types.values.iter_values_in_structure(base_value) {
         if *types.values.get(value_id).is_base_value {
             let mut graph = HashMap::new();
@@ -132,12 +136,17 @@ pub fn get_reasons(base_value: ValueId, types: &TypeSystem, mapper: &IdMapper, a
                     distance: 1,
                     constraint_id,
                 }));
-                reasons.push(reason_from_values(types, base_value, graph, frontier));
+
+                let new_reason = reason_from_values(types, base_value, graph, frontier);
+                if let Some(ref best_reason) = best_reason {
+                    if best_reason.distance < new_reason.distance { continue; }
+                }
+                best_reason = Some(new_reason);
             }
         }
     }
     
-    reasons
+    best_reason.into_iter().collect()
 }
 
 #[derive(Clone, Copy)]
@@ -248,6 +257,10 @@ fn get_concise_explanation(errors: &mut ErrorCtx, ast: &Ast, chain: &[Reason]) -
             Explanation::new(*node, ExpressionKind::Used, if !*forward { format!("the field `{}` of", name) } else { format!("a value, that has a field `{}`, that is", name) }),
             rest,
         ),
+        [Reason { kind: ReasonKind::Dereference, node, .. }, rest @ ..] => (
+            Explanation::new(*node, ExpressionKind::Used, "the value behind"),
+            rest,
+        ),
         [Reason { kind: ReasonKind::Assigned, node, .. }, rest @ ..] => (
             Explanation::new(*node, ExpressionKind::Used, "assigned to"),
             rest,
@@ -314,6 +327,7 @@ fn get_concise_explanation(errors: &mut ErrorCtx, ast: &Ast, chain: &[Reason]) -
 
 #[derive(Debug)]
 pub struct ReasoningChain {
+    pub distance: u32,
     pub chain: Vec<Reason>,
 }
 
@@ -366,6 +380,11 @@ pub enum ReasonKind {
     FunctionDeclReturnType,
     FunctionDeclReturned,
 
+    PolyMember(PolyMemberId),
+    InferredPolyParam(usize),
+    // @TODO: We want the parameter to be named, but we don't have that information right now...
+    PolyParam(usize),
+    Dereference,
     LocalVariableIs(Ustr),
     LiteralType,
     TypeOf,
@@ -379,6 +398,15 @@ pub enum ReasonKind {
     // This reason means that we may have skipped a bunch of steps, so we should never add this to the chain unless we have no other choice(which would indicate a compiler bug).
     Ignore,
     Temp(&'static std::panic::Location<'static>),
+}
+
+impl ReasonKind {
+    fn weight(&self) -> u32 {
+        match self {
+            Self::IsOfType => 1000,
+            _ => 1,
+        }
+    }
 }
 
 impl Reason {
