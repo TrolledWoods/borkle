@@ -1,11 +1,8 @@
 library "base.bo";
 
 #entry fn() -> u64 {
-
-    let x = "Hello!";
-
-    x : u32;
-    print("Hello!\n");
+    let a = #0 : u32;
+    a : u64;
 
     0
 };

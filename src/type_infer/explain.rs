@@ -6,6 +6,10 @@ use crate::parser::Ast;
 use ustr::Ustr;
 
 pub fn get_reasons(base_value: ValueId, types: &TypeSystem, mapper: &IdMapper, ast: &crate::parser::Ast) -> Vec<ReasoningChain> {
+    get_reasons_with_look_inside(base_value, base_value, types, mapper, ast)
+}
+
+pub fn get_reasons_with_look_inside(base_value: ValueId, look_inside: ValueId, types: &TypeSystem, mapper: &IdMapper, ast: &crate::parser::Ast) -> Vec<ReasoningChain> {
     #[derive(Debug, Default)]
     struct Node {
         source: Option<(ValueId, Vec<usize>)>,
@@ -19,7 +23,7 @@ pub fn get_reasons(base_value: ValueId, types: &TypeSystem, mapper: &IdMapper, a
         constraint_id: ConstraintId,
     }
 
-    fn reason_from_values(system: &TypeSystem, base_value: ValueId, mut graph: HashMap<(ValueId, Vec<usize>), Node>, mut frontier: Vec<Frontier>) -> ReasoningChain {
+    fn reason_from_values(system: &TypeSystem, base_value: ValueId, look_inside: ValueId, mut graph: HashMap<(ValueId, Vec<usize>), Node>, mut frontier: Vec<Frontier>) -> ReasoningChain {
         'path_loop: loop {
             let Some((index, _)) = frontier.iter().enumerate().min_by_key(|(_, v)| v.distance) else { panic!("Exited too early I think") };
             let Frontier { source, distance, constraint_id } = frontier.swap_remove(index);
@@ -108,7 +112,7 @@ pub fn get_reasons(base_value: ValueId, types: &TypeSystem, mapper: &IdMapper, a
         }
 
         ReasoningChain {
-            explaining: base_value,
+            explaining: look_inside,
             distance,
             chain,
         }
@@ -116,7 +120,7 @@ pub fn get_reasons(base_value: ValueId, types: &TypeSystem, mapper: &IdMapper, a
 
     let mut best_reason: Option<ReasoningChain> = None;
 
-    for value_id in types.values.iter_values_in_structure(base_value) {
+    for value_id in types.values.iter_values_in_structure(look_inside) {
         if *types.values.get(value_id).is_base_value {
             let mut graph = HashMap::new();
             let mut frontier = Vec::new();
@@ -139,7 +143,7 @@ pub fn get_reasons(base_value: ValueId, types: &TypeSystem, mapper: &IdMapper, a
                     constraint_id,
                 }));
 
-                let new_reason = reason_from_values(types, base_value, graph, frontier);
+                let new_reason = reason_from_values(types, base_value, look_inside, graph, frontier);
                 if let Some(ref best_reason) = best_reason {
                     if best_reason.distance < new_reason.distance { continue; }
                 }
@@ -299,10 +303,13 @@ fn get_concise_explanation(errors: &mut ErrorCtx, ast: &Ast, chain: &[Reason]) -
         ),
 
         [base, rest @ ..] => (
-            Explanation::new(base.node, ExpressionKind::Used, format!("{:?}", base.kind)),
+            Explanation::new(base.node, ExpressionKind::Used, format!("<{:?}>", base.kind)),
             rest,
         ),
-        [] => unreachable!("Invalid explanation!"),
+        [] => (
+            Explanation::new(crate::parser::NodeId(0), ExpressionKind::Used, format!("<Invalid end>")),
+            &[],
+        ),
     };
 
     if rest.is_empty() {

@@ -1225,11 +1225,11 @@ impl TypeSystem {
                         labels: locals.num_labels(),
                     };
 
-                    for chain in explain::get_reasons(a_id, self, &mapper, ast) {
+                    for chain in explain::get_reasons_with_look_inside(a_id, a_id, self, &mapper, ast) {
                         chain.output(errors, ast, self);
                     }
 
-                    for chain in explain::get_reasons(b_id, self, &mapper, ast) {
+                    for chain in explain::get_reasons_with_look_inside(a_id, b_id, self, &mapper, ast) {
                         chain.output(errors, ast, self);
                     }
 
