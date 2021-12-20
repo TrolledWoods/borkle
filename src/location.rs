@@ -8,6 +8,10 @@ pub struct Location {
 }
 
 impl Location {
+    pub fn unknown() -> Self {
+        Self { file: "[unknown]".into(), line: 0, character: 0 }
+    }
+
     pub const fn start(file: Ustr) -> Self {
         Self {
             file,

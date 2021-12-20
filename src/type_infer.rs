@@ -1970,12 +1970,12 @@ impl TypeSystem {
                     None | Some(Type { args: None, .. }) => {}
                     Some(Type { args: Some(fields), .. }) => {
                         if let Some(&field) = fields.get(field_index) {
-                            let node_id = constraint.reason.node;
+                            let loc = constraint.reason.loc;
                             insert_active_constraint(
                                 &mut self.constraints,
                                 &mut self.available_constraints,
                                 &mut self.queued_constraints,
-                                Constraint::equal(field, b_id, variance, Some(constraint_id), Reason::new(node_id, ReasonKind::Ignore)),
+                                Constraint::equal(field, b_id, variance, Some(constraint_id), Reason::new(loc, ReasonKind::Ignore)),
                             );
                         } else {
                             self.errors.push(Error::new(
@@ -2022,12 +2022,12 @@ impl TypeSystem {
                                         return;
                                     } else {
                                         for (a_arg, b_arg) in a_args.iter().zip(b_args.iter()) {
-                                            let node_id = self.constraints[constraint_id].reason.node;
+                                            let loc = self.constraints[constraint_id].reason.loc;
                                             insert_active_constraint(
                                                 &mut self.constraints,
                                                 &mut self.available_constraints,
                                                 &mut self.queued_constraints,
-                                                Constraint::equal(*a_arg, *b_arg, Variance::Variant, Some(constraint_id), Reason::new(node_id, ReasonKind::Ignore)),
+                                                Constraint::equal(*a_arg, *b_arg, Variance::Variant, Some(constraint_id), Reason::new(loc, ReasonKind::Ignore)),
                                             );
                                         }
                                     }
