@@ -8,7 +8,15 @@ import "aoc/day5.bo";
 import "aoc/day6.bo";
 import "aoc/day7.bo";
 
-const DO_AOC = false;
+const run_aoc_tests = fn() {
+    TestsDay1();
+    TestsDay2();
+    TestsDay3();
+    TestsDay4();
+    TestsDay5();
+    TestsDay6();
+    TestsDay7();
+};
 
 const ok = fn(name: []r u8) {
     print("[OK] ");

@@ -2,7 +2,7 @@ library "base.bo";
 import "day6_input.bo";
 import "../main.bo";
 
-const AocDay6 = if DO_AOC {
+const TestsDay6 = fn() {
     defer ok("AOC day 6");
     assert(aoc_day6(80) == 350917);
     assert(aoc_day6(256) == 1592918715629);

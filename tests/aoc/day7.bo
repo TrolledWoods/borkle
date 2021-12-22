@@ -4,7 +4,7 @@ import "day7_input.bo";
 
 const COMMA = *",".ptr;
 
-const AocDay7Test = if DO_AOC {
+const TestsDay7 = fn() {
     defer ok("AOC day 7");
     let result = aoc_day7();
     assert(result.part_1 == 348996);

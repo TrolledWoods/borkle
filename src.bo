@@ -1,8 +1,10 @@
 library "base.bo";
+import "tests/main.bo";
 
 #entry fn() -> u64 {
-    let a = #0 : u32;
-    a : u64;
+    print("Hello, world!\n");
+
+    run_aoc_tests();
 
     0
 };

@@ -1,7 +1,3 @@
-// I think using new line characters is cleaner i nthis case because
-// there are so many friggin writes.
-#![allow(clippy::write_with_newline)]
-
 use crate::ir::{Instr, Routine, Value};
 use crate::operators::{BinaryOp, UnaryOp};
 use crate::program::{BuiltinFunction, FunctionId, Program};
