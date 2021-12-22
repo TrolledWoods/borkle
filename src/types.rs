@@ -112,26 +112,6 @@ impl Type {
         Self(leaked)
     }
 
-    pub fn fmt_members(self, output: &mut String, member: crate::ir::Member) {
-        let mut type_ = self;
-        let mut offset = member.offset;
-        'outer_loop: for _ in 0..member.amount {
-            // Find the correct member
-            for &(name, member_offset, member_type) in type_.0.members.iter().rev() {
-                if offset >= member_offset {
-                    offset -= member_offset;
-                    type_ = member_type;
-
-                    output.push('.');
-                    output.push_str(name.as_str());
-                    continue 'outer_loop;
-                }
-            }
-
-            unreachable!("No member found, this shouldn't happen");
-        }
-    }
-
     pub fn pointing_to(self) -> Option<Type> {
         if let TypeKind::Reference { pointee, .. } = *self.kind() {
             Some(pointee)

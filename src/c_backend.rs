@@ -62,13 +62,6 @@ fn c_format_value(value: &Value) -> impl fmt::Display + '_ {
         Value::Register(id, _) => write!(f, "reg_{}", id),
         Value::Global(ptr, type_) => {
             match type_.kind() {
-                TypeKind::Function { .. } => {
-                    write!(
-                        f,
-                        "{}",
-                        c_format_function(unsafe { *ptr.as_ptr().cast::<FunctionId>() })
-                    )?;
-                }
                 TypeKind::Int(int_kind) => {
                     let size = int_kind.size_align().0;
 
@@ -266,16 +259,22 @@ pub fn routine_to_c(output: &mut String, routine: &Routine, arg_types: &[Type], 
                     }
                     Instr::Call { to, pointer, args, loc: _ } => {
                         if to.size() != 0 {
+                            write!(output, "{} = ", c_format_value(to)).unwrap();
+                        }
+
+                        if let Value::Global(ptr, _) = pointer {
+                            let function_id = unsafe { *ptr.as_ptr().cast::<FunctionId>() };
+                            write!(output, "function_{}(", usize::from(function_id))
+                            .unwrap();
+                        } else {
                             write!(
                                 output,
-                                "{} = {}(",
-                                c_format_value(to),
+                                "({}.inner)(",
                                 c_format_value(pointer),
                             )
                             .unwrap();
-                        } else {
-                            write!(output, "{}(", c_format_value(pointer),).unwrap();
                         }
+
                         let mut has_emitted = false;
                         for arg in args {
                             if arg.size() == 0 {
@@ -291,7 +290,11 @@ pub fn routine_to_c(output: &mut String, routine: &Routine, arg_types: &[Type], 
                         output.push_str(");\n");
                     }
                     Instr::Increment { value } => {
-                        write!(output, "{0} = {0} + 1;\n", c_format_value(value)).unwrap();
+                        if matches!(value.type_().kind(), TypeKind::Reference { .. }) {
+                            write!(output, "{0}.inner = {0}.inner + 1;\n", c_format_value(value)).unwrap();
+                        } else {
+                            write!(output, "{0} = {0} + 1;\n", c_format_value(value)).unwrap();
+                        }
                     }
                     Instr::Binary {
                         op: BinaryOp::Range,
@@ -315,6 +318,8 @@ pub fn routine_to_c(output: &mut String, routine: &Routine, arg_types: &[Type], 
                         .unwrap();
                     }
                     Instr::Binary { op, to, a, b } => {
+                        let is_pointer_op = matches!(a.type_().kind(), TypeKind::Reference { .. });
+
                         let op_name = match op {
                             BinaryOp::And => "&&",
                             BinaryOp::Or => "||",
@@ -336,15 +341,33 @@ pub fn routine_to_c(output: &mut String, routine: &Routine, arg_types: &[Type], 
                             _ => unreachable!("Cannot output this operator to C, it's supposed to be replaced by the compiler in an earlier stage"),
                         };
 
-                        write!(
-                            output,
-                            "{} = {} {} {};\n",
-                            c_format_value(to),
-                            c_format_value(a),
-                            op_name,
-                            c_format_value(b)
-                        )
-                        .unwrap();
+                        if is_pointer_op {
+                            // @HACK: To support pointer arithmetic for now
+                            let rhs_is_ptr = matches!(b.type_().kind(), TypeKind::Reference { .. });
+                            let ret_is_ptr = matches!(to.type_().kind(), TypeKind::Reference { .. });
+
+                            write!(
+                                output,
+                                "{}{} = {}.inner {} {}{};\n",
+                                c_format_value(to),
+                                if ret_is_ptr { ".inner" } else { "" },
+                                c_format_value(a),
+                                op_name,
+                                c_format_value(b),
+                                if rhs_is_ptr { ".inner" } else { "" },
+                            )
+                            .unwrap();
+                        } else {
+                            write!(
+                                output,
+                                "{} = {} {} {};\n",
+                                c_format_value(to),
+                                c_format_value(a),
+                                op_name,
+                                c_format_value(b)
+                            )
+                            .unwrap();
+                        }
                     }
                     Instr::Unary { op, to, from } => {
                         let op_name = match op {
@@ -365,41 +388,44 @@ pub fn routine_to_c(output: &mut String, routine: &Routine, arg_types: &[Type], 
                         .unwrap();
                     }
                     Instr::Member { to, of, member } => {
-                        write!(output, "{} = {}", c_format_value(to), c_format_value(of)).unwrap();
+                        write!(output, "{} = ", c_format_value(to)).unwrap();
 
-                        of.type_().fmt_members(output, *member);
+                        c_output_member(output, of, *member);
 
                         write!(output, ";\n").unwrap();
                     }
                     Instr::PointerToMemberOfPointer { to, of, member } => {
                         write!(
                             output,
-                            "{} = &(*{})",
+                            "{}.inner = &(",
                             c_format_value(to),
-                            c_format_value(of)
                         )
                         .unwrap();
-
-                        of.type_().fmt_members(output, *member);
-
-                        output.push_str(";\n");
+                        c_output_to_special_member(output, of, of.type_().pointing_to().unwrap(), "(*", ".inner)", *member);
+                        output.push_str(");\n");
                     }
                     Instr::Dereference { to, from } => {
                         write!(
                             output,
-                            "{} = *{};\n",
+                            "{} = *{}.inner;\n",
                             c_format_value(to),
                             c_format_value(from)
                         )
                         .unwrap();
                     }
                     Instr::PointerToMemberOfValue { to, from, offset } => {
-                        write!(output, "{} = &{}", c_format_value(to), c_format_value(from))
+                        write!(output, "{}.inner = &", c_format_value(to))
                             .unwrap();
 
-                        from.type_().fmt_members(output, *offset);
+                        c_output_member(output, from, *offset);
 
                         output.push_str(";\n");
+                    }
+                    Instr::BitCast {
+                        to,
+                        from,
+                    } => {
+                        write!(output, "{} = *({}*)&{};\n", c_format_value(to), c_format_type(to.type_()), c_format_value(from)).unwrap();
                     }
                     Instr::MoveToMemberOfValue {
                         to,
@@ -407,9 +433,7 @@ pub fn routine_to_c(output: &mut String, routine: &Routine, arg_types: &[Type], 
                         size: _,
                         member,
                     } => {
-                        write!(output, "{}", c_format_value(to)).unwrap();
-
-                        to.type_().fmt_members(output, *member);
+                        c_output_member(output, to, *member);
 
                         write!(output, " = {};\n", c_format_value(from)).unwrap();
                     }
@@ -419,12 +443,7 @@ pub fn routine_to_c(output: &mut String, routine: &Routine, arg_types: &[Type], 
                         size: _,
                         member,
                     } => {
-                        write!(output, "(*{})", c_format_value(to)).unwrap();
-
-                        to.type_()
-                            .pointing_to()
-                            .unwrap()
-                            .fmt_members(output, *member);
+                        c_output_to_special_member(output, to, to.type_().pointing_to().unwrap(), "(*", ".inner)", *member);
 
                         write!(output, " = {};\n", c_format_value(from)).unwrap();
                     }
@@ -468,7 +487,7 @@ fn builtin_function(output: &mut String, builtin: BuiltinFunction, args: &[Value
         BuiltinFunction::StdoutWrite => {
             write!(
                 output,
-                "{} = fwrite({}.ptr, 1, {}.len, stdout);\n",
+                "{} = fwrite({}.inner, 1, {}.len, stdout);\n",
                 c_format_value(&to),
                 c_format_value(&args[0]),
                 c_format_value(&args[0]),
@@ -485,8 +504,8 @@ fn builtin_function(output: &mut String, builtin: BuiltinFunction, args: &[Value
                         char temp_data[512];
                         gets(temp_data);\n
                         {0}.len = strlen(temp_data);
-                        {0}.ptr = malloc({0}.len);
-                        memcpy({0}.ptr, temp_data, {0}.len);
+                        {0}.inner = malloc({0}.len);
+                        memcpy({0}.inner, temp_data, {0}.len);
                     }}\n",
                 c_format_value(&to),
             )
@@ -495,19 +514,19 @@ fn builtin_function(output: &mut String, builtin: BuiltinFunction, args: &[Value
         BuiltinFunction::Alloc => {
             write!(
                 output,
-                "{} = malloc({});\n",
+                "{}.inner = malloc({});\n",
                 c_format_value(&to),
                 c_format_value(&args[0]),
             )
             .unwrap();
         }
         BuiltinFunction::Dealloc => {
-            write!(output, "free({}.ptr);\n", c_format_value(&args[0])).unwrap();
+            write!(output, "free({}.inner);\n", c_format_value(&args[0])).unwrap();
         }
         BuiltinFunction::MemCopy => {
             write!(
                 output,
-                "memmove({}, {}, {});\n",
+                "memmove({}.inner, {}.inner, {});\n",
                 c_format_value(&args[1]),
                 c_format_value(&args[0]),
                 c_format_value(&args[2])
@@ -517,7 +536,7 @@ fn builtin_function(output: &mut String, builtin: BuiltinFunction, args: &[Value
         BuiltinFunction::MemCopyNonOverlapping => {
             write!(
                 output,
-                "memcpy({}, {}, {});\n",
+                "memcpy({}.inner, {}.inner, {});\n",
                 c_format_value(&args[1]),
                 c_format_value(&args[0]),
                 c_format_value(&args[2])
@@ -599,28 +618,6 @@ fn name_of_type(mut out: impl Write, type_: Type, rec: u32) -> fmt::Result {
 
     Ok(())
 }
-
-pub const BOILER_PLATE: &str = r#"
-#include <stdint.h>
-#include <stdio.h>
-#include <assert.h>
-#include <string.h>
-#include <stdlib.h>
-
-typedef uint8_t  bool;
-typedef int8_t   i8;
-typedef int16_t  i16;
-typedef int32_t  i32;
-typedef int64_t  i64;
-typedef uint8_t  u8;
-typedef uint16_t u16;
-typedef uint32_t u32;
-typedef uint64_t u64;
-typedef int64_t  isize;
-typedef uint64_t usize;
-
-"#;
-
 
 pub fn declare_types(output: &mut String) {
     let types = TYPES.lock();
@@ -742,3 +739,71 @@ where
         (self.0)(f)
     }
 }
+
+fn c_output_member(output: &mut String, value: &Value, member: crate::ir::Member) {
+    c_output_to_special_member(output, value, value.type_(), "", "", member);
+}
+
+fn c_output_to_special_member(output: &mut String, value: &Value, mut type_: Type, value_prefix: &str, value_suffix: &str, member: crate::ir::Member) {
+    let mut offset = member.offset;
+
+    // @Speed!!!
+    let mut members = Vec::with_capacity(member.amount);
+    'outer_loop: for _ in 0..member.amount {
+        for &(name, member_offset, member_type) in type_.0.members.iter().rev() {
+            if offset >= member_offset {
+                members.push((name, type_, member_type));
+
+                offset -= member_offset;
+                type_ = member_type;
+                continue 'outer_loop;
+            }
+        }
+
+        unreachable!("No member found, this shouldn't happen");
+    }
+
+    for &(name, base_type, member_type) in members.iter().rev() {
+        match (base_type.kind(), &*name) {
+            (TypeKind::Buffer { .. }, "ptr") => {
+                write!(output, "(*({}*)&", c_format_type(member_type)).unwrap();
+            }
+            _ => {}
+        }
+    }
+
+    write!(output, "{}{}{}", value_prefix, c_format_value(value), value_suffix).unwrap();
+
+    for &(name, base_type, _) in members.iter() {
+        match (base_type.kind(), &*name) {
+            (TypeKind::Buffer { .. }, "ptr") => {
+                output.push_str(".inner)");
+            }
+            _ => {
+                write!(output, ".{}", name).unwrap();
+            }
+        }
+    }
+}
+
+pub const BOILER_PLATE: &str = r#"
+#include <stdint.h>
+#include <stdio.h>
+#include <assert.h>
+#include <string.h>
+#include <stdlib.h>
+
+typedef uint8_t  bool;
+typedef int8_t   i8;
+typedef int16_t  i16;
+typedef int32_t  i32;
+typedef int64_t  i64;
+typedef uint8_t  u8;
+typedef uint16_t u16;
+typedef uint32_t u32;
+typedef uint64_t u64;
+typedef int64_t  isize;
+typedef uint64_t usize;
+
+"#;
+

@@ -60,6 +60,10 @@ pub enum Instr {
         to_size: u8,
         sign_extend: bool,
     },
+    BitCast {
+        to: Value,
+        from: Value,
+    },
     // to = &from.offset
     PointerToMemberOfValue {
         to: Value,

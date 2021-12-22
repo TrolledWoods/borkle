@@ -98,6 +98,15 @@ impl Context<'_, '_> {
         }
     }
 
+    pub fn emit_bitcast(&mut self, to: Value, from: Value) {
+        if to.size() != 0 {
+            self.instr.push(Instr::BitCast {
+                to,
+                from,
+            });
+        }
+    }
+
     pub fn emit_move(&mut self, to: Value, from: Value) {
         self.emit_move_to_member_of_value(to, from, Member::default())
     }

@@ -398,7 +398,7 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, node: NodeId) -> Value {
                     }
                 }
                 (
-                    Some(type_infer::Type { kind: type_infer::TypeKind::Buffer, .. }),
+                    Some(type_infer::Type { kind: type_infer::TypeKind::Buffer, args: Some(buf_args) }),
                     Some(type_infer::Type { kind: type_infer::TypeKind::Reference, args: Some(from_args) })
                 ) => {
                     match ctx.types.get(from_args[0]).kind {
@@ -406,11 +406,19 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, node: NodeId) -> Value {
                             let length = type_infer::extract_constant_from_value(&ctx.types.values, array_args[1]).unwrap();
                             let usize_type = Type::new(TypeKind::Int(IntTypeKind::Usize));
                             let len_reg = ctx.registers.create(ctx.types, type_infer::static_values::USIZE, usize_type);
+
+                            // @HACK: Yuck!!!
+                            let buf_args_0 = buf_args[0];
+                            let temp_ptr_type = ctx.types.add_type(type_infer::TypeKind::Reference, type_infer::Args([(buf_args_0, Reason::temp_zero())]), ());
+                            let &TypeKind::Buffer { pointee, permits } = ctx.ast.get(node).type_().kind() else { unreachable!() };
+                            let temp_ptr = ctx.registers.create(ctx.types, temp_ptr_type, Type::new(TypeKind::Reference { pointee, permits }));
+
                             ctx.emit_move(len_reg, Value::Global(length, usize_type));
+                            ctx.emit_bitcast(temp_ptr, from);
 
                             ctx.emit_move_to_member_of_value(
                                 to,
-                                from,
+                                temp_ptr,
                                 Member {
                                     offset: 0,
                                     amount: 1,
@@ -433,7 +441,7 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, node: NodeId) -> Value {
                     Some(type_infer::Type { kind: type_infer::TypeKind::Reference, .. }),
                 ) => {
                     // References are the same layout, we just do the same as with bitcast.
-                    ctx.emit_move(to, from);
+                    ctx.emit_bitcast(to, from);
                 }
                 _ => unreachable!("Internal error: Invalid types for cast reached emission"),
             }

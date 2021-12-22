@@ -284,6 +284,12 @@ fn interp_internal(program: &Program, stack: &mut StackFrame<'_>, routine: &User
                     stack.get_mut(to).write(ptr as usize + offset.offset);
                 }
             }
+            Instr::BitCast { to, from } => {
+                let size = from.type_().size();
+                let from: *const u8 = stack.get(from).as_ptr();
+                let to: *mut u8 = stack.get_mut(to).as_mut_ptr();
+                unsafe { std::ptr::copy_nonoverlapping(from, to, size); }
+            }
             Instr::MoveToMemberOfValue {
                 to,
                 from,
