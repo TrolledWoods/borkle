@@ -66,17 +66,11 @@ pub fn run(program: &mut Program, num_threads: usize) -> (String, ErrorCtx) {
     let (thread_context, mut errors) = worker(allocators.next().unwrap(), borrow_program);
 
     let mut c_headers = String::new();
-    c_headers.push_str("#include <stdint.h>\n");
-    c_headers.push_str("#include <stdio.h>\n");
-    c_headers.push_str("#include <assert.h>\n");
-    c_headers.push_str("#include <string.h>\n");
-    c_headers.push_str("#include <stdlib.h>\n");
-    c_headers.push('\n');
-
     if program.arguments.release {
-        crate::c_backend::append_c_type_headers(&mut c_headers);
+        c_headers.push_str(crate::c_backend::BOILER_PLATE);
+        crate::c_backend::declare_types(&mut c_headers);
+        c_headers.push_str(&thread_context.c_headers);
     }
-    c_headers.push_str(&thread_context.c_headers);
 
     let ThreadContext {
         mut c_declarations, ..

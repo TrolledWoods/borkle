@@ -61,23 +61,44 @@ fn c_format_value(value: &Value) -> impl fmt::Display + '_ {
     Formatter(move |f| match value {
         Value::Register(id, _) => write!(f, "reg_{}", id),
         Value::Global(ptr, type_) => {
-            if let TypeKind::Function { .. } = type_.kind() {
-                write!(
-                    f,
-                    "{}",
-                    c_format_function(unsafe { *ptr.as_ptr().cast::<FunctionId>() })
-                )?;
-            } else {
-                debug_assert!(type_.size() != 0);
+            match type_.kind() {
+                TypeKind::Function { .. } => {
+                    write!(
+                        f,
+                        "{}",
+                        c_format_function(unsafe { *ptr.as_ptr().cast::<FunctionId>() })
+                    )?;
+                }
+                TypeKind::Int(int_kind) => {
+                    let size = int_kind.size_align().0;
 
-                // FIXME: Check if this can just be a normal cast and not this kind of pointer
-                // cast.
-                write!(
-                    f,
-                    "(*({}*)&global_{})",
-                    c_format_type(*type_),
-                    ptr.as_ptr() as usize
-                )?;
+                    let mut big_int = [0; 16];
+                    unsafe {
+                        std::ptr::copy_nonoverlapping(ptr.as_ptr(), big_int.as_mut_ptr(), size);
+                    }
+
+                    if int_kind.signed() && (big_int[size] & 0x80) > 0 {
+                        big_int[size + 1..].fill(0xff);
+                    }
+
+                    write!(
+                        f,
+                        "{}",
+                        i128::from_le_bytes(big_int),
+                    )?;
+                }
+                _ => {
+                    debug_assert!(type_.size() != 0);
+
+                    // FIXME: Check if this can just be a normal cast and not this kind of pointer
+                    // cast.
+                    write!(
+                        f,
+                        "(*({}*)&global_{})",
+                        c_format_type(*type_),
+                        ptr.as_ptr() as usize
+                    )?;
+                }
             }
 
             Ok(())
@@ -171,7 +192,7 @@ pub fn instantiate_constants(output: &mut String, program: &mut Program) {
 
             output.push_str(", ");
         }
-        write!(output, "}}; // {}\n", constant.type_).unwrap();
+        write!(output, "}};\n").unwrap();
     }
 }
 
@@ -216,10 +237,9 @@ pub fn routine_to_c(output: &mut String, routine: &Routine, arg_types: &[Type], 
                 if register.type_.size() != 0 {
                     write!(
                         output,
-                        "    {} reg_{}; // {}\n",
+                        "    {} reg_{};\n",
                         c_format_type(register.type_),
                         i,
-                        register.type_
                     )
                     .unwrap();
                 }
@@ -507,114 +527,165 @@ fn builtin_function(output: &mut String, builtin: BuiltinFunction, args: &[Value
     }
 }
 
-pub fn append_c_type_headers(output: &mut String) {
-    for &type_ in &*TYPES.lock() {
-        if type_.size == 0 {
+/// "trivial" types are just printed inline, and no structs are created for them, to spare some sanity
+fn is_type_trivial(type_: Type) -> bool {
+    matches!(type_.kind(), TypeKind::Int(_) | TypeKind::Bool | TypeKind::F32 | TypeKind::F64 | TypeKind::Type)
+}
+
+/// Returns the name of a type, designed to be human readable so we can descipher the c-code somewhat
+/// easily.
+/// For trivial types, this just returns the type-definition as it would be in C, for non-trivial types,
+/// it's expected that the caller appends a `struct` keyword before the type(or it may be used to define the type itself).
+fn name_of_type(mut out: impl Write, type_: Type, rec: u32) -> fmt::Result {
+    fn fallback_name(mut out: impl Write, type_: Type) -> fmt::Result {
+        out.write_char('_')?;
+        let mut number = type_.0 as *const _ as usize;
+        while number > 0 {
+            let value = (number % 36) as u32;
+            number /= 36;
+            out.write_char(char::from_digit(value, 36).unwrap())?;
+        }
+
+        Ok(())
+    }
+    
+    if rec > 2 {
+        return fallback_name(out, type_);
+    }
+
+    match *type_.kind() {
+        TypeKind::Int(int_kind) => match int_kind {
+            IntTypeKind::I8    => out.write_str("i8")?,
+            IntTypeKind::I16   => out.write_str("i16")?,
+            IntTypeKind::I32   => out.write_str("i32")?,
+            IntTypeKind::I64   => out.write_str("i64")?,
+            IntTypeKind::Isize => out.write_str("isize")?,
+            IntTypeKind::U8    => out.write_str("u8")?,
+            IntTypeKind::U16   => out.write_str("u16")?,
+            IntTypeKind::U32   => out.write_str("u32")?,
+            IntTypeKind::U64   => out.write_str("u64")?,
+            IntTypeKind::Usize => out.write_str("usize")?,
+        },
+        TypeKind::Bool => out.write_str("bool")?,
+
+        // Non-trivial types
+        TypeKind::Array(element, size) => {
+            write!(out, "arr{}_", size)?;
+            name_of_type(out, element, rec + 1)?;
+        }
+        TypeKind::Reference { pointee, permits } => {
+            out.write_str("ref_")?;
+            out.write_str(permits.to_str())?;
+            out.write_char('_')?;
+            name_of_type(out, pointee, rec + 1)?;
+        }
+        TypeKind::Buffer { pointee, permits } => {
+            out.write_str("buf_")?;
+            out.write_str(permits.to_str())?;
+            out.write_char('_')?;
+            name_of_type(out, pointee, rec + 1)?;
+        }
+        TypeKind::Struct { .. } => {
+            out.write_str("struct")?;
+            fallback_name(out, type_)?;
+        }
+        TypeKind::Function { .. } => {
+            out.write_str("fn")?;
+            fallback_name(out, type_)?;
+        }
+
+        _ => todo!(),
+    }
+
+    Ok(())
+}
+
+pub const BOILER_PLATE: &str = r#"
+#include <stdint.h>
+#include <stdio.h>
+#include <assert.h>
+#include <string.h>
+#include <stdlib.h>
+
+typedef uint8_t  bool;
+typedef int8_t   i8;
+typedef int16_t  i16;
+typedef int32_t  i32;
+typedef int64_t  i64;
+typedef uint8_t  u8;
+typedef uint16_t u16;
+typedef uint32_t u32;
+typedef uint64_t u64;
+typedef int64_t  isize;
+typedef uint64_t usize;
+
+"#;
+
+
+pub fn declare_types(output: &mut String) {
+    let types = TYPES.lock();
+
+    // Declare the types
+    for &type_ in &*types {
+        if type_.size == 0 || is_type_trivial(Type(type_)) {
             continue;
         }
 
-        output.push_str("typedef ");
+        output.push_str("struct ");
+        name_of_type(&mut *output, Type(type_), 0).unwrap();
+        output.push_str(";\n");
+    }
 
-        let mut name_is_needed = true;
-        match &type_.kind {
-            TypeKind::Type => output.push_str("uint64_t "),
-            TypeKind::Never | TypeKind::Empty => unreachable!(),
-            TypeKind::Range(internal) => {
-                write!(
-                    output,
-                    "struct {{ {0} start; {0} end; }}",
-                    c_format_type(*internal),
-                )
-                .unwrap();
-            }
+    // Define the types
+    for type_ in &*types {
+        if type_.size == 0 || is_type_trivial(Type(type_)) {
+            continue;
+        }
+
+        output.push_str("struct ");
+        name_of_type(&mut *output, Type(type_), 0).unwrap();
+        output.push_str(" { ");
+
+        match type_.kind {
             TypeKind::Array(internal, len) => {
-                write!(
-                    output,
-                    "struct {{ {} _0[{}] }} ",
-                    c_format_type(*internal),
-                    len
-                )
-                .unwrap();
+                write!(output, "{} inner[{}]; ", c_format_type(internal), len).unwrap();
             }
-
-            TypeKind::VoidPtr => output.push_str("void *"),
-            TypeKind::Bool => output.push_str("uint8_t "),
-            TypeKind::Int(IntTypeKind::U8) => output.push_str("uint8_t "),
-            TypeKind::Int(IntTypeKind::U16) => output.push_str("uint16_t "),
-            TypeKind::Int(IntTypeKind::U32) => output.push_str("uint32_t "),
-            TypeKind::Int(IntTypeKind::U64) => output.push_str("uint64_t "),
-            TypeKind::Int(IntTypeKind::I8) => output.push_str("int8_t "),
-            TypeKind::Int(IntTypeKind::I16) => output.push_str("int16_t "),
-            TypeKind::Int(IntTypeKind::I32) => output.push_str("int32_t "),
-            TypeKind::Int(IntTypeKind::I64) => output.push_str("int64_t "),
-            TypeKind::Int(IntTypeKind::Usize) => output.push_str("uint64_t "),
-            TypeKind::Int(IntTypeKind::Isize) => output.push_str("int64_t "),
-
-            TypeKind::F32 => output.push_str("float "),
-            TypeKind::F64 => output.push_str("double "),
-
             TypeKind::Reference { pointee, .. } => {
-                write!(output, "{}", c_format_pointer_type(*pointee)).unwrap()
-            }
-            TypeKind::VoidBuffer => {
-                write!(output, "struct{{\n  void *ptr;\n  uint64_t len;\n}}",).unwrap();
-            }
-            TypeKind::AnyPtr => {
-                write!(output, "struct{{\n  void *ptr;\n  uint64_t type_;\n}}",).unwrap();
+                if pointee.size() == 0 {
+                    output.push_str("void *inner;");
+                } else {
+                    write!(output, "{} *inner; ", c_format_type(pointee)).unwrap();
+                }
             }
             TypeKind::Buffer { pointee, .. } => {
-                write!(
-                    output,
-                    "struct{{\n  {} ptr;\n  uint64_t len;\n}}",
-                    c_format_pointer_type(*pointee),
-                )
-                .unwrap();
+                write!(output, "{} *inner; usize len; ", c_format_type(pointee)).unwrap();
             }
+            TypeKind::Struct(ref fields) => {
+                for &(name, arg_type) in fields {
+                    if arg_type.size() == 0 { continue; }
 
-            TypeKind::Function { args, returns } => {
-                write!(
-                    output,
-                    "{} (*t_{}) ",
-                    c_format_type_or_void(*returns),
-                    type_ as *const _ as usize
-                )
-                .unwrap();
-
-                output.push('(');
-                let mut has_emitted = false;
-                for arg in args {
-                    if arg.size() == 0 {
-                        continue;
-                    }
-
-                    if has_emitted {
-                        output.push_str(", ");
-                    }
-
-                    write!(output, "{}", c_format_type(*arg)).unwrap();
-                    has_emitted = true;
+                    output.push_str("\n\t");
+                    write!(output, "{} {};", c_format_type(arg_type), name).unwrap();
                 }
-                output.push(')');
+            }
+            TypeKind::Function { ref args, returns } => {
+                write!(output, "{} (*inner)(", c_format_type_or_void(returns)).unwrap();
 
-                name_is_needed = false;
-            }
-            TypeKind::Struct(fields) => {
-                output.push_str("struct {\n");
-                for (name, _, type_) in crate::types::struct_field_offsets(fields) {
-                    if type_.size() != 0 {
-                        write!(output, "    {} {};\n", c_format_type(type_), name).unwrap();
-                    }
+                for (i, &arg) in args.iter().filter(|v| v.size() > 0).enumerate() {
+                    if i > 0 { output.push_str(", "); }
+
+                    write!(output, "{}", c_format_type(arg)).unwrap();
                 }
-                output.push('}');
+
+                output.push_str(");");
             }
+            _ => unreachable!(),
         }
 
-        if name_is_needed {
-            write!(output, "t_{}", type_ as *const _ as usize).unwrap();
-        }
-
-        write!(output, "; // {}\n", type_.kind).unwrap();
+        output.push_str(" };\n");
     }
+
+    drop(types);
 }
 
 pub fn c_format_struct_member(member_id: usize) -> impl fmt::Display {
@@ -634,22 +705,18 @@ pub fn c_format_function(function: FunctionId) -> impl fmt::Display {
     Formatter(move |f| write!(f, "function_{}", num))
 }
 
-/// Formats a pointer type(the given type being the inner type)
-pub fn c_format_pointer_type(type_: Type) -> impl fmt::Display {
-    Formatter(move |f| {
-        if type_.size() == 0 {
-            write!(f, "void *")
-        } else {
-            write!(f, "t_{} *", type_.as_ptr() as usize)
-        }
-    })
-}
-
 /// Formats a type as C. The type can't be zero sized.
 pub fn c_format_type(type_: Type) -> impl fmt::Display {
     debug_assert_ne!(type_.size(), 0);
 
-    Formatter(move |f| write!(f, "t_{}", type_.as_ptr() as usize))
+    Formatter(move |f| {
+        if is_type_trivial(type_) {
+            name_of_type(f, type_, 0)
+        } else {
+            f.write_str("struct ")?;
+            name_of_type(f, type_, 0)
+        }
+    })
 }
 
 /// Formats a type as C. If the type is zero sized, it uses void instead
@@ -658,7 +725,7 @@ pub fn c_format_type_or_void(type_: Type) -> impl fmt::Display {
         if type_.size() == 0 {
             write!(f, "void")
         } else {
-            write!(f, "t_{}", type_.as_ptr() as usize)
+            write!(f, "{}", c_format_type(type_))
         }
     })
 }

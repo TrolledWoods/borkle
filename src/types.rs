@@ -339,13 +339,13 @@ impl PtrPermits {
 
     pub fn to_str(self) -> &'static str {
         if !self.write() && self.read() {
-            "r "
+            "r"
         } else if self.write() && !self.read() {
-            "w "
+            "w"
         } else if self.write() && self.read() {
-            "rw "
+            "rw"
         } else {
-            "!! "
+            "_"
         }
     }
 
@@ -653,6 +653,13 @@ impl IntTypeKind {
             Self::I16 => i16::MIN.into()..=i16::MAX.into(),
             Self::U8 => u8::MIN.into()..=u8::MAX.into(),
             Self::I8 => i8::MIN.into()..=i8::MAX.into(),
+        }
+    }
+
+    pub fn signed(self) -> bool {
+        match self {
+            Self::Usize | Self::U64 | Self::U32 | Self::U16 | Self::U8 => true,
+            Self::Isize | Self::I64 | Self::I32 | Self::I16 | Self::I8 => true,
         }
     }
 
