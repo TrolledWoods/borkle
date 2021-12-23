@@ -291,6 +291,12 @@ impl Program {
         public.or_else(|| scopes[scope].private_members.get(&name).copied())
     }
 
+    pub fn poly_member_name(&self, id: PolyMemberId) -> Ustr {
+        profile::profile!("Poly member name");
+        let members = self.poly_members.read();
+        members[id].name
+    }
+
     /// Locks
     /// * ``members`` read
     pub fn member_name(&self, id: MemberId) -> Ustr {
@@ -822,7 +828,7 @@ impl Program {
                         let member = &mut members[member_id];
 
                         self.logger.log(format_args!(
-                                "Dependant at '{:?}' found definition of '{}', now searches for the {:?} of it",
+                                "Dependant at '{}' found definition of '{}', now searches for the {:?} of it",
                                 loc, member.name, kind,
                         ));
 

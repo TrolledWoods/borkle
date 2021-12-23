@@ -134,8 +134,8 @@ fn worker<'a>(alloc: &'a mut Bump, program: &'a Program) -> (ThreadContext<'a>, 
                 Task::FlagPolyMember(poly_member, MemberDep::ValueAndCallableIfFunction, _) => {
                     profile::profile!("Task::FlagPolyMember Value");
                     program.logger.log(format_args!(
-                        "flagged poly member is value and callable '{:?}'",
-                        poly_member
+                        "flagged poly member is value and callable '{}'",
+                        program.poly_member_name(poly_member),
                     ));
                     program.flag_poly_member(poly_member, MemberDep::Value);
                     program.flag_poly_member(poly_member, MemberDep::ValueAndCallableIfFunction);
@@ -154,8 +154,8 @@ fn worker<'a>(alloc: &'a mut Bump, program: &'a Program) -> (ThreadContext<'a>, 
                     program.set_yield_data_of_poly_member(member_id, yield_data);
 
                     program.logger.log(format_args!(
-                        "typed poly member {:?}",
-                        member_id
+                        "typed poly member {}",
+                        program.poly_member_name(member_id),
                     ));
                     program.flag_poly_member(member_id, MemberDep::Type);
 
@@ -240,8 +240,9 @@ fn worker<'a>(alloc: &'a mut Bump, program: &'a Program) -> (ThreadContext<'a>, 
                         match &ast.get(ast.root).kind {
                             NodeKind::Constant(result, _) => {
                                 program.logger.log(format_args!(
-                                    "value(at emitting step, through shortcut) '{}'",
+                                    "value(at emitting step, through shortcut) '{}': {}",
                                     program.member_name(member_id),
+                                    crate::program::constant_to_str(ast.get(ast.root).type_(), *result, 0),
                                 ));
 
                                 program.set_value_of_member(member_id, *result);
@@ -261,12 +262,14 @@ fn worker<'a>(alloc: &'a mut Bump, program: &'a Program) -> (ThreadContext<'a>, 
                                     .queue_task(dependencies, Task::FlagMemberCallable(member_id));
                             }
                             NodeKind::ResolvedGlobal(aliasing, _) => {
+                                let result = program.get_value_of_member(*aliasing);
+
                                 program.logger.log(format_args!(
-                                    "value(at emitting step, through shortcut) '{}'",
+                                    "value(at emitting step, through shortcut) '{}': {}",
                                     program.member_name(member_id),
+                                    crate::program::constant_to_str(ast.get(ast.root).type_(), result, 0),
                                 ));
 
-                                let result = program.get_value_of_member(*aliasing);
                                 program.set_value_of_member(member_id, result);
 
                                 // Flag the member as callable once all the function pointers inside
@@ -315,15 +318,13 @@ fn worker<'a>(alloc: &'a mut Bump, program: &'a Program) -> (ThreadContext<'a>, 
 
                         match crate::interp::interp(program, &mut stack, &routine, &mut vec![]) {
                             Ok(result) => {
-                                program
-                                    .logger
-                                    .log(format_args!("value '{}'", program.member_name(member_id),));
-
                                 let type_ = program.get_member_type(member_id);
+
                                 let value = program.insert_buffer(type_, result.as_ptr());
 
-                                println!("Member '{}' is {}", program.member_name(member_id), crate::program::constant_to_str(type_, value, 0));
-                                crate::program::constant_to_str(type_, value, 0);
+                                program
+                                    .logger
+                                    .log(format_args!("value '{}': {}", program.member_name(member_id), crate::program::constant_to_str(type_, value, 0)));
 
                                 program.set_value_of_member(member_id, value);
                                 program.flag_member_callable(member_id);

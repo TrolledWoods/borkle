@@ -39,7 +39,7 @@ pub fn emit<'a>(
     // Allocate registers for all the locals
     for local in ctx.locals.iter_mut() {
         if local.stack_frame_id == stack_frame_id {
-            let value = ctx.registers.create(ctx.types, local.type_infer_value_id, local.type_.unwrap());
+            let value = ctx.registers.create_with_name(ctx.types, local.type_infer_value_id, local.type_.unwrap(), Some(local.name));
             local.value = Some(value);
         }
     }
@@ -90,7 +90,7 @@ pub fn emit_function_declaration<'a>(
     // Allocate registers for all the locals
     for local in sub_ctx.locals.iter_mut() {
         if local.stack_frame_id == stack_frame_id {
-            let value = sub_ctx.registers.create(sub_ctx.types, local.type_infer_value_id, local.type_.unwrap());
+            let value = sub_ctx.registers.create_with_name(sub_ctx.types, local.type_infer_value_id, local.type_.unwrap(), Some(local.name));
             local.value = Some(value);
         }
     }

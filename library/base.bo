@@ -173,7 +173,10 @@ const take_word = fn(string: &rw []r u8) -> []r u8 {
     let length = 0;
     let start = (*string).ptr;
     while (*string).len > 0 {
-        if not(is_alpha(*(*string).ptr)) break;
+        if not(
+            is_alpha(
+                *(*string).ptr
+            )) break;
         length = length + 1;
         advance(string);
     };

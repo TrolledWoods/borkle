@@ -165,6 +165,10 @@ impl Registers {
         self.buffer_head = head;
     }
 
+    pub fn create_with_name(&mut self, _types: &TypeSystem, _value: TypeId, type_: impl Into<Type>, name: Option<Ustr>) -> Value {
+        self.create_min_align_with_name(type_.into(), 1, name)
+    }
+
     pub fn create(&mut self, _types: &TypeSystem, _value: TypeId, type_: impl Into<Type>) -> Value {
         self.create_min_align(type_.into(), 1)
     }
@@ -174,6 +178,10 @@ impl Registers {
     }
 
     pub fn create_min_align(&mut self, type_: impl Into<Type>, min_align: usize) -> Value {
+        self.create_min_align_with_name(type_, min_align, None)
+    }
+
+    pub fn create_min_align_with_name(&mut self, type_: impl Into<Type>, min_align: usize, name: Option<Ustr>) -> Value {
         let type_ = type_.into();
         let mut align = type_.align();
         if align < min_align {
@@ -183,6 +191,7 @@ impl Registers {
         let value = Value(self.locals.len(), type_);
         self.locals.push(Register {
             offset: self.buffer_head,
+            name,
             type_,
         });
         self.buffer_head += to_align(type_.size(), align);
@@ -196,6 +205,7 @@ impl Registers {
 
 pub(crate) struct Register {
     offset: usize,
+    pub name: Option<Ustr>,
     pub(crate) type_: Type,
 }
 

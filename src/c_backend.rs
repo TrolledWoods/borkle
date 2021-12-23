@@ -132,10 +132,10 @@ pub fn instantiate_constants(output: &mut String, program: &mut Program) {
             match pointers.peek() {
                 Some(&(offset, pointer_kind)) if *offset == i => {
                     let ptr_num = unsafe { *ptr.add(i).cast::<usize>() };
-                    if ptr_num == 0 {
-                        output.push_str("NULL");
-                    } else if let PointerInType::Function { .. } = pointer_kind {
+                    if let PointerInType::Function { .. } = pointer_kind {
                         write!(output, "&{}", c_format_function(ptr_num.into())).unwrap();
+                    } else if ptr_num == 0 {
+                        output.push_str("NULL");
                     } else {
                         write!(output, "&{}", c_format_global(ptr_num)).unwrap();
                     }
@@ -186,21 +186,39 @@ pub fn routine_to_c(program: &Program, output: &mut String, routine: &Routine, a
         Routine::UserDefined(routine) => {
             let mut debug_loc: Option<Location> = None;
             // write!(output, "    // Declare registers\n").unwrap();
+            let mut already_existing_names = Vec::new();
             for (i, register) in routine
                 .registers
                 .locals
                 .iter()
                 .enumerate()
-                .skip(arg_types.len())
             {
                 if register.type_.size() != 0 {
-                    write!(
-                        output,
-                        "    {} reg_{};\n",
-                        c_format_type(register.type_),
-                        i,
-                    )
-                    .unwrap();
+                    if i >= arg_types.len() {
+                        write!(
+                            output,
+                            "    {} reg_{};\n",
+                            c_format_type(register.type_),
+                            i,
+                        )
+                        .unwrap();
+                    }
+
+                    if is_debugging {
+                        if let Some(name) = register.name {
+                            if !already_existing_names.contains(&name) {
+                                already_existing_names.push(name);
+                                write!(
+                                    output,
+                                    "    {} *{} = &reg_{};\n",
+                                    c_format_type(register.type_),
+                                    name,
+                                    i,
+                                )
+                                .unwrap();
+                            }
+                        }
+                    }
                 }
             }
 
@@ -208,7 +226,7 @@ pub fn routine_to_c(program: &Program, output: &mut String, routine: &Routine, a
             for instr in &routine.instr {
                 if is_debugging {
                     if let Some(debug_loc) = debug_loc {
-                        write!(output, "#line {} {:?}\n", debug_loc.line, debug_loc.file.as_str().strip_prefix("\\\\?\\").unwrap());
+                        write!(output, "#line {} {:?}\n", debug_loc.line, debug_loc.file.as_str().strip_prefix("\\\\?\\").unwrap_or(debug_loc.file.as_str()));
                     }
                 }
 
