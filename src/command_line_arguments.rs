@@ -172,8 +172,8 @@ create_arguments!(
         release: bool = true;
             "If set to true, c code will be emitted",
 
-        copy_dlls: bool = false;
-            "[Legacy]: Copies dlls automatically into the target folder; this is deemed unnecessary now as the dependency on dlls that are not system dlls should be reduced anyway",
+        debug: bool = true;
+            "Whether or not debug information will be emitted(very basic, just prints the locations of the nodes that are run for now)",
 
         num_threads: usize = 1_usize;
             "The number of threads to use for compilation",

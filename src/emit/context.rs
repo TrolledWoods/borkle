@@ -17,11 +17,27 @@ pub struct Context<'a, 'b> {
     pub label_locations: Vec<usize>,
     pub calling: Vec<FunctionId>,
     pub ast: &'a Ast,
+    pub last_location: Option<Location>,
 
     pub defers: Vec<NodeId>,
 }
 
 impl Context<'_, '_> {
+    pub fn emit_debug(&mut self, loc: Location) {
+        if self.program.arguments.debug {
+            if let Some(last_location) = self.last_location {
+                if last_location.file == loc.file && last_location.line == loc.line {
+                    return;
+                }
+            }
+
+            let contents = self.program.get_file_contents(loc.file);
+            let line = contents.lines().nth(loc.line as usize - 1).unwrap_or("");
+            self.last_location = Some(loc);
+            self.instr.push(Instr::DebugLocation(loc, line.to_string()));
+        }
+    }
+
     pub fn create_label(&mut self) -> LabelId {
         let id = LabelId(self.label_locations.len());
         self.label_locations.push(0xffff_ffff);

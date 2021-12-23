@@ -1,5 +1,6 @@
 use crate::location::Location;
 use ustr::{Ustr, UstrMap};
+use std::sync::Arc;
 
 const ANSI_RED:     &str = "\x1b[31m";
 const ANSI_YELLOW:  &str = "\x1b[33m";
@@ -39,7 +40,7 @@ impl ErrorCtx {
         self.notes.clear();
     }
 
-    pub fn print(&self, file_contents: &UstrMap<String>) -> bool {
+    pub fn print(&self, file_contents: &UstrMap<Arc<String>>) -> bool {
         for &(loc, ref message, ref info) in &self.notes {
             let mut prev_file = None;
             println!("NOTE: ");
@@ -114,7 +115,7 @@ impl ErrorCtx {
     }
 }
 
-fn print_loc(prev_file: &mut Option<Ustr>, loc: Location, message: &str, file_contents: &UstrMap<String>) {
+fn print_loc(prev_file: &mut Option<Ustr>, loc: Location, message: &str, file_contents: &UstrMap<Arc<String>>) {
     // Hacky method of getting the relative path from a canonalized path.
     let current_dir = std::fs::canonicalize(".\\").map_or_else(|_| String::new(), |p| p.to_string_lossy().into_owned() + "\\");
     let file = loc.file.strip_prefix(&current_dir).unwrap_or(&loc.file);

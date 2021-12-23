@@ -49,7 +49,7 @@ pub struct Program {
     // it.
     pub loaded_files: Mutex<UstrMap<ScopeId>>,
     pub entry_point: Mutex<Option<MemberId>>,
-    file_contents: Mutex<UstrMap<String>>,
+    file_contents: Mutex<UstrMap<Arc<String>>>,
 }
 
 // FIXME: Make a wrapper type for *const _ and have Send and Sync for that.
@@ -76,7 +76,11 @@ impl Program {
         }
     }
 
-    pub fn file_contents(&mut self) -> &mut UstrMap<String> {
+    pub fn get_file_contents(&self, file: Ustr) -> Arc<String> {
+        self.file_contents.lock()[&file].clone()
+    }
+
+    pub fn file_contents(&mut self) -> &mut UstrMap<Arc<String>> {
         self.file_contents.get_mut()
     }
 
@@ -372,7 +376,7 @@ impl Program {
     /// * ``files`` write
     pub fn insert_file_contents(&self, name: Ustr, path: String) {
         profile::profile!("program::insert_file_contents");
-        self.file_contents.lock().insert(name, path);
+        self.file_contents.lock().insert(name, Arc::new(path));
     }
 
     pub fn add_file_from_import(

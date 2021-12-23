@@ -9,6 +9,7 @@ use std::fmt;
 #[derive(Clone, Debug)]
 #[allow(non_camel_case_types)]
 pub enum Instr {
+    DebugLocation(Location, String),
     // to = pointer(args)
     Call {
         to: Value,

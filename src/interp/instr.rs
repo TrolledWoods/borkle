@@ -2,8 +2,10 @@ use crate::operators::{BinaryOp, UnaryOp};
 use crate::program::constant::ConstantRef;
 use crate::program::ffi;
 use crate::types::Type;
+use crate::location::Location;
 
 pub enum Instr {
+    DebugLocation(Location, String),
     CallExtern {
         to: Value,
         pointer: Value,

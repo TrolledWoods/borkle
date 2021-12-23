@@ -487,6 +487,7 @@ fn subset_was_completed(ctx: &mut Context<'_, '_>, waiting_on: WaitingOnTypeInfe
 
                 let routine = ctx.program.get_routine(function_id).unwrap();
                 crate::c_backend::routine_to_c(
+                    ctx.program,
                     &mut ctx.thread_context.c_declarations,
                     &routine,
                     args,

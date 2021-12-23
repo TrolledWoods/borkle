@@ -1,5 +1,6 @@
 use crate::ir::{Instr, Routine, Value};
 use crate::operators::{BinaryOp, UnaryOp};
+use crate::location::Location;
 use crate::program::{BuiltinFunction, FunctionId, Program};
 use crate::types::{IntTypeKind, PointerInType, Type, TypeKind, TYPES};
 use std::fmt;
@@ -151,7 +152,9 @@ pub fn instantiate_constants(output: &mut String, program: &mut Program) {
     }
 }
 
-pub fn routine_to_c(output: &mut String, routine: &Routine, arg_types: &[Type], return_type: Type) {
+pub fn routine_to_c(program: &Program, output: &mut String, routine: &Routine, arg_types: &[Type], return_type: Type) {
+    let is_debugging = program.arguments.debug;
+
     match routine {
         &Routine::Builtin(kind) => {
             output.push_str("    // Builtin function!\n");
@@ -181,6 +184,7 @@ pub fn routine_to_c(output: &mut String, routine: &Routine, arg_types: &[Type], 
             }
         }
         Routine::UserDefined(routine) => {
+            let mut debug_loc: Option<Location> = None;
             // write!(output, "    // Declare registers\n").unwrap();
             for (i, register) in routine
                 .registers
@@ -202,9 +206,19 @@ pub fn routine_to_c(output: &mut String, routine: &Routine, arg_types: &[Type], 
 
             // write!(output, "    // Code\n").unwrap();
             for instr in &routine.instr {
-                // write!(output, "    // {:?}\n", instr).unwrap();
+                if is_debugging {
+                    if let Some(debug_loc) = debug_loc {
+                        write!(output, "#line {} {:?}\n", debug_loc.line, debug_loc.file.as_str().strip_prefix("\\\\?\\").unwrap());
+                    }
+                }
+
                 output.push_str("    ");
+
                 match instr {
+                    Instr::DebugLocation(loc, _message) => {
+                        debug_loc = Some(*loc);
+                        // write!(output, "// {}: {}\n", loc, message);
+                    }
                     Instr::TruncateInt { to, from, .. } | Instr::ExtendInt { to, from, .. } => {
                         let Value(_, to_type) = to else {
                             unreachable!("Assigned to global in ir, should probably make this impossible in the type system in the future")

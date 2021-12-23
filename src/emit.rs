@@ -31,6 +31,7 @@ pub fn emit<'a>(
         label_locations: Vec::new(),
         calling: Vec::new(),
         ast,
+        last_location: None,
 
         defers: Vec::new(),
     };
@@ -82,6 +83,7 @@ pub fn emit_function_declaration<'a>(
         label_locations: Vec::new(),
         defers: Vec::new(),
         calling: Vec::new(),
+        last_location: None,
         ast,
     };
 
@@ -122,6 +124,7 @@ pub fn emit_function_declaration<'a>(
             sub_ctx.thread_context.c_declarations.push_str(" {\n");
 
             crate::c_backend::routine_to_c(
+                sub_ctx.program,
                 &mut sub_ctx.thread_context.c_declarations,
                 &routine,
                 args,
@@ -139,6 +142,8 @@ pub fn emit_function_declaration<'a>(
 }
 
 fn emit_node<'a>(ctx: &mut Context<'a, '_>, node: NodeId) -> Value {
+    ctx.emit_debug(ctx.ast.get(node).loc);
+
     match &ctx.ast.get(node).kind {
         NodeKind::Empty => ctx.registers.zst(),
         NodeKind::Break {
@@ -686,6 +691,8 @@ fn emit_lvalue<'a>(
     node_id: NodeId,
 ) -> Value {
     let node = ctx.ast.get(node_id);
+
+    ctx.emit_debug(node.loc);
 
     // @TODO: Creating all these types suck, maybe we should remove the damn `Global` thing from registers,
     // and instead let them just be pointers to values? These pointers wouldn't even be considered pointers from

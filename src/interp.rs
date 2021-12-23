@@ -56,6 +56,7 @@ fn interp_internal(program: &Program, stack: &mut StackFrame<'_>, routine: &User
         // println!("Running {:?}", instr);
         match *instr {
             Instr::LabelDefinition(_) => {}
+            Instr::DebugLocation { .. } => {}
             Instr::JumpIfZero { condition, to } => {
                 if unsafe { stack.get(condition).read::<u8>() } == 0 {
                     instr_pointer = routine.label_locations[to.0];

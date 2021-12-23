@@ -1,4 +1,5 @@
 use ustr::Ustr;
+use std::fmt;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Location {
@@ -36,5 +37,11 @@ impl Location {
             '\t' => self.character += 4,
             _ => self.character += 1,
         }
+    }
+}
+
+impl fmt::Display for Location {
+    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(fmt, "{}:{},{}", self.file.as_str(), self.line, self.character)
     }
 }

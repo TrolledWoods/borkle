@@ -79,7 +79,9 @@ fn main() {
                 command.arg(&c_file);
                 command.arg("-o");
                 command.arg(&exe_file);
-                command.arg("-O3");
+                // command.arg("-O3");
+                command.arg("-g");
+                command.arg("-O0");
                 command.arg("-Wno-everything");
 
                 command.stdout(std::process::Stdio::inherit());
