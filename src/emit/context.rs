@@ -54,6 +54,12 @@ impl Context<'_, '_> {
         self.instr.push(Instr::ExtendInt { to, from, to_size, from_size, sign_extend });
     }
 
+    pub fn emit_move_to_member_of_value(&mut self, to: Value, of: Value, member: Member) {
+        if to.size() != 0 {
+            self.instr.push(Instr::MoveToMemberOfValue { to, of, member });
+        }
+    }
+
     pub fn emit_member(&mut self, to: Value, of: Value, member: Member) {
         if to.size() != 0 {
             self.instr.push(Instr::Member { to, of, member });
@@ -61,21 +67,15 @@ impl Context<'_, '_> {
     }
 
     pub fn emit_pointer_to_member_of_pointer(&mut self, to: Value, of: Value, member: Member) {
-        debug_assert_eq!(
-            to.size(),
-            8,
-            "When emitting an indirect member the 'to' value has to be a pointer"
-        );
         if !to.type_().is_pointer_to_zst() {
             self.instr
                 .push(Instr::PointerToMemberOfPointer { to, of, member });
         }
     }
 
-    pub fn emit_pointer_to_member_of_value(&mut self, to: Value, from: Value, offset: Member) {
-        if from.type_().size() != 0 {
-            self.instr
-                .push(Instr::PointerToMemberOfValue { to, from, offset });
+    pub fn emit_reference(&mut self, to: Value, from: Value) {
+        if from.size() != 0 {
+            self.instr.push(Instr::Reference { to, from });
         }
     }
 
@@ -108,33 +108,19 @@ impl Context<'_, '_> {
     }
 
     pub fn emit_move(&mut self, to: Value, from: Value) {
-        self.emit_move_to_member_of_value(to, from, Member::default())
-    }
-
-    pub fn emit_indirect_move(&mut self, to: Value, from: Value) {
-        self.emit_move_to_member_of_pointer(to, from, Member::default())
-    }
-
-    /// Emits a move instruction unless the values are zero sized.
-    pub fn emit_move_to_member_of_value(&mut self, to: Value, from: Value, member: Member) {
         if from.size() != 0 {
-            self.instr.push(Instr::MoveToMemberOfValue {
+            self.instr.push(Instr::Move {
                 to,
                 from,
-                size: from.size(),
-                member,
             });
         }
     }
 
-    /// Emits an indirect move instruction unless the values are zero sized.
-    pub fn emit_move_to_member_of_pointer(&mut self, to: Value, from: Value, member: Member) {
+    pub fn emit_indirect_move(&mut self, to: Value, from: Value) {
         if from.size() != 0 {
-            self.instr.push(Instr::MoveToMemberOfPointer {
+            self.instr.push(Instr::MoveToPointer {
                 to,
                 from,
-                size: from.size(),
-                member,
             });
         }
     }

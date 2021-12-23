@@ -19,3 +19,6 @@ import "tests/main.bo";
 
     0
 };
+
+// This doesn't compile in the c backend...
+// let thing = &42;

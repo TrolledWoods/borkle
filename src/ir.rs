@@ -3,6 +3,7 @@ use crate::location::Location;
 use crate::program::{constant::ConstantRef, BuiltinFunction};
 use crate::types::{to_align, Type, TypeKind};
 use crate::type_infer::{TypeSystem, ValueId as TypeId, self};
+use ustr::Ustr;
 use std::fmt;
 
 #[derive(Clone, Debug)]
@@ -43,8 +44,31 @@ pub enum Instr {
         of: Value,
         member: Member,
     },
+    // @Temp: This isn't a necessary instruction, but it's nice to have
+    // for hardcoded things that are emitted.
+    // to.member = of
+    MoveToMemberOfValue {
+        to: Value,
+        of: Value,
+        member: Member,
+    },
+    // to = &(*of).member
+    PointerToMemberOfPointer {
+        to: Value,
+        of: Value,
+        member: Member,
+    },
+    // to = from
+    Move { to: Value, from: Value },
+    // *to = from
+    MoveToPointer { to: Value, from: Value },
     // to = *from
     Dereference {
+        to: Value,
+        from: Value,
+    },
+    // to = &from
+    Reference {
         to: Value,
         from: Value,
     },
@@ -64,32 +88,6 @@ pub enum Instr {
         to: Value,
         from: Value,
     },
-    // to = &from.offset
-    PointerToMemberOfValue {
-        to: Value,
-        from: Value,
-        offset: Member,
-    },
-    // to = &(*of).member
-    PointerToMemberOfPointer {
-        to: Value,
-        of: Value,
-        member: Member,
-    },
-    // to.member = from
-    MoveToMemberOfValue {
-        to: Value,
-        from: Value,
-        size: usize,
-        member: Member,
-    },
-    // (*to).member = from
-    MoveToMemberOfPointer {
-        to: Value,
-        from: Value,
-        size: usize,
-        member: Member,
-    },
     // jump to 'to' if condition
     JumpIfZero {
         condition: Value,
@@ -102,10 +100,10 @@ pub enum Instr {
     LabelDefinition(LabelId),
 }
 
-#[derive(Default, Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy)]
 pub struct Member {
     pub offset: usize,
-    pub amount: usize,
+    pub name: Ustr,
 }
 
 // Why is this safe? Well, because we do not have interior mutability anywhere, so the raw pointers

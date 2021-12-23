@@ -387,22 +387,45 @@ pub fn routine_to_c(output: &mut String, routine: &Routine, arg_types: &[Type], 
                         )
                         .unwrap();
                     }
+                    Instr::Move { to, from } => {
+                        write!(output, "{} = {};\n", c_format_value(to), c_format_value(from)).unwrap();
+                    }
+                    Instr::MoveToPointer { to, from } => {
+                        write!(output, "*{}.inner = {};\n", c_format_value(to), c_format_value(from)).unwrap();
+                    }
                     Instr::Member { to, of, member } => {
-                        write!(output, "{} = ", c_format_value(to)).unwrap();
-
-                        c_output_member(output, of, *member);
-
-                        write!(output, ";\n").unwrap();
+                        match (of.type_().kind(), member.name.as_str()) {
+                            (TypeKind::Buffer { .. }, "ptr") => {
+                                write!(output, "{}.inner = {}.inner;\n", c_format_value(to), c_format_value(of)).unwrap();
+                            }
+                            _ => {
+                                write!(output, "{} = {}.{};\n", c_format_value(to), c_format_value(of), member.name).unwrap();
+                            }
+                        }
+                    }
+                    Instr::MoveToMemberOfValue { to, of, member } => {
+                        match (to.type_().kind(), member.name.as_str()) {
+                            (TypeKind::Buffer { .. }, "ptr") => {
+                                write!(output, "{}.inner = {}.inner;\n", c_format_value(to), c_format_value(of)).unwrap();
+                            }
+                            _ => {
+                                write!(output, "{}.{} = {};\n", c_format_value(to), member.name, c_format_value(of)).unwrap();
+                            }
+                        }
                     }
                     Instr::PointerToMemberOfPointer { to, of, member } => {
-                        write!(
-                            output,
-                            "{}.inner = &(",
-                            c_format_value(to),
-                        )
-                        .unwrap();
-                        c_output_to_special_member(output, of, of.type_().pointing_to().unwrap(), "(*", ".inner)", *member);
-                        output.push_str(");\n");
+                        match (of.type_().pointing_to().unwrap().kind(), member.name.as_str()) {
+                            (TypeKind::Buffer { .. }, "ptr") => {
+                                write!(output, "{}.inner = {}.inner;\n", c_format_value(to), c_format_value(of)).unwrap();
+                            }
+                            _ => {
+                                write!(output, "{}.inner = &(*{}.inner).{};\n", c_format_value(to), c_format_value(of), member.name).unwrap();
+                            }
+                        }
+                    }
+                    Instr::Reference { to, from } => {
+                        write!(output, "{}.inner = &{};\n", c_format_value(to), c_format_value(from))
+                            .unwrap();
                     }
                     Instr::Dereference { to, from } => {
                         write!(
@@ -413,39 +436,11 @@ pub fn routine_to_c(output: &mut String, routine: &Routine, arg_types: &[Type], 
                         )
                         .unwrap();
                     }
-                    Instr::PointerToMemberOfValue { to, from, offset } => {
-                        write!(output, "{}.inner = &", c_format_value(to))
-                            .unwrap();
-
-                        c_output_member(output, from, *offset);
-
-                        output.push_str(";\n");
-                    }
                     Instr::BitCast {
                         to,
                         from,
                     } => {
                         write!(output, "{} = *({}*)&{};\n", c_format_value(to), c_format_type(to.type_()), c_format_value(from)).unwrap();
-                    }
-                    Instr::MoveToMemberOfValue {
-                        to,
-                        from,
-                        size: _,
-                        member,
-                    } => {
-                        c_output_member(output, to, *member);
-
-                        write!(output, " = {};\n", c_format_value(from)).unwrap();
-                    }
-                    Instr::MoveToMemberOfPointer {
-                        to,
-                        from,
-                        size: _,
-                        member,
-                    } => {
-                        c_output_to_special_member(output, to, to.type_().pointing_to().unwrap(), "(*", ".inner)", *member);
-
-                        write!(output, " = {};\n", c_format_value(from)).unwrap();
                     }
                     Instr::JumpIfZero { condition, to } => {
                         write!(
@@ -737,52 +732,6 @@ where
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         (self.0)(f)
-    }
-}
-
-fn c_output_member(output: &mut String, value: &Value, member: crate::ir::Member) {
-    c_output_to_special_member(output, value, value.type_(), "", "", member);
-}
-
-fn c_output_to_special_member(output: &mut String, value: &Value, mut type_: Type, value_prefix: &str, value_suffix: &str, member: crate::ir::Member) {
-    let mut offset = member.offset;
-
-    // @Speed!!!
-    let mut members = Vec::with_capacity(member.amount);
-    'outer_loop: for _ in 0..member.amount {
-        for &(name, member_offset, member_type) in type_.0.members.iter().rev() {
-            if offset >= member_offset {
-                members.push((name, type_, member_type));
-
-                offset -= member_offset;
-                type_ = member_type;
-                continue 'outer_loop;
-            }
-        }
-
-        unreachable!("No member found, this shouldn't happen");
-    }
-
-    for &(name, base_type, member_type) in members.iter().rev() {
-        match (base_type.kind(), &*name) {
-            (TypeKind::Buffer { .. }, "ptr") => {
-                write!(output, "(*({}*)&", c_format_type(member_type)).unwrap();
-            }
-            _ => {}
-        }
-    }
-
-    write!(output, "{}{}{}", value_prefix, c_format_value(value), value_suffix).unwrap();
-
-    for &(name, base_type, _) in members.iter() {
-        match (base_type.kind(), &*name) {
-            (TypeKind::Buffer { .. }, "ptr") => {
-                output.push_str(".inner)");
-            }
-            _ => {
-                write!(output, ".{}", name).unwrap();
-            }
-        }
     }
 }
 

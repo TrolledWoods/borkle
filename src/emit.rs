@@ -45,6 +45,11 @@ pub fn emit<'a>(
 
     let result = emit_node(&mut ctx, node);
 
+    // println!("The instructions are: ");
+    // for instr in &ctx.instr {
+    //     println!("{:?}", instr);
+    // }
+
     (
         ctx.calling,
         UserDefinedRoutine {
@@ -203,7 +208,7 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, node: NodeId) -> Value {
                         iterating_value,
                         Member {
                             offset: 0,
-                            amount: 1,
+                            name: "ptr".into(),
                         },
                     );
 
@@ -215,7 +220,7 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, node: NodeId) -> Value {
                         iterating_value,
                         Member {
                             offset: 8,
-                            amount: 1,
+                            name: "len".into(),
                         },
                     );
 
@@ -421,7 +426,7 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, node: NodeId) -> Value {
                                 temp_ptr,
                                 Member {
                                     offset: 0,
-                                    amount: 1,
+                                    name: "ptr".into(),
                                 },
                             );
                             ctx.emit_move_to_member_of_value(
@@ -429,7 +434,7 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, node: NodeId) -> Value {
                                 len_reg,
                                 Member {
                                     offset: 8,
-                                    amount: 1,
+                                    name: "len".into(),
                                 },
                             );
                         }
@@ -472,14 +477,14 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, node: NodeId) -> Value {
                 unreachable!("Type {} doesn't have member {}, but it got through the typer", of.type_(), *name)
             };
 
-            debug_assert!(member.indirections <= 1);
+            debug_assert_eq!(member.indirections, 1);
 
             ctx.emit_member(
                 to,
                 of,
                 Member {
                     offset: member.byte_offset,
-                    amount: member.indirections,
+                    name: *name,
                 },
             );
             to
@@ -493,7 +498,7 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, node: NodeId) -> Value {
             let from = emit_node(ctx, *rvalue);
 
             let empty_result = ctx.registers.zst();
-            ctx.emit_move_to_member_of_pointer(to, from, Member::default());
+            ctx.emit_indirect_move(to, from);
             empty_result
         }
         NodeKind::Binary { op, left, right } => {
@@ -532,7 +537,7 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, node: NodeId) -> Value {
                 let internal_type_arg = internal_type_args[0];
                 let ref_type_id = ctx.types.add_type(type_infer::TypeKind::Reference, Args([(internal_type_arg, Reason::temp_zero())]), ()); 
                 let reference = ctx.registers.create(ctx.types, ref_type_id, ref_type);
-                ctx.emit_pointer_to_member_of_value(reference, to, Member::default());
+                ctx.emit_reference(reference, to);
                 for (i, element) in elements.iter().enumerate() {
                     if i > 0 {
                         ctx.emit_increment(reference);
@@ -546,10 +551,7 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, node: NodeId) -> Value {
             }
         }
         NodeKind::Reference(operand) => {
-            let to = ctx.registers.create(ctx.types, ctx.ast.get(node).type_infer_value_id, ctx.ast.get(node).type_());
-            let from = emit_lvalue(ctx, true, *operand);
-            ctx.emit_pointer_to_member_of_pointer(to, from, Member::default());
-            to
+            emit_lvalue(ctx, true, *operand)
         }
         NodeKind::Unary {
             op: UnaryOp::Dereference,
@@ -582,7 +584,6 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, node: NodeId) -> Value {
             // TODO: Implement this, it's not going to work yet because emission cannot produce errors,
             // and assertion failures are errors.
             todo!()
-            // emission cannot produce errors right now...
             /*let type_ = ctx.ast.get(*inner).type_();
             let constant =
                 crate::interp::emit_and_run(ctx.thread_context, ctx.program, ctx.locals, &ctx.ast, *inner);
@@ -704,7 +705,7 @@ fn emit_lvalue<'a>(
             debug_assert_eq!(member.indirections, 1);
 
             let to = ctx.registers.create(ctx.types, ref_type_id, ref_type);
-            ctx.emit_pointer_to_member_of_pointer(to, parent_value, Member { offset: member.byte_offset, amount: 1 });
+            ctx.emit_pointer_to_member_of_pointer(to, parent_value, Member { offset: member.byte_offset, name: *name });
             to
         }
         NodeKind::Unary {
@@ -716,13 +717,13 @@ fn emit_lvalue<'a>(
         NodeKind::Local(id) => {
             let to = ctx.registers.create(ctx.types, ref_type_id, ref_type);
             let from = ctx.locals.get(*id).value.unwrap();
-            ctx.emit_pointer_to_member_of_value(to, from, Member::default());
+            ctx.emit_reference(to, from);
             to
         }
         NodeKind::ResolvedGlobal(id, _) => {
             let to = ctx.registers.create(ctx.types, ref_type_id, ref_type);
             let from = ctx.program.get_constant_as_value(*id);
-            ctx.emit_pointer_to_member_of_value(to, from, Member::default());
+            ctx.emit_reference(to, from);
             to
         }
         NodeKind::Parenthesis(value) => {
@@ -732,7 +733,7 @@ fn emit_lvalue<'a>(
             if can_reference_temporaries {
                 let to = ctx.registers.create(ctx.types, ref_type_id, ref_type);
                 let from = emit_node(ctx, node_id);
-                ctx.emit_pointer_to_member_of_value(to, from, Member::default());
+                ctx.emit_reference(to, from);
                 to
             } else {
                 unreachable!(

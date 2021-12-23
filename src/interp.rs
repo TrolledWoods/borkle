@@ -232,6 +232,22 @@ fn interp_internal(program: &Program, stack: &mut StackFrame<'_>, routine: &User
                     unreachable!("This operator is supposed to be a special case");
                 }
             },
+            Instr::Move { to, from } => unsafe {
+                let size = to.size();
+                let from: *const u8 = stack.get(from).as_ptr();
+                let to: *mut u8 = stack.get_mut(to).as_mut_ptr();
+                std::ptr::copy_nonoverlapping(from, to, size);
+            },
+            Instr::MoveToMemberOfValue {
+                to,
+                of,
+                ref member,
+            } => unsafe {
+                let size = of.size();
+                let from: *const u8 = stack.get(of).as_ptr();
+                let to: *mut u8 = stack.get_mut(to).as_mut_ptr().add(member.offset);
+                std::ptr::copy_nonoverlapping(from, to, size);
+            },
             Instr::Member { to, of, ref member } => unsafe {
                 let size = to.size();
                 let from: *const u8 = stack.get(of).as_ptr().add(member.offset);
@@ -244,6 +260,21 @@ fn interp_internal(program: &Program, stack: &mut StackFrame<'_>, routine: &User
                 let to: *mut u8 = stack.get_mut(to).as_mut_ptr();
                 *to.cast::<*const u8>() = from;
             },
+            Instr::Reference { to, from } => {
+                let to_ptr = stack.get_mut(to).as_mut_ptr().cast::<*const u8>();
+                let from_ptr = stack.get(from).as_ptr();
+                unsafe {
+                    *to_ptr = from_ptr;
+                }
+            }
+            Instr::MoveToPointer { to, from } => {
+                let to_ptr = unsafe { stack.get_mut(to).read::<*mut u8>() };
+
+                let from_ptr = stack.get(from).as_ptr();
+                unsafe {
+                    std::ptr::copy(from_ptr, to_ptr, from.size());
+                }
+            }
             Instr::Dereference { to, from } => {
                 let ptr = unsafe { stack.get(from).read::<*const u8>() };
 
@@ -274,43 +305,12 @@ fn interp_internal(program: &Program, stack: &mut StackFrame<'_>, routine: &User
                 std::ptr::copy_nonoverlapping(from, to, from_size as usize);
                 std::ptr::write_bytes(to.add(from_size as usize), if is_signed { 0xff } else { 0x00 }, (to_size - from_size) as usize);
             },
-            Instr::PointerToMemberOfValue {
-                to,
-                from,
-                ref offset,
-            } => {
-                let ptr = stack.get_mut(from).as_mut_ptr();
-                unsafe {
-                    stack.get_mut(to).write(ptr as usize + offset.offset);
-                }
-            }
             Instr::BitCast { to, from } => {
                 let size = from.type_().size();
                 let from: *const u8 = stack.get(from).as_ptr();
                 let to: *mut u8 = stack.get_mut(to).as_mut_ptr();
                 unsafe { std::ptr::copy_nonoverlapping(from, to, size); }
             }
-            Instr::MoveToMemberOfValue {
-                to,
-                from,
-                size,
-                ref member,
-            } => unsafe {
-                let from: *const u8 = stack.get(from).as_ptr();
-                let to: *mut u8 = stack.get_mut(to).as_mut_ptr().add(member.offset);
-                std::ptr::copy_nonoverlapping(from, to, size);
-            },
-            Instr::MoveToMemberOfPointer {
-                to,
-                from,
-                size,
-                ref member,
-            } => unsafe {
-                let from: *const u8 = stack.get(from).as_ptr();
-                let to = stack.get(to).read::<*mut u8>().add(member.offset);
-
-                std::ptr::copy_nonoverlapping(from, to, size);
-            },
         }
 
         instr_pointer += 1;
