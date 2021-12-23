@@ -471,6 +471,9 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, node: NodeId) -> Value {
             let Some(member) = of.type_().member(*name) else {
                 unreachable!("Type {} doesn't have member {}, but it got through the typer", of.type_(), *name)
             };
+
+            debug_assert!(member.indirections <= 1);
+
             ctx.emit_member(
                 to,
                 of,
@@ -490,17 +493,8 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, node: NodeId) -> Value {
             let from = emit_node(ctx, *rvalue);
 
             let empty_result = ctx.registers.zst();
-
-            match to {
-                LValue::Reference(to, offset_to_target) => {
-                    ctx.emit_move_to_member_of_pointer(to, from, offset_to_target);
-                    empty_result
-                }
-                LValue::Value(to, offset_to_target) => {
-                    ctx.emit_move_to_member_of_value(to, from, offset_to_target);
-                    empty_result
-                }
-            }
+            ctx.emit_move_to_member_of_pointer(to, from, Member::default());
+            empty_result
         }
         NodeKind::Binary { op, left, right } => {
             let to = ctx.registers.create(ctx.types, ctx.ast.get(node).type_infer_value_id, ctx.ast.get(node).type_());
@@ -554,14 +548,7 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, node: NodeId) -> Value {
         NodeKind::Reference(operand) => {
             let to = ctx.registers.create(ctx.types, ctx.ast.get(node).type_infer_value_id, ctx.ast.get(node).type_());
             let from = emit_lvalue(ctx, true, *operand);
-            match from {
-                LValue::Reference(from, member) => {
-                    ctx.emit_pointer_to_member_of_pointer(to, from, member);
-                }
-                LValue::Value(from, offset) => {
-                    ctx.emit_pointer_to_member_of_value(to, from, offset);
-                }
-            }
+            ctx.emit_pointer_to_member_of_pointer(to, from, Member::default());
             to
         }
         NodeKind::Unary {
@@ -691,9 +678,17 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, node: NodeId) -> Value {
 fn emit_lvalue<'a>(
     ctx: &mut Context<'a, '_>,
     can_reference_temporaries: bool,
-    node: NodeId,
-) -> LValue {
-    match &ctx.ast.get(node).kind {
+    node_id: NodeId,
+) -> Value {
+    let node = ctx.ast.get(node_id);
+
+    // @TODO: Creating all these types suck, maybe we should remove the damn `Global` thing from registers,
+    // and instead let them just be pointers to values? These pointers wouldn't even be considered pointers from
+    // the language, but just registers that need to point to things.
+    let ref_type_id = ctx.types.add_type(type_infer::TypeKind::Reference, Args([(node.type_infer_value_id, Reason::temp_zero())]), ());
+    let ref_type = Type::new(TypeKind::Reference { pointee: node.type_(), permits: PtrPermits::NONE });
+
+    match &node.kind {
         NodeKind::Member { name, of } => {
             let parent_value = emit_lvalue(ctx, can_reference_temporaries, *of);
 
@@ -704,33 +699,41 @@ fn emit_lvalue<'a>(
                 .member(*name)
                 .expect("This should have already been made sure to exist in the typer");
 
-            match parent_value {
-                LValue::Reference(value, mut ref_member) => {
-                    ref_member.offset += member.byte_offset;
-                    ref_member.amount += member.indirections;
-                    LValue::Reference(value, ref_member)
-                }
-                LValue::Value(value, mut ref_member) => {
-                    ref_member.offset += member.byte_offset;
-                    ref_member.amount += member.indirections;
-                    LValue::Value(value, ref_member)
-                }
-            }
+            // @TODO: We need to support aliases at some point, but the emitter should deal with that, not the
+            // interpreter.
+            debug_assert_eq!(member.indirections, 1);
+
+            let to = ctx.registers.create(ctx.types, ref_type_id, ref_type);
+            ctx.emit_pointer_to_member_of_pointer(to, parent_value, Member { offset: member.byte_offset, amount: 1 });
+            to
         }
         NodeKind::Unary {
             op: UnaryOp::Dereference,
             operand,
-        } => LValue::Reference(emit_node(ctx, *operand), Member::default()),
-        NodeKind::Local(id) => LValue::Value(ctx.locals.get(*id).value.unwrap(), Member::default()),
+        } => {
+            emit_node(ctx, *operand)
+        }
+        NodeKind::Local(id) => {
+            let to = ctx.registers.create(ctx.types, ref_type_id, ref_type);
+            let from = ctx.locals.get(*id).value.unwrap();
+            ctx.emit_pointer_to_member_of_value(to, from, Member::default());
+            to
+        }
         NodeKind::ResolvedGlobal(id, _) => {
-            LValue::Value(ctx.program.get_constant_as_value(*id), Member::default())
+            let to = ctx.registers.create(ctx.types, ref_type_id, ref_type);
+            let from = ctx.program.get_constant_as_value(*id);
+            ctx.emit_pointer_to_member_of_value(to, from, Member::default());
+            to
         }
         NodeKind::Parenthesis(value) => {
             emit_lvalue(ctx, can_reference_temporaries, *value)
         }
         kind => {
             if can_reference_temporaries {
-                LValue::Value(emit_node(ctx, node), Member::default())
+                let to = ctx.registers.create(ctx.types, ref_type_id, ref_type);
+                let from = emit_node(ctx, node_id);
+                ctx.emit_pointer_to_member_of_value(to, from, Member::default());
+                to
             } else {
                 unreachable!(
                     "{:?} is not an lvalue. This is just something I haven't implemented checking for in the compiler yet",

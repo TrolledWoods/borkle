@@ -2089,68 +2089,68 @@ impl TypeSystem {
         )
     }
 
-    pub fn set_compiler_type(&mut self, program: &Program, id: ValueId, type_: types::Type, set: ValueSetId) -> ValueId {
+    pub fn set_compiler_type(&mut self, program: &Program, id: ValueId, type_: types::Type, set: impl IntoValueSet + Clone) -> ValueId {
         match *type_.kind() {
             types::TypeKind::Function { ref args, returns } => {
                 let mut new_args = Vec::with_capacity(args.len() + 1);
 
                 // @TODO: We should append the sub-expression used to the reason as well.
-                new_args.push((self.add_compiler_type(program, returns, set), Reason::temp_zero()));
+                new_args.push((self.add_compiler_type(program, returns, set.clone()), Reason::temp_zero()));
 
                 for &arg in args {
-                    new_args.push((self.add_compiler_type(program, arg, set), Reason::temp_zero()));
+                    new_args.push((self.add_compiler_type(program, arg, set.clone()), Reason::temp_zero()));
                 }
 
-                self.set_type(id, TypeKind::Function, Args(new_args), set)
+                self.set_type(id, TypeKind::Function, Args(new_args), set.clone())
             }
             types::TypeKind::Type => {
-                self.set_type(id, TypeKind::Type, Args([]), set)
+                self.set_type(id, TypeKind::Type, Args([]), set.clone())
             }
             types::TypeKind::Int(int_type_kind) => {
-                self.set_int(id, int_type_kind, set);
+                self.set_int(id, int_type_kind, set.clone());
                 id
             }
-            types::TypeKind::Empty => self.set_type(id, TypeKind::Empty, Args([]), set),
-            types::TypeKind::Bool  => self.set_type(id, TypeKind::Bool, Args([]), set),
+            types::TypeKind::Empty => self.set_type(id, TypeKind::Empty, Args([]), set.clone()),
+            types::TypeKind::Bool  => self.set_type(id, TypeKind::Bool, Args([]), set.clone()),
             types::TypeKind::Buffer { pointee, permits: _ } => {
                 // @Cleanup: This is ugly!
                 // @Correctness: We want to reintroduce these once the rework is complete
                 // let permits = self.add_access(Some(Access::disallows(!permits.read(), !permits.write())), set);
-                let pointee = self.add_compiler_type(program, pointee, set);
+                let pointee = self.add_compiler_type(program, pointee, set.clone());
 
-                self.set_type(id, TypeKind::Buffer, Args([(pointee, Reason::temp_zero())]), set)
+                self.set_type(id, TypeKind::Buffer, Args([(pointee, Reason::temp_zero())]), set.clone())
             }
             types::TypeKind::Reference { pointee, permits: _ } => {
                 // @Correctness: We want to reintroduce permits once the rework is complete
                 // let permits = self.add_access(Some(Access::disallows(!permits.read(), !permits.write())), set);
-                let pointee = self.add_compiler_type(program, pointee, set);
+                let pointee = self.add_compiler_type(program, pointee, set.clone());
 
-                self.set_type(id, TypeKind::Reference, Args([(pointee, Reason::temp_zero())]), set)
+                self.set_type(id, TypeKind::Reference, Args([(pointee, Reason::temp_zero())]), set.clone())
             }
             types::TypeKind::Array(type_, length) => {
-                let inner = self.add_compiler_type(program, type_, set);
+                let inner = self.add_compiler_type(program, type_, set.clone());
                 let usize_type = static_values::USIZE;
                 let constant_ref_length = program.insert_buffer(
                     types::Type::new(types::TypeKind::Int(IntTypeKind::Usize)),
                     &length as *const _ as *const u8,
                 );
-                let length_value = self.add_value(usize_type, constant_ref_length, set);
-                self.set_type(id, TypeKind::Array, Args([(inner, Reason::temp_zero()), (length_value, Reason::temp_zero())]), set)
+                let length_value = self.add_value(usize_type, constant_ref_length, set.clone());
+                self.set_type(id, TypeKind::Array, Args([(inner, Reason::temp_zero()), (length_value, Reason::temp_zero())]), set.clone())
             }
             types::TypeKind::Struct(ref fields) => {
                 let field_names = fields.iter().map(|&(v, _)| v).collect();
                 let field_types: Vec<_> = fields
                     .iter()
                     // @TODO: We should append the sub-expression used to the reason as well.
-                    .map(|&(_, v)| (self.add_compiler_type(program, v, set), Reason::temp_zero()))
+                    .map(|&(_, v)| (self.add_compiler_type(program, v, set.clone()), Reason::temp_zero()))
                     .collect();
-                self.set_type(id, TypeKind::Struct(field_names), Args(field_types), set)
+                self.set_type(id, TypeKind::Struct(field_names), Args(field_types), set.clone())
             }
             _ => todo!("This compiler type is not done yet"),
         }
     }
 
-    pub fn add_compiler_type(&mut self, program: &Program, type_: types::Type, set: ValueSetId) -> ValueId {
+    pub fn add_compiler_type(&mut self, program: &Program, type_: types::Type, set: impl IntoValueSet + Clone) -> ValueId {
         let id = self.add_unknown_type();
         self.set_compiler_type(program, id, type_, set)
     }

@@ -169,7 +169,7 @@ create_arguments!(
         };
             "The folder where global libraries are stored",
 
-        release: bool = false;
+        release: bool = true;
             "If set to true, c code will be emitted",
 
         copy_dlls: bool = false;
