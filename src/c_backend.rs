@@ -58,45 +58,7 @@ pub fn entry_point(output: &mut String, entry: FunctionId) {
 }
 
 fn c_format_value(value: &Value) -> impl fmt::Display + '_ {
-    Formatter(move |f| match value {
-        Value::Register(id, _) => write!(f, "reg_{}", id),
-        Value::Global(ptr, type_) => {
-            match type_.kind() {
-                TypeKind::Int(int_kind) => {
-                    let size = int_kind.size_align().0;
-
-                    let mut big_int = [0; 16];
-                    unsafe {
-                        std::ptr::copy_nonoverlapping(ptr.as_ptr(), big_int.as_mut_ptr(), size);
-                    }
-
-                    if int_kind.signed() && (big_int[size] & 0x80) > 0 {
-                        big_int[size + 1..].fill(0xff);
-                    }
-
-                    write!(
-                        f,
-                        "{}",
-                        i128::from_le_bytes(big_int),
-                    )?;
-                }
-                _ => {
-                    debug_assert!(type_.size() != 0);
-
-                    // FIXME: Check if this can just be a normal cast and not this kind of pointer
-                    // cast.
-                    write!(
-                        f,
-                        "(*({}*)&global_{})",
-                        c_format_type(*type_),
-                        ptr.as_ptr() as usize
-                    )?;
-                }
-            }
-
-            Ok(())
-        }
-    })
+    Formatter(move |f| write!(f, "reg_{}", value.0))
 }
 
 pub fn declare_constants(output: &mut String, program: &mut Program) {
@@ -198,10 +160,10 @@ pub fn routine_to_c(output: &mut String, routine: &Routine, arg_types: &[Type], 
                 .iter()
                 .copied()
                 .enumerate()
-                .map(|(i, type_)| Value::Register(i, type_))
+                .map(|(i, type_)| Value(i, type_))
                 .collect();
 
-            let returns = Value::Register(arg_types.len(), return_type);
+            let returns = Value(arg_types.len(), return_type);
             if return_type.size() != 0 {
                 write!(
                     output,
@@ -244,7 +206,7 @@ pub fn routine_to_c(output: &mut String, routine: &Routine, arg_types: &[Type], 
                 output.push_str("    ");
                 match instr {
                     Instr::TruncateInt { to, from, .. } | Instr::ExtendInt { to, from, .. } => {
-                        let Value::Register(_, to_type) = to else {
+                        let Value(_, to_type) = to else {
                             unreachable!("Assigned to global in ir, should probably make this impossible in the type system in the future")
                         };
                         write!(
@@ -262,18 +224,12 @@ pub fn routine_to_c(output: &mut String, routine: &Routine, arg_types: &[Type], 
                             write!(output, "{} = ", c_format_value(to)).unwrap();
                         }
 
-                        if let Value::Global(ptr, _) = pointer {
-                            let function_id = unsafe { *ptr.as_ptr().cast::<FunctionId>() };
-                            write!(output, "function_{}(", usize::from(function_id))
-                            .unwrap();
-                        } else {
-                            write!(
-                                output,
-                                "({}.inner)(",
-                                c_format_value(pointer),
-                            )
-                            .unwrap();
-                        }
+                        write!(
+                            output,
+                            "({}.inner)(",
+                            c_format_value(pointer),
+                        )
+                        .unwrap();
 
                         let mut has_emitted = false;
                         for arg in args {
@@ -386,6 +342,49 @@ pub fn routine_to_c(output: &mut String, routine: &Routine, arg_types: &[Type], 
                             c_format_value(from)
                         )
                         .unwrap();
+                    }
+                    Instr::Global { to, global } => {
+                        write!(output, "{} = ", c_format_value(to)).unwrap();
+
+                        match to.type_().kind() {
+                            TypeKind::Int(int_kind) => {
+                                let size = int_kind.size_align().0;
+
+                                let mut big_int = [0; 16];
+                                unsafe {
+                                    std::ptr::copy_nonoverlapping(global.as_ptr(), big_int.as_mut_ptr(), size);
+                                }
+
+                                if int_kind.signed() && (big_int[size] & 0x80) > 0 {
+                                    big_int[size + 1..].fill(0xff);
+                                }
+
+                                write!(
+                                    output,
+                                    "{}",
+                                    i128::from_le_bytes(big_int),
+                                ).unwrap();
+                            }
+                            _ => {
+                                write!(
+                                    output,
+                                    "(*({}*)&global_{})",
+                                    c_format_type(to.type_()),
+                                    global.as_ptr() as usize
+                                ).unwrap();
+                            }
+                        }
+
+                        output.push_str(";\n");
+                    }
+                    Instr::RefGlobal { to, global, type_ } => {
+                        write!(
+                            output,
+                            "{} = ({}*)&global_{};\n",
+                            c_format_value(to),
+                            c_format_type(*type_),
+                            global.as_ptr() as usize
+                        ).unwrap();
                     }
                     Instr::Move { to, from } => {
                         write!(output, "{} = {};\n", c_format_value(to), c_format_value(from)).unwrap();

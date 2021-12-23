@@ -227,13 +227,6 @@ impl Program {
 
     /// # Locks
     /// * ``members`` read
-    pub fn get_constant_as_value(&self, id: MemberId) -> crate::ir::Value {
-        let (ptr, type_) = self.get_member_value(id);
-        crate::ir::Value::Global(ptr, type_)
-    }
-
-    /// # Locks
-    /// * ``members`` read
     pub fn get_member_value(&self, id: MemberId) -> (ConstantRef, Type) {
         profile::profile!("Get member value");
 
@@ -1285,6 +1278,45 @@ impl fmt::Debug for Task {
 
 fn default<T: Default>() -> T {
     T::default()
+}
+
+pub fn constant_to_str(type_: Type, value: ConstantRef, _rec: usize) -> String {
+    match type_.kind() {
+        TypeKind::Type => {
+            let compiler_type = unsafe { *value.as_ptr().cast::<Type>() };
+            format!("{}", compiler_type)
+        }
+        TypeKind::Int(int_size) => {
+            let size = int_size.size_align().0;
+            let signed = int_size.signed();
+
+            let mut big_int = [0; 16];
+            unsafe {
+                std::ptr::copy_nonoverlapping(value.as_ptr(), big_int.as_mut_ptr(), size);
+            }
+
+            if signed && (big_int[size] & 0x80) > 0 {
+                big_int[size + 1..].fill(0xff);
+            }
+
+            format!("{}", i128::from_le_bytes(big_int))
+        }
+        TypeKind::Bool => {
+            let byte = unsafe { *value.as_ptr() };
+            match byte {
+                0 => "false".to_string(),
+                1 => "true".to_string(),
+                num => format!("<invalid bool value {}>", num),
+            }
+        }
+        TypeKind::Function { .. } => {
+            let id = unsafe { *value.as_ptr().cast::<FunctionId>() };
+            format!("func({})", id.0)
+        }
+        _ => {
+            format!("(cannot format {})", type_)
+        }
+    }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]

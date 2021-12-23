@@ -58,6 +58,6 @@ impl ConstantRef {
 
 impl fmt::Debug for ConstantRef {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "ConstantRef")
+        write!(f, "ConstantRef {}", self.as_ptr() as usize)
     }
 }

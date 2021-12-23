@@ -82,36 +82,20 @@ pub struct StackFrame<'a> {
 
 impl<'a> StackFrame<'a> {
     pub fn into_value(self, value: Value) -> StackValueMut<'a> {
-        match value {
-            Value::Register(reg, _) => {
-                let reg = self.registers.get(reg);
-                let offset = reg.offset();
-                StackValueMut {
-                    ptr: unsafe { self.stack.as_mut_ptr().add(offset) },
-                    _phantom: PhantomData,
-                }
-            }
-            Value::Global(ptr, _) => StackValueMut {
-                ptr: ptr.as_ptr() as *mut _,
-                _phantom: PhantomData,
-            },
+        let reg = self.registers.get(value.0);
+        let offset = reg.offset();
+        StackValueMut {
+            ptr: unsafe { self.stack.as_mut_ptr().add(offset) },
+            _phantom: PhantomData,
         }
     }
 
     pub fn get(&self, value: Value) -> StackValue<'_> {
-        match value {
-            Value::Register(reg, _) => {
-                let reg = self.registers.get(reg);
-                let offset = reg.offset();
-                StackValue {
-                    ptr: unsafe { self.stack.as_ptr().add(offset) },
-                    _phantom: PhantomData,
-                }
-            }
-            Value::Global(ptr, _) => StackValue {
-                ptr: ptr.as_ptr(),
-                _phantom: PhantomData,
-            },
+        let reg = self.registers.get(value.0);
+        let offset = reg.offset();
+        StackValue {
+            ptr: unsafe { self.stack.as_ptr().add(offset) },
+            _phantom: PhantomData,
         }
     }
 
@@ -121,19 +105,11 @@ impl<'a> StackFrame<'a> {
     }
 
     pub fn get_mut(&mut self, value: Value) -> StackValueMut<'_> {
-        match value {
-            Value::Register(reg, _) => {
-                let reg = self.registers.get(reg);
-                let offset = reg.offset();
-                StackValueMut {
-                    ptr: unsafe { self.stack.as_mut_ptr().add(offset) },
-                    _phantom: PhantomData,
-                }
-            }
-            Value::Global(ptr, _) => StackValueMut {
-                ptr: ptr.as_ptr() as *mut _,
-                _phantom: PhantomData,
-            },
+        let reg = self.registers.get(value.0);
+        let offset = reg.offset();
+        StackValueMut {
+            ptr: unsafe { self.stack.as_mut_ptr().add(offset) },
+            _phantom: PhantomData,
         }
     }
 

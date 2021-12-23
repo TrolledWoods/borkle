@@ -3,7 +3,7 @@ use crate::location::Location;
 use crate::locals::LocalVariables;
 use crate::operators::{BinaryOp, UnaryOp};
 use crate::parser::ast::{Ast, NodeId};
-use crate::program::{FunctionId, Program};
+use crate::program::{FunctionId, Program, constant::ConstantRef};
 use crate::thread_pool::ThreadContext;
 use crate::type_infer::TypeSystem;
 
@@ -31,6 +31,26 @@ impl Context<'_, '_> {
     pub fn define_label(&mut self, label_id: LabelId) {
         self.label_locations[label_id.0] = self.instr.len();
         self.instr.push(Instr::LabelDefinition(label_id));
+    }
+
+    pub fn emit_move_from_constant(&mut self, to: Value, bytes: &[u8]) {
+        if to.type_().size() != 0 {
+            let global = self.program.insert_buffer(to.type_(), bytes.as_ptr());
+            self.instr.push(Instr::Global { to, global });
+        }
+    }
+
+    pub fn emit_global(&mut self, to: Value, global: ConstantRef) {
+        if to.type_().size() != 0 {
+            self.instr.push(Instr::Global { to, global });
+        }
+    }
+
+    pub fn emit_ref_to_global(&mut self, to: Value, global: ConstantRef, type_: crate::types::Type) {
+        if type_.size() != 0 {
+            println!("{}", crate::program::constant_to_str(type_, global, 0));
+            self.instr.push(Instr::RefGlobal { to, global, type_ });
+        }
     }
 
     pub fn emit_jump_if_zero(&mut self, condition: Value, to: LabelId) {
@@ -88,13 +108,6 @@ impl Context<'_, '_> {
     pub fn emit_increment(&mut self, value: Value) {
         if value.size() != 0 {
             self.instr.push(Instr::Increment { value });
-        }
-    }
-
-    pub fn emit_move_from_constant(&mut self, to: Value, from: &[u8]) {
-        if to.size() != 0 {
-            let buffer = self.program.insert_buffer(to.type_(), from.as_ptr());
-            self.emit_move(to, Value::Global(buffer, to.type_()));
         }
     }
 

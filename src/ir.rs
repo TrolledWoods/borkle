@@ -38,6 +38,15 @@ pub enum Instr {
         to: Value,
         from: Value,
     },
+    RefGlobal {
+        to: Value,
+        global: ConstantRef,
+        type_: Type,
+    },
+    Global {
+        to: Value,
+        global: ConstantRef,
+    },
     // to = of.member
     Member {
         to: Value,
@@ -170,7 +179,7 @@ impl Registers {
             align = min_align;
         }
         self.buffer_head = to_align(self.buffer_head, align);
-        let value = Value::Register(self.locals.len(), type_);
+        let value = Value(self.locals.len(), type_);
         self.locals.push(Register {
             offset: self.buffer_head,
             type_,
@@ -200,17 +209,11 @@ impl Register {
 }
 
 #[derive(Debug, Clone, Copy)]
-pub enum Value {
-    Register(usize, Type),
-    Global(ConstantRef, Type),
-}
+pub struct Value(pub usize, pub Type);
 
 impl fmt::Display for Value {
     fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Value::Register(id, type_) => write!(fmt, "{} {}", type_, id),
-            Value::Global(_, type_) => write!(fmt, "const {}", type_),
-        }
+        write!(fmt, "{} {}", self.1, self.0)
     }
 }
 
@@ -219,10 +222,7 @@ unsafe impl Sync for Value {}
 
 impl Value {
     pub fn type_(&self) -> Type {
-        match self {
-            Self::Register(_, type_) => *type_,
-            Self::Global(_, type_) => *type_,
-        }
+        self.1
     }
 
     pub fn size(&self) -> usize {

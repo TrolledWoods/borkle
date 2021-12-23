@@ -232,6 +232,12 @@ fn interp_internal(program: &Program, stack: &mut StackFrame<'_>, routine: &User
                     unreachable!("This operator is supposed to be a special case");
                 }
             },
+            Instr::Global { to, global } => unsafe {
+                let size = to.size();
+                let from: *const u8 = global.as_ptr();
+                let to: *mut u8 = stack.get_mut(to).as_mut_ptr();
+                std::ptr::copy_nonoverlapping(from, to, size);
+            },
             Instr::Move { to, from } => unsafe {
                 let size = to.size();
                 let from: *const u8 = stack.get(from).as_ptr();
@@ -260,6 +266,13 @@ fn interp_internal(program: &Program, stack: &mut StackFrame<'_>, routine: &User
                 let to: *mut u8 = stack.get_mut(to).as_mut_ptr();
                 *to.cast::<*const u8>() = from;
             },
+            Instr::RefGlobal { to, global, .. } => {
+                let to_ptr = stack.get_mut(to).as_mut_ptr().cast::<*const u8>();
+                let from_ptr = global.as_ptr();
+                unsafe {
+                    *to_ptr = from_ptr;
+                }
+            }
             Instr::Reference { to, from } => {
                 let to_ptr = stack.get_mut(to).as_mut_ptr().cast::<*const u8>();
                 let from_ptr = stack.get(from).as_ptr();

@@ -317,20 +317,14 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, node: NodeId) -> Value {
             true_body,
             false_body: None,
         } => {
-            if let NodeKind::Constant(data, _) = ctx.ast.get(*condition).kind {
-                if unsafe { *data.as_ptr() } != 0 {
-                    emit_node(ctx, *true_body);
-                }
-            } else {
-                let condition = emit_node(ctx, *condition);
+            let condition = emit_node(ctx, *condition);
 
-                let end_of_body = ctx.create_label();
-                ctx.emit_jump_if_zero(condition, end_of_body);
+            let end_of_body = ctx.create_label();
+            ctx.emit_jump_if_zero(condition, end_of_body);
 
-                emit_node(ctx, *true_body);
+            emit_node(ctx, *true_body);
 
-                ctx.define_label(end_of_body);
-            }
+            ctx.define_label(end_of_body);
 
             ctx.registers.zst()
         }
@@ -363,12 +357,15 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, node: NodeId) -> Value {
             to
         }
         NodeKind::Literal(Literal::Int(num)) => {
-            let node_type = ctx.ast.get(node).type_();
+            let node = ctx.ast.get(node);
             let bytes = num.to_le_bytes();
 
-            let buffer = ctx.program.insert_buffer(node_type, bytes.as_ptr());
+            let buffer = ctx.program.insert_buffer(node.type_(), bytes.as_ptr());
 
-            Value::Global(buffer, node_type)
+            let to = ctx.registers.create(ctx.types, node.type_infer_value_id, node.type_());
+            ctx.emit_global(to, buffer);
+
+            to
         }
         NodeKind::Zeroed => {
             let to = ctx.registers.create(ctx.types, ctx.ast.get(node).type_infer_value_id, ctx.ast.get(node).type_());
@@ -418,7 +415,7 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, node: NodeId) -> Value {
                             let &TypeKind::Buffer { pointee, permits } = ctx.ast.get(node).type_().kind() else { unreachable!() };
                             let temp_ptr = ctx.registers.create(ctx.types, temp_ptr_type, Type::new(TypeKind::Reference { pointee, permits }));
 
-                            ctx.emit_move(len_reg, Value::Global(length, usize_type));
+                            ctx.emit_global(len_reg, length);
                             ctx.emit_bitcast(temp_ptr, from);
 
                             ctx.emit_move_to_member_of_value(
@@ -467,7 +464,11 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, node: NodeId) -> Value {
                 }
             }
 
-            Value::Global(*bytes, ctx.ast.get(node).type_())
+            let node = ctx.ast.get(node);
+            let to = ctx.registers.create(ctx.types, node.type_infer_value_id, node.type_());
+            ctx.emit_global(to, *bytes);
+
+            to
         }
         NodeKind::Member { name, of } => {
             let to = ctx.registers.create(ctx.types, ctx.ast.get(node).type_infer_value_id, ctx.ast.get(node).type_());
@@ -637,7 +638,7 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, node: NodeId) -> Value {
             to
         }
         NodeKind::ResolvedGlobal(id, _) => {
-            let (ptr, type_) = ctx.program.get_member_value(*id);
+            let (ptr, _) = ctx.program.get_member_value(*id);
 
             if let type_infer::TypeKind::Function = ctx.types.get(ctx.ast.get(node).type_infer_value_id).kind() {
                 let function_id = unsafe { *(ptr.as_ptr() as *const FunctionId) };
@@ -646,7 +647,10 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, node: NodeId) -> Value {
                 }
             }
 
-            Value::Global(ptr, type_)
+            let node = ctx.ast.get(node);
+            let to = ctx.registers.create(ctx.types, node.type_infer_value_id, node.type_());
+            ctx.emit_global(to, ptr);
+            to
         }
         NodeKind::ResolvedFunctionCall {
             calling: typed_calling,
@@ -722,8 +726,8 @@ fn emit_lvalue<'a>(
         }
         NodeKind::ResolvedGlobal(id, _) => {
             let to = ctx.registers.create(ctx.types, ref_type_id, ref_type);
-            let from = ctx.program.get_constant_as_value(*id);
-            ctx.emit_reference(to, from);
+            let (from_ref, from_type) = ctx.program.get_member_value(*id);
+            ctx.emit_ref_to_global(to, from_ref, from_type);
             to
         }
         NodeKind::Parenthesis(value) => {
