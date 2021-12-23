@@ -1,34 +1,5 @@
 library "base.bo";
-library "vec.bo";
-library "iter.bo";
-import "tests/main.bo";
-import "tests/aoc/day2.bo";
-import "tests/aoc/day2_input.bo";
 
 #entry fn() -> u64 {
-    let elements = [
-        1,
-        2,
-        3,
-        4,
-        5
-    ];
-
-    let vector = vec_from_iter(map(array_iter(elements),
-        fn(x) {
-            let y = x + 3;
-            y
-        }
-    ));
-    defer vec_free(vector);
-
-    for vec_as_buffer(&vector) {
-        print("The element is: ");
-        print_u64(*_it);
-        print("\n");
-    };
-
-    run_aoc_tests();
-
     0
 };

@@ -9,7 +9,7 @@ use std::fmt;
 #[derive(Clone, Debug)]
 #[allow(non_camel_case_types)]
 pub enum Instr {
-    DebugLocation(Location, String),
+    DebugLocation(Location),
     // to = pointer(args)
     Call {
         to: Value,
@@ -127,6 +127,7 @@ pub enum Routine {
 }
 
 pub struct UserDefinedRoutine {
+    pub loc: Location,
     pub label_locations: Vec<usize>,
     pub instr: Vec<Instr>,
     pub registers: Registers,

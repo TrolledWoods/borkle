@@ -1,4 +1,5 @@
 use crate::ir::{Member, Registers, Routine, UserDefinedRoutine, Value};
+use crate::location::Location;
 use crate::literal::Literal;
 use crate::locals::LocalVariables;
 use crate::operators::{BinaryOp, UnaryOp};
@@ -54,6 +55,7 @@ pub fn emit<'a>(
     (
         ctx.calling,
         UserDefinedRoutine {
+            loc: ctx.ast.get(node).loc,
             instr: ctx.instr,
             registers: ctx.registers,
             result,
@@ -70,6 +72,7 @@ pub fn emit_function_declaration<'a>(
     ast: &Ast,
     node_id: NodeId,
     type_: Type,
+    loc: Location,
     function_id: FunctionId,
     stack_frame_id: crate::type_infer::ValueSetId,
 ) {
@@ -98,6 +101,7 @@ pub fn emit_function_declaration<'a>(
     let result = emit_node(&mut sub_ctx, node_id);
 
     let routine = Routine::UserDefined(UserDefinedRoutine {
+        loc,
         label_locations: sub_ctx.label_locations,
         instr: sub_ctx.instr,
         registers: sub_ctx.registers,
@@ -318,6 +322,7 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, node: NodeId) -> Value {
             to
         }
         NodeKind::If {
+            is_const: _,
             condition,
             true_body,
             false_body: None,
@@ -334,6 +339,7 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, node: NodeId) -> Value {
             ctx.registers.zst()
         }
         NodeKind::If {
+            is_const: _,
             condition,
             true_body,
             false_body: Some(false_body),
@@ -691,7 +697,6 @@ fn emit_lvalue<'a>(
     node_id: NodeId,
 ) -> Value {
     let node = ctx.ast.get(node_id);
-
     ctx.emit_debug(node.loc);
 
     // @TODO: Creating all these types suck, maybe we should remove the damn `Global` thing from registers,

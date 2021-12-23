@@ -117,6 +117,10 @@ impl Program {
         }
     }
 
+    pub fn get_function_loc(&self, id: FunctionId) -> Location {
+        self.functions.read()[id].loc
+    }
+
     /// Locks
     /// * ``functions`` write
     pub fn insert_defined_function(
@@ -1037,9 +1041,6 @@ impl Scope {
 }
 
 struct Function {
-    // FIXME: We should use this location later to generate diagnostics. Though can you even have
-    // recursion errors?
-    #[allow(unused)]
     loc: Location,
 
     /// This is a little strange; depending on this does not mean depending on the definition of

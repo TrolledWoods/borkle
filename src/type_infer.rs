@@ -1841,6 +1841,15 @@ impl TypeSystem {
                         self.set_equal(a_id, b_id, Variance::DontCare, constraint.reason);
                     }
                     (
+                        BinaryOp::Equals | BinaryOp::NotEquals,
+                        (Some(TypeKind::Type), Some(TypeKind::Type), _),
+                    ) => {
+                        let id = self.add_type(TypeKind::Bool, Args([]), ());
+
+                        self.set_equal(result_id, id, Variance::Invariant, constraint.reason);
+                        self.set_equal(a_id, b_id, Variance::DontCare, constraint.reason);
+                    }
+                    (
                         _,
                         (Some(a), Some(b), Some(c)),
                     ) => unimplemented!("Operator {:?} with operands {:?}, {:?}, and returning {:?}, not supported in type inferrence yet", op, a, b, c),

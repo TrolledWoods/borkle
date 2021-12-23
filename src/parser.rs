@@ -819,6 +819,13 @@ fn value_without_unaries(
             ))
         }
         TokenKind::Keyword(Keyword::If) => {
+            // Parse tags
+            let mut is_const = None;
+
+            parse_tags(global, imperative, "if", &mut [
+                ("const".into(), &mut is_const),
+            ])?;
+
             let condition = expression(global, imperative, buffer)?;
             let true_body = expression(global, imperative, buffer)?;
 
@@ -834,6 +841,7 @@ fn value_without_unaries(
             buffer.add(Node::new(
                 token.loc,
                 NodeKind::If {
+                    is_const,
                     condition,
                     true_body,
                     false_body,
@@ -1348,6 +1356,25 @@ fn maybe_parse_label(
     } else {
         Ok(None)
     }
+}
+
+fn parse_tags(global: &mut DataContext<'_>, _imperative: &mut ImperativeContext<'_>, expr_name: &str, tags: &mut [(Ustr, &mut Option<Location>)]) -> Result<(), ()> {
+    while let Some(&Token { loc, kind: TokenKind::Tag(tag_name), .. }) = global.tokens.peek() {
+        global.tokens.next();
+
+        if let Some((_, tag)) = tags.iter_mut().find(|(name, _)| *name == tag_name) {
+            if let Some(old) = tag {
+                global.errors.info(*old, "Defined previously here".to_string());
+                global.error(loc, format!("tag `{}` defined twice", tag_name));
+            } else {
+                **tag = Some(loc);
+            }
+        } else {
+            global.error(loc, format!("no tag `{}` on `{}`", tag_name, expr_name));
+        }
+    }
+
+    Ok(())
 }
 
 fn offset_path(path: &Path, addition: &str) -> PathBuf {

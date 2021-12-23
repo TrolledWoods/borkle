@@ -31,10 +31,7 @@ impl Context<'_, '_> {
                 }
             }
 
-            let contents = self.program.get_file_contents(loc.file);
-            let line = contents.lines().nth(loc.line as usize - 1).unwrap_or("");
-            self.last_location = Some(loc);
-            self.instr.push(Instr::DebugLocation(loc, line.to_string()));
+            self.instr.push(Instr::DebugLocation(loc));
         }
     }
 

@@ -149,6 +149,7 @@ impl Node {
                 label: _,
             }
             | If {
+                is_const: _,
                 condition,
                 true_body: body,
                 false_body: else_body,
@@ -312,6 +313,7 @@ pub enum NodeKind {
         label: LabelId,
     },
     If {
+        is_const: Option<Location>,
         condition: NodeId,
         true_body: NodeId,
         false_body: Option<NodeId>,

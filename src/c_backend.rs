@@ -184,8 +184,11 @@ pub fn routine_to_c(program: &Program, output: &mut String, routine: &Routine, a
             }
         }
         Routine::UserDefined(routine) => {
-            let mut debug_loc: Option<Location> = None;
-            // write!(output, "    // Declare registers\n").unwrap();
+            if is_debugging {
+                let loc = routine.loc;
+                write!(output, "#line {} {:?}\n", loc.line, loc.file.as_str().strip_prefix("\\\\?\\").unwrap_or(loc.file.as_str())).unwrap();
+            }
+
             let mut already_existing_names = Vec::new();
             for (i, register) in routine
                 .registers
@@ -197,7 +200,7 @@ pub fn routine_to_c(program: &Program, output: &mut String, routine: &Routine, a
                     if i >= arg_types.len() {
                         write!(
                             output,
-                            "    {} reg_{};\n",
+                            " {} reg_{};",
                             c_format_type(register.type_),
                             i,
                         )
@@ -210,7 +213,7 @@ pub fn routine_to_c(program: &Program, output: &mut String, routine: &Routine, a
                                 already_existing_names.push(name);
                                 write!(
                                     output,
-                                    "    {} *{} = &reg_{};\n",
+                                    " {} *{} = &reg_{};",
                                     c_format_type(register.type_),
                                     name,
                                     i,
@@ -222,34 +225,41 @@ pub fn routine_to_c(program: &Program, output: &mut String, routine: &Routine, a
                 }
             }
 
+            output.push('\n');
+
+            if is_debugging {
+                let loc = routine.loc;
+                write!(output, "#line {} {:?}\n", loc.line, loc.file.as_str().strip_prefix("\\\\?\\").unwrap_or(loc.file.as_str())).unwrap();
+            }
+
+            let mut debug_loc = routine.loc;
+
             // write!(output, "    // Code\n").unwrap();
             for instr in &routine.instr {
-                if is_debugging {
-                    if let Some(debug_loc) = debug_loc {
-                        write!(output, "#line {} {:?}\n", debug_loc.line, debug_loc.file.as_str().strip_prefix("\\\\?\\").unwrap_or(debug_loc.file.as_str()));
-                    }
-                }
-
-                output.push_str("    ");
-
                 match instr {
-                    Instr::DebugLocation(loc, _message) => {
-                        debug_loc = Some(*loc);
-                        // write!(output, "// {}: {}\n", loc, message);
+                    Instr::DebugLocation(loc) => {
+                        if loc.file == debug_loc.file && debug_loc.line <= loc.line && loc.line - debug_loc.line <= 2 {
+                            for _ in 0..loc.line - debug_loc.line {
+                                output.push('\n');
+                            }
+                        } else {
+                            write!(output, "\n#line {} {:?}\n", loc.line, loc.file.as_str().strip_prefix("\\\\?\\").unwrap_or(loc.file.as_str())).unwrap();
+                        }
+                        debug_loc = *loc;
                     }
                     Instr::TruncateInt { to, from, .. } | Instr::ExtendInt { to, from, .. } => {
                         let Value(_, to_type) = to else {
                             unreachable!("Assigned to global in ir, should probably make this impossible in the type system in the future")
                         };
                         write!(
-                            output, "{} = ({}){};\n",
+                            output, "{} = ({}){};",
                             c_format_value(to),
                             c_format_type(*to_type),
                             c_format_value(from),
                         ).unwrap();
                     }
                     Instr::SetToZero { to, size } => {
-                        write!(output, "memset(&{}, 0, {});\n", c_format_value(to), size,).unwrap();
+                        write!(output, "memset(&{}, 0, {}); ", c_format_value(to), size,).unwrap();
                     }
                     Instr::Call { to, pointer, args, loc: _ } => {
                         if to.size() != 0 {
@@ -275,13 +285,13 @@ pub fn routine_to_c(program: &Program, output: &mut String, routine: &Routine, a
                             write!(output, "{}", c_format_value(arg)).unwrap();
                             has_emitted = true;
                         }
-                        output.push_str(");\n");
+                        output.push_str("); ");
                     }
                     Instr::Increment { value } => {
                         if matches!(value.type_().kind(), TypeKind::Reference { .. }) {
-                            write!(output, "{0}.inner = {0}.inner + 1;\n", c_format_value(value)).unwrap();
+                            write!(output, "{0}.inner = {0}.inner + 1; ", c_format_value(value)).unwrap();
                         } else {
-                            write!(output, "{0} = {0} + 1;\n", c_format_value(value)).unwrap();
+                            write!(output, "{0} = {0} + 1; ", c_format_value(value)).unwrap();
                         }
                     }
                     Instr::Binary {
@@ -292,14 +302,14 @@ pub fn routine_to_c(program: &Program, output: &mut String, routine: &Routine, a
                     } => {
                         write!(
                             output,
-                            "{}.start = {};\n",
+                            "{}.start = {}; ",
                             c_format_value(to),
                             c_format_value(a),
                         )
                         .unwrap();
                         write!(
                             output,
-                            "{}.end = {};\n",
+                            "{}.end = {}; ",
                             c_format_value(to),
                             c_format_value(b),
                         )
@@ -336,7 +346,7 @@ pub fn routine_to_c(program: &Program, output: &mut String, routine: &Routine, a
 
                             write!(
                                 output,
-                                "{}{} = {}.inner {} {}{};\n",
+                                "{}{} = {}.inner {} {}{}; ",
                                 c_format_value(to),
                                 if ret_is_ptr { ".inner" } else { "" },
                                 c_format_value(a),
@@ -348,7 +358,7 @@ pub fn routine_to_c(program: &Program, output: &mut String, routine: &Routine, a
                         } else {
                             write!(
                                 output,
-                                "{} = {} {} {};\n",
+                                "{} = {} {} {}; ",
                                 c_format_value(to),
                                 c_format_value(a),
                                 op_name,
@@ -407,61 +417,61 @@ pub fn routine_to_c(program: &Program, output: &mut String, routine: &Routine, a
                             }
                         }
 
-                        output.push_str(";\n");
+                        output.push_str("; ");
                     }
                     Instr::RefGlobal { to, global, type_ } => {
                         write!(
                             output,
-                            "{} = ({}*)&global_{};\n",
+                            "{} = ({}*)&global_{}; ",
                             c_format_value(to),
                             c_format_type(*type_),
                             global.as_ptr() as usize
                         ).unwrap();
                     }
                     Instr::Move { to, from } => {
-                        write!(output, "{} = {};\n", c_format_value(to), c_format_value(from)).unwrap();
+                        write!(output, "{} = {}; ", c_format_value(to), c_format_value(from)).unwrap();
                     }
                     Instr::MoveToPointer { to, from } => {
-                        write!(output, "*{}.inner = {};\n", c_format_value(to), c_format_value(from)).unwrap();
+                        write!(output, "*{}.inner = {}; ", c_format_value(to), c_format_value(from)).unwrap();
                     }
                     Instr::Member { to, of, member } => {
                         match (of.type_().kind(), member.name.as_str()) {
                             (TypeKind::Buffer { .. }, "ptr") => {
-                                write!(output, "{}.inner = {}.inner;\n", c_format_value(to), c_format_value(of)).unwrap();
+                                write!(output, "{}.inner = {}.inner; ", c_format_value(to), c_format_value(of)).unwrap();
                             }
                             _ => {
-                                write!(output, "{} = {}.{};\n", c_format_value(to), c_format_value(of), member.name).unwrap();
+                                write!(output, "{} = {}.{}; ", c_format_value(to), c_format_value(of), member.name).unwrap();
                             }
                         }
                     }
                     Instr::MoveToMemberOfValue { to, of, member } => {
                         match (to.type_().kind(), member.name.as_str()) {
                             (TypeKind::Buffer { .. }, "ptr") => {
-                                write!(output, "{}.inner = {}.inner;\n", c_format_value(to), c_format_value(of)).unwrap();
+                                write!(output, "{}.inner = {}.inner; ", c_format_value(to), c_format_value(of)).unwrap();
                             }
                             _ => {
-                                write!(output, "{}.{} = {};\n", c_format_value(to), member.name, c_format_value(of)).unwrap();
+                                write!(output, "{}.{} = {}; ", c_format_value(to), member.name, c_format_value(of)).unwrap();
                             }
                         }
                     }
                     Instr::PointerToMemberOfPointer { to, of, member } => {
                         match (of.type_().pointing_to().unwrap().kind(), member.name.as_str()) {
                             (TypeKind::Buffer { .. }, "ptr") => {
-                                write!(output, "{}.inner = {}.inner;\n", c_format_value(to), c_format_value(of)).unwrap();
+                                write!(output, "{}.inner = {}.inner; ", c_format_value(to), c_format_value(of)).unwrap();
                             }
                             _ => {
-                                write!(output, "{}.inner = &(*{}.inner).{};\n", c_format_value(to), c_format_value(of), member.name).unwrap();
+                                write!(output, "{}.inner = &(*{}.inner).{}; ", c_format_value(to), c_format_value(of), member.name).unwrap();
                             }
                         }
                     }
                     Instr::Reference { to, from } => {
-                        write!(output, "{}.inner = &{};\n", c_format_value(to), c_format_value(from))
+                        write!(output, "{}.inner = &{}; ", c_format_value(to), c_format_value(from))
                             .unwrap();
                     }
                     Instr::Dereference { to, from } => {
                         write!(
                             output,
-                            "{} = *{}.inner;\n",
+                            "{} = *{}.inner; ",
                             c_format_value(to),
                             c_format_value(from)
                         )
@@ -471,28 +481,28 @@ pub fn routine_to_c(program: &Program, output: &mut String, routine: &Routine, a
                         to,
                         from,
                     } => {
-                        write!(output, "{} = *({}*)&{};\n", c_format_value(to), c_format_type(to.type_()), c_format_value(from)).unwrap();
+                        write!(output, "{} = *({}*)&{}; ", c_format_value(to), c_format_type(to.type_()), c_format_value(from)).unwrap();
                     }
                     Instr::JumpIfZero { condition, to } => {
                         write!(
                             output,
-                            "if ({} == 0) goto label_{};\n",
+                            "if ({} == 0) goto label_{}; ",
                             c_format_value(condition),
                             to.0
                         )
                         .unwrap();
                     }
                     Instr::Jump { to } => {
-                        write!(output, "goto label_{};\n", to.0).unwrap();
+                        write!(output, "goto label_{}; ", to.0).unwrap();
                     }
                     Instr::LabelDefinition(id) => {
-                        write!(output, "label_{}:;\n", id.0).unwrap();
+                        write!(output, "label_{}:; ", id.0).unwrap();
                     }
                 }
             }
 
             if routine.result.size() != 0 {
-                write!(output, "    return {};\n", c_format_value(&routine.result)).unwrap();
+                write!(output, "    return {}; ", c_format_value(&routine.result)).unwrap();
             }
         }
     }
@@ -505,7 +515,7 @@ fn builtin_function(output: &mut String, builtin: BuiltinFunction, args: &[Value
         BuiltinFunction::Assert => {
             write!(
                 output,
-                "assert({});\n",
+                "assert({}); ",
                 c_format_value(&args[0]),
             )
             .unwrap();
@@ -513,7 +523,7 @@ fn builtin_function(output: &mut String, builtin: BuiltinFunction, args: &[Value
         BuiltinFunction::StdoutWrite => {
             write!(
                 output,
-                "{} = fwrite({}.inner, 1, {}.len, stdout);\n",
+                "{} = fwrite({}.inner, 1, {}.len, stdout); ",
                 c_format_value(&to),
                 c_format_value(&args[0]),
                 c_format_value(&args[0]),
@@ -521,18 +531,12 @@ fn builtin_function(output: &mut String, builtin: BuiltinFunction, args: &[Value
             .unwrap();
         }
         BuiltinFunction::StdoutFlush => {
-            output.push_str("fflush(stdout);\n");
+            output.push_str("fflush(stdout);");
         }
         BuiltinFunction::StdinGetLine => {
             write!(
                 output,
-                "{{
-                        char temp_data[512];
-                        gets(temp_data);\n
-                        {0}.len = strlen(temp_data);
-                        {0}.inner = malloc({0}.len);
-                        memcpy({0}.inner, temp_data, {0}.len);
-                    }}\n",
+                "{{ char temp_data[512]; gets(temp_data); {0}.len = strlen(temp_data); {0}.inner = malloc({0}.len); memcpy({0}.inner, temp_data, {0}.len); }}",
                 c_format_value(&to),
             )
             .unwrap();
@@ -540,19 +544,19 @@ fn builtin_function(output: &mut String, builtin: BuiltinFunction, args: &[Value
         BuiltinFunction::Alloc => {
             write!(
                 output,
-                "{}.inner = malloc({});\n",
+                "{}.inner = malloc({}); ",
                 c_format_value(&to),
                 c_format_value(&args[0]),
             )
             .unwrap();
         }
         BuiltinFunction::Dealloc => {
-            write!(output, "free({}.inner);\n", c_format_value(&args[0])).unwrap();
+            write!(output, "free({}.inner); ", c_format_value(&args[0])).unwrap();
         }
         BuiltinFunction::MemCopy => {
             write!(
                 output,
-                "memmove({}.inner, {}.inner, {});\n",
+                "memmove({}.inner, {}.inner, {}); ",
                 c_format_value(&args[1]),
                 c_format_value(&args[0]),
                 c_format_value(&args[2])
@@ -562,7 +566,7 @@ fn builtin_function(output: &mut String, builtin: BuiltinFunction, args: &[Value
         BuiltinFunction::MemCopyNonOverlapping => {
             write!(
                 output,
-                "memcpy({}.inner, {}.inner, {});\n",
+                "memcpy({}.inner, {}.inner, {}); ",
                 c_format_value(&args[1]),
                 c_format_value(&args[0]),
                 c_format_value(&args[2])

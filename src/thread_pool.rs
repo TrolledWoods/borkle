@@ -397,6 +397,8 @@ fn worker<'a>(alloc: &'a mut Bump, program: &'a Program) -> (ThreadContext<'a>, 
                         .logger
                         .log(format_args!("emitting function '{:?}'", function_id));
 
+                    let loc = program.get_function_loc(function_id);
+
                     crate::emit::emit_function_declaration(
                         &mut thread_context,
                         program,
@@ -405,6 +407,7 @@ fn worker<'a>(alloc: &'a mut Bump, program: &'a Program) -> (ThreadContext<'a>, 
                         &ast,
                         node_id,
                         type_,
+                        loc,
                         function_id,
                         stack_frame_id,
                     );

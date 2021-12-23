@@ -420,6 +420,7 @@ fn subset_was_completed(ctx: &mut Context<'_, '_>, waiting_on: WaitingOnTypeInfe
                         ctx.ast,
                         body,
                         type_,
+                        node_loc,
                         function_id,
                         set,
                     );
@@ -825,6 +826,7 @@ fn build_constraints(
             }
         }
         NodeKind::If {
+            is_const: _,
             condition,
             true_body,
             false_body,
