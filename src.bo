@@ -1,7 +1,5 @@
 library "base.bo";
 
-const A.(T)
-
 #entry fn() -> u64 {
 
     0

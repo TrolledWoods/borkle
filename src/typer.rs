@@ -9,7 +9,7 @@ pub use crate::parser::{ast::Node, ast::NodeId, ast::NodeKind, Ast};
 use crate::program::{PolyOrMember, PolyMemberId, Program, Task, constant::ConstantRef, FunctionId, BuiltinFunction};
 use crate::thread_pool::ThreadContext;
 use crate::type_infer::{self, ValueId as TypeId, Args, TypeSystem, ValueSetId, Variance, TypeKind, Reason, ReasonKind};
-use crate::types::{self, IntTypeKind, PtrPermits};
+use crate::types::{self, IntTypeKind};
 use ustr::Ustr;
 
 #[derive(Clone)]
@@ -756,7 +756,7 @@ fn build_constraints(
             ctx.infer.set_type(node_type_id, TypeKind::Buffer, Args([(u8_type, Reason::temp(node_loc))]), set);
 
             let u8_type = types::Type::new(types::TypeKind::Int(IntTypeKind::U8));
-            let type_ = types::Type::new(types::TypeKind::Buffer { permits: PtrPermits::READ, pointee: u8_type });
+            let type_ = types::Type::new(types::TypeKind::Buffer { pointee: u8_type });
             let ptr = ctx.program.insert_buffer(
                 type_,
                 &crate::types::BufferRepr {
@@ -1162,7 +1162,7 @@ fn build_type(
                 .collect();
             ctx.infer.set_type(node_type_id, TypeKind::Struct(names), Args(fields), set);
         }
-        NodeKind::ReferenceType(inner, _permits) => {
+        NodeKind::ReferenceType(inner) => {
             let inner = build_type(ctx, inner, set);
             // let access = permits_to_access(permits);
             // let access = ctx.infer.add_access(Some(access), set);
@@ -1172,7 +1172,7 @@ fn build_type(
                 set,
             );
         }
-        NodeKind::BufferType(inner, _permits) => {
+        NodeKind::BufferType(inner) => {
             let inner = build_type(ctx, inner, set);
             // let access = permits_to_access(permits);
             // let access = ctx.infer.add_access(Some(access), set);

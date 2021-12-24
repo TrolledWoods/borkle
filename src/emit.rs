@@ -7,7 +7,7 @@ use crate::parser::ast::{Ast, NodeId, NodeKind};
 use crate::program::{FunctionId, Program};
 use crate::thread_pool::ThreadContext;
 use crate::type_infer::{TypeSystem, Reason, Args, self};
-use crate::types::{IntTypeKind, PtrPermits, Type, TypeKind};
+use crate::types::{IntTypeKind, Type, TypeKind};
 
 mod context;
 use context::Context;
@@ -423,8 +423,8 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, node: NodeId) -> Value {
                             // @HACK: Yuck!!!
                             let buf_args_0 = buf_args[0];
                             let temp_ptr_type = ctx.types.add_type(type_infer::TypeKind::Reference, type_infer::Args([(buf_args_0, Reason::temp_zero())]), ());
-                            let &TypeKind::Buffer { pointee, permits } = ctx.ast.get(node).type_().kind() else { unreachable!() };
-                            let temp_ptr = ctx.registers.create(ctx.types, temp_ptr_type, Type::new(TypeKind::Reference { pointee, permits }));
+                            let &TypeKind::Buffer { pointee } = ctx.ast.get(node).type_().kind() else { unreachable!() };
+                            let temp_ptr = ctx.registers.create(ctx.types, temp_ptr_type, Type::new(TypeKind::Reference { pointee }));
 
                             ctx.emit_global(len_reg, length);
                             ctx.emit_bitcast(temp_ptr, from);
@@ -544,7 +544,6 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, node: NodeId) -> Value {
                 let to = ctx.registers.create(ctx.types, ctx.ast.get(node).type_infer_value_id, ctx.ast.get(node).type_());
                 let ref_type = Type::new(TypeKind::Reference {
                     pointee: ctx.types.value_to_compiler_type(internal_type),
-                    permits: PtrPermits::READ_WRITE,
                 });
                 let internal_type_arg = internal_type_args[0];
                 let ref_type_id = ctx.types.add_type(type_infer::TypeKind::Reference, Args([(internal_type_arg, Reason::temp_zero())]), ()); 
@@ -703,7 +702,7 @@ fn emit_lvalue<'a>(
     // and instead let them just be pointers to values? These pointers wouldn't even be considered pointers from
     // the language, but just registers that need to point to things.
     let ref_type_id = ctx.types.add_type(type_infer::TypeKind::Reference, Args([(node.type_infer_value_id, Reason::temp_zero())]), ());
-    let ref_type = Type::new(TypeKind::Reference { pointee: node.type_(), permits: PtrPermits::NONE });
+    let ref_type = Type::new(TypeKind::Reference { pointee: node.type_() });
 
     match &node.kind {
         NodeKind::Member { name, of } => {

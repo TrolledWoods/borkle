@@ -6,7 +6,7 @@ use crate::location::Location;
 use crate::operators::{BinaryOp, UnaryOp};
 use crate::program::constant::ConstantRef;
 use crate::program::{FunctionId, BuiltinFunction, MemberId, PolyMemberId, MemberMetaData, ScopeId};
-use crate::types::{PtrPermits, Type};
+use crate::types::Type;
 use std::fmt;
 use std::sync::Arc;
 use ustr::Ustr;
@@ -176,7 +176,7 @@ impl Node {
                 v(body);
             }
 
-            BufferType(inner, _) | TypeAsValue(inner) => v(inner),
+            BufferType(inner) | TypeAsValue(inner) => v(inner),
             NamedType {
                 name: _,
                 ref fields,
@@ -187,7 +187,7 @@ impl Node {
                     v(field);
                 }
             }
-            ReferenceType(inner, _)
+            ReferenceType(inner)
             | Reference(inner)
             | Defer { deferring: inner }
             | BitCast { value: inner }
@@ -355,8 +355,8 @@ pub enum NodeKind {
         args: Vec<NodeId>,
         returns: NodeId,
     },
-    BufferType(NodeId, Option<(Location, PtrPermits)>),
-    ReferenceType(NodeId, Option<(Location, PtrPermits)>),
+    BufferType(NodeId),
+    ReferenceType(NodeId),
     LiteralType(Type),
 
     Reference(NodeId),

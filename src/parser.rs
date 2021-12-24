@@ -5,7 +5,7 @@ use crate::locals::{Local, LocalVariables};
 use crate::location::Location;
 use crate::operators::{BinaryOp, Operator, UnaryOp};
 use crate::program::{Program, ScopeId, Task};
-use crate::types::{PtrPermits, Type, TypeKind};
+use crate::types::{Type, TypeKind};
 pub use ast::{AstBuilder, Node, NodeId, NodeKind};
 use context::{DataContext, ImperativeContext};
 use lexer::{Bracket, Keyword, Token, TokenKind};
@@ -468,9 +468,8 @@ fn type_(
                             NodeKind::LiteralType(TypeKind::VoidBuffer.into()),
                         )))
                     } else {
-                        let permits = parse_pointer_permits(global);
                         let inner = type_(global, imperative, buffer)?;
-                        Ok(buffer.add(Node::new(loc, NodeKind::BufferType(inner, permits))))
+                        Ok(buffer.add(Node::new(loc, NodeKind::BufferType(inner))))
                     }
                 }
                 _ => {
@@ -526,8 +525,6 @@ fn type_(
         }
         _ => {
             if global.tokens.try_consume_operator_string("&").is_some() {
-                let permits = parse_pointer_permits(global);
-
                 if global
                     .tokens
                     .try_consume(&TokenKind::Keyword(Keyword::Void))
@@ -545,7 +542,7 @@ fn type_(
                     )))
                 } else {
                     let inner = type_(global, imperative, buffer)?;
-                    Ok(buffer.add(Node::new(loc, NodeKind::ReferenceType(inner, permits))))
+                    Ok(buffer.add(Node::new(loc, NodeKind::ReferenceType(inner))))
                 }
             } else {
                 global.error(
@@ -1262,43 +1259,6 @@ fn maybe_parse_polymorphic_arguments(
         }
     }
     Ok(args)
-}
-
-fn parse_pointer_permits(global: &mut DataContext<'_>) -> Option<(Location, PtrPermits)> {
-    match global.tokens.peek() {
-        Some(&Token {
-            kind: TokenKind::Keyword(Keyword::Write),
-            loc,
-            ..
-        }) => {
-            global.tokens.next();
-            Some((loc, PtrPermits::WRITE))
-        }
-        Some(&Token {
-            kind: TokenKind::Keyword(Keyword::Read),
-            loc,
-            ..
-        }) => {
-            global.tokens.next();
-            Some((loc, PtrPermits::READ))
-        }
-        Some(&Token {
-            kind: TokenKind::Keyword(Keyword::ReadWrite),
-            loc,
-            ..
-        }) => {
-            global.tokens.next();
-            Some((loc, PtrPermits::READ_WRITE))
-        }
-        // Leave to be inferred.
-        _ => {
-            if let Some(loc) = global.tokens.try_consume_operator_string("!!") {
-                Some((loc, PtrPermits::NONE))
-            } else {
-                None
-            }
-        }
-    }
 }
 
 fn parse_default_label(

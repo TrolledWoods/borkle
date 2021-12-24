@@ -19,11 +19,11 @@ const filled_array.(N, T) = fn(v: T) -> [N] T {
     arr
 };
 
-const copy.(T) = fn(to: &w T, from: &r T, size: usize) {
+const copy.(T) = fn(to: &T, from: &T, size: usize) {
     i_copy(cast to, cast from, size * sizeof T);
 };
 
-const copy_nonoverlapping.(T) = fn(to: &w T, from: &r T, size: usize) {
+const copy_nonoverlapping.(T) = fn(to: &T, from: &T, size: usize) {
     i_copy_nonoverlapping(cast to, cast from, size * sizeof T);
 };
 
@@ -79,7 +79,7 @@ const CHAR_0_ASCII_CODE = 48 : u8;
 // TEMPORARY until not operator is done a gain
 const not = fn(v: bool) -> bool  if v false else true;
 
-const cmp_strings = fn(a: []r u8, b: []r u8) -> bool { 'function
+const cmp_strings = fn(a: [] u8, b: [] u8) -> bool { 'function
     if a.len != b.len  break 'function false;
 
     for 'loop c in a {
@@ -95,7 +95,7 @@ const put_char = fn(c: u8) {
 };
 
 // This doesn't really work, it looks liike!!!!
-const take_until = fn(string: &rw []r u8, c: u8) -> []r u8 {
+const take_until = fn(string: &[] u8, c: u8) -> [] u8 {
     let new = #uninit;
     // Why no typing error if you remove the dereference in (*string)???
     new.ptr = (*string).ptr;
@@ -111,28 +111,28 @@ const take_until = fn(string: &rw []r u8, c: u8) -> []r u8 {
     new
 };
 
-const take_char = fn(string: &rw []r u8) -> u8 {
+const take_char = fn(string: &[] u8) -> u8 {
     let c = *(*string).ptr;
     advance(string);
     c
 };
 
-const advance_by = fn(string: &rw []r u8, by: usize) {
+const advance_by = fn(string: &[] u8, by: usize) {
     assert((*string).len >= by);
     (*string).ptr = (*string).ptr + by;
     (*string).len = (*string).len - by;
 };
 
-const advance = fn(string: &rw []r u8) {
+const advance = fn(string: &[] u8) {
     if (*string).len > 0 {
         (*string).ptr = (*string).ptr + 1;
         (*string).len = (*string).len - 1;
     };
 };
 
-const empty = fn(string: &r []r u8) -> bool   (*string).len == 0;
+const empty = fn(string: &[] u8) -> bool   (*string).len == 0;
 
-const take_u64_with_base = fn(string: &rw []r u8, base: u64) -> u64 {
+const take_u64_with_base = fn(string: &[] u8, base: u64) -> u64 {
     let number = 0;
     while (*string).len > 0 {
         let c = *(*string).ptr;
@@ -143,7 +143,7 @@ const take_u64_with_base = fn(string: &rw []r u8, base: u64) -> u64 {
     number
 };
 
-const take_u64 = fn(string: &rw []r u8) -> u64 {
+const take_u64 = fn(string: &[] u8) -> u64 {
     let number = 0;
     while (*string).len > 0 {
         let c = *(*string).ptr;
@@ -154,7 +154,7 @@ const take_u64 = fn(string: &rw []r u8) -> u64 {
     number
 };
 
-const skip_num = fn(string: &rw []r u8) -> []r u8 {
+const skip_num = fn(string: &[] u8) -> [] u8 {
     let new = #uninit;
     new.ptr = (*string).ptr;
     new.len = 0;
@@ -169,7 +169,7 @@ const skip_num = fn(string: &rw []r u8) -> []r u8 {
 };
 
 
-const take_word = fn(string: &rw []r u8) -> []r u8 {
+const take_word = fn(string: &[] u8) -> [] u8 {
     let length = 0;
     let start = (*string).ptr;
     while (*string).len > 0 {
@@ -187,7 +187,7 @@ const take_word = fn(string: &rw []r u8) -> []r u8 {
     buf
 };
 
-const take_whitespace = fn(string: &rw []r u8) {
+const take_whitespace = fn(string: &[] u8) {
     while (*string).len > 0 {
         if not(is_whitespace(*(*string).ptr)) break;
         advance(string);

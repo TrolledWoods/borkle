@@ -1,11 +1,11 @@
 const i_assert              = #builtin_function assert                  : fn(bool);
-const i_stdout_write        = #builtin_function stdout_write            : fn([]r u8) -> usize;
+const i_stdout_write        = #builtin_function stdout_write            : fn([] u8) -> usize;
 const i_stdout_flush        = #builtin_function stdout_flush            : fn();
-const i_stdin_getline       = #builtin_function stdin_get_line          : fn() -> []rw u8;
+const i_stdin_getline       = #builtin_function stdin_get_line          : fn() -> [] u8;
 
 // @Cleanup: When void pointers are back, these should probably operate on those
-const i_copy                = #builtin_function mem_copy                : fn(&w u8, &r u8, usize);
-const i_copy_nonoverlapping = #builtin_function mem_copy_nonoverlapping : fn(&w u8, &r u8, usize);
+const i_copy                = #builtin_function mem_copy                : fn(&u8, &u8, usize);
+const i_copy_nonoverlapping = #builtin_function mem_copy_nonoverlapping : fn(&u8, &u8, usize);
 
-const i_alloc               = #builtin_function alloc                   : fn(usize) -> &rw u8;
-const i_dealloc             = #builtin_function dealloc                 : fn([]rw u8);
+const i_alloc               = #builtin_function alloc                   : fn(usize) -> &u8;
+const i_dealloc             = #builtin_function dealloc                 : fn([] u8);

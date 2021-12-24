@@ -311,102 +311,6 @@ impl Variance {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Access {
-    pub cannot_read: bool,
-    pub needs_read: bool,
-    pub cannot_write: bool,
-    pub needs_write: bool,
-}
-
-impl Default for Access {
-    fn default() -> Self {
-        Self {
-            cannot_read: false,
-            cannot_write: false,
-            needs_read: false,
-            needs_write: false,
-        }
-    }
-}
-
-impl Access {
-    pub fn cannot_read(&self) -> bool {
-        self.cannot_read
-    }
-
-    pub fn cannot_write(&self) -> bool {
-        self.cannot_write
-    }
-
-    pub fn needs_read(&self) -> bool {
-        self.needs_read
-    }
-
-    pub fn needs_write(&self) -> bool {
-        self.needs_write
-    }
-
-    pub fn specific(read: bool, write: bool) -> Self {
-        Self {
-            cannot_read: !read,
-            cannot_write: !write,
-            needs_read: read,
-            needs_write: write,
-        }
-    }
-    
-    pub fn disallows(cannot_read: bool, cannot_write: bool) -> Self {
-        Self {
-            cannot_read,
-            cannot_write,
-            needs_read: false,
-            needs_write: false,
-        }
-    }
-
-    pub fn needs(needs_read: bool, needs_write: bool) -> Self {
-        Self {
-            cannot_read: false,
-            cannot_write: false,
-            needs_read,
-            needs_write,
-        }
-    }
-
-    pub fn is_complete(&self) -> bool {
-        self.cannot_read <= self.needs_read && self.cannot_write <= self.needs_write
-    }
-
-    pub fn combine_with(&mut self, other: &mut Self, variance: Variance) {
-        match variance {
-            Variance::Variant => {
-                self.needs_read |= other.needs_read;
-                self.needs_write |= other.needs_write;
-                other.cannot_read &= self.cannot_read;
-                other.cannot_write &= self.cannot_write;
-            }
-            Variance::Covariant => {
-                other.needs_read |= self.needs_read;
-                other.needs_write |= self.needs_write;
-                self.cannot_read &= other.cannot_read;
-                self.cannot_write &= other.cannot_write;
-            }
-            Variance::Invariant => {
-                other.needs_read |= self.needs_read;
-                self.needs_read = other.needs_read;
-                other.needs_write |= self.needs_write;
-                self.needs_write = other.needs_write;
-                other.needs_read &= self.needs_read;
-                self.needs_read = other.needs_read;
-                other.needs_write &= self.needs_write;
-                self.needs_write = other.needs_write;
-            }
-            Variance::DontCare => {},
-        }
-    }
-}
-
 #[derive(Debug, Clone)]
 pub struct Type {
     pub kind: TypeKind,
@@ -553,16 +457,6 @@ pub enum ErrorKind {
     ValueAndTypesIntermixed,
     IndexOutOfBounds(usize),
     NonexistantName(Ustr),
-}
-
-#[derive(Clone)]
-struct VarianceConstraint {
-    /// The variance between the two Access operations
-    variance: Variance,
-    /// The variance "strength" applied in the last queueing of constraints. This is so we can make sure we don't
-    /// issue all the constraints several times unnecessarily.
-    last_variance_applied: Variance,
-    constraints: Vec<(ConstraintId, Variance)>,
 }
 
 pub fn extract_constant_from_value(values: &Values, value: ValueId) -> Option<ConstantRef> {
@@ -1052,9 +946,6 @@ pub struct TypeSystem {
     constraints: Vec<Constraint>,
     computable_value_sizes: Vec<ValueId>,
 
-    /// When the access level of certain things determine the variance of constraints, those constraints are put into here.
-    variance_updates: HashMap<(ValueId, ValueId), VarianceConstraint>,
-
     available_constraints: HashMap<ValueId, Vec<ConstraintId>>,
     queued_constraints: Vec<ConstraintId>,
 
@@ -1069,7 +960,6 @@ impl TypeSystem {
         let mut this = Self {
             values: Values::new(),
             value_sets: ValueSets::default(),
-            variance_updates: HashMap::new(),
             constraints: Vec::new(),
             computable_value_sizes: Vec::new(),
             available_constraints: HashMap::new(),
@@ -1338,9 +1228,8 @@ impl TypeSystem {
                 };
 
                 let pointee = self.value_to_compiler_type(*pointee);
-                let permits = types::PtrPermits::from_read_write(true, true);
 
-                types::Type::new(types::TypeKind::Buffer { pointee, permits })
+                types::Type::new(types::TypeKind::Buffer { pointee })
             }
             TypeKind::Reference => {
                 let [pointee] = &**type_args else {
@@ -1348,10 +1237,8 @@ impl TypeSystem {
                 };
 
                 let pointee = self.value_to_compiler_type(*pointee);
-                // @Correctness: We want to reintroduce the real permits after the rework is complete
-                let permits = types::PtrPermits::from_read_write(true, true);
 
-                types::Type::new(types::TypeKind::Reference { pointee, permits })
+                types::Type::new(types::TypeKind::Reference { pointee })
             }
             TypeKind::Struct(ref fields) => {
                 let fields = fields
@@ -2121,7 +2008,7 @@ impl TypeSystem {
             }
             types::TypeKind::Empty => self.set_type(id, TypeKind::Empty, Args([]), set.clone()),
             types::TypeKind::Bool  => self.set_type(id, TypeKind::Bool, Args([]), set.clone()),
-            types::TypeKind::Buffer { pointee, permits: _ } => {
+            types::TypeKind::Buffer { pointee } => {
                 // @Cleanup: This is ugly!
                 // @Correctness: We want to reintroduce these once the rework is complete
                 // let permits = self.add_access(Some(Access::disallows(!permits.read(), !permits.write())), set);
@@ -2129,7 +2016,7 @@ impl TypeSystem {
 
                 self.set_type(id, TypeKind::Buffer, Args([(pointee, Reason::temp_zero())]), set.clone())
             }
-            types::TypeKind::Reference { pointee, permits: _ } => {
+            types::TypeKind::Reference { pointee } => {
                 // @Correctness: We want to reintroduce permits once the rework is complete
                 // let permits = self.add_access(Some(Access::disallows(!permits.read(), !permits.write())), set);
                 let pointee = self.add_compiler_type(program, pointee, set.clone());
@@ -2248,29 +2135,5 @@ impl TypeSystem {
         let type_id = self.add_unknown_type();
         self.set_value(type_id, type_, value, set);
         type_id
-    }
-}
-
-/// If a and b are accesses permissions used to determine the variance of an operation, and they are "equal" with a variance
-/// relationship, what variance is the operation required to have at least?
-///
-/// Variances are seen as constraints, so if the operation _could_ be Invariant, this function may still return Covariant or
-/// Variant, because applying both Covariant "equality" and Invariant "equality" is the same as just applying Invariant "equality".
-fn biggest_guaranteed_variance_of_operation(a: &Option<Access>, b: &Option<Access>, variance: Variance) -> Variance {
-    let (a_read, a_write) = a.as_ref().map_or((false, false), |v| (v.needs_read(), v.needs_write()));
-    let (b_read, b_write) = b.as_ref().map_or((false, false), |v| (v.needs_read(), v.needs_write()));
-
-    let (needs_read, needs_write) = match variance {
-        Variance::Variant => (b_read, b_write),
-        Variance::Covariant => (a_read, a_write),
-        Variance::Invariant => (a_read || b_read, a_write || b_write),
-        Variance::DontCare => (a_read && b_read, a_write && b_write),
-    };
-
-    match (needs_read, needs_write) {
-        (true, true) => Variance::Invariant,
-        (false, true) => Variance::Covariant,
-        (true, false) => Variance::Variant,
-        (false, false) => Variance::DontCare,
     }
 }

@@ -622,16 +622,12 @@ fn name_of_type(mut out: impl Write, type_: Type, rec: u32) -> fmt::Result {
             write!(out, "arr{}_", size)?;
             name_of_type(out, element, rec + 1)?;
         }
-        TypeKind::Reference { pointee, permits } => {
+        TypeKind::Reference { pointee } => {
             out.write_str("ref_")?;
-            out.write_str(permits.to_str())?;
-            out.write_char('_')?;
             name_of_type(out, pointee, rec + 1)?;
         }
-        TypeKind::Buffer { pointee, permits } => {
+        TypeKind::Buffer { pointee } => {
             out.write_str("buf_")?;
-            out.write_str(permits.to_str())?;
-            out.write_char('_')?;
             name_of_type(out, pointee, rec + 1)?;
         }
         TypeKind::Struct { .. } => {
