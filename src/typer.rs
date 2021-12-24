@@ -431,10 +431,9 @@ fn subset_was_completed(ctx: &mut Context<'_, '_>, waiting_on: WaitingOnTypeInfe
                 .program
                 .insert_buffer(type_, &function_id as *const _ as *const u8);
 
-            // @Improvement: We could technically emit this constant
-            // node _before_ queueing/emitting the function. It doesn't
-            // really have a point though and makes things more complicated
-            // when you start thinking about the typing-time functions.
+            // We are only allowed to change the node type here, because if this function declaration
+            // is in a "polymorphic subtree"(that may be copied several times and use different types),
+            // we need to become different functions.
             ctx.ast.get_mut(node_id).kind = NodeKind::Constant(
                 function_id_buffer,
                 None,

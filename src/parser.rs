@@ -1359,7 +1359,19 @@ fn maybe_parse_label(
 }
 
 fn parse_tags(global: &mut DataContext<'_>, _imperative: &mut ImperativeContext<'_>, expr_name: &str, tags: &mut [(Ustr, &mut Option<Location>)]) -> Result<(), ()> {
-    while let Some(&Token { loc, kind: TokenKind::Tag(tag_name), .. }) = global.tokens.peek() {
+    let mut is_first = true;
+    loop {
+        let Some(&Token { loc, kind: TokenKind::Tag(tag_name), .. }) = global.tokens.peek() else {
+            if is_first {
+                break;
+            } else {
+                global.error(global.tokens.loc(), format!("Expected tag for `{}`. You need a `:` after a tag list to close it", expr_name));
+                return Err(());
+            }
+        };
+
+        is_first = false;
+
         global.tokens.next();
 
         if let Some((_, tag)) = tags.iter_mut().find(|(name, _)| *name == tag_name) {
@@ -1371,6 +1383,12 @@ fn parse_tags(global: &mut DataContext<'_>, _imperative: &mut ImperativeContext<
             }
         } else {
             global.error(loc, format!("no tag `{}` on `{}`", tag_name, expr_name));
+        }
+
+        if global.tokens.try_consume_operator_string(":").is_some() {
+            break;
+        } else {
+            global.tokens.expect_next_is(global.errors, &TokenKind::Comma)?;
         }
     }
 
