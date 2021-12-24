@@ -1,6 +1,5 @@
 library "base.bo";
 
 #entry fn() -> u64 {
-
     0
 };
