@@ -8,7 +8,7 @@ const TestsDay2 = fn() {
     assert(aoc_day2_part_2(INPUT) == 1813664422);
 };
 
-const aoc_day2_part_1 = fn (parse: []r u8) -> i64 {
+const aoc_day2_part_1 = fn (parse: [] u8) -> i64 {
     let depth = 0;
     let pos   = 0;
 
@@ -34,7 +34,7 @@ const aoc_day2_part_1 = fn (parse: []r u8) -> i64 {
     depth * pos
 };
 
-const aoc_day2_part_2 = fn(parse: []r u8) -> i64 {
+const aoc_day2_part_2 = fn(parse: [] u8) -> i64 {
     let parse = INPUT;
 
     let depth = 0;

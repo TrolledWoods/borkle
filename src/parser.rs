@@ -138,19 +138,6 @@ pub fn process_string(
                     .program
                     .define_member(context.errors, token.loc, None, "<anonymous>".into())?;
 
-                let mut stack = Vec::new();
-                println!("Ast:");
-                stack.push(tree.root().children);
-                println!("{:?}", tree.root().node.kind);
-                while let Some(iterator) = stack.last_mut() {
-                    if let Some(value) = iterator.next() {
-                        println!("{}{:?}", "  ".repeat(stack.len()), value.node.kind);
-                        stack.push(value.children);
-                    } else {
-                        stack.pop();
-                    }
-                }
-
                 context.program.queue_task(
                     dependencies,
                     Task::TypeMember { member_id: id, locals, ast: tree },
@@ -464,7 +451,7 @@ fn value(
             Ok(slot.finish(loc, NodeKind::Unary { op }))
         }
     } else {
-        value_without_unaries(global, imperative, slot.add())
+        value_without_unaries(global, imperative, slot)
     }
 }
 

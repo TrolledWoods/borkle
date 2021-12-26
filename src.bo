@@ -1,10 +1,7 @@
-// library "base.bo";
-// import "tests/main.bo";
+library "base.bo";
+import "tests/main.bo";
 
-{
-    0 : u64
+#entry fn() -> u64 {
+    run_aoc_tests();
+    0
 };
-
-// #entry fn() -> u64 {
-//     0
-// };

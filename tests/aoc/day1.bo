@@ -8,7 +8,7 @@ const TestsDay1 = fn() {
     assert(aoc_day1_part_2(INPUT) == 1491);
 };
 
-const aoc_day1_part_1 = fn(parse: []r u8) -> u64 {
+const aoc_day1_part_1 = fn(parse: [] u8) -> u64 {
     let old_number = take_u64(&parse);
     take_whitespace(&parse);
     let count = 0;
@@ -22,7 +22,7 @@ const aoc_day1_part_1 = fn(parse: []r u8) -> u64 {
     count
 };
 
-const aoc_day1_part_2 = fn(parse: []r u8) -> u64 {
+const aoc_day1_part_2 = fn(parse: [] u8) -> u64 {
     let old_a = take_u64(&parse);
     take_whitespace(&parse);
     let old_b = take_u64(&parse);

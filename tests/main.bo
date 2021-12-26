@@ -18,7 +18,7 @@ const run_aoc_tests = fn() {
     TestsDay7();
 };
 
-const ok = fn(name: []r u8) {
+const ok = fn(name: [] u8) {
     print("[OK] ");
     print(name);
     print("\n");
@@ -42,7 +42,7 @@ const ok = fn(name: []r u8) {
     assert(a >= 2);
 };
 
-const TestBlocksAndBreaks = fn() {
+{
     defer ok("TestBlocksAndBreaks");
 
     let set_order = fn(order: &u32, wanted: u32) {

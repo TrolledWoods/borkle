@@ -576,6 +576,10 @@ fn build_constraints(
                 todo!("Handling of the case where you pass polymorphic args to something that shouldn't have it");
             };
 
+            ctx.infer.set_value_set(on.type_infer_value_id, set);
+            ctx.infer.value_sets.add_node_to_set(set, on.id);
+            ctx.infer.set_equal(on.type_infer_value_id, node_type_id, Variance::Invariant, Reason::temp(node_loc));
+
             let id = ctx.program.get_member_id(scope, name).expect("The dependency system should have made sure that this is defined");
 
             match id {
@@ -628,7 +632,7 @@ fn build_constraints(
                     });
                 }
                 PolyOrMember::Member(id) => {
-                    if !node.children.next().is_none() {
+                    if node.children.next().is_some() {
                         // This is an error, since it's not polymorphic
                         ctx.errors.error(node_loc, "Passed polymorphic parameters even though this value isn't polymorphic".to_string());
                         // @Cleanup: This should probably just be a function on TypeSystem

@@ -20,6 +20,21 @@ pub struct Ast {
 }
 
 impl Ast {
+    pub fn print(&self) {
+        let mut stack = Vec::new();
+        println!("Ast:");
+        println!("{}{}: {:?}", ": ".repeat(stack.len()), self.root().id.0, self.root().node.kind);
+        stack.push(self.root());
+        while let Some(value) = stack.last_mut() {
+            if let Some(value) = value.children.next() {
+                println!("{}{}: {:?}", ": ".repeat(stack.len()), value.id.0, value.node.kind);
+                stack.push(value);
+            } else {
+                stack.pop();
+            }
+        }
+    }
+    
     pub fn root_id(&self) -> NodeId {
         NodeId(self.builder.nodes.len() as u32 - 1)
     }
@@ -84,9 +99,26 @@ impl AstBuilder {
             }
         }
 
-        Ast {
+        let ast = Ast {
             builder: self,
+        };
+
+        // @Performance: Not necessary, just to make sure that all nodes are visited by iteration.
+        let mut stack = Vec::new();
+        stack.push(ast.root());
+        let mut counter = 0;
+        while let Some(value) = stack.last_mut() {
+            if let Some(value) = value.children.next() {
+                stack.push(value);
+            } else {
+                let new_value = stack.pop().unwrap();
+                assert_eq!(new_value.id.0, counter);
+
+                counter += 1;
+            }
         }
+
+        ast
     }
 
     pub fn add(&mut self) -> AstSlot<'_> {
@@ -175,10 +207,10 @@ impl<'a> AstSlot<'a> {
             subtree_size += child.subtree_size + 1;
         }
 
-        if self.num_children >= 2 {
-            // `next_child_subtree_size` will be the first child,
+        if self.num_children >= 1 {
+            // `next_child_subtree_size` will be the first child(because of backwards iteration),
             // and the last child should contain the first childs information.
-            self.nodes[id_usize - 1].next_subtree_size = next_child_subtree_size;
+            self.nodes.last_mut().unwrap().next_subtree_size = next_child_subtree_size;
         }
 
         self.nodes.push(Node {
@@ -213,14 +245,14 @@ impl<'a> Iterator for ChildIterator<'a> {
 
         let munching = std::mem::replace(&mut self.munching, &[]);
         let (child_section, new_munching) = munching.split_at(self.next_subtree_size as usize + 1);
-        let child_id = NodeId(self.base_id.0 + self.next_subtree_size);
+        let old_base = self.base_id;
         self.base_id = NodeId(self.base_id.0 + self.next_subtree_size + 1);
         self.munching = new_munching;
 
         let (child, child_subtree) = child_section.split_last().unwrap();
         self.next_subtree_size = child.next_subtree_size;
 
-        Some(NodeView::new(child_id, child, child_subtree))
+        Some(NodeView::new(old_base, child, child_subtree))
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
@@ -270,14 +302,14 @@ impl<'a> Iterator for ChildIteratorMut<'a> {
 
         let munching = std::mem::replace(&mut self.munching, &mut []);
         let (child_section, new_munching) = munching.split_at_mut(self.next_subtree_size as usize + 1);
-        let child_id = NodeId(self.base_id.0 + self.next_subtree_size);
+        let old_base = self.base_id;
         self.base_id = NodeId(self.base_id.0 + self.next_subtree_size + 1);
         self.munching = new_munching;
 
         let (child, child_subtree) = child_section.split_last_mut().unwrap();
         self.next_subtree_size = child.next_subtree_size;
 
-        Some(NodeViewMut::new(child_id, child, child_subtree))
+        Some(NodeViewMut::new(old_base, child, child_subtree))
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
