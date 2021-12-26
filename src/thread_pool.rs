@@ -184,7 +184,7 @@ fn worker<'a>(alloc: &'a mut Bump, program: &'a Program) -> (ThreadContext<'a>, 
                             ast,
                         ) {
                             Ok(Ok((dependencies, locals, types, ast))) => {
-                                let meta_data = match &ast.get(ast.root).kind {
+                                let meta_data = match &ast.root().kind {
                                     NodeKind::Constant(_, Some(meta_data)) => {
                                         (&**meta_data).clone()
                                     }
@@ -194,13 +194,13 @@ fn worker<'a>(alloc: &'a mut Bump, program: &'a Program) -> (ThreadContext<'a>, 
                                     _ => MemberMetaData::None,
                                 };
 
-                                let type_ = ast.get(ast.root).type_();
+                                let type_ = ast.root().type_();
 
                                 if type_.can_be_stored_in_constant() {
                                     program.logger.log(format_args!(
                                         "type '{}' {:?}",
                                         program.member_name(member_id),
-                                        ast.get(ast.root).type_(),
+                                        ast.root().type_(),
                                     ));
 
                                     program.set_type_of_member(member_id, type_, meta_data);
@@ -209,7 +209,7 @@ fn worker<'a>(alloc: &'a mut Bump, program: &'a Program) -> (ThreadContext<'a>, 
                                         Task::EmitMember(member_id, locals, types, ast),
                                     );
                                 } else {
-                                    errors.error(ast.get(ast.root).loc, format!("'{}' cannot be stored in a constant, because it contains types that the compiler cannot reason about properly, such as '&any', '[] any', or similar", type_));
+                                    errors.error(ast.root().loc, format!("'{}' cannot be stored in a constant, because it contains types that the compiler cannot reason about properly, such as '&any', '[] any', or similar", type_));
                                 }
                             }
                             Ok(Err(_)) => {
@@ -234,15 +234,15 @@ fn worker<'a>(alloc: &'a mut Bump, program: &'a Program) -> (ThreadContext<'a>, 
                         program.logger.log(format_args!(
                             "emitting member '{}' {:?}",
                             program.member_name(member_id),
-                            ast.get(ast.root).type_(),
+                            ast.root().type_(),
                         ));
 
-                        match &ast.get(ast.root).kind {
+                        match &ast.root().kind {
                             NodeKind::Constant(result, _) => {
                                 program.logger.log(format_args!(
                                     "value(at emitting step, through shortcut) '{}': {}",
                                     program.member_name(member_id),
-                                    crate::program::constant_to_str(ast.get(ast.root).type_(), *result, 0),
+                                    crate::program::constant_to_str(ast.root().type_(), *result, 0),
                                 ));
 
                                 program.set_value_of_member(member_id, *result);
@@ -252,10 +252,10 @@ fn worker<'a>(alloc: &'a mut Bump, program: &'a Program) -> (ThreadContext<'a>, 
                                 // pointers behind other pointers yet!
                                 let mut dependencies = DependencyList::new();
                                 for function_id in unsafe {
-                                    ast.get(ast.root).type_().get_function_ids(result.as_ptr())
+                                    ast.root().type_().get_function_ids(result.as_ptr())
                                 } {
                                     dependencies
-                                        .add(ast.get(ast.root).loc, DepKind::Callable(function_id));
+                                        .add(ast.root().loc, DepKind::Callable(function_id));
                                 }
 
                                 program
@@ -267,7 +267,7 @@ fn worker<'a>(alloc: &'a mut Bump, program: &'a Program) -> (ThreadContext<'a>, 
                                 program.logger.log(format_args!(
                                     "value(at emitting step, through shortcut) '{}': {}",
                                     program.member_name(member_id),
-                                    crate::program::constant_to_str(ast.get(ast.root).type_(), result, 0),
+                                    crate::program::constant_to_str(ast.root().type_(), result, 0),
                                 ));
 
                                 program.set_value_of_member(member_id, result);
@@ -277,10 +277,10 @@ fn worker<'a>(alloc: &'a mut Bump, program: &'a Program) -> (ThreadContext<'a>, 
                                 // pointers behind other pointers yet!
                                 let mut dependencies = DependencyList::new();
                                 for function_id in unsafe {
-                                    ast.get(ast.root).type_().get_function_ids(result.as_ptr())
+                                    ast.root().type_().get_function_ids(result.as_ptr())
                                 } {
                                     dependencies
-                                        .add(ast.get(ast.root).loc, DepKind::Callable(function_id));
+                                        .add(ast.root().loc, DepKind::Callable(function_id));
                                 }
 
                                 program
@@ -293,7 +293,7 @@ fn worker<'a>(alloc: &'a mut Bump, program: &'a Program) -> (ThreadContext<'a>, 
                                     &mut locals,
                                     &mut types,
                                     &ast,
-                                    ast.root,
+                                    ast.root_id(),
                                     // @HACK: Here we assume that stack frame id number 0 is the parent one.
                                     0,
                                 );
@@ -302,7 +302,7 @@ fn worker<'a>(alloc: &'a mut Bump, program: &'a Program) -> (ThreadContext<'a>, 
                                 for call in calling {
                                     // FIXME: This should include the location of the call
                                     dependencies
-                                        .add(ast.get(ast.root).loc, DepKind::Callable(call));
+                                        .add(ast.root().loc, DepKind::Callable(call));
                                 }
                                 program.queue_task(
                                     dependencies,

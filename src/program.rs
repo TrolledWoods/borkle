@@ -718,7 +718,7 @@ impl Program {
         };
 
         // FIXME: Calculate the member meta data here.
-        self.set_type_of_member(member_id, typed_ast.get(typed_ast.root).type_(), MemberMetaData::None);
+        self.set_type_of_member(member_id, typed_ast.root().type_(), MemberMetaData::None);
 
         if wanted_dep < MemberDep::Value {
             self.queue_task(
@@ -738,7 +738,7 @@ impl Program {
         assert_ne!(wanted_dep, MemberDep::Value, "Depending on just the value shouldn't really happen in this place, because either you go full on callable or you depend on the type. If you need to depend on the value it monomorphises it by depending on the type and then calculates the type on the value individually.");
 
         // @HACK: Here we assume that stack frame id number 0 is the parent one.
-        let (_, routine) = crate::emit::emit(thread_context, self, &mut locals, &mut types, &typed_ast, typed_ast.root, 0);
+        let (_, routine) = crate::emit::emit(thread_context, self, &mut locals, &mut types, &typed_ast, typed_ast.root_id(), 0);
         let mut stack = crate::interp::Stack::new(2048);
 
         let mut call_stack = Vec::new();

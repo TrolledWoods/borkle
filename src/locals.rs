@@ -21,7 +21,7 @@ pub struct Local {
     pub stack_frame_id: crate::type_infer::ValueSetId,
     pub type_: Option<Type>,
     pub value: Option<crate::ir::Value>,
-    pub uses: Vec<NodeId>,
+    pub uses: Vec<Location>,
     pub num_uses: usize,
 }
 

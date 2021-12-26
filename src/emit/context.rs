@@ -2,7 +2,7 @@ use crate::ir::{Instr, LabelId, Member, Registers, Value};
 use crate::location::Location;
 use crate::locals::LocalVariables;
 use crate::operators::{BinaryOp, UnaryOp};
-use crate::parser::ast::{Ast, NodeId};
+use crate::parser::ast::{Ast, NodeId, NodeView};
 use crate::program::{FunctionId, Program, constant::ConstantRef};
 use crate::thread_pool::ThreadContext;
 use crate::type_infer::TypeSystem;
@@ -16,10 +16,9 @@ pub struct Context<'a, 'b> {
     pub types: &'a mut TypeSystem,
     pub label_locations: Vec<usize>,
     pub calling: Vec<FunctionId>,
-    pub ast: &'a Ast,
     pub last_location: Option<Location>,
 
-    pub defers: Vec<NodeId>,
+    pub defers: Vec<NodeView<'a>>,
 }
 
 impl Context<'_, '_> {

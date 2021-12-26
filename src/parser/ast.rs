@@ -17,7 +17,38 @@ pub struct NodeId(pub u32);
 #[derive(Clone, Debug)]
 pub struct Ast {
     builder: AstBuilder,
-    pub root: NodeId,
+}
+
+impl Ast {
+    pub fn root_id(&self) -> NodeId {
+        NodeId(self.builder.nodes.len() as u32 - 1)
+    }
+
+    pub fn root(&self) -> NodeView<'_> {
+        let (root, subtree) = self.builder.nodes.split_last().unwrap();
+        NodeView::new(NodeId(0), root, subtree)
+    }
+
+    pub fn root_mut(&mut self) -> NodeViewMut<'_> {
+        let (root, subtree) = self.builder.nodes.split_last_mut().unwrap();
+        NodeViewMut::new(NodeId(0), root, subtree)
+    }
+
+    pub fn get(&self, id: NodeId) -> NodeView<'_> {
+        let node = &self.builder.nodes[id.0 as usize];
+        let base_id = id.0 - node.subtree_size;
+        let nodes = &self.builder.nodes[base_id as usize..=id.0 as usize];
+        let (head, subtree) = nodes.split_last().unwrap();
+        NodeView::new(NodeId(base_id), head, subtree)
+    }
+
+    pub fn get_mut(&mut self, id: NodeId) -> NodeViewMut<'_> {
+        let node = &mut self.builder.nodes[id.0 as usize];
+        let base_id = id.0 - node.subtree_size;
+        let nodes = &mut self.builder.nodes[base_id as usize..=id.0 as usize];
+        let (head, subtree) = nodes.split_last_mut().unwrap();
+        NodeViewMut::new(NodeId(base_id), head, subtree)
+    }
 }
 
 impl std::ops::Deref for Ast {
@@ -44,40 +75,300 @@ impl AstBuilder {
         Self::default()
     }
 
-    pub fn set_root(self, root: NodeId) -> Ast {
+    pub fn finish(self) -> Ast {
         // @Performance: This is not necessary, it's just to make sure that everything
         // is correct
-        for (i, node) in self.nodes.iter().enumerate().rev().skip(1).rev() {
-            if i as u32 != root.0 && node.parent.is_none() {
+        for node in self.nodes.iter().rev().skip(1).rev() {
+            if node.parent.is_none() {
                 panic!("Node without a parent {:?}", node);
             }
         }
 
         Ast {
             builder: self,
-            root,
         }
     }
 
-    pub fn get(&self, id: NodeId) -> &Node {
-        let id = id.0 as usize;
-        debug_assert!(id < self.nodes.len());
-        unsafe { self.nodes.get_unchecked(id) }
+    pub fn add(&mut self) -> AstSlot<'_> {
+        AstSlot {
+            nodes: &mut self.nodes,
+            num_children: 0,
+        }
+    }
+}
+
+/// A muncher is a more loose way of constructing an ast node, which let's you build up a list of nodes,
+/// and then "munch" a few away. For example, say you have the nodes [1, 2], and you "munch" 2 and put them into plus,
+/// you'll get the tree [+ [1, 2]]. Then if you added another number, [+ [1, 2], 3], and munched again into `*`, you'd
+/// get [* [+ [1, 2], 3]]. So this is useful for expressions, where we don't know how deep they may get before hand.
+pub struct Muncher<'a> {
+    nodes: &'a mut Vec<Node>,
+    num_nodes: u32,
+}
+
+impl Muncher<'_> {
+    pub fn add(&mut self) -> AstSlot<'_> {
+        self.num_nodes += 1;
+        AstSlot {
+            nodes: &mut *self.nodes,
+            num_children: 0,
+        }
     }
 
-    pub fn get_mut(&mut self, id: NodeId) -> &mut Node {
-        let id = id.0 as usize;
-        debug_assert!(id < self.nodes.len());
-        unsafe { self.nodes.get_unchecked_mut(id) }
+    pub fn munch(&mut self, amount: u32, loc: Location, kind: NodeKind) -> FinishedNode {
+        self.num_nodes = self.num_nodes - amount + 1;
+
+        let slot = AstSlot {
+            nodes: self.nodes,
+            num_children: amount,
+        };
+       
+        slot.finish(loc, kind)
     }
 
-    pub fn add(&mut self, node: Node) -> NodeId {
-        let id = NodeId(self.nodes.len() as u32);
+    pub fn finish(self) -> FinishedNode {
+        debug_assert_eq!(self.num_nodes, 1, "A muncher has to resolve to one node in the end.");
 
-        node.child_nodes(|v| self.get_mut(v).parent = Some(id));
+        FinishedNode(())
+    }
+}
 
-        self.nodes.push(node);
-        id
+/// Pointless struct, except that it makes it basically impossible to forget to finish a node, which is great.
+/// (because you can't construct the type outside of this module)
+pub struct FinishedNode(());
+
+pub struct AstSlot<'a> {
+    nodes: &'a mut Vec<Node>,
+    num_children: u32,
+}
+
+impl<'a> AstSlot<'a> {
+    pub fn add(&mut self) -> AstSlot<'_> {
+        self.num_children += 1;
+        AstSlot {
+            nodes: &mut *self.nodes,
+            num_children: 0,
+        }
+    }
+
+    pub fn into_muncher(self) -> Muncher<'a> {
+        debug_assert_eq!(self.num_children, 0, "You cannot convert something into a muncher when it has children already, convert before adding children");
+        Muncher {
+            nodes: self.nodes,
+            num_nodes: 0,
+        }
+    }
+
+    pub fn finish(self, loc: Location, kind: NodeKind) -> FinishedNode {
+        let id_usize = self.nodes.len();
+        let id = NodeId(u32::try_from(id_usize).expect("Ast overflow!"));
+
+        let mut subtree_size = 0;
+        let mut next_child_subtree_size = 0;
+        // Go through the children in reverse(it's the only thing we can do at this point),
+        // and count the total subtree size, as well as compute the next children nodes.
+        for _ in 0..self.num_children {
+            let child = &mut self.nodes[id_usize - subtree_size as usize - 1];
+            child.parent = Some(id);
+            child.next_subtree_size = next_child_subtree_size;
+            next_child_subtree_size = child.subtree_size;
+            subtree_size += child.subtree_size + 1;
+        }
+
+        if self.num_children >= 2 {
+            // `next_child_subtree_size` will be the first child,
+            // and the last child should contain the first childs information.
+            self.nodes[id_usize - 1].next_subtree_size = next_child_subtree_size;
+        }
+
+        self.nodes.push(Node {
+            loc,
+            kind,
+            parent: None,
+            type_infer_value_id: 0xffff_ffff,
+            type_: None,
+            subtree_size,
+            next_subtree_size: 0,
+            num_children: self.num_children,
+        });
+
+        FinishedNode(())
+    }
+}
+
+#[derive(Clone)]
+pub struct ChildIterator<'a> {
+    munching: &'a [Node],
+    base_id: NodeId,
+    next_subtree_size: u32,
+    num_children: u32,
+}
+
+impl<'a> Iterator for ChildIterator<'a> {
+    type Item = NodeView<'a>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.num_children == 0 { return None; }
+        self.num_children -= 1;
+
+        let munching = std::mem::replace(&mut self.munching, &[]);
+        let (child_section, new_munching) = munching.split_at(self.next_subtree_size as usize + 1);
+        let child_id = NodeId(self.base_id.0 + self.next_subtree_size);
+        self.base_id = NodeId(self.base_id.0 + self.next_subtree_size + 1);
+        self.munching = new_munching;
+
+        let (child, child_subtree) = child_section.split_last().unwrap();
+        self.next_subtree_size = child.next_subtree_size;
+
+        Some(NodeView::new(child_id, child, child_subtree))
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        (self.num_children as usize, Some(self.num_children as usize))
+    }
+}
+
+impl ExactSizeIterator for ChildIterator<'_> {}
+
+pub struct ChildIteratorMut<'a> {
+    munching: &'a mut [Node],
+    base_id: NodeId,
+    next_subtree_size: u32,
+    num_children: u32,
+}
+
+impl<'a> ChildIteratorMut<'a> {
+    /// This is useful for emitting `defer`
+    pub fn reborrow(&mut self) -> ChildIteratorMut<'_> {
+        ChildIteratorMut {
+            munching: &mut *self.munching,
+            base_id: self.base_id,
+            next_subtree_size: self.next_subtree_size,
+            num_children: self.num_children,
+        }
+    }
+
+    pub fn into_array<const N: usize>(self) -> [NodeViewMut<'a>; N] {
+        use std::mem::MaybeUninit;
+
+        assert_eq!(self.num_children as usize, N);
+
+        let mut array: [MaybeUninit<NodeViewMut<'_>>; N] = unsafe { MaybeUninit::uninit().assume_init() };
+
+        array.iter_mut().zip(self).for_each(|(to, from)| { to.write(from); });
+
+        array.map(|v| unsafe { v.assume_init() })
+    }
+}
+
+impl<'a> Iterator for ChildIteratorMut<'a> {
+    type Item = NodeViewMut<'a>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.num_children == 0 { return None; }
+        self.num_children -= 1;
+
+        let munching = std::mem::replace(&mut self.munching, &mut []);
+        let (child_section, new_munching) = munching.split_at_mut(self.next_subtree_size as usize + 1);
+        let child_id = NodeId(self.base_id.0 + self.next_subtree_size);
+        self.base_id = NodeId(self.base_id.0 + self.next_subtree_size + 1);
+        self.munching = new_munching;
+
+        let (child, child_subtree) = child_section.split_last_mut().unwrap();
+        self.next_subtree_size = child.next_subtree_size;
+
+        Some(NodeViewMut::new(child_id, child, child_subtree))
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        (self.num_children as usize, Some(self.num_children as usize))
+    }
+}
+
+impl ExactSizeIterator for ChildIteratorMut<'_> {}
+
+#[derive(Clone)]
+pub struct NodeView<'a> {
+    pub id: NodeId,
+    pub node: &'a Node,
+    pub children: ChildIterator<'a>,
+}
+
+impl<'a> NodeView<'a> {
+    fn new(base_id: NodeId, node: &'a Node, subtree: &'a [Node]) -> Self {
+        let next_subtree_size = subtree.last().map_or(0, |v| v.next_subtree_size);
+        let num_children = node.num_children;
+        Self {
+            id: NodeId(base_id.0 + subtree.len() as u32),
+            node,
+            children: ChildIterator {
+                munching: subtree,
+                base_id,
+                next_subtree_size,
+                num_children,
+            },
+        }
+    }
+
+    pub fn children_array<const N: usize>(&self) -> [NodeView<'a>; N] {
+        use std::mem::MaybeUninit;
+
+        assert_eq!(self.num_children as usize, N);
+
+        let mut array: [MaybeUninit<NodeView<'a>>; N] = unsafe { MaybeUninit::uninit().assume_init() };
+
+        array.iter_mut().zip(self.children.clone()).for_each(|(to, from)| { to.write(from); });
+
+        array.map(|v| unsafe { v.assume_init() })
+    }
+    
+    pub fn children(&self) -> ChildIterator<'_> {
+        self.children.clone()
+    }
+}
+
+impl std::ops::Deref for NodeView<'_> {
+    type Target = Node;
+
+    fn deref(&self) -> &Self::Target {
+        self.node
+    }
+}
+
+pub struct NodeViewMut<'a> {
+    pub id: NodeId,
+    pub node: &'a mut Node,
+    pub children: ChildIteratorMut<'a>,
+}
+
+impl<'a> NodeViewMut<'a> {
+    fn new(base_id: NodeId, node: &'a mut Node, subtree: &'a mut [Node]) -> Self {
+        let next_subtree_size = subtree.last().map_or(0, |v| v.next_subtree_size);
+        let num_children = node.num_children;
+        Self {
+            id: NodeId(base_id.0 + subtree.len() as u32),
+            node,
+            children: ChildIteratorMut {
+                munching: subtree,
+                base_id,
+                next_subtree_size,
+                num_children,
+            },
+        }
+    }
+}
+
+impl std::ops::Deref for NodeViewMut<'_> {
+    type Target = Node;
+
+    fn deref(&self) -> &Self::Target {
+        &*self.node
+    }
+}
+
+impl std::ops::DerefMut for NodeViewMut<'_> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.node
     }
 }
 
@@ -88,188 +379,17 @@ pub struct Node {
     pub parent: Option<NodeId>,
     pub type_infer_value_id: crate::type_infer::ValueId,
     pub type_: Option<Type>,
+
+    /// The number of elements in total that the subtree of children contain.
+    subtree_size: u32,
+    /// The number of elements in the "next" subtree, so the next child in the parent.
+    /// If we're the last child, and thus don't have a "next" subtree, this count means
+    /// the first instead.
+    next_subtree_size: u32,
+    pub num_children: u32,
 }
 
 impl Node {
-    pub const fn new(loc: Location, kind: NodeKind) -> Self {
-        Self {
-            loc,
-            kind,
-            type_: None,
-            parent: None,
-            type_infer_value_id: 0xffff_ffff,
-        }
-    }
-
-    // @TODO:
-    // We probably want to change it so it's easy to recurse through a tree
-    // in the future, but for now this is the best I can think of....
-    fn child_nodes(&self, mut v: impl FnMut(NodeId)) {
-        use NodeKind::*;
-        match self.kind {
-            Explain(inner) | Parenthesis(inner) => v(inner),
-            Literal(_) => {}
-            ArrayLiteral(ref nodes) => {
-                for &node in nodes {
-                    v(node);
-                }
-            }
-            TypeOf(inner) => v(inner),
-            SizeOf(inner) => v(inner),
-            BuiltinFunction(_) => {}
-
-            PolymorphicArgument(_) => {}
-            ConstAtTyping { inner } => v(inner),
-            ConstAtEvaluation { inner } => v(inner),
-
-            Global(_, _, ref nodes) | GlobalForTyping(_, _, ref nodes) => {
-                if let Some(nodes) = nodes {
-                    for &node in nodes {
-                        v(node);
-                    }
-                }
-            }
-
-            Constant(_, _) => {}
-            ResolvedGlobal(_, _) => {}
-
-            For {
-                iterator: _,
-                iteration_var: _,
-                iterating: condition,
-                body,
-                else_body,
-                label: _,
-            }
-            | While {
-                condition,
-                iteration_var: _,
-                body,
-                else_body,
-                label: _,
-            }
-            | If {
-                is_const: _,
-                condition,
-                true_body: body,
-                false_body: else_body,
-            } => {
-                v(condition);
-                v(body);
-                else_body.map(|v2| v(v2));
-            }
-            Member { of, name: _ } => v(of),
-
-            FunctionDeclaration {
-                ref args,
-                returns,
-                body,
-            } => {
-                for &(_, arg) in args {
-                    if let Some(arg) = arg {
-                        v(arg);
-                    }
-                }
-                if let Some(returns) = returns {
-                    v(returns);
-                }
-                v(body);
-            }
-
-            BufferType(inner) | TypeAsValue(inner) => v(inner),
-            NamedType {
-                name: _,
-                ref fields,
-                aliases: _,
-            }
-            | StructType { ref fields } => {
-                for &(_, field) in fields {
-                    v(field);
-                }
-            }
-            ReferenceType(inner)
-            | Reference(inner)
-            | Defer { deferring: inner }
-            | BitCast { value: inner }
-            | Cast { value: inner } => {
-                v(inner);
-            }
-            ArrayType { len, members } => {
-                v(len);
-                v(members);
-            }
-            FunctionType { ref args, returns } => {
-                v(returns);
-                for &arg in args {
-                    v(arg);
-                }
-            }
-            LiteralType(_) | ImplicitType => {}
-
-            Unary { op: _, operand } => v(operand),
-            Binary { op: _, left, right } => {
-                v(left);
-                v(right);
-            }
-
-            Break {
-                label: _,
-                num_defer_deduplications: _,
-                value,
-            } => v(value),
-
-            FunctionCall { calling, ref args } => {
-                v(calling);
-                for &arg in args {
-                    v(arg);
-                }
-            }
-            ResolvedFunctionCall { calling, ref args } => {
-                v(calling);
-                for &(_, arg) in args {
-                    v(arg);
-                }
-            }
-
-            Block {
-                ref contents,
-                label: _,
-            } => {
-                for &arg in contents {
-                    v(arg);
-                }
-            }
-            Empty | Uninit | Zeroed => {}
-
-            TypeBound { value, bound } => {
-                v(value);
-                v(bound);
-            }
-            Declare {
-                local: _,
-                dummy_local_node,
-                value,
-            } => {
-                v(value);
-                v(dummy_local_node);
-            }
-            Local(_) => {}
-
-            ArrayToBuffer { length: _, array } => {
-                v(array);
-            }
-            BufferToVoid { buffer, inner: _ } => {
-                v(buffer);
-            }
-            VoidToBuffer { any, inner: _ } => {
-                v(any);
-            }
-            PtrToAny { ptr, type_: _ } => {
-                v(ptr);
-            }
-        }
-    }
-
     pub fn type_(&self) -> Type {
         self.type_.unwrap()
     }
@@ -277,161 +397,125 @@ impl Node {
 
 #[derive(Debug, Clone)]
 pub enum NodeKind {
+    Temprorary,
+
     Literal(Literal),
-    ArrayLiteral(Vec<NodeId>),
+    ArrayLiteral,
     BuiltinFunction(BuiltinFunction),
 
-    Explain(NodeId),
+    Explain,
 
     PolymorphicArgument(usize),
-    ConstAtTyping {
-        inner: NodeId,
-    },
-    ConstAtEvaluation {
-        inner: NodeId,
+    ConstAtTyping,
+    ConstAtEvaluation,
+
+    Global {
+        scope: ScopeId,
+        name: Ustr,
     },
 
-    Global(ScopeId, Ustr, Option<Vec<NodeId>>),
-    GlobalForTyping(ScopeId, Ustr, Option<Vec<NodeId>>),
+    /// [ of, ..args ]
+    PolymorphicArgs,
 
     Constant(ConstantRef, Option<Arc<MemberMetaData>>),
     ResolvedGlobal(MemberId, Arc<MemberMetaData>),
 
+    /// [ iterator, body, else_body ]
     For {
         iterator: LocalId,
         iteration_var: LocalId,
-        iterating: NodeId,
-        body: NodeId,
-        else_body: Option<NodeId>,
         label: LabelId,
     },
+    /// [ condition, body, else_body ]
     While {
-        condition: NodeId,
         iteration_var: LocalId,
-        body: NodeId,
-        else_body: Option<NodeId>,
         label: LabelId,
     },
+    /// [ condition, body, else_body ]
     If {
         is_const: Option<Location>,
-        condition: NodeId,
-        true_body: NodeId,
-        false_body: Option<NodeId>,
     },
 
     Member {
-        of: NodeId,
         name: Ustr,
     },
 
+    /// [ .. args, returns, body ]  (at least 2 children)
     FunctionDeclaration {
-        args: Vec<(LocalId, Option<NodeId>)>,
-        returns: Option<NodeId>,
-        body: NodeId,
+        args: Vec<LocalId>,
     },
 
-    TypeOf(NodeId),
-    SizeOf(NodeId),
-
-    /// Any node within this node, is what I call a "type" node. These nodes, when typechecked, actually have their
-    /// type set as their value instead of their type; their type is just "Type". The reason for that is that they're
-    /// essentially a form of compile time execution, but so common that they use this system instead of the bytecode
-    /// system, in the typechecker. It's similar to constant folding, but for types. And it's hacky :=)
-    TypeAsValue(NodeId),
+    /// [ inner ]
+    TypeOf,
+    /// [ inner ]
+    SizeOf,
+    /// Type expressions actually use the type of the node to mean the type of the expression. So if you were to do
+    /// &T, this would have the type &T. This of course, isn't compatible with how normal expressions work, so we
+    /// need this node to convert from the way type expressions work to the way values work, by taking the type of the
+    /// type expression, inserting it into the global type table, and then making that value a constant. (and the type
+    /// is of course `Type`). Except that this isn't the full story, in reality type expressions are what's called
+    /// "inferrable constants", which means that if you use a `type`, inside of a type, it just "disappears", and
+    /// allows for inferrence through it. This is vital for allowing constants with `type` to behave as you'd expect.
+    /// [ inner ]
+    TypeAsValue,
     ImplicitType,
-    NamedType {
-        name: Ustr,
-        fields: Vec<(Ustr, NodeId)>,
-        aliases: Vec<(Ustr, Vec<(Location, Ustr)>)>,
-    },
+    /// [ .. fields ]
     StructType {
-        fields: Vec<(Ustr, NodeId)>,
+        fields: Vec<Ustr>,
     },
-    ArrayType {
-        len: NodeId,
-        members: NodeId,
-    },
-    FunctionType {
-        args: Vec<NodeId>,
-        returns: NodeId,
-    },
-    BufferType(NodeId),
-    ReferenceType(NodeId),
+    /// [ len, member ]
+    ArrayType,
+    /// [ .. args, returns ]
+    FunctionType,
+    /// [ inner ]
+    BufferType,
+    /// [ inner ]
+    ReferenceType,
     LiteralType(Type),
-
-    Reference(NodeId),
+    /// [ inner ]
+    Reference,
+    /// [ operand ]
     Unary {
         op: UnaryOp,
-        operand: NodeId,
     },
+    /// [ left, right ]
     Binary {
         op: BinaryOp,
-        left: NodeId,
-        right: NodeId,
     },
-
+    /// [ expression ]
     Break {
         label: LabelId,
         num_defer_deduplications: usize,
-        value: NodeId,
     },
-
-    Defer {
-        deferring: NodeId,
-    },
-
-    FunctionCall {
-        calling: NodeId,
-        args: Vec<NodeId>,
-    },
+    /// [ inner ]
+    Defer,
+    /// [ calling, .. args ]
+    FunctionCall,
+    /// [ calling, .. args ]
     ResolvedFunctionCall {
-        calling: NodeId,
-        args: Vec<(usize, NodeId)>,
+        arg_indices: Vec<usize>,
     },
-
+    /// [ .. contents ]
     Block {
-        contents: Vec<NodeId>,
         label: Option<LabelId>,
     },
-    Parenthesis(NodeId),
+    /// [ inner ]
+    Parenthesis,
     Empty,
     Uninit,
     Zeroed,
 
-    TypeBound {
-        value: NodeId,
-        bound: NodeId,
-    },
-    Cast {
-        value: NodeId,
-    },
-    BitCast {
-        value: NodeId,
-    },
+    /// [ value, bound ]
+    TypeBound,
+    /// [ inner ]
+    Cast,
+    /// [ inner ]
+    BitCast,
+    /// [ value ]
     Declare {
         local: LocalId,
-        // @Cleanup: I think right now the emitter will still emit the dummy nodes, it probably shouldn't...
-        dummy_local_node: NodeId,
-        value: NodeId,
     },
     Local(LocalId),
-
-    ArrayToBuffer {
-        length: usize,
-        array: NodeId,
-    },
-    BufferToVoid {
-        buffer: NodeId,
-        inner: Type,
-    },
-    VoidToBuffer {
-        any: NodeId,
-        inner: Type,
-    },
-    PtrToAny {
-        ptr: NodeId,
-        type_: Type,
-    },
 }
 
 impl fmt::Debug for Node {

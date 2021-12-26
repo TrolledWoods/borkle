@@ -1,5 +1,10 @@
-library "base.bo";
+// library "base.bo";
+// import "tests/main.bo";
 
-#entry fn() -> u64 {
-    0
+{
+    0 : u64
 };
+
+// #entry fn() -> u64 {
+//     0
+// };
