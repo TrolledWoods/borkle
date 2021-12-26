@@ -3,7 +3,7 @@ library "vec.bo";
 
 const Iterator.(State, Item) = #0 : {
     state: State;
-    next: fn(&rw State, &w Item) -> bool;
+    next: fn(&State, &Item) -> bool;
 };
 
 //
@@ -30,6 +30,40 @@ const array_iter.(N, T) = fn(array: [N] T) -> typeof Iterator.(_, type T) {
 
 const buf_iter.(T) = fn(buffer: [] T) -> typeof Iterator.(_, type &T) {
     range(buffer.ptr, buffer.ptr + buffer.len)
+};
+
+const split.(T) = fn(buffer: [] T, split_if: fn(T) -> bool) -> typeof Iterator.(_, type [] T) {
+    let stream = #0;
+    stream.state : { buffer: [] T; split_if: fn(T) -> bool; };
+    stream.state.buffer = buffer;
+    stream.state.split_if = split_if;
+
+    stream.next = fn(state, out) { 'function
+        let begin = (*state).buffer.ptr;
+
+        for (*state).buffer {
+            if (*state).split_if(*_it) {
+                (*out).ptr = (*state).buffer.ptr;
+                (*out).len = _iters;
+
+                let reduction = _iters + 1;
+                if (*state).buffer.len > reduction {
+                    (*state).buffer.ptr = (*state).buffer.ptr + reduction;
+                    (*state).buffer.len = (*state).buffer.len - reduction;
+                } else {
+                    (*state).buffer.len = 0;
+                };
+                break true;
+            };
+        } else if (*state).buffer.len > 0 {
+            *out = (*state).buffer;
+            (*state).buffer.len = 0;
+            true
+        } else {
+            false
+        }
+    };
+    stream
 };
 
 const range.(T) = fn(start: T, end: T) -> typeof Iterator.(_, type T) {
@@ -158,4 +192,12 @@ const vec_from_iter.(State, Item) = fn(stream: typeof Iterator.(State, Item)) ->
     let item = #uninit;
     while stream.next(&stream.state, &item)  vec_push(&vec, item);
     vec
+};
+
+const array_from_iter.(State, Item, N) = fn(stream: typeof Iterator.(State, Item)) -> [N] Item {
+    let array = #uninit;
+    for cast &array : [] Item {
+        assert(stream.next(&stream.state, _it));
+    };
+    array
 };
