@@ -13,7 +13,7 @@ Run with the ``--help`` command to see the information. To do this with cargo, t
 ## Examples
 There are are a number of test programs in the `tests` directory that should be up to date.
 
-Most of the files in the `library` directory are old, only `base.bo` and `intrinsics.bo` are up-to-date.
+You can also look in the `library` directory to look at how the standard library is implemented.
 
 ## Hello World
 Because every language needs a hello world program, here is the one for borkle:
