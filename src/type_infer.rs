@@ -23,17 +23,17 @@ pub mod static_values {
     //! like integers and so on.
     use super::ValueId;
 
-    pub const INT_SIZE : ValueId = 0;
-    pub const BOOL     : ValueId = 1;
-    pub const POINTER  : ValueId = 2;
-    pub const ONE      : ValueId = 4;
-    pub const TWO      : ValueId = 6;
-    pub const FOUR     : ValueId = 8;
-    pub const EIGHT    : ValueId = 10;
-    pub const TRUE     : ValueId = 12;
-    pub const FALSE    : ValueId = 14;
-    pub const EMPTY    : ValueId = 16;
-    pub const USIZE    : ValueId = 17;
+    pub const INT_SIZE : ValueId = ValueId(0);
+    pub const BOOL     : ValueId = ValueId(1);
+    pub const POINTER  : ValueId = ValueId(2);
+    pub const ONE      : ValueId = ValueId(4);
+    pub const TWO      : ValueId = ValueId(6);
+    pub const FOUR     : ValueId = ValueId(8);
+    pub const EIGHT    : ValueId = ValueId(10);
+    pub const TRUE     : ValueId = ValueId(12);
+    pub const FALSE    : ValueId = ValueId(14);
+    pub const EMPTY    : ValueId = ValueId(16);
+    pub const USIZE    : ValueId = ValueId(17);
     pub const STATIC_VALUES_SIZE : u32 = 18;
 }
 
@@ -127,7 +127,7 @@ pub enum MappedId {
 
 impl IdMapper {
     pub fn map(&self, value: ValueId) -> MappedId {
-        let mut id = value;
+        let mut id = value.0;
         if id < static_values::STATIC_VALUES_SIZE {
             return MappedId::None;
         }
@@ -136,17 +136,17 @@ impl IdMapper {
         if id < self.poly_args as _ {
             return MappedId::PolyArg(id as usize);
         }
-        id -= self.poly_args as ValueId;
+        id -= self.poly_args as u32;
 
         if id < self.ast_nodes as _ {
             return MappedId::AstNode(crate::parser::NodeId(id));
         }
-        id -= self.ast_nodes as ValueId;
+        id -= self.ast_nodes as u32;
 
         if id < self.locals as _ {
             return MappedId::Local(crate::locals::LocalId(id as _));
         }
-        id -= self.locals as ValueId;
+        id -= self.locals as u32;
 
         if id < self.labels as _ {
             return MappedId::Label(crate::locals::LabelId(id as _));
@@ -310,7 +310,7 @@ impl Constraint {
             } => {
                 if a == b {
                     self.applied = true;
-                } else if a > b {
+                } else if a.0 > b.0 {
                     mem::swap(a, b);
                 }
             }
@@ -387,7 +387,7 @@ fn extract_constant_from_value(structures: &Structures, values: &Values, value: 
 }
 
 fn get_value<'a>(structures: &'a Structures, values: &'a Values, id: ValueId) -> ValueBorrow<'a> {
-    let value = &values.values[id as usize];
+    let value = values.get(id);
     let structure = &structures.structure[value.structure_id as usize];
     ValueBorrow {
         kind: &structure.kind,
@@ -398,7 +398,7 @@ fn get_value<'a>(structures: &'a Structures, values: &'a Values, id: ValueId) ->
 }
 
 fn get_value_mut<'a>(structures: &'a mut Structures, values: &'a mut Values, id: ValueId) -> ValueBorrowMut<'a> {
-    let value = &mut values.values[id as usize];
+    let value = values.get_mut(id);
     let structure = &mut structures.structure[value.structure_id as usize];
     ValueBorrowMut {
         kind: &mut structure.kind,
@@ -509,7 +509,18 @@ fn type_kind_to_str(
     }
 }
 
-pub type ValueId = u32;
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct ValueId(u32);
+
+impl Default for ValueId {
+    fn default() -> Self {
+        Self::NONE
+    }
+}
+
+impl ValueId {
+    pub const NONE: Self = Self(u32::MAX);
+}
 
 #[derive(Debug, Clone)]
 struct Value {
@@ -548,8 +559,7 @@ struct LookupElement {
 struct ValueWrapper {
     value: Value,
     structure_id: u32,
-    // u32::MAX means that there is nothing.
-    next_in_structure_group: u32,
+    next_in_structure_group: ValueId,
 }
 
 #[derive(Default, Clone, Copy)]
@@ -575,25 +585,23 @@ struct Structures {
 }
 
 fn iter_values_in_structure<'a>(structures: &Structures, values: &'a Values, value_id: ValueId) -> impl Iterator<Item = ValueId> + 'a {
-    let structure = &structures.structure[values.values[value_id as usize].structure_id as usize];
+    let structure = &structures.structure[values.get(value_id).structure_id as usize];
 
-    let values = &values.values;
     let mut value_id = structure.first_value;
-
     std::iter::from_fn(move || {
-        if value_id == u32::MAX { return None; }
+        if value_id == ValueId::NONE { return None; }
         let v = value_id;
-        let value = &values[value_id as usize];
+        let value = values.get(value_id);
         value_id = value.next_in_structure_group;
         Some(v)
     })
 }
 
 fn structurally_combine(structures: &mut Structures, values: &mut Values, computable_sizes: &mut Vec<ValueId>, value_sets: &mut ValueSets, a: ValueId, b: ValueId) {
-    let a_value = &values.values[a as usize];
+    let a_value = values.get(a);
     let structure_id = a_value.structure_id;
     let a_value_is_complete = a_value.value.value_sets.is_complete();
-    let b_value = &values.values[b as usize];
+    let b_value = values.get(b);
     let old_b_structure_id = b_value.structure_id;
     let b_value_is_complete = b_value.value.value_sets.is_complete();
     debug_assert!(!(b_value_is_complete && !a_value_is_complete), "b can't be complete while a isn't, because a will replace b, so it makes no sense for b not to be complete?");
@@ -608,7 +616,7 @@ fn structurally_combine(structures: &mut Structures, values: &mut Values, comput
     match (a_structure.layout.align > 0, b_structure.layout.align > 0) {
         (true, false) => {
             for dependant in b_structure.layout_dependants {
-                let dependant_structure_id = values.values[dependant as usize].structure_id;
+                let dependant_structure_id = values.get(dependant).structure_id;
                 let dependant_structure = &mut structures.structure[dependant_structure_id as usize];
 
                 // This seems scary, but in the cases we're in right now, where a complete structure combines
@@ -637,8 +645,8 @@ fn structurally_combine(structures: &mut Structures, values: &mut Values, comput
     // Join the two linked lists together
     let mut value_id = a;
     loop {
-        let value = &mut values.values[value_id as usize];
-        if value.next_in_structure_group == u32::MAX {
+        let value = values.get_mut(value_id);
+        if value.next_in_structure_group == ValueId::NONE {
             value.next_in_structure_group = b_structure.first_value;
             break;
         }
@@ -648,12 +656,12 @@ fn structurally_combine(structures: &mut Structures, values: &mut Values, comput
     // Convert the old structure list to the new structure
     let mut value_id = b_structure.first_value;
     loop {
-        let value = &mut values.values[value_id as usize];
+        let value = values.get_mut(value_id);
         if a_value_is_complete && !b_value_is_complete {
             value.value.value_sets.complete(value_sets);
         }
         value.structure_id = structure_id;
-        if value.next_in_structure_group == u32::MAX {
+        if value.next_in_structure_group == ValueId::NONE {
             break;
         }
         value_id = value.next_in_structure_group;
@@ -661,7 +669,7 @@ fn structurally_combine(structures: &mut Structures, values: &mut Values, comput
 }
 
 fn compute_size(structures: &mut Structures, values: &mut Values, computable_sizes: &mut Vec<ValueId>, id: ValueId, value_sets: &mut ValueSets) {
-    let id = values.values[id as usize].structure_id;
+    let id = values.get(id).structure_id;
     let structure = &structures.structure[id as usize];
     if structure.layout.align > 0 {
         // We already know what the layout
@@ -678,9 +686,9 @@ fn compute_size(structures: &mut Structures, values: &mut Values, computable_siz
     // Because we've computed the layout, we can complete all the value sets.
     let mut value_id = structure.first_value;
     loop {
-        let value = &mut values.values[value_id as usize];
+        let value = values.get_mut(value_id);
         value.value.value_sets.complete(value_sets);
-        if value.next_in_structure_group == u32::MAX {
+        if value.next_in_structure_group == ValueId::NONE {
             break;
         }
         value_id = value.next_in_structure_group;
@@ -699,7 +707,7 @@ fn compute_size(structures: &mut Structures, values: &mut Values, computable_siz
 }
 
 fn get_disjoint_mut<'a>(structures: &'a mut Structures, values: &'a mut Values, a: ValueId, b: ValueId) -> Option<(ValueBorrowMut<'a>, ValueBorrowMut<'a>)> {
-    let (a, b) = slice_get_two_mut(&mut values.values, a as usize, b as usize)?;
+    let (a, b) = slice_get_two_mut(&mut values.values, a.0 as usize, b.0 as usize)?;
 
     let (structure_a, structure_b) = slice_get_two_mut(&mut structures.structure, a.structure_id as usize, b.structure_id as usize)?;
 
@@ -720,7 +728,7 @@ fn get_disjoint_mut<'a>(structures: &'a mut Structures, values: &'a mut Values, 
 }
 
 fn set_value(structures: &mut Structures, values: &mut Values, id: ValueId, kind: Type, value_sets: &mut ValueSets, value_set_handles: ValueSetHandles) {
-    let value = &mut values.values[id as usize];
+    let value = values.get_mut(id);
     let structure_id = value.structure_id;
 
     value.value.value_sets.take_from(value_set_handles, value_sets);
@@ -732,7 +740,7 @@ fn set_value(structures: &mut Structures, values: &mut Values, id: ValueId, kind
         // type completion, for when we're going to insert it as a type
         // id.
         for &needed in args.iter() { // kind.get_needed_children_for_layout(&args)
-            let structure = &mut structures.structure[values.values[needed as usize].structure_id as usize];
+            let structure = &mut structures.structure[values.get(needed).structure_id as usize];
             if structure.layout.align == 0 {
                 number += 1;
                 structure.layout_dependants.push(id);
@@ -743,7 +751,7 @@ fn set_value(structures: &mut Structures, values: &mut Values, id: ValueId, kind
             layout = compute_type_layout(kind, structures, values, args);
 
             // Since there is only one value in the structure, this is fine
-            let value = &mut values.values[id as usize];
+            let value = values.get_mut(id);
             value.value.value_sets.complete(value_sets);
         } else {
             layout.size = number;
@@ -761,11 +769,10 @@ fn set_value(structures: &mut Structures, values: &mut Values, id: ValueId, kind
 
 fn add_value(structures: &mut Structures, values: &mut Values, kind: Option<Type>, value_sets: &mut ValueSets, value_set_handles: ValueSetHandles) -> ValueId {
     let structure_id = structures.structure.len() as u32;
-    let id = values.values.len() as u32;
-    assert!(id < u32::MAX, "Too many values, overflows a u32");
+    let id = ValueId(values.values.len() as u32);
 
     structures.structure.push(StructureGroup {
-        first_value: structure_id,
+        first_value: id,
         kind: None,
         layout: Layout::default(),
         layout_dependants: Vec::new(),
@@ -774,7 +781,7 @@ fn add_value(structures: &mut Structures, values: &mut Values, kind: Option<Type
     values.values.push(ValueWrapper {
         value: Value { value_sets: value_set_handles, is_base_value: false },
         structure_id,
-        next_in_structure_group: u32::MAX,
+        next_in_structure_group: ValueId::NONE,
     });
     if let Some(kind) = kind {
         set_value(structures, values, id, kind, value_sets, ValueSetHandles::default());
@@ -795,7 +802,15 @@ impl Values {
     }
 
     fn structure_id_of_value(&self, value_id: ValueId) -> u32 {
-        self.values[value_id as usize].structure_id
+        self.get(value_id).structure_id
+    }
+
+    fn get(&self, id: ValueId) -> &ValueWrapper {
+        &self.values[id.0 as usize]
+    }
+
+    fn get_mut(&mut self, id: ValueId) -> &mut ValueWrapper {
+        &mut self.values[id.0 as usize]
     }
 
     fn iter(&self) -> impl Iterator<Item = &Value> {
@@ -808,7 +823,7 @@ impl Values {
 
     /// Returns the value id that will returned by the next call to `add`
     fn next_value_id(&self) -> ValueId {
-        self.values.len() as u32
+        ValueId(self.values.len() as u32)
     }
 }
 
@@ -901,7 +916,7 @@ impl TypeSystem {
         set: ValueSetId,
     ) -> ValueId {
         // Static values are the same in both sets
-        if other_id < static_values::STATIC_VALUES_SIZE {
+        if other_id.0 < static_values::STATIC_VALUES_SIZE {
             return other_id;
         }
 
@@ -973,10 +988,10 @@ impl TypeSystem {
     }
 
     pub fn output_incompleteness_errors(&self, errors: &mut ErrorCtx, poly_args: &[crate::typer::PolyParam], ast: &crate::parser::Ast, locals: &crate::locals::LocalVariables) {
-        for node_id in 0..self.values.values.len() as ValueId {
-            if !self.get(node_id).value_sets.is_complete() {
+        for node_id in 0..self.values.values.len() as u32 {
+            if !self.get(ValueId(node_id)).value_sets.is_complete() {
                 // Generate an error
-                if let Some(loc) = get_loc_of_value(poly_args, ast, locals, node_id) {
+                if let Some(loc) = get_loc_of_value(poly_args, ast, locals, ValueId(node_id)) {
                     errors.error(loc, format!("Ambiguous type"));
                 } else {
                     errors.global_error(format!("Ambiguous type"));
@@ -1440,9 +1455,9 @@ impl TypeSystem {
             } => {
                 format!(
                     "{}({}) == {}({})",
-                    a_id,
+                    a_id.0,
                     self.value_to_str(a_id, 0),
-                    b_id,
+                    b_id.0,
                     self.value_to_str(b_id, 0)
                 )
             }
@@ -1452,10 +1467,10 @@ impl TypeSystem {
             } => {
                 format!(
                     "{}({}).{} == {}({})",
-                    a_id,
+                    a_id.0,
                     self.value_to_str(a_id, 0),
                     field_index,
-                    b_id,
+                    b_id.0,
                     self.value_to_str(b_id, 0)
                 )
             }
@@ -1466,10 +1481,10 @@ impl TypeSystem {
             } => {
                 format!(
                     "{}({}).{} == {}({})",
-                    a_id,
+                    a_id.0,
                     self.value_to_str(a_id, 0),
                     field_name,
-                    b_id,
+                    b_id.0,
                     self.value_to_str(b_id, 0)
                 )
             }
@@ -1477,16 +1492,7 @@ impl TypeSystem {
     }
 
     pub fn print_state(&self) {
-        println!("Values:");
-        // @Volatile: If we change how value ids work, this will no longer work.
-        for (i, v) in self.values.iter().enumerate() {
-            let value = self.get(i as u32);
-            println!("{}, size: {}, align: {}: {}, {}", i, value.layout.size, value.layout.align, v.value_sets.is_complete(), self.value_to_str(i as u32, 0));
-        }
-        println!();
-
         println!("Queued constraints:");
-
         for &constraint_id in &self.queued_constraints {
             let constraint = &self.constraints[constraint_id];
             println!("({}) {}", constraint_id, self.constraint_to_string(constraint));

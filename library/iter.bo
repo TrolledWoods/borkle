@@ -1,4 +1,3 @@
-library "base.bo";
 library "vec.bo";
 
 const Iterator.(State, Item) = #0 : {
@@ -88,6 +87,10 @@ const range.(T) = fn(start: T, end: T) -> typeof Iterator.(_, type T) {
 //
 // -- Manipulation --
 //
+
+const by_value.(State, Item) = fn(a: typeof Iterator.(State, type &Item)) -> typeof Iterator.(_, Item) {
+    map(a, fn(v) *v)
+};
 
 const zip.(StateA, ItemA, StateB, ItemB) = fn(a: typeof Iterator.(StateA, ItemA), b: typeof Iterator.(StateB, ItemB)) -> typeof Iterator.(_, type { a: ItemA; b: ItemB; }) {
     let stream = #uninit;

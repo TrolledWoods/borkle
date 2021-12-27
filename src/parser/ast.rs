@@ -217,7 +217,7 @@ impl<'a> AstSlot<'a> {
             loc,
             kind,
             parent: None,
-            type_infer_value_id: 0xffff_ffff,
+            type_infer_value_id: crate::type_infer::ValueId::NONE,
             type_: None,
             subtree_size,
             next_subtree_size: 0,

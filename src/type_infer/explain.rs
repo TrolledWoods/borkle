@@ -30,7 +30,7 @@ pub fn get_reasons_with_look_inside(base_value: ValueId, look_inside: ValueId, t
             let Some((index, _)) = frontier.iter().enumerate().min_by_key(|(_, v)| v.distance) else { panic!("Exited too early I think") };
             let Frontier { source, distance, constraint_id } = frontier.swap_remove(index);
 
-            if source.0 < static_values::STATIC_VALUES_SIZE {
+            if source.0.0 < static_values::STATIC_VALUES_SIZE {
                 continue;
             }
 

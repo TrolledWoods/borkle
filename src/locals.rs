@@ -30,7 +30,7 @@ impl Local {
             name,
             loc,
             type_: None,
-            type_infer_value_id: 0,
+            type_infer_value_id: crate::type_infer::ValueId::NONE,
             stack_frame_id: 123123,
             value: None,
             uses: Vec::new(),

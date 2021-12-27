@@ -4,10 +4,15 @@ library "intrinsics.bo";
 const true = 1 > (0 : u8);
 const false = 1 < (0 : u8);
 
+const min.(T) = fn(a: T, b: T) -> T  if a < b  a else b;
+const max.(T) = fn(a: T, b: T) -> T  if a > b  a else b;
+
 const assert = i_assert;
 
 const array_ptr   .(N, T) = fn(array: &[N] T) ->   &T    cast array;
 const array_to_buf.(N, T) = fn(array: &[N] T) -> [] T    cast array;
+
+const get_line = i_stdin_getline;
 
 const print = fn(string: [] u8) {
     i_stdout_write(string);

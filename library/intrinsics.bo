@@ -1,3 +1,5 @@
+#no_base:
+
 const i_assert              = #builtin_function assert                  : fn(bool);
 const i_stdout_write        = #builtin_function stdout_write            : fn([] u8) -> usize;
 const i_stdout_flush        = #builtin_function stdout_flush            : fn();
