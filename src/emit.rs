@@ -460,8 +460,15 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, node: NodeView<'a>) -> Value {
         }
         NodeKind::Member { name } => {
             let [of] = node.children_array();
+            let mut of_type_id = of.type_infer_value_id;
             let to = ctx.registers.create(ctx.types, node.type_infer_value_id, node.type_());
-            let of = emit_node(ctx, of);
+            let mut of = emit_node(ctx, of);
+            if let Some(type_infer::Type { kind: type_infer::TypeKind::Reference, args }) = ctx.types.get(of_type_id).kind {
+                of_type_id = args.as_ref().unwrap()[0];
+                let new_reg = ctx.registers.create(ctx.types, of_type_id, ctx.types.value_to_compiler_type(of_type_id));
+                ctx.emit_dereference(new_reg, of);
+                of = new_reg;
+            }
 
             let Some(member) = of.type_().member(*name) else {
                 unreachable!("Type {} doesn't have member {}, but it got through the typer", of.type_(), *name)
@@ -690,13 +697,17 @@ fn emit_lvalue<'a>(
     match &node.kind {
         NodeKind::Member { name } => {
             let [of] = node.children_array();
-            let parent_value = emit_lvalue(ctx, can_reference_temporaries, of.clone());
 
-            let member = of.type_().member(*name).expect("This should have already been made sure to exist in the typer");
+            // If `of` is a reference, we need to do stuff.
+            let (base_type, parent_value) = if let Some(type_infer::Type { kind: type_infer::TypeKind::Reference, args }) = ctx.types.get(of.type_infer_value_id).kind {
+                let arg = args.as_ref().unwrap()[0];
+                (ctx.types.value_to_compiler_type(arg), emit_node(ctx, of))
+            } else {
+                let parent_value = emit_lvalue(ctx, can_reference_temporaries, of.clone());
+                (of.type_(), parent_value)
+            };
 
-            // @TODO: We need to support aliases at some point, but the emitter should deal with that, not the
-            // interpreter.
-            debug_assert_eq!(member.indirections, 1);
+            let member = base_type.member(*name).expect("This should have already been made sure to exist in the typer");
 
             let to = ctx.registers.create(ctx.types, ref_type_id, ref_type);
             ctx.emit_pointer_to_member_of_pointer(to, parent_value, Member { offset: member.byte_offset, name: *name });

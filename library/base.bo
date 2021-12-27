@@ -82,8 +82,8 @@ const not = fn(v: bool) -> bool  if v false else true;
 const cmp_strings = fn(a: [] u8, b: [] u8) -> bool { 'function
     if a.len != b.len  break 'function false;
 
-    for 'loop c in a {
-        if *c != *(b.ptr + _iters)  break 'loop false;
+    for c in a {
+        if *c != *(b.ptr + _iters)  break false;
     } else true
 };
 
@@ -98,11 +98,11 @@ const put_char = fn(c: u8) {
 const take_until = fn(string: &[] u8, c: u8) -> [] u8 {
     let new = #uninit;
     // Why no typing error if you remove the dereference in (*string)???
-    new.ptr = (*string).ptr;
+    new.ptr = string.ptr;
     new.len = 0;
 
     while 'loop (*string).len > 0 {
-        if *(*string).ptr == c  break 'loop;
+        if *string.ptr == c  break 'loop;
         new.len = new.len + 1;
 
         advance(string);
@@ -112,30 +112,30 @@ const take_until = fn(string: &[] u8, c: u8) -> [] u8 {
 };
 
 const take_char = fn(string: &[] u8) -> u8 {
-    let c = *(*string).ptr;
+    let c = *string.ptr;
     advance(string);
     c
 };
 
 const advance_by = fn(string: &[] u8, by: usize) {
-    assert((*string).len >= by);
-    (*string).ptr = (*string).ptr + by;
-    (*string).len = (*string).len - by;
+    assert(string.len >= by);
+    string.ptr = string.ptr + by;
+    string.len = string.len - by;
 };
 
 const advance = fn(string: &[] u8) {
-    if (*string).len > 0 {
-        (*string).ptr = (*string).ptr + 1;
-        (*string).len = (*string).len - 1;
+    if string.len > 0 {
+        string.ptr = string.ptr + 1;
+        string.len = string.len - 1;
     };
 };
 
-const empty = fn(string: &[] u8) -> bool   (*string).len == 0;
+const empty = fn(string: &[] u8) -> bool   string.len == 0;
 
 const take_u64_with_base = fn(string: &[] u8, base: u64) -> u64 {
     let number = 0;
-    while (*string).len > 0 {
-        let c = *(*string).ptr;
+    while string.len > 0 {
+        let c = *string.ptr;
         if not(is_digit(c))  break;
         number = number * base + (cast (c - CHAR_0_ASCII_CODE) : u64);
         advance(string);
@@ -145,8 +145,8 @@ const take_u64_with_base = fn(string: &[] u8, base: u64) -> u64 {
 
 const take_u64 = fn(string: &[] u8) -> u64 {
     let number = 0;
-    while (*string).len > 0 {
-        let c = *(*string).ptr;
+    while string.len > 0 {
+        let c = *string.ptr;
         if not(is_digit(c))  break;
         number = number * 10 + (cast (c - CHAR_0_ASCII_CODE) : u64);
         advance(string);
@@ -156,12 +156,12 @@ const take_u64 = fn(string: &[] u8) -> u64 {
 
 const skip_num = fn(string: &[] u8) -> [] u8 {
     let new = #uninit;
-    new.ptr = (*string).ptr;
+    new.ptr = string.ptr;
     new.len = 0;
 
-    while 'loop (*string).len > 0 {
+    while 'loop string.len > 0 {
         advance(string);
-        if not(is_digit(*(*string).ptr))  break 'loop;
+        if not(is_digit(*string.ptr))  break 'loop;
         new.len = new.len + 1;
     };
 
@@ -171,11 +171,11 @@ const skip_num = fn(string: &[] u8) -> [] u8 {
 
 const take_word = fn(string: &[] u8) -> [] u8 {
     let length = 0;
-    let start = (*string).ptr;
-    while (*string).len > 0 {
+    let start = string.ptr;
+    while string.len > 0 {
         if not(
             is_alpha(
-                *(*string).ptr
+                *string.ptr
             )) break;
         length = length + 1;
         advance(string);
@@ -188,8 +188,8 @@ const take_word = fn(string: &[] u8) -> [] u8 {
 };
 
 const take_whitespace = fn(string: &[] u8) {
-    while (*string).len > 0 {
-        if not(is_whitespace(*(*string).ptr)) break;
+    while string.len > 0 {
+        if not(is_whitespace(*string.ptr)) break;
         advance(string);
     };
 };

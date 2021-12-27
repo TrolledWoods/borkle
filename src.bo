@@ -1,24 +1,11 @@
 library "base.bo";
-library "iter.bo";
-library "vec.bo";
-library "intrinsics.bo";
+import "tests/main.bo";
 
 #entry fn() -> u64 {
-    print("Please enter stuff: ");
-    let input = i_stdin_getline();
-    defer dealloc(input);
-    let splits = array_from_iter(filter(split(input, is_whitespace), fn(v) (*v).len > 0)) : [4] _;
-    let buf = cast &splits : [][] u8;
-    for a in buf for b in buf if b!=a for c in buf if c!=b&&c!=a for d in buf if d!=c&&d!=b&&d!=a {
-        print(*a);
-        print(" ");
-        print(*b);
-        print(" ");
-        print(*c);
-        print(" ");
-        print(*d);
-        print("\n");
-    };
+    let x = "Hello!";
+    let ptr_to_x = &x;
+    let value = ptr_to_x.ptr;
+    ptr_to_x.ptr = ptr_to_x.ptr + 1;
 
-    0
+    cast *value
 };

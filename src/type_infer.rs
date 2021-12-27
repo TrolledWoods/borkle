@@ -362,6 +362,7 @@ enum ConstraintKind {
         values: [ValueId; 2],
         index: Ustr,
         variance: Variance,
+        hidden_subdivisions: u8,
     },
 }
 
@@ -1309,6 +1310,7 @@ impl TypeSystem {
                     values: [a, b],
                     index: field_name,
                     variance,
+                    hidden_subdivisions: 0,
                 },
                 reason,
                 applied: false,
@@ -1559,6 +1561,7 @@ impl TypeSystem {
                 values: [a_id, b_id],
                 index: field_name,
                 variance,
+                hidden_subdivisions: _,
             } => {
                 format!(
                     "{}({}).{} {} {}({})",
@@ -1749,11 +1752,34 @@ impl TypeSystem {
                 values: [a_id, b_id],
                 index: field_name,
                 variance,
+                hidden_subdivisions,
             } => {
                 let a = get_value(&self.values, a_id);
 
                 match &a.kind {
                     None => return,
+                    Some(Type { kind: TypeKind::Reference, args, .. }) if hidden_subdivisions < 1 => {
+                        if let Some(args) = args {
+                            let inner = args[0];
+                            let reason = constraint.reason;
+                            insert_active_constraint(
+                                &mut self.constraints,
+                                &mut self.available_constraints,
+                                &mut self.queued_constraints,
+                                Constraint {
+                                    kind: ConstraintKind::EqualNamedField {
+                                        values: [inner, b_id],
+                                        index: field_name,
+                                        variance,
+                                        hidden_subdivisions: hidden_subdivisions + 1,
+                                    },
+                                    reason,
+                                    applied: false,
+                                },
+                            );
+                            self.constraints[constraint_id].applied = true;
+                        }
+                    }
                     Some(Type { kind: TypeKind::Buffer, args, .. }) => {
                         match &*field_name {
                             "ptr" => {

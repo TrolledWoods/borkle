@@ -17,9 +17,9 @@ const array_iter.(N, T) = fn(array: [N] T) -> typeof Iterator.(_, type T) {
     stream.state.index = 0;
 
     stream.next = fn(state, out) {
-        if (*state).index < N {
-            *out = *(array_ptr(&(*state).array) + (*state).index);
-            (*state).index = (*state).index + 1;
+        if state.index < N {
+            *out = *(array_ptr(&state.array) + state.index);
+            state.index = state.index + 1;
             true
         } else {
             false
@@ -39,25 +39,25 @@ const split.(T) = fn(buffer: [] T, split_if: fn(T) -> bool) -> typeof Iterator.(
     stream.state.split_if = split_if;
 
     stream.next = fn(state, out) { 'function
-        let begin = (*state).buffer.ptr;
+        let begin = state.buffer.ptr;
 
-        for (*state).buffer {
-            if (*state).split_if(*_it) {
-                (*out).ptr = (*state).buffer.ptr;
-                (*out).len = _iters;
+        for state.buffer {
+            if state.split_if(*_it) {
+                out.ptr = state.buffer.ptr;
+                out.len = _iters;
 
                 let reduction = _iters + 1;
-                if (*state).buffer.len > reduction {
-                    (*state).buffer.ptr = (*state).buffer.ptr + reduction;
-                    (*state).buffer.len = (*state).buffer.len - reduction;
+                if state.buffer.len > reduction {
+                    state.buffer.ptr = state.buffer.ptr + reduction;
+                    state.buffer.len = state.buffer.len - reduction;
                 } else {
-                    (*state).buffer.len = 0;
+                    state.buffer.len = 0;
                 };
                 break true;
             };
-        } else if (*state).buffer.len > 0 {
-            *out = (*state).buffer;
-            (*state).buffer.len = 0;
+        } else if state.buffer.len > 0 {
+            *out = state.buffer;
+            state.buffer.len = 0;
             true
         } else {
             false
@@ -73,9 +73,9 @@ const range.(T) = fn(start: T, end: T) -> typeof Iterator.(_, type T) {
     stream.state.end = end;
 
     stream.next = fn(state, out) {
-        if (*state).start < (*state).end {
-            *out = (*state).start;
-            (*state).start = (*state).start + 1;
+        if state.start < state.end {
+            *out = state.start;
+            state.start = state.start + 1;
             true
         } else {
             false
@@ -117,8 +117,8 @@ const scan.(Scanner, State, FromItem, ToItem) = fn(scanner: Scanner, from_stream
 
     stream.next = fn(state, out) {
         let temp = #uninit;
-        if (*state).inner.next(&(*state).inner.state, &temp) {
-            *out = (*state).mapper(&(*state).scanner, temp);
+        if state.inner.next(&state.inner.state, &temp) {
+            *out = state.mapper(&state.scanner, temp);
             true
         } else {
             false
@@ -139,8 +139,8 @@ const map.(State, FromItem, ToItem) = fn(from_stream: typeof Iterator.(State, Fr
 
     stream.next = fn(state, out) {
         let temp = #uninit;
-        if (*state).inner.next(&(*state).inner.state, &temp) {
-            *out = (*state).mapper(temp);
+        if state.inner.next(&state.inner.state, &temp) {
+            *out = state.mapper(temp);
             true
         } else {
             false
@@ -159,11 +159,11 @@ const filter.(State, Item) = fn(inner: typeof Iterator.(State, Item), filter: fn
     stream.next = fn(state, out) { 'func
         let temp = #uninit;
         while true {
-            if not((*state).inner.next(&(*state).inner.state, &temp)) {
+            if not((*state).inner.next(&state.inner.state, &temp)) {
                 break 'func false;
             };
 
-            if (*state).filter(&temp) {
+            if state.filter(&temp) {
                 *out = temp;
                 break 'func true;
             };
