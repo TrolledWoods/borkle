@@ -7,7 +7,6 @@ use bumpalo::Bump;
 use parking_lot::Mutex;
 use std::path::Path;
 use std::sync::atomic::{AtomicU32, Ordering};
-use std::time::Instant;
 
 pub struct WorkPile {
     queue: Mutex<Vec<Task>>,

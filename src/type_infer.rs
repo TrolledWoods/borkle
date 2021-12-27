@@ -173,10 +173,8 @@ pub enum TypeKind {
     Function,
     // element: type, length: int
     Array,
-    // + has variance
     // type
     Reference,
-    // + has variance
     // type
     Buffer,
     // (type, type, type, type), in the same order as the strings.
@@ -252,65 +250,6 @@ fn compute_type_layout(kind: &TypeKind, values: &Values, children: &[ValueId]) -
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum Variance {
-    /// Covariance
-    Covariant,
-    /// Variance
-    Variant,
-    /// Require exact equality
-    Invariant,
-    /// For cases where variance can't be computed yet, so ignore it for now.
-    DontCare,
-}
-
-impl Variance {
-    fn to_string(&self) -> &'static str {
-        match self {
-            Self::Covariant => "<=",
-            Self::Variant => "=>",
-            Self::Invariant => "==",
-            Self::DontCare => "~~",
-        }
-    }
-
-    /// Applies this variance to another variance.
-    /// If self is DontCare, the other variance will also be DontCare.
-    /// If self is Variant, the other variance will remain unchanged, if self is Covariant the other variance will be flipped.
-    /// If self is Invariant, the other variance will also become Invariant.
-    fn apply_to(self, other: Variance) -> Variance {
-        match (self, other) {
-            (Variance::DontCare, _) => Variance::DontCare,
-            (Variance::Variant, c) => c,
-            (Variance::Covariant, c) => c.invert(),
-            (Variance::Invariant, _) => Variance::Invariant,
-        }
-    }
-
-    fn combine(&mut self, other: Variance) {
-        match (*self, other) {
-            (Variance::DontCare, c) => *self = c,
-            (Variance::Covariant, Variance::Variant) | (Variance::Variant, Variance::Covariant) => {
-                *self = Variance::Invariant
-            }
-            (_, Variance::Invariant) => *self = Variance::Invariant,
-            (_, Variance::DontCare)
-            | (Variance::Invariant, _)
-            | (Variance::Variant, Variance::Variant)
-            | (Variance::Covariant, Variance::Covariant) => {}
-        }
-    }
-
-    fn invert(self) -> Variance {
-        match self {
-            Self::Covariant => Self::Variant,
-            Self::Variant => Self::Covariant,
-            Self::Invariant => Self::Invariant,
-            Self::DontCare => Self::DontCare,
-        }
-    }
-}
-
 #[derive(Debug, Clone)]
 pub struct Type {
     pub kind: TypeKind,
@@ -351,17 +290,14 @@ enum ConstraintKind {
     Equal {
         values: [ValueId; 2],
         creator: Option<ConstraintId>,
-        variance: Variance,
     },
     EqualsField {
         values: [ValueId; 2],
         index: usize,
-        variance: Variance,
     },
     EqualNamedField {
         values: [ValueId; 2],
         index: Ustr,
-        variance: Variance,
         hidden_subdivisions: u8,
     },
 }
@@ -372,14 +308,12 @@ impl Constraint {
         match &mut self.kind {
             ConstraintKind::Equal {
                 values: [a, b],
-                variance,
                 ..
             } => {
                 if a == b {
                     self.applied = true;
                 } else if a > b {
                     mem::swap(a, b);
-                    *variance = variance.invert();
                 }
             }
             ConstraintKind::EqualsField { .. }
@@ -387,14 +321,6 @@ impl Constraint {
             | ConstraintKind::BinaryOp { .. }
             | ConstraintKind::Relation { .. } => {}
         }
-    }
-
-    fn apply_variance(mut self, from: Variance) -> Self {
-        if let Some(variance) = self.variance_mut() {
-            *variance = from.apply_to(*variance);
-        }
-
-        self
     }
 
     fn values(&self) -> &[ValueId] {
@@ -417,19 +343,9 @@ impl Constraint {
         }
     }
 
-    fn variance_mut(&mut self) -> Option<&mut Variance> {
-        match &mut self.kind {
-            ConstraintKind::Equal { variance, .. }
-            | ConstraintKind::EqualsField { variance, .. }
-            | ConstraintKind::EqualNamedField { variance, .. } => Some(variance),
-            ConstraintKind::BinaryOp { .. } | ConstraintKind::Relation { .. } => None,
-        }
-    }
-
-    fn equal(a: ValueId, b: ValueId, variance: Variance, creator: Option<ConstraintId>, reason: Reason) -> Self {
+    fn equal(a: ValueId, b: ValueId, creator: Option<ConstraintId>, reason: Reason) -> Self {
         let kind = ConstraintKind::Equal {
             values: [a, b],
-            variance,
             creator,
         };
 
@@ -487,7 +403,6 @@ fn insert_constraint(
     constraint: Constraint,
 ) -> Option<ConstraintId> {
     // @Performance: We can do a faster lookup using available_constraints.
-    // We also want to join constraints together that are the exact same but with just different variances.
     if let Some(id) = constraints.iter().position(|v| v.kind == constraint.kind) {
         return Some(id);
     }
@@ -519,8 +434,6 @@ fn insert_active_constraint(
     constraint: Constraint,
 ) {
     // @Performance: We can do a faster lookup using available_constraints
-    // @TODO: We want to check for equality things with just different variances here too, but I think
-    // I have to change how constraints are represented first as well.
     if let Some(_) = constraints.iter().position(|v| v.kind == constraint.kind) {
         return;
     }
@@ -1004,7 +917,6 @@ impl TypeSystem {
         let value_structure_id = other.values.structure_id_of_value(other_id);
         for &(from_structure_id, converted_value) in already_converted.iter() {
             if from_structure_id == value_structure_id {
-                // @TODO: This does not deal with variance at all
                 return converted_value;
             }
         }
@@ -1043,8 +955,7 @@ impl TypeSystem {
         let mut already_converted = Vec::new();
         for (this_id, other_id, reason) in to_convert {
             let new_id = self.map_value_from_other_typesystem_to_this(other, other_id, &mut already_converted, set);
-            // @TODO: Deal with variance
-            self.set_equal(new_id, this_id, Variance::Invariant, reason);
+            self.set_equal(new_id, this_id, reason);
         }
     }
 
@@ -1281,7 +1192,7 @@ impl TypeSystem {
         );
     }
 
-    pub fn set_equal(&mut self, a: ValueId, b: ValueId, variance: Variance, reason: Reason) {
+    pub fn set_equal(&mut self, a: ValueId, b: ValueId, reason: Reason) {
         if a == b {
             return;
         }
@@ -1289,7 +1200,7 @@ impl TypeSystem {
             &mut self.constraints,
             &mut self.available_constraints,
             &mut self.queued_constraints,
-            Constraint::equal(a, b, variance, None, reason),
+            Constraint::equal(a, b, None, reason),
         );
     }
 
@@ -1298,7 +1209,6 @@ impl TypeSystem {
         a: ValueId,
         field_name: Ustr,
         b: ValueId,
-        variance: Variance,
         reason: Reason,
     ) {
         insert_active_constraint(
@@ -1309,7 +1219,6 @@ impl TypeSystem {
                 kind: ConstraintKind::EqualNamedField {
                     values: [a, b],
                     index: field_name,
-                    variance,
                     hidden_subdivisions: 0,
                 },
                 reason,
@@ -1319,9 +1228,6 @@ impl TypeSystem {
     }
 
     pub fn solve(&mut self) {
-        // @Performance: I think this might be more performant than not sorting, but not 100% sure.
-        // self.queued_constraints.sort_unstable_by_key(|v| matches!(&self.constraints[*v], ConstraintKind::Equal { variance: Variance::Invariant, .. }));
-
         if DEBUG {
             self.print_state();
         }
@@ -1530,14 +1436,12 @@ impl TypeSystem {
             }
             ConstraintKind::Equal {
                 values: [a_id, b_id],
-                variance,
                 creator: _,
             } => {
                 format!(
-                    "{}({}) {} {}({})",
+                    "{}({}) == {}({})",
                     a_id,
                     self.value_to_str(a_id, 0),
-                    variance.to_string(),
                     b_id,
                     self.value_to_str(b_id, 0)
                 )
@@ -1545,14 +1449,12 @@ impl TypeSystem {
             ConstraintKind::EqualsField {
                 values: [a_id, b_id],
                 index: field_index,
-                variance,
             } => {
                 format!(
-                    "{}({}).{} {} {}({})",
+                    "{}({}).{} == {}({})",
                     a_id,
                     self.value_to_str(a_id, 0),
                     field_index,
-                    variance.to_string(),
                     b_id,
                     self.value_to_str(b_id, 0)
                 )
@@ -1560,15 +1462,13 @@ impl TypeSystem {
             ConstraintKind::EqualNamedField {
                 values: [a_id, b_id],
                 index: field_name,
-                variance,
                 hidden_subdivisions: _,
             } => {
                 format!(
-                    "{}({}).{} {} {}({})",
+                    "{}({}).{} == {}({})",
                     a_id,
                     self.value_to_str(a_id, 0),
                     field_name,
-                    variance.to_string(),
                     b_id,
                     self.value_to_str(b_id, 0)
                 )
@@ -1647,7 +1547,7 @@ impl TypeSystem {
                         None,
                     ) => {
                         let int_t = self.add_type(TypeKind::Int, (), ());
-                        self.set_equal(from_id, int_t, Variance::Invariant, constraint.reason);
+                        self.set_equal(from_id, int_t, constraint.reason);
                     }
                     (
                         Relation::Cast,
@@ -1655,7 +1555,7 @@ impl TypeSystem {
                         Some(Type { kind: TypeKind::Int, args: _ }),
                     ) => {
                         let int_t = self.add_type(TypeKind::Int, (), ());
-                        self.set_equal(to_id, int_t, Variance::Invariant, constraint.reason);
+                        self.set_equal(to_id, int_t, constraint.reason);
                     }
                     (
                         Relation::Cast,
@@ -1672,7 +1572,7 @@ impl TypeSystem {
                     ) => {
                         let a = to_args[0];
                         let b = from_args[0];
-                        self.set_equal(a, b, Variance::Invariant, constraint.reason);
+                        self.set_equal(a, b, constraint.reason);
                     }
                     (
                         _,
@@ -1699,8 +1599,8 @@ impl TypeSystem {
                         BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mult | BinaryOp::Div | BinaryOp::BitAnd | BinaryOp::BitOr | BinaryOp::ShiftLeft | BinaryOp::ShiftRight | BinaryOp::Modulo,
                         (Some(TypeKind::Int), Some(TypeKind::Int), _),
                     ) => {
-                        self.set_equal(a_id, b_id, Variance::Invariant, constraint.reason);
-                        self.set_equal(a_id, result_id, Variance::Invariant, constraint.reason);
+                        self.set_equal(a_id, b_id, constraint.reason);
+                        self.set_equal(a_id, result_id, constraint.reason);
                     }
                     (
                         BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mult | BinaryOp::Div | BinaryOp::BitAnd | BinaryOp::BitOr,
@@ -1708,8 +1608,8 @@ impl TypeSystem {
                     ) => {
                         // No reason given for why the type is a usize....
                         let usize = self.add_int(IntTypeKind::Usize, ());
-                        self.set_equal(usize, b_id, Variance::Invariant, constraint.reason);
-                        self.set_equal(a_id, result_id, Variance::Invariant, constraint.reason);
+                        self.set_equal(usize, b_id, constraint.reason);
+                        self.set_equal(a_id, result_id, constraint.reason);
                     }
                     (
                         BinaryOp::And | BinaryOp::Or,
@@ -1717,9 +1617,9 @@ impl TypeSystem {
                     ) => {
                         // Temporary: No type validation, just equality :)
                         let bool = self.add_type(TypeKind::Bool, Args([]), ());
-                        self.set_equal(bool, a_id, Variance::Invariant, constraint.reason);
-                        self.set_equal(bool, b_id, Variance::Invariant, constraint.reason);
-                        self.set_equal(bool, result_id, Variance::Invariant, constraint.reason);
+                        self.set_equal(bool, a_id, constraint.reason);
+                        self.set_equal(bool, b_id, constraint.reason);
+                        self.set_equal(bool, result_id, constraint.reason);
                     }
                     (
                         BinaryOp::Equals | BinaryOp::NotEquals | BinaryOp::LargerThanEquals | BinaryOp::LargerThan | BinaryOp::LessThanEquals | BinaryOp::LessThan,
@@ -1727,8 +1627,8 @@ impl TypeSystem {
                     ) => {
                         let id = self.add_type(TypeKind::Bool, Args([]), ());
 
-                        self.set_equal(result_id, id, Variance::Invariant, constraint.reason);
-                        self.set_equal(a_id, b_id, Variance::DontCare, constraint.reason);
+                        self.set_equal(result_id, id, constraint.reason);
+                        self.set_equal(a_id, b_id, constraint.reason);
                     }
                     (
                         BinaryOp::Equals | BinaryOp::NotEquals,
@@ -1736,8 +1636,8 @@ impl TypeSystem {
                     ) => {
                         let id = self.add_type(TypeKind::Bool, Args([]), ());
 
-                        self.set_equal(result_id, id, Variance::Invariant, constraint.reason);
-                        self.set_equal(a_id, b_id, Variance::DontCare, constraint.reason);
+                        self.set_equal(result_id, id, constraint.reason);
+                        self.set_equal(a_id, b_id, constraint.reason);
                     }
                     (
                         _,
@@ -1751,7 +1651,6 @@ impl TypeSystem {
             ConstraintKind::EqualNamedField {
                 values: [a_id, b_id],
                 index: field_name,
-                variance,
                 hidden_subdivisions,
             } => {
                 let a = get_value(&self.values, a_id);
@@ -1770,7 +1669,6 @@ impl TypeSystem {
                                     kind: ConstraintKind::EqualNamedField {
                                         values: [inner, b_id],
                                         index: field_name,
-                                        variance,
                                         hidden_subdivisions: hidden_subdivisions + 1,
                                     },
                                     reason,
@@ -1788,7 +1686,6 @@ impl TypeSystem {
                                         unreachable!("All buffer types should have two arguments")
                                     };
 
-                                    // @Correctness: We want to reintroduce variances here after the rework
                                     let new_value_id = self.values.add(
                                         Some(Type {
                                             kind: TypeKind::Reference,
@@ -1798,11 +1695,11 @@ impl TypeSystem {
                                         ValueSetHandles::empty(),
                                     );
 
-                                    self.set_equal(new_value_id, b_id, variance, constraint.reason);
+                                    self.set_equal(new_value_id, b_id, constraint.reason);
                                 }
                             }
                             "len" => {
-                                self.set_equal(static_values::USIZE, b_id, variance, constraint.reason);
+                                self.set_equal(static_values::USIZE, b_id, constraint.reason);
 
                                 self.constraints[constraint_id].applied = true;
                             }
@@ -1827,7 +1724,6 @@ impl TypeSystem {
                                     kind: ConstraintKind::EqualsField {
                                         values: [a_id, b_id],
                                         index: pos,
-                                        variance,
                                     },
                                     reason,
                                     applied: false,
@@ -1854,7 +1750,6 @@ impl TypeSystem {
                                     kind: ConstraintKind::EqualsField {
                                         values: [a_id, b_id],
                                         index: 0,
-                                        variance,
                                     },
                                     reason,
                                     applied: false,
@@ -1884,7 +1779,6 @@ impl TypeSystem {
             ConstraintKind::EqualsField {
                 values: [a_id, b_id],
                 index: field_index,
-                variance,
             } => {
                 let a = &get_value(&self.values, a_id).kind;
 
@@ -1897,7 +1791,7 @@ impl TypeSystem {
                                 &mut self.constraints,
                                 &mut self.available_constraints,
                                 &mut self.queued_constraints,
-                                Constraint::equal(field, b_id, variance, Some(constraint_id), Reason::new(loc, ReasonKind::Ignore)),
+                                Constraint::equal(field, b_id, Some(constraint_id), Reason::new(loc, ReasonKind::Ignore)),
                             );
                         } else {
                             self.errors.push(Error::new(
@@ -1914,7 +1808,6 @@ impl TypeSystem {
             }
             ConstraintKind::Equal {
                 values: [a_id, b_id],
-                variance: _,
                 creator: _,
             } => {
                 let Some((a_value, b_value)) = self.values.get_disjoint_mut(a_id, b_id) else {
@@ -1949,7 +1842,7 @@ impl TypeSystem {
                                                 &mut self.constraints,
                                                 &mut self.available_constraints,
                                                 &mut self.queued_constraints,
-                                                Constraint::equal(*a_arg, *b_arg, Variance::Variant, Some(constraint_id), Reason::new(loc, ReasonKind::Ignore)),
+                                                Constraint::equal(*a_arg, *b_arg, Some(constraint_id), Reason::new(loc, ReasonKind::Ignore)),
                                             );
                                         }
                                     }
@@ -2087,7 +1980,7 @@ impl TypeSystem {
                         &mut self.constraints,
                         &mut self.available_constraints,
                         Constraint {
-                            kind: ConstraintKind::EqualsField { values: [value_id, v], index, variance: Variance::Invariant },
+                            kind: ConstraintKind::EqualsField { values: [value_id, v], index, },
                             reason,
                             // It's not actually applied, but because we already have it as an argument, it never needs to be applied.
                             applied: true,
