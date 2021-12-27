@@ -1,6 +1,20 @@
 //! Type inferrence system
-//!
-//! # Will try and document more later once I feel fairly done with the first version of this system, but for now just some generic info I want to put here
+
+use crate::program::Program;
+use crate::errors::ErrorCtx;
+use crate::location::Location;
+use crate::operators::BinaryOp;
+use crate::types::{self, IntTypeKind};
+use std::collections::HashMap;
+use std::mem;
+use ustr::Ustr;
+use crate::program::constant::ConstantRef;
+
+mod explain;
+pub use explain::{get_reasons, Reason, ReasonKind};
+
+mod value_sets;
+pub use value_sets::{ValueSets, ValueSetId, ValueSetHandles, ValueSet};
 
 const DEBUG: bool = false;
 
@@ -22,22 +36,6 @@ pub mod static_values {
     pub const USIZE    : ValueId = 17;
     pub const STATIC_VALUES_SIZE : u32 = 18;
 }
-
-use crate::program::Program;
-use crate::errors::ErrorCtx;
-use crate::location::Location;
-use crate::operators::BinaryOp;
-use crate::types::{self, IntTypeKind};
-use std::collections::HashMap;
-use std::mem;
-use ustr::Ustr;
-use crate::program::constant::ConstantRef;
-
-mod explain;
-pub use explain::{get_reasons, Reason, ReasonKind};
-
-mod value_sets;
-pub use value_sets::{ValueSets, ValueSetId, ValueSetHandles, ValueSet};
 
 pub trait IntoConstant {
     fn into_constant(self) -> Option<ConstantRef>;
@@ -202,10 +200,10 @@ impl TypeKind {
     }
 }
 
-fn compute_type_layout(kind: &TypeKind, values: &Values, children: &[ValueId]) -> Layout {
+fn compute_type_layout(kind: &TypeKind, structures: &Structures, values: &Values, children: &[ValueId]) -> Layout {
     match kind {
         TypeKind::Int => {
-            let size = extract_constant_from_value(values, children[1]).unwrap();
+            let size = extract_constant_from_value(structures, values, children[1]).unwrap();
             // @Correctness: We want to make sure that the type actually is a u8 here
             let size_value = unsafe { *size.as_ptr().cast::<u8>() };
             let size_bytes = match size_value {
@@ -226,9 +224,9 @@ fn compute_type_layout(kind: &TypeKind, values: &Values, children: &[ValueId]) -
         TypeKind::Reference | TypeKind::Function => Layout { size: 8, align: 8 },
         TypeKind::Array => {
             // @Correctness: We want to make sure that the type actually is a usize here
-            let length = extract_constant_from_value(values, children[1]).unwrap();
+            let length = extract_constant_from_value(structures, values, children[1]).unwrap();
             let length = unsafe { *length.as_ptr().cast::<usize>() };
-            let inner_layout = values.get(children[0]).layout;
+            let inner_layout = get_value(structures, values, children[0]).layout;
             debug_assert!(inner_layout.align != 0);
             Layout { size: length * inner_layout.size, align: inner_layout.align }
         }
@@ -236,7 +234,7 @@ fn compute_type_layout(kind: &TypeKind, values: &Values, children: &[ValueId]) -
             let mut size = 0;
             let mut align = 1;
             for &child in children {
-                let child_layout = values.get(child).layout;
+                let child_layout = get_value(structures, values, child).layout;
                 debug_assert_ne!(child_layout.align, 0);
                 size += child_layout.size;
                 align = align.max(child_layout.align);
@@ -246,7 +244,7 @@ fn compute_type_layout(kind: &TypeKind, values: &Values, children: &[ValueId]) -
             Layout { size, align }
         }
         TypeKind::ConstantValue(_) => Layout { size: 0, align: 1 },
-        TypeKind::Constant => *values.get(children[0]).layout,
+        TypeKind::Constant => *get_value(structures, values, children[0]).layout,
     }
 }
 
@@ -376,25 +374,38 @@ pub enum ErrorKind {
     NonexistantName(Ustr),
 }
 
-pub fn extract_constant_from_value(values: &Values, value: ValueId) -> Option<ConstantRef> {
-    let Some(Type { kind: TypeKind::Constant, args: Some(args) }) = values.get(value).kind else {
+fn extract_constant_from_value(structures: &Structures, values: &Values, value: ValueId) -> Option<ConstantRef> {
+    let Some(Type { kind: TypeKind::Constant, args: Some(args) }) = get_value(structures, values, value).kind else {
         return None
     };
 
-    let Some(Type { kind: TypeKind::ConstantValue(constant_ref), .. }) = values.get(*args.get(1)?).kind else {
+    let Some(Type { kind: TypeKind::ConstantValue(constant_ref), .. }) = get_value(structures, values, *args.get(1)?).kind else {
         return None;
     };
 
     Some(*constant_ref)
 }
 
-// Temporary, until we move to calling values.get immediately.
-fn get_value(values: &Values, id: ValueId) -> ValueBorrow<'_> {
-    values.get(id)
+fn get_value<'a>(structures: &'a Structures, values: &'a Values, id: ValueId) -> ValueBorrow<'a> {
+    let value = &values.values[id as usize];
+    let structure = &structures.structure[value.structure_id as usize];
+    ValueBorrow {
+        kind: &structure.kind,
+        layout: &structure.layout,
+        value_sets: &value.value.value_sets,
+        is_base_value: &value.value.is_base_value,
+    }
 }
 
-fn get_value_mut(values: &mut Values, id: ValueId) -> ValueBorrowMut<'_> {
-    values.get_mut(id)
+fn get_value_mut<'a>(structures: &'a mut Structures, values: &'a mut Values, id: ValueId) -> ValueBorrowMut<'a> {
+    let value = &mut values.values[id as usize];
+    let structure = &mut structures.structure[value.structure_id as usize];
+    ValueBorrowMut {
+        kind: &mut structure.kind,
+        layout: &mut structure.layout,
+        value_sets: &mut value.value.value_sets,
+        is_base_value: &mut value.value.is_base_value,
+    }
 }
 
 fn insert_constraint(
@@ -529,8 +540,7 @@ pub struct ValueBorrowMut<'a> {
 
 struct LookupElement {
     internal_id: u32,
-    // u32::MAX is None
-    next_in_lookup: u32,
+    next_in_lookup: Option<u32>,
 }
 
 // @Temporary: Should be replaced with the real value some day
@@ -559,210 +569,233 @@ struct StructureGroup {
     num_values: u32,
 }
 
+#[derive(Default, Clone)]
+struct Structures {
+    structure: Vec<StructureGroup>,
+}
+
+fn iter_values_in_structure<'a>(structures: &Structures, values: &'a Values, value_id: ValueId) -> impl Iterator<Item = ValueId> + 'a {
+    let structure = &structures.structure[values.values[value_id as usize].structure_id as usize];
+
+    let values = &values.values;
+    let mut value_id = structure.first_value;
+
+    std::iter::from_fn(move || {
+        if value_id == u32::MAX { return None; }
+        let v = value_id;
+        let value = &values[value_id as usize];
+        value_id = value.next_in_structure_group;
+        Some(v)
+    })
+}
+
+fn structurally_combine(structures: &mut Structures, values: &mut Values, computable_sizes: &mut Vec<ValueId>, value_sets: &mut ValueSets, a: ValueId, b: ValueId) {
+    let a_value = &values.values[a as usize];
+    let structure_id = a_value.structure_id;
+    let a_value_is_complete = a_value.value.value_sets.is_complete();
+    let b_value = &values.values[b as usize];
+    let old_b_structure_id = b_value.structure_id;
+    let b_value_is_complete = b_value.value.value_sets.is_complete();
+    debug_assert!(!(b_value_is_complete && !a_value_is_complete), "b can't be complete while a isn't, because a will replace b, so it makes no sense for b not to be complete?");
+
+    if structure_id == old_b_structure_id {
+        return;
+    }
+
+    let b_structure = mem::take(&mut structures.structure[old_b_structure_id as usize]);
+    let a_structure = &mut structures.structure[structure_id as usize];
+    a_structure.num_values += b_structure.num_values;
+    match (a_structure.layout.align > 0, b_structure.layout.align > 0) {
+        (true, false) => {
+            for dependant in b_structure.layout_dependants {
+                let dependant_structure_id = values.values[dependant as usize].structure_id;
+                let dependant_structure = &mut structures.structure[dependant_structure_id as usize];
+
+                // This seems scary, but in the cases we're in right now, where a complete structure combines
+                // with an incomplete structure, and the incomplete structure _has children_, those children
+                // will still have the incomplete parent as a layout dependant. Those children will reach this
+                // point in the code, with the dependant structure align already being 0. The reason this works
+                // at all, is that the only case where the align isn't 0, is this case. In all other cases, we
+                // can combine the sizes of the two incomplete structures, and then the dependants are all happy.
+                if dependant_structure.layout.align == 0 {
+                    dependant_structure.layout.size -= 1;
+                    if dependant_structure.layout.size == 0 {
+                        computable_sizes.push(dependant);
+                    }
+                }
+            }
+        }
+        (false, false) => {
+            debug_assert_eq!(b_structure.layout.align, 0);
+            a_structure.layout.size += b_structure.layout.size;
+            a_structure.layout_dependants.extend(b_structure.layout_dependants);
+        }
+        (true, true) => {}
+        (false, true) => unreachable!("This shouldn't happen"),
+    }
+
+    // Join the two linked lists together
+    let mut value_id = a;
+    loop {
+        let value = &mut values.values[value_id as usize];
+        if value.next_in_structure_group == u32::MAX {
+            value.next_in_structure_group = b_structure.first_value;
+            break;
+        }
+        value_id = value.next_in_structure_group;
+    }
+
+    // Convert the old structure list to the new structure
+    let mut value_id = b_structure.first_value;
+    loop {
+        let value = &mut values.values[value_id as usize];
+        if a_value_is_complete && !b_value_is_complete {
+            value.value.value_sets.complete(value_sets);
+        }
+        value.structure_id = structure_id;
+        if value.next_in_structure_group == u32::MAX {
+            break;
+        }
+        value_id = value.next_in_structure_group;
+    }
+}
+
+fn compute_size(structures: &mut Structures, values: &mut Values, computable_sizes: &mut Vec<ValueId>, id: ValueId, value_sets: &mut ValueSets) {
+    let id = values.values[id as usize].structure_id;
+    let structure = &structures.structure[id as usize];
+    if structure.layout.align > 0 {
+        // We already know what the layout
+        return;
+    }
+    let Some(Type { kind, args: Some(args) }) = &structure.kind else {
+        unreachable!("Cannot call compute_size on an incomplete value")
+    };
+    let layout = compute_type_layout(kind, structures, values, args);
+
+    let structure = &mut structures.structure[id as usize];
+    structure.layout = layout;
+
+    // Because we've computed the layout, we can complete all the value sets.
+    let mut value_id = structure.first_value;
+    loop {
+        let value = &mut values.values[value_id as usize];
+        value.value.value_sets.complete(value_sets);
+        if value.next_in_structure_group == u32::MAX {
+            break;
+        }
+        value_id = value.next_in_structure_group;
+    }
+
+    let layout_dependants = mem::take(&mut structure.layout_dependants);
+    for dependant in layout_dependants {
+        let value = get_value_mut(structures, values, dependant);
+        if value.layout.align == 0 {
+            value.layout.size -= 1;
+            if value.layout.size == 0 {
+                computable_sizes.push(dependant);
+            }
+        }
+    }
+}
+
+fn get_disjoint_mut<'a>(structures: &'a mut Structures, values: &'a mut Values, a: ValueId, b: ValueId) -> Option<(ValueBorrowMut<'a>, ValueBorrowMut<'a>)> {
+    let (a, b) = slice_get_two_mut(&mut values.values, a as usize, b as usize)?;
+
+    let (structure_a, structure_b) = slice_get_two_mut(&mut structures.structure, a.structure_id as usize, b.structure_id as usize)?;
+
+    Some((
+        ValueBorrowMut {
+            kind: &mut structure_a.kind,
+            layout: &mut structure_a.layout,
+            value_sets: &mut a.value.value_sets,
+            is_base_value: &mut a.value.is_base_value,
+        },
+        ValueBorrowMut {
+            kind: &mut structure_b.kind,
+            layout: &mut structure_b.layout,
+            value_sets: &mut b.value.value_sets,
+            is_base_value: &mut b.value.is_base_value,
+        },
+    ))
+}
+
+fn set_value(structures: &mut Structures, values: &mut Values, id: ValueId, kind: Type, value_sets: &mut ValueSets, value_set_handles: ValueSetHandles) {
+    let value = &mut values.values[id as usize];
+    let structure_id = value.structure_id;
+
+    value.value.value_sets.take_from(value_set_handles, value_sets);
+
+    let mut layout = Layout::default();
+    if let Type { args: Some(args), kind } = &kind {
+        let mut number = 0;
+        // @Improvement: We need to figure out how to recursively determine
+        // type completion, for when we're going to insert it as a type
+        // id.
+        for &needed in args.iter() { // kind.get_needed_children_for_layout(&args)
+            let structure = &mut structures.structure[values.values[needed as usize].structure_id as usize];
+            if structure.layout.align == 0 {
+                number += 1;
+                structure.layout_dependants.push(id);
+            }
+        }
+
+        if number == 0 {
+            layout = compute_type_layout(kind, structures, values, args);
+
+            // Since there is only one value in the structure, this is fine
+            let value = &mut values.values[id as usize];
+            value.value.value_sets.complete(value_sets);
+        } else {
+            layout.size = number;
+        }
+    }
+
+    let structure = &mut structures.structure[structure_id as usize];
+    debug_assert_eq!(structure.layout.size, 0);
+    debug_assert_eq!(structure.layout.align, 0);
+    debug_assert_eq!(structure.num_values, 1);
+    // debug_assert!(structure.layout_dependants.is_empty());
+    structure.kind = Some(kind);
+    structure.layout = layout;
+}
+
+fn add_value(structures: &mut Structures, values: &mut Values, kind: Option<Type>, value_sets: &mut ValueSets, value_set_handles: ValueSetHandles) -> ValueId {
+    let structure_id = structures.structure.len() as u32;
+    let id = values.values.len() as u32;
+    assert!(id < u32::MAX, "Too many values, overflows a u32");
+
+    structures.structure.push(StructureGroup {
+        first_value: structure_id,
+        kind: None,
+        layout: Layout::default(),
+        layout_dependants: Vec::new(),
+        num_values: 1,
+    });
+    values.values.push(ValueWrapper {
+        value: Value { value_sets: value_set_handles, is_base_value: false },
+        structure_id,
+        next_in_structure_group: u32::MAX,
+    });
+    if let Some(kind) = kind {
+        set_value(structures, values, id, kind, value_sets, ValueSetHandles::default());
+    }
+    id
+}
+
 #[derive(Clone)]
 pub struct Values {
-    structure: Vec<StructureGroup>,
     values: Vec<ValueWrapper>,
 }
 
 impl Values {
     fn new() -> Self {
         Self {
-            structure: Vec::new(),
             values: Vec::with_capacity(32),
         }
     }
 
-    fn iter_values_in_structure(&self, value_id: ValueId) -> impl Iterator<Item = ValueId> + '_ {
-        let structure = &self.structure[self.values[value_id as usize].structure_id as usize];
-
-        let values = &self.values;
-        let mut value_id = structure.first_value;
-
-        std::iter::from_fn(move || {
-            if value_id == u32::MAX { return None; }
-            let v = value_id;
-            let value = &values[value_id as usize];
-            value_id = value.next_in_structure_group;
-            Some(v)
-        })
-    }
-    
     fn structure_id_of_value(&self, value_id: ValueId) -> u32 {
         self.values[value_id as usize].structure_id
-    }
-
-    // @Cleanup: Move this out of function? It's going to get pretty situation specific I feel like
-    fn structurally_combine(&mut self, computable_sizes: &mut Vec<ValueId>, value_sets: &mut ValueSets, a: ValueId, b: ValueId) {
-        let a_value = &self.values[a as usize];
-        let structure_id = a_value.structure_id;
-        let a_value_is_complete = a_value.value.value_sets.is_complete();
-        let b_value = &self.values[b as usize];
-        let old_b_structure_id = b_value.structure_id;
-        let b_value_is_complete = b_value.value.value_sets.is_complete();
-        debug_assert!(!(b_value_is_complete && !a_value_is_complete), "b can't be complete while a isn't, because a will replace b, so it makes no sense for b not to be complete?");
-
-        if structure_id == old_b_structure_id {
-            return;
-        }
-
-        let b_structure = mem::take(&mut self.structure[old_b_structure_id as usize]);
-        let a_structure = &mut self.structure[structure_id as usize];
-        a_structure.num_values += b_structure.num_values;
-        match (a_structure.layout.align > 0, b_structure.layout.align > 0) {
-            (true, false) => {
-                for dependant in b_structure.layout_dependants {
-                    let dependant_structure_id = self.values[dependant as usize].structure_id;
-                    let dependant_structure = &mut self.structure[dependant_structure_id as usize];
-
-                    // This seems scary, but in the cases we're in right now, where a complete structure combines
-                    // with an incomplete structure, and the incomplete structure _has children_, those children
-                    // will still have the incomplete parent as a layout dependant. Those children will reach this
-                    // point in the code, with the dependant structure align already being 0. The reason this works
-                    // at all, is that the only case where the align isn't 0, is this case. In all other cases, we
-                    // can combine the sizes of the two incomplete structures, and then the dependants are all happy.
-                    if dependant_structure.layout.align == 0 {
-                        dependant_structure.layout.size -= 1;
-                        if dependant_structure.layout.size == 0 {
-                            computable_sizes.push(dependant);
-                        }
-                    }
-                }
-            }
-            (false, false) => {
-                debug_assert_eq!(b_structure.layout.align, 0);
-                a_structure.layout.size += b_structure.layout.size;
-                a_structure.layout_dependants.extend(b_structure.layout_dependants);
-            }
-            (true, true) => {}
-            (false, true) => unreachable!("This shouldn't happen"),
-        }
-
-        // Join the two linked lists together
-        let mut value_id = a;
-        loop {
-            let value = &mut self.values[value_id as usize];
-            if value.next_in_structure_group == u32::MAX {
-                value.next_in_structure_group = b_structure.first_value;
-                break;
-            }
-            value_id = value.next_in_structure_group;
-        }
-
-        // Convert the old structure list to the new structure
-        let mut value_id = b_structure.first_value;
-        loop {
-            let value = &mut self.values[value_id as usize];
-            if a_value_is_complete && !b_value_is_complete {
-                value.value.value_sets.complete(value_sets);
-            }
-            value.structure_id = structure_id;
-            if value.next_in_structure_group == u32::MAX {
-                break;
-            }
-            value_id = value.next_in_structure_group;
-        }
-    }
-
-    fn compute_size(&mut self, computable_sizes: &mut Vec<ValueId>, id: ValueId, value_sets: &mut ValueSets) {
-        let id = self.values[id as usize].structure_id;
-        let structure = &self.structure[id as usize];
-        if structure.layout.align > 0 {
-            // We already know what the layout
-            return;
-        }
-        let Some(Type { kind, args: Some(args) }) = &structure.kind else {
-            unreachable!("Cannot call compute_size on an incomplete value")
-        };
-        let layout = compute_type_layout(kind, self, args);
-
-        let structure = &mut self.structure[id as usize];
-        structure.layout = layout;
-
-        // Because we've computed the layout, we can complete all the value sets.
-        let mut value_id = structure.first_value;
-        loop {
-            let value = &mut self.values[value_id as usize];
-            value.value.value_sets.complete(value_sets);
-            if value.next_in_structure_group == u32::MAX {
-                break;
-            }
-            value_id = value.next_in_structure_group;
-        }
-
-        let layout_dependants = mem::take(&mut structure.layout_dependants);
-        for dependant in layout_dependants {
-            let value = self.get_mut(dependant);
-            if value.layout.align == 0 {
-                value.layout.size -= 1;
-                if value.layout.size == 0 {
-                    computable_sizes.push(dependant);
-                }
-            }
-        }
-    }
-
-    fn set(&mut self, id: ValueId, kind: Type, value_sets: &mut ValueSets, value_set_handles: ValueSetHandles) {
-        let value = &mut self.values[id as usize];
-        let structure_id = value.structure_id;
-
-        value.value.value_sets.take_from(value_set_handles, value_sets);
-
-        let mut layout = Layout::default();
-        if let Type { args: Some(args), kind } = &kind {
-            let mut number = 0;
-            // @Improvement: We need to figure out how to recursively determine
-            // type completion, for when we're going to insert it as a type
-            // id.
-            for &needed in args.iter() { // kind.get_needed_children_for_layout(&args) {
-                let structure = &mut self.structure[self.values[needed as usize].structure_id as usize];
-                if structure.layout.align == 0 {
-                    number += 1;
-                    structure.layout_dependants.push(id);
-                }
-            }
-
-            if number == 0 {
-                layout = compute_type_layout(kind, self, args);
-
-                // Since there is only one value in the structure, this is fine
-                let value = &mut self.values[id as usize];
-                value.value.value_sets.complete(value_sets);
-            } else {
-                layout.size = number;
-            }
-        }
-
-        let structure = &mut self.structure[structure_id as usize];
-        debug_assert_eq!(structure.layout.size, 0);
-        debug_assert_eq!(structure.layout.align, 0);
-        debug_assert_eq!(structure.num_values, 1);
-        // debug_assert!(structure.layout_dependants.is_empty());
-        structure.kind = Some(kind);
-        structure.layout = layout;
-    }
-
-    fn add(&mut self, kind: Option<Type>, value_sets: &mut ValueSets, value_set_handles: ValueSetHandles) -> ValueId {
-        let structure_id = self.structure.len() as u32;
-        let id = self.values.len() as u32;
-        assert!(id < u32::MAX, "Too many values, overflows a u32");
-
-        self.structure.push(StructureGroup {
-            first_value: structure_id,
-            kind: None,
-            layout: Layout::default(),
-            layout_dependants: Vec::new(),
-            num_values: 1,
-        });
-        self.values.push(ValueWrapper {
-            value: Value { value_sets: value_set_handles, is_base_value: false },
-            structure_id,
-            next_in_structure_group: u32::MAX,
-        });
-        if let Some(kind) = kind {
-            self.set(id, kind, value_sets, ValueSetHandles::default());
-        }
-        id
     }
 
     fn iter(&self) -> impl Iterator<Item = &Value> {
@@ -773,52 +806,9 @@ impl Values {
         self.values.iter_mut().map(|v| &mut v.value)
     }
 
-    pub fn get(&self, id: ValueId) -> ValueBorrow<'_> {
-        let value = &self.values[id as usize];
-        let structure = &self.structure[value.structure_id as usize];
-        ValueBorrow {
-            kind: &structure.kind,
-            layout: &structure.layout,
-            value_sets: &value.value.value_sets,
-            is_base_value: &value.value.is_base_value,
-        }
-    }
-
-    pub fn get_mut(&mut self, id: ValueId) -> ValueBorrowMut<'_> {
-        let value = &mut self.values[id as usize];
-        let structure = &mut self.structure[value.structure_id as usize];
-        ValueBorrowMut {
-            kind: &mut structure.kind,
-            layout: &mut structure.layout,
-            value_sets: &mut value.value.value_sets,
-            is_base_value: &mut value.value.is_base_value,
-        }
-    }
-
     /// Returns the value id that will returned by the next call to `add`
     fn next_value_id(&self) -> ValueId {
         self.values.len() as u32
-    }
-
-    fn get_disjoint_mut(&mut self, a: ValueId, b: ValueId) -> Option<(ValueBorrowMut<'_>, ValueBorrowMut<'_>)> {
-        let (a, b) = slice_get_two_mut(&mut self.values, a as usize, b as usize)?;
-
-        let (structure_a, structure_b) = slice_get_two_mut(&mut self.structure, a.structure_id as usize, b.structure_id as usize)?;
-
-        Some((
-            ValueBorrowMut {
-                kind: &mut structure_a.kind,
-                layout: &mut structure_a.layout,
-                value_sets: &mut a.value.value_sets,
-                is_base_value: &mut a.value.is_base_value,
-            },
-            ValueBorrowMut {
-                kind: &mut structure_b.kind,
-                layout: &mut structure_b.layout,
-                value_sets: &mut b.value.value_sets,
-                is_base_value: &mut b.value.is_base_value,
-            },
-        ))
     }
 }
 
@@ -853,6 +843,7 @@ fn get_loc_of_value(poly_args: &[crate::typer::PolyParam], ast: &crate::parser::
 
 #[derive(Clone)]
 pub struct TypeSystem {
+    structures: Structures,
     pub values: Values,
 
     pub value_sets: ValueSets,
@@ -872,6 +863,7 @@ impl TypeSystem {
         let bool_type = crate::types::Type::new(crate::types::TypeKind::Bool);
 
         let mut this = Self {
+            structures: Structures::default(),
             values: Values::new(),
             value_sets: ValueSets::default(),
             constraints: Vec::new(),
@@ -925,7 +917,7 @@ impl TypeSystem {
         let value_id = self.add_unknown_type_with_set(set);
         already_converted.push((value_structure_id, value_id));
 
-        let other_value = other.values.get(other_id);
+        let other_value = get_value(&other.structures, &other.values, other_id);
         match other_value.kind {
             Some(Type { kind, args: Some(ref args) }) => {
                 let new_args = args.iter()
@@ -966,7 +958,11 @@ impl TypeSystem {
     }
 
     pub fn get(&self, id: ValueId) -> ValueBorrow<'_> {
-        self.values.get(id)
+        get_value(&self.structures, &self.values, id)
+    }
+
+    pub fn get_mut(&mut self, id: ValueId) -> ValueBorrowMut<'_> {
+        get_value_mut(&mut self.structures, &mut self.values, id)
     }
 
     /// Only to be used when generating incompleteness-errors
@@ -978,7 +974,7 @@ impl TypeSystem {
 
     pub fn output_incompleteness_errors(&self, errors: &mut ErrorCtx, poly_args: &[crate::typer::PolyParam], ast: &crate::parser::Ast, locals: &crate::locals::LocalVariables) {
         for node_id in 0..self.values.values.len() as ValueId {
-            if !self.values.get(node_id).value_sets.is_complete() {
+            if !self.get(node_id).value_sets.is_complete() {
                 // Generate an error
                 if let Some(loc) = get_loc_of_value(poly_args, ast, locals, node_id) {
                     errors.error(loc, format!("Ambiguous type"));
@@ -1045,17 +1041,21 @@ impl TypeSystem {
     }
 
     pub fn value_layout(&self, value_id: ValueId) -> Layout {
-        let layout = *self.values.get(value_id).layout;
+        let layout = *self.get(value_id).layout;
         debug_assert_ne!(layout.align, 0, "Tried to read an incomplete layout");
         layout
     }
 
+    pub fn extract_constant_temp(&self, value_id: ValueId) -> Option<ConstantRef> {
+        extract_constant_from_value(&self.structures, &self.values, value_id)
+    }
+
     // @Completeness: This should also support converting type values into constants.
     pub fn extract_constant(&self, program: &Program, value_id: ValueId) -> (types::Type, ConstantRef) {
-        match &get_value(&self.values, value_id).kind {
+        match &self.get(value_id).kind {
             Some(Type { kind: TypeKind::Constant, args: Some(type_args) }) => {
                 let &[type_, constant_ref] = &**type_args else { panic!() };
-                let &Some(Type { kind: TypeKind::ConstantValue(constant_ref), .. }) = get_value(&self.values, constant_ref).kind else { panic!() };
+                let &Some(Type { kind: TypeKind::ConstantValue(constant_ref), .. }) = self.get(constant_ref).kind else { panic!() };
 
                 let type_ = self.value_to_compiler_type(type_);
 
@@ -1072,7 +1072,7 @@ impl TypeSystem {
     }
 
     pub fn value_to_compiler_type(&self, value_id: ValueId) -> types::Type {
-        let Some(Type { kind: type_kind, args: Some(type_args) }) = &get_value(&self.values, value_id).kind else {
+        let Some(Type { kind: type_kind, args: Some(type_args) }) = &self.get(value_id).kind else {
             panic!("Cannot call value_to_compiler_type on incomplete value")
         };
 
@@ -1085,8 +1085,8 @@ impl TypeSystem {
                     unreachable!("Invalid int size and sign")
                 };
 
-                let sign_value = extract_constant_from_value(&self.values, *signed).expect("Sign wasn't a value");
-                let size_value = extract_constant_from_value(&self.values, *size).expect("Size wasn't a value");
+                let sign_value = self.extract_constant_temp(*signed).expect("Sign wasn't a value");
+                let size_value = self.extract_constant_temp(*size).expect("Size wasn't a value");
 
                 let sign_value = unsafe { *sign_value.as_ptr().cast::<bool>() };
                 let size_value = unsafe { *size_value.as_ptr().cast::<u8>() };
@@ -1128,7 +1128,7 @@ impl TypeSystem {
 
                 let element_type = self.value_to_compiler_type(*element_type);
 
-                let length = extract_constant_from_value(&self.values, *length).expect("Array length isn't a value");
+                let length = self.extract_constant_temp(*length).expect("Array length isn't a value");
 
                 let length = unsafe { usize::from_le_bytes(*length.as_ptr().cast::<[u8; 8]>()) };
 
@@ -1249,7 +1249,7 @@ impl TypeSystem {
         }
 
         while let Some(computable_size) = self.computable_value_sizes.pop() {
-            self.values.compute_size(&mut self.computable_value_sizes, computable_size, &mut self.value_sets);
+            compute_size(&mut self.structures, &mut self.values, &mut self.computable_value_sizes, computable_size, &mut self.value_sets);
         }
 
         // self.print_state();
@@ -1260,7 +1260,7 @@ impl TypeSystem {
     }
 
     fn constant_to_str(&self, type_: ValueId, value: ConstantRef, rec: usize) -> String {
-        match &get_value(&self.values, type_).kind {
+        match &self.get(type_).kind {
             Some(Type { kind: TypeKind::Type, .. }) => {
                 let compiler_type = unsafe { *value.as_ptr().cast::<types::Type>() };
                 format!("{}", compiler_type)
@@ -1282,11 +1282,11 @@ impl TypeSystem {
             Some(Type { kind: TypeKind::Int, args: Some(c) }) => {
                 let [signed, size] = &**c else { panic!() };
 
-                let Some(signed) = extract_constant_from_value(&self.values, *signed) else {
+                let Some(signed) = self.extract_constant_temp(*signed) else {
                     return "(?)".to_string()
                 };
 
-                let Some(size) = extract_constant_from_value(&self.values, *size) else {
+                let Some(size) = self.extract_constant_temp(*size) else {
                     return "(?)".to_string()
                 };
 
@@ -1322,7 +1322,7 @@ impl TypeSystem {
         if rec > 7 {
             return "...".to_string();
         }
-        match &self.values.get(value).kind {
+        match &self.get(value).kind {
             Some(Type { kind: TypeKind::Type, .. }) => "type".to_string(),
             Some(Type { kind: TypeKind::Bool, .. }) => "bool".to_string(),
             Some(Type { kind: TypeKind::Empty, .. }) => "Empty".to_string(),
@@ -1331,7 +1331,7 @@ impl TypeSystem {
             None => "_".to_string(),
             Some(Type { kind: TypeKind::Constant, args: Some(c) }) => match &**c {
                 [type_, value] => {
-                    let value = match &self.values.get(*value).kind {
+                    let value = match &self.get(*value).kind {
                         Some(Type { kind: TypeKind::ConstantValue(constant_ref), .. }) => {
                             self.constant_to_str(*type_, *constant_ref, rec + 1)
                         }
@@ -1346,7 +1346,7 @@ impl TypeSystem {
             Some(Type { kind, args: None, .. }) => format!("{:?}", kind),
             Some(Type { kind: TypeKind::Int, args: Some(c) }) => match &**c {
                 [signed, size] => {
-                    if let (Some(sign), Some(size)) = (extract_constant_from_value(&self.values, *signed), extract_constant_from_value(&self.values, *size)) {
+                    if let (Some(sign), Some(size)) = (self.extract_constant_temp(*signed), self.extract_constant_temp(*size)) {
                         let sign = unsafe { *sign.as_ptr().cast::<u8>() } > 0;
                         let size = unsafe { *size.as_ptr().cast::<u8>() };
 
@@ -1480,7 +1480,7 @@ impl TypeSystem {
         println!("Values:");
         // @Volatile: If we change how value ids work, this will no longer work.
         for (i, v) in self.values.iter().enumerate() {
-            let value = self.values.get(i as u32);
+            let value = self.get(i as u32);
             println!("{}, size: {}, align: {}: {}, {}", i, value.layout.size, value.layout.align, v.value_sets.is_complete(), self.value_to_str(i as u32, 0));
         }
         println!();
@@ -1515,8 +1515,8 @@ impl TypeSystem {
 
         match constraint.kind {
             ConstraintKind::Relation { kind, values: [to_id, from_id] } => {
-                let to = get_value(&self.values, to_id);
-                let from = get_value(&self.values, from_id);
+                let to = get_value(&self.structures, &self.values, to_id);
+                let from = get_value(&self.structures, &self.values, from_id);
 
                 match (kind, to.kind, from.kind) {
                     (
@@ -1588,9 +1588,9 @@ impl TypeSystem {
                 values: [a_id, b_id, result_id],
                 op,
             } => {
-                let a = get_value(&self.values, a_id);
-                let b = get_value(&self.values, b_id);
-                let result = get_value(&self.values, result_id);
+                let a = get_value(&self.structures, &self.values, a_id);
+                let b = get_value(&self.structures, &self.values, b_id);
+                let result = get_value(&self.structures, &self.values, result_id);
 
                 let (a, b, result) = (&a.kind, &b.kind, &result.kind);
 
@@ -1653,7 +1653,7 @@ impl TypeSystem {
                 index: field_name,
                 hidden_subdivisions,
             } => {
-                let a = get_value(&self.values, a_id);
+                let a = get_value(&self.structures, &self.values, a_id);
 
                 match &a.kind {
                     None => return,
@@ -1686,7 +1686,9 @@ impl TypeSystem {
                                         unreachable!("All buffer types should have two arguments")
                                     };
 
-                                    let new_value_id = self.values.add(
+                                    let new_value_id = add_value(
+                                        &mut self.structures,
+                                        &mut self.values,
                                         Some(Type {
                                             kind: TypeKind::Reference,
                                             args: Some(Box::new([pointee])),
@@ -1780,7 +1782,7 @@ impl TypeSystem {
                 values: [a_id, b_id],
                 index: field_index,
             } => {
-                let a = &get_value(&self.values, a_id).kind;
+                let a = &get_value(&self.structures, &self.values, a_id).kind;
 
                 match a {
                     None | Some(Type { args: None, .. }) => {}
@@ -1810,7 +1812,7 @@ impl TypeSystem {
                 values: [a_id, b_id],
                 creator: _,
             } => {
-                let Some((a_value, b_value)) = self.values.get_disjoint_mut(a_id, b_id) else {
+                let Some((a_value, b_value)) = get_disjoint_mut(&mut self.structures, &mut self.values, a_id, b_id) else {
                     return;
                 };
 
@@ -1847,7 +1849,7 @@ impl TypeSystem {
                                         }
                                     }
 
-                                    if self.values.get(b_id).layout.align > 0 {
+                                    if get_value(&self.structures, &self.values, b_id).layout.align > 0 {
                                         (b_id, a_id)
                                     } else {
                                         (a_id, b_id)
@@ -1859,7 +1861,7 @@ impl TypeSystem {
                 };
 
                 // Actually, progress was made on the whole from set
-                for id in self.values.iter_values_in_structure(from) {
+                for id in iter_values_in_structure(&self.structures, &self.values, from) {
                     self.queued_constraints.extend(
                         self.available_constraints
                             .get(&id)
@@ -1870,13 +1872,13 @@ impl TypeSystem {
                     );
                 }
 
-                self.values.structurally_combine(&mut self.computable_value_sizes, &mut self.value_sets, to, from);
+                structurally_combine(&mut self.structures, &mut self.values, &mut self.computable_value_sizes, &mut self.value_sets, to, from);
             }
         }
     }
 
     pub fn params(&self, value: ValueId) -> Option<&[ValueId]> {
-        match get_value(&self.values, value).kind {
+        match self.get(value).kind {
             Some(Type { ref args, .. }) => args.as_deref(),
             _ => None,
         }
@@ -1886,7 +1888,7 @@ impl TypeSystem {
     /// in debug mode. It also cannot be an alias. This is solely intended for use by the building
     /// process of the typer.
     pub fn set_value_set(&mut self, value_id: ValueId, value_set_id: ValueSetId) {
-        let value = self.values.get_mut(value_id);
+        let value = get_value_mut(&mut self.structures, &mut self.values, value_id);
 
         // There can be no children, this function shouldn't have to recurse.
         debug_assert!(matches!(value.kind, None));
@@ -1897,7 +1899,9 @@ impl TypeSystem {
 
     pub fn add_unknown_type_with_set(&mut self, set: ValueSetId) -> ValueId {
         let value_set_handles = self.value_sets.with_one(set);
-        self.values.add(
+        add_value(
+            &mut self.structures,
+            &mut self.values,
             None,
             &mut self.value_sets,
             value_set_handles,
@@ -1991,8 +1995,8 @@ impl TypeSystem {
                 .collect()
             );
         let value_sets = set.add_set(&mut self.value_sets);
-        self.values.set(value_id, Type { kind, args }, &mut self.value_sets, value_sets);
-        *self.values.get_mut(value_id).is_base_value = true;
+        set_value(&mut self.structures, &mut self.values, value_id, Type { kind, args }, &mut self.value_sets, value_sets);
+        *get_value_mut(&mut self.structures, &mut self.values, value_id).is_base_value = true;
 
         value_id
     }
@@ -2028,7 +2032,9 @@ impl TypeSystem {
     }
 
     pub fn add_unknown_type(&mut self) -> ValueId {
-        self.values.add(
+        add_value(
+            &mut self.structures,
+            &mut self.values,
             None,
             &mut self.value_sets,
             ValueSetHandles::empty(),
@@ -2038,7 +2044,9 @@ impl TypeSystem {
     pub fn set_value(&mut self, value_id: ValueId, type_: ValueId, value: impl IntoConstant, set: impl IntoValueSet) {
         let value = value.into_constant();
         let value_sets = set.add_set(&mut self.value_sets);
-        let constant_value_id = self.values.add(
+        let constant_value_id = add_value(
+            &mut self.structures,
+            &mut self.values,
             value.map(|v| Type {
                 kind: TypeKind::ConstantValue(v),
                 args: Some(Box::new([])),
@@ -2046,7 +2054,7 @@ impl TypeSystem {
             &mut self.value_sets,
             value_sets,
         );
-        *self.values.get_mut(constant_value_id).is_base_value = true;
+        *get_value_mut(&mut self.structures, &mut self.values, constant_value_id).is_base_value = true;
         self.set_type(value_id, TypeKind::Constant, Args([(type_, Reason::temp_zero()), (constant_value_id, Reason::temp_zero())]), set);
     }
 

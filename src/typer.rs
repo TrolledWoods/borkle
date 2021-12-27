@@ -112,7 +112,7 @@ pub fn begin<'a>(
         .into_iter()
         .map(|(loc, name)| {
             let value_id = infer.add_unknown_type();
-            *infer.values.get_mut(value_id).is_base_value = true;
+            *infer.get_mut(value_id).is_base_value = true;
 
             PolyParam {
                 loc,
@@ -289,7 +289,7 @@ fn subset_was_completed(ctx: &mut Context<'_, '_>, ast: &mut Ast, waiting_on: Wa
         WaitingOnTypeInferrence::ConstantFromValueId { value_id, to, parent_set } => {
             // We expect the type to already be checked by some other mechanism,
             // e.g., node_type_id should be equal to the type of the constant.
-            let constant_ref = type_infer::extract_constant_from_value(&ctx.infer.values, value_id).unwrap();
+            let constant_ref = ctx.infer.extract_constant_temp(value_id).unwrap();
             ast.get_mut(to).kind = NodeKind::Constant(constant_ref, None);
             ctx.infer.value_sets.unlock(parent_set);
         }
@@ -300,7 +300,7 @@ fn subset_was_completed(ctx: &mut Context<'_, '_>, ast: &mut Ast, waiting_on: Wa
             ctx.infer.value_sets.unlock(parent_set);
         }
         WaitingOnTypeInferrence::SizeOf { type_id, node_id, parent_set } => {
-            let size = ctx.infer.values.get(type_id).layout.size;
+            let size = ctx.infer.get(type_id).layout.size;
             let constant_ref = ctx.program.insert_buffer(types::Type::new(types::TypeKind::Int(IntTypeKind::Usize)), &size as *const _ as *const u8);
             ast.get_mut(node_id).kind = NodeKind::Constant(constant_ref, None);
             ctx.infer.value_sets.unlock(parent_set);

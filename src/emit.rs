@@ -377,7 +377,7 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, node: NodeView<'a>) -> Value {
                     Some(type_infer::Type { kind: type_infer::TypeKind::Int, args: Some(to_args) }),
                     Some(type_infer::Type { kind: type_infer::TypeKind::Int, args: Some(_) }),
                 ) => {
-                    let is_signed_to = 0 < unsafe { *type_infer::extract_constant_from_value(&ctx.types.values, to_args[0]).unwrap().as_ptr().cast::<u8>() };
+                    let is_signed_to = 0 < unsafe { *ctx.types.extract_constant_temp(to_args[0]).unwrap().as_ptr().cast::<u8>() };
                     let to_size = node_type.layout.size;
                     let from_size = value_type.layout.size;
 
@@ -393,7 +393,7 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, node: NodeView<'a>) -> Value {
                 ) => {
                     match ctx.types.get(from_args[0]).kind {
                         Some(type_infer::Type { kind: type_infer::TypeKind::Array, args: Some(array_args) }) => {
-                            let length = type_infer::extract_constant_from_value(&ctx.types.values, array_args[1]).unwrap();
+                            let length = ctx.types.extract_constant_temp(array_args[1]).unwrap();
                             let usize_type = Type::new(TypeKind::Int(IntTypeKind::Usize));
                             let len_reg = ctx.registers.create(ctx.types, type_infer::static_values::USIZE, usize_type);
 

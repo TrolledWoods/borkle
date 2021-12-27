@@ -4,6 +4,7 @@ use std::collections::{hash_map, HashMap};
 use crate::errors::ErrorCtx;
 use crate::program::PolyMemberId;
 use crate::parser::Ast;
+use crate::type_infer;
 use ustr::Ustr;
 
 pub fn get_reasons(base_value: ValueId, types: &TypeSystem, mapper: &IdMapper, ast: &crate::parser::Ast) -> Vec<ReasoningChain> {
@@ -121,8 +122,8 @@ pub fn get_reasons_with_look_inside(base_value: ValueId, look_inside: ValueId, t
 
     let mut best_reason: Option<ReasoningChain> = None;
 
-    for value_id in types.values.iter_values_in_structure(look_inside) {
-        if *types.values.get(value_id).is_base_value {
+    for value_id in type_infer::iter_values_in_structure(&types.structures, &types.values, look_inside) {
+        if *types.get(value_id).is_base_value {
             let mut graph = HashMap::new();
             let mut frontier = Vec::new();
             // It's a base value, which means that we can draw a chain of reasoning from it.
