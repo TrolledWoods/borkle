@@ -18,11 +18,5 @@ You can also look in the `library` directory to look at how the standard library
 ## Hello World
 Because every language needs a hello world program, here is the one for borkle:
 ```rust
-library "base.bo";
-
-#entry fn() -> u64 {
-    print("Hello, world!\n");
-
-    0
-};
+#entry fn() print("Hello, world!\n");
 ```

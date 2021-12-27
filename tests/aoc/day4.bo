@@ -1,4 +1,3 @@
-library "base.bo";
 import "day4_input.bo";
 import "../main.bo";
 

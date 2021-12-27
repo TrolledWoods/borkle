@@ -30,6 +30,21 @@ pub fn process_string(
 
     let mut context = DataContext::new(errors, program, &mut tokens, Path::new(&*file), scope);
 
+    let mut no_base = None;
+    parse_tags(
+        &mut context,
+        "file header",
+        &mut [("no_base".into(), &mut no_base)]
+    )?;
+
+    if no_base.is_none() {
+        program.add_file_from_import(
+            offset_path(&context.program.arguments.lib_path, "base.bo"),
+            context.tokens.loc(),
+            context.scope,
+        );
+    }
+
     while let Some(token) = context.tokens.peek() {
         // @Hack: Workaround for the borrowing errors
         let token = token.clone();
@@ -682,7 +697,7 @@ fn value_without_unaries(
             // Parse tags
             let mut is_const = None;
 
-            parse_tags(global, imperative, "if", &mut [
+            parse_tags(global, "if", &mut [
                 ("const".into(), &mut is_const),
             ])?;
 
@@ -1108,7 +1123,7 @@ fn maybe_parse_label(
     }
 }
 
-fn parse_tags(global: &mut DataContext<'_>, _imperative: &mut ImperativeContext<'_>, expr_name: &str, tags: &mut [(Ustr, &mut Option<Location>)]) -> Result<(), ()> {
+fn parse_tags(global: &mut DataContext<'_>, expr_name: &str, tags: &mut [(Ustr, &mut Option<Location>)]) -> Result<(), ()> {
     let mut is_first = true;
     loop {
         let Some(&Token { loc, kind: TokenKind::Tag(tag_name), .. }) = global.tokens.peek() else {

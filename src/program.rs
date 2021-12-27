@@ -219,7 +219,7 @@ impl Program {
         let type_ = member.type_.to_option()?.0;
 
         if let TypeKind::Function { args, returns } = type_.kind() {
-            if args.is_empty() && matches!(returns.kind(), TypeKind::Int(IntTypeKind::U64)) {
+            if args.is_empty() && matches!(returns.kind(), TypeKind::Empty) {
                 Some(unsafe { *member.value.to_option()?.as_ptr().cast::<FunctionId>() })
             } else {
                 None

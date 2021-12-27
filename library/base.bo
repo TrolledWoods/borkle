@@ -1,3 +1,4 @@
+#no_base:
 library "intrinsics.bo";
 
 const true = 1 > (0 : u8);

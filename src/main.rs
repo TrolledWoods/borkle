@@ -59,7 +59,7 @@ fn main() {
             let entry_point = match program.get_entry_point() {
                 Some(value) => value,
                 None => {
-                    println!("Expected '#entry' to denote an entry point, and for that entry point to be of type 'fn() -> u64'");
+                    println!("Expected '#entry' to denote an entry point, and for that entry point to be of type 'fn()'");
                     return;
                 }
             };
