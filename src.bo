@@ -1,18 +1,9 @@
 library "iter.bo";
 library "vec.bo";
 #entry fn() {
-    let line=get_line();
-    defer dealloc(line);
-    let vec=vec_from_iter(filter(split(line,is_whitespace),fn(v)v.len>0));
-    defer vec_free(vec);
-    for vec_as_buffer(&vec) {
-        print(*_it);
-        print(":");
-        let d0=if _it.len>1{*(_it.ptr+(_it.len-2))}else 0;
-        let d1=*(_it.ptr+(_it.len-1))-*"0".ptr;
-        let d=if d0==*"1".ptr 0 else min(d1,4);
-        print(slice("thstndrdth",2*cast d,2+2*cast d));
-        print(" ");
-    };
-    print("\n");
+    fold(take_while(stdin(),fn(v)*v!=*"\n".ptr),[*" ".ptr,*" ".ptr],fn(s,c){
+        print(if is_whitespace(c)&&not(is_whitespace(s._0)){if s._1==*"1".ptr "th"else{let d=2*cast min(s._0-DIGIT0,4);slice("thstndrdth",d,2+d)}}else"");
+        put_char(c);
+        [c,s._0]
+    });
 };

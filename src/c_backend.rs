@@ -53,7 +53,8 @@ pub fn function_pointer_type(
 
 pub fn entry_point(output: &mut String, entry: FunctionId) {
     output.push_str("int main() {\n");
-    write!(output, "    return {}();\n", c_format_function(entry)).unwrap();
+    write!(output, "    {}();\n", c_format_function(entry)).unwrap();
+    write!(output, "    return 0;\n").unwrap();
     output.push_str("}\n");
 }
 
@@ -436,6 +437,9 @@ pub fn routine_to_c(program: &Program, output: &mut String, routine: &Routine, a
                             (TypeKind::Buffer { .. }, "ptr") => {
                                 write!(output, "{}.inner = {}.inner; ", c_format_value(to), c_format_value(of)).unwrap();
                             }
+                            (TypeKind::Array { .. }, name) => {
+                                write!(output, "{} = {}.inner[{}];", c_format_value(to), c_format_value(of), &name[1..]).unwrap();
+                            }
                             _ => {
                                 write!(output, "{} = {}.{}; ", c_format_value(to), c_format_value(of), member.name).unwrap();
                             }
@@ -446,6 +450,9 @@ pub fn routine_to_c(program: &Program, output: &mut String, routine: &Routine, a
                             (TypeKind::Buffer { .. }, "ptr") => {
                                 write!(output, "{}.inner = {}.inner; ", c_format_value(to), c_format_value(of)).unwrap();
                             }
+                            (TypeKind::Array { .. }, name) => {
+                                write!(output, "{}.inner[{}] = {};", c_format_value(to), &name[1..], c_format_value(of)).unwrap();
+                            }
                             _ => {
                                 write!(output, "{}.{} = {}; ", c_format_value(to), member.name, c_format_value(of)).unwrap();
                             }
@@ -455,6 +462,9 @@ pub fn routine_to_c(program: &Program, output: &mut String, routine: &Routine, a
                         match (of.type_().pointing_to().unwrap().kind(), member.name.as_str()) {
                             (TypeKind::Buffer { .. }, "ptr") => {
                                 write!(output, "{}.inner = {}.inner; ", c_format_value(to), c_format_value(of)).unwrap();
+                            }
+                            (TypeKind::Array { .. }, name) => {
+                                write!(output, "{}.inner = &{}.inner->inner[{}];", c_format_value(to), c_format_value(of), &name[1..]).unwrap();
                             }
                             _ => {
                                 write!(output, "{}.inner = &(*{}.inner).{}; ", c_format_value(to), c_format_value(of), member.name).unwrap();
@@ -530,11 +540,13 @@ fn builtin_function(output: &mut String, builtin: BuiltinFunction, args: &[Value
         BuiltinFunction::StdoutFlush => {
             output.push_str("fflush(stdout);");
         }
-        BuiltinFunction::StdinGetLine => {
+        BuiltinFunction::StdinRead => {
             write!(
                 output,
-                "{{ char temp_data[512]; gets(temp_data); {0}.len = strlen(temp_data); {0}.inner = malloc({0}.len); memcpy({0}.inner, temp_data, {0}.len); }}",
+                "{} = fread({}.inner, 1, {}.len, stdin); ",
                 c_format_value(&to),
+                c_format_value(&args[0]),
+                c_format_value(&args[0]),
             )
             .unwrap();
         }
@@ -636,7 +648,7 @@ fn name_of_type(mut out: impl Write, type_: Type, rec: u32) -> fmt::Result {
             fallback_name(out, type_)?;
         }
 
-        _ => todo!(),
+        ref c => todo!("{}", c),
     }
 
     Ok(())

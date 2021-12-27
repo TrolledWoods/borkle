@@ -10,17 +10,24 @@ const INITIAL_SIZE = 16 : usize;
 
 const vec_as_buffer.(T) = fn(vec: &typeof Vec.(T)) -> [] T {
     let buf = #0;
-    buf.ptr = (*vec).ptr;
-    buf.len = (*vec).len;
+    buf.ptr = vec.ptr;
+    buf.len = vec.len;
+    buf
+};
+
+const vec_unused_memory.(T) = fn(vec: &typeof Vec.(T)) -> [] T {
+    let buf = #0;
+    buf.ptr = vec.ptr + vec.len;
+    buf.len = vec.capacity - vec.len;
     buf
 };
 
 const vec_reserve.(T) = fn(vec: &typeof Vec.(T), requested: usize) {
-    if requested > (*vec).capacity {
-        if (*vec).capacity == 0 {
+    if requested > vec.capacity {
+        if vec.capacity == 0 {
             let buffer = alloc(INITIAL_SIZE);
-            (*vec).ptr = buffer.ptr;
-            (*vec).capacity = buffer.len;
+            vec.ptr = buffer.ptr;
+            vec.capacity = buffer.len;
         } else {
             let old_buf = #uninit : [] T;
             old_buf.ptr = (*vec).ptr;

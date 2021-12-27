@@ -1212,7 +1212,7 @@ impl<T> DependableOption<T> {
 pub enum BuiltinFunction {
     StdoutWrite,
     StdoutFlush,
-    StdinGetLine,
+    StdinRead,
 
     Assert,
 

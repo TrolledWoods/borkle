@@ -522,7 +522,7 @@ fn value_without_unaries(
                 "dealloc" => BuiltinFunction::Dealloc,
                 "stdout_write" => BuiltinFunction::StdoutWrite,
                 "stdout_flush" => BuiltinFunction::StdoutFlush,
-                "stdin_get_line" => BuiltinFunction::StdinGetLine,
+                "stdin_read" => BuiltinFunction::StdinRead,
                 _ => {
                     global.error(
                         name_loc,

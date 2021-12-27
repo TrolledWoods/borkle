@@ -1,4 +1,5 @@
 library "vec.bo";
+library "intrinsics.bo";
 
 const Iterator.(State, Item) = #0 : {
     state: State;
@@ -8,6 +9,20 @@ const Iterator.(State, Item) = #0 : {
 //
 // -- Creation --
 //
+
+const stdin = fn() -> typeof Iterator.(_, u8) {
+    let stream = #0;
+    stream.state = 42 : u8;
+
+    stream.next = fn(state, out) {
+        let buf = #0;
+        buf.ptr = out;
+        buf.len = 1;
+        i_stdin_read(buf);
+        true
+    };
+    stream
+};
 
 const array_iter.(N, T) = fn(array: [N] T) -> typeof Iterator.(_, type T) {
     let stream = #0;
@@ -25,6 +40,10 @@ const array_iter.(N, T) = fn(array: [N] T) -> typeof Iterator.(_, type T) {
         }
     };
     stream
+};
+
+const vec_iter.(T) = fn(vec: &typeof Vec.(T)) -> typeof Iterator.(_, type &T) {
+    buf_iter(vec_as_buffer(vec))
 };
 
 const buf_iter.(T) = fn(buffer: [] T) -> typeof Iterator.(_, type &T) {
@@ -87,6 +106,35 @@ const range.(T) = fn(start: T, end: T) -> typeof Iterator.(_, type T) {
 //
 // -- Manipulation --
 //
+
+const take_while.(State, Item) = fn(inner: typeof Iterator.(State, Item), will_continue: fn(&Item) -> bool) -> typeof Iterator.(_, Item) {
+    let stream = #uninit;
+    stream.state : { inner: _; running: bool; will_continue: _; };
+    stream.state.inner = inner;
+    stream.state.running = true;
+    stream.state.will_continue = will_continue;
+
+    stream.next = fn(state, out) {
+        if state.running {
+            if state.inner.next(&state.inner.state, out) {
+                if state.will_continue(out) {
+                    true
+                } else {
+                    // Still include the last element
+                    state.running = false;
+                    true
+                }
+            } else {
+                state.running = false;
+                false
+            }
+        } else {
+            false
+        }
+    };
+    
+    stream
+};
 
 const by_value.(State, Item) = fn(a: typeof Iterator.(State, type &Item)) -> typeof Iterator.(_, Item) {
     map(a, fn(v) *v)
@@ -181,6 +229,12 @@ const filter.(State, Item) = fn(inner: typeof Iterator.(State, Item), filter: fn
 //
 // -- Collection --
 //
+
+const fold.(State, IterState, Item) = fn(stream: typeof Iterator.(IterState, Item), state: State, folder: fn(State, Item) -> State) -> State {
+    let temp = #uninit;
+    while stream.next(&stream.state, &temp)  state = folder(state, temp);
+    state
+};
 
 const count.(State, Item) = fn(stream: typeof Iterator.(State, Item)) -> usize {
     let count = 0;

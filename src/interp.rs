@@ -104,17 +104,13 @@ fn interp_internal(program: &Program, stack: &mut StackFrame<'_>, routine: &User
                         use std::io::Write;
                         let _ = std::io::stdout().lock().flush();
                     }
-                    Routine::Builtin(BuiltinFunction::StdinGetLine) => unsafe {
-                        let mut string = String::new();
-                        let _ = std::io::stdin().read_line(&mut string);
+                    Routine::Builtin(BuiltinFunction::StdinRead) => unsafe {
+                        let buffer = stack.get(args[0]).read::<BufferRepr>();
+                        let slice = std::slice::from_raw_parts_mut(buffer.ptr, buffer.length);
 
-                        let string_bytes = string.into_bytes().into_boxed_slice();
-
-                        let repr = BufferRepr {
-                            length: string_bytes.len(),
-                            ptr: Box::into_raw(string_bytes).cast(),
-                        };
-                        stack.get_mut(to).write(repr);
+                        use std::io::Read;
+                        let num_read = std::io::stdin().lock().read(slice).unwrap();
+                        stack.get_mut(to).write(num_read);
                     },
                     Routine::Builtin(BuiltinFunction::Alloc) => unsafe {
                         use std::alloc::{alloc, Layout};
