@@ -113,7 +113,7 @@ fn main() {
 
                     // @Improvement: We want to put the entry point in here.
                     match interp::interp(&program, &mut stack, routine, &mut vec![]) {
-                        Ok(result) => println!("[main returned: {}]", unsafe { result.read::<u64>() }),
+                        Ok(_) => {}
                         Err(call_stack) => {
                             errors.clear();
                             for &caller in call_stack.iter().rev().skip(1) {
