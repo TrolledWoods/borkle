@@ -76,10 +76,6 @@ impl Program {
         }
     }
 
-    pub fn get_file_contents(&self, file: Ustr) -> Arc<String> {
-        self.file_contents.lock()[&file].clone()
-    }
-
     pub fn file_contents(&mut self) -> &mut UstrMap<Arc<String>> {
         self.file_contents.get_mut()
     }
@@ -1120,6 +1116,7 @@ impl PolyMember {
 struct Member {
     is_monomorphised: bool,
 
+    #[allow(unused)]
     loc: Location,
     name: Ustr,
     type_: DependableOption<(Type, Arc<MemberMetaData>)>,
@@ -1250,13 +1247,6 @@ pub enum Task {
     EmitMember(MemberId, crate::locals::LocalVariables, crate::type_infer::TypeSystem, crate::typer::Ast),
     EvaluateMember(MemberId, crate::ir::UserDefinedRoutine),
     FlagMemberCallable(MemberId),
-    TypeFunction(
-        FunctionId,
-        crate::typer::YieldData,
-        Type,
-        Type,
-        Vec<(Type, ConstantRef)>,
-    ),
     EmitFunction(
         crate::locals::LocalVariables,
         crate::type_infer::TypeSystem,
@@ -1281,7 +1271,6 @@ impl fmt::Debug for Task {
             Task::EmitMember(id, _, _, _) => write!(f, "emit_member({:?})", id),
             Task::EvaluateMember(id, _) => write!(f, "evaluate_member({:?})", id),
             Task::FlagMemberCallable(id) => write!(f, "flag_member_callable({:?})", id),
-            Task::TypeFunction(id, _, _, _, _) => write!(f, "type_function({:?})", id),
             Task::EmitFunction(_, _, _, _, _, id, _) => write!(f, "emit_function({:?})", id),
         }
     }

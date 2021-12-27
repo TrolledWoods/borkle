@@ -21,13 +21,6 @@ impl Location {
         }
     }
 
-    pub fn next_char(&self) -> Self {
-        Self {
-            character: self.character + 1,
-            ..*self
-        }
-    }
-
     pub fn increment_by_char(&mut self, character: char) {
         match character {
             '\n' => {

@@ -1,11 +1,9 @@
 use crate::literal::Literal;
-use crate::dependencies::DependencyList;
-use crate::execution_time::ExecutionTime;
 use crate::locals::{LabelId, LocalId};
 use crate::location::Location;
 use crate::operators::{BinaryOp, UnaryOp};
 use crate::program::constant::ConstantRef;
-use crate::program::{FunctionId, BuiltinFunction, MemberId, PolyMemberId, MemberMetaData, ScopeId};
+use crate::program::{BuiltinFunction, MemberId, MemberMetaData, ScopeId};
 use crate::types::Type;
 use std::fmt;
 use std::sync::Arc;
@@ -20,6 +18,8 @@ pub struct Ast {
 }
 
 impl Ast {
+    // Because this is a debugging function, it may be unused
+    #[allow(unused)]
     pub fn print(&self) {
         let mut stack = Vec::new();
         println!("Ast:");
@@ -270,16 +270,6 @@ pub struct ChildIteratorMut<'a> {
 }
 
 impl<'a> ChildIteratorMut<'a> {
-    /// This is useful for emitting `defer`
-    pub fn reborrow(&mut self) -> ChildIteratorMut<'_> {
-        ChildIteratorMut {
-            munching: &mut *self.munching,
-            base_id: self.base_id,
-            next_subtree_size: self.next_subtree_size,
-            num_children: self.num_children,
-        }
-    }
-
     pub fn into_array<const N: usize>(self) -> [NodeViewMut<'a>; N] {
         use std::mem::MaybeUninit;
 
@@ -353,10 +343,6 @@ impl<'a> NodeView<'a> {
 
         array.map(|v| unsafe { v.assume_init() })
     }
-    
-    pub fn children(&self) -> ChildIterator<'_> {
-        self.children.clone()
-    }
 }
 
 impl std::ops::Deref for NodeView<'_> {
@@ -429,8 +415,6 @@ impl Node {
 
 #[derive(Debug, Clone)]
 pub enum NodeKind {
-    Temprorary,
-
     Literal(Literal),
     ArrayLiteral,
     BuiltinFunction(BuiltinFunction),

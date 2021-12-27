@@ -6,7 +6,7 @@ use crate::location::Location;
 use crate::operators::{BinaryOp, Operator, UnaryOp};
 use crate::program::{Program, ScopeId, Task};
 use crate::types::{Type, TypeKind};
-pub use ast::{AstBuilder, AstSlot, Node, NodeId, NodeKind, FinishedNode, Muncher};
+pub use ast::{Ast, AstBuilder, AstSlot, Node, NodeId, NodeKind, FinishedNode, Muncher};
 use context::{DataContext, ImperativeContext};
 use lexer::{Bracket, Keyword, Token, TokenKind};
 use std::path::{Path, PathBuf};
@@ -16,10 +16,6 @@ pub mod ast;
 mod context;
 mod lexer;
 mod token_stream;
-
-pub type Ast = ast::Ast;
-type NodeList = Vec<NodeId>;
-type NamedNodeList = Vec<(Ustr, NodeId)>;
 
 pub fn process_string(
     errors: &mut ErrorCtx,

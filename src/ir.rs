@@ -2,7 +2,7 @@ use crate::operators::{BinaryOp, UnaryOp};
 use crate::location::Location;
 use crate::program::{constant::ConstantRef, BuiltinFunction};
 use crate::types::{to_align, Type, TypeKind};
-use crate::type_infer::{TypeSystem, ValueId as TypeId, self};
+use crate::type_infer::{TypeSystem, ValueId as TypeId};
 use ustr::Ustr;
 use std::fmt;
 

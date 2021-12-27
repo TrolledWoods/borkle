@@ -28,7 +28,7 @@ use crate::errors::ErrorCtx;
 use crate::location::Location;
 use crate::operators::BinaryOp;
 use crate::types::{self, IntTypeKind};
-use std::collections::{hash_map, HashMap};
+use std::collections::HashMap;
 use std::mem;
 use ustr::Ustr;
 use crate::program::constant::ConstantRef;

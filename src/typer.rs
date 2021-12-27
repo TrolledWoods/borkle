@@ -6,7 +6,7 @@ use crate::execution_time::ExecutionTime;
 use crate::locals::LocalVariables;
 use crate::operators::{BinaryOp, UnaryOp};
 pub use crate::parser::{ast::{Node, NodeViewMut}, ast::NodeId, ast::NodeKind, Ast};
-use crate::program::{PolyOrMember, PolyMemberId, Program, Task, constant::ConstantRef, FunctionId, BuiltinFunction};
+use crate::program::{PolyOrMember, PolyMemberId, Program, Task, constant::ConstantRef, BuiltinFunction};
 use crate::thread_pool::ThreadContext;
 use crate::type_infer::{self, ValueId as TypeId, Args, TypeSystem, ValueSetId, Variance, TypeKind, Reason, ReasonKind};
 use crate::types::{self, IntTypeKind};

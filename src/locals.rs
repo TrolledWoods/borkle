@@ -1,5 +1,4 @@
 use crate::location::Location;
-use crate::parser::ast::NodeId;
 use crate::types::Type;
 use ustr::Ustr;
 

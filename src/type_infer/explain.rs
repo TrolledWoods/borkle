@@ -2,7 +2,7 @@ use super::{static_values, TypeSystem, ConstraintId, ValueId, IdMapper, MappedId
 use crate::location::Location;
 use std::collections::{hash_map, HashMap};
 use crate::errors::ErrorCtx;
-use crate::program::{Program, PolyMemberId};
+use crate::program::PolyMemberId;
 use crate::parser::Ast;
 use ustr::Ustr;
 
@@ -159,7 +159,6 @@ pub fn get_reasons_with_look_inside(base_value: ValueId, look_inside: ValueId, t
 #[derive(Clone, Copy)]
 enum ExpressionKind {
     Used,
-    Created,
 }
 
 struct Explanation {
@@ -268,10 +267,6 @@ fn get_concise_explanation(errors: &mut ErrorCtx, ast: &Ast, chain: &[Reason]) -
             Explanation::new(*loc, ExpressionKind::Used, "the value behind"),
             rest,
         ),
-        [Reason { kind: ReasonKind::Assigned, loc, .. }, rest @ ..] => (
-            Explanation::new(*loc, ExpressionKind::Used, "assigned to"),
-            rest,
-        ),
         [Reason { kind: ReasonKind::TypeBound, loc, forward, .. }, rest @ ..] => (
             Explanation::new(*loc, ExpressionKind::Used, if *forward { "a value bound as" } else { "use this type to bind" }),
             rest,
@@ -354,7 +349,6 @@ impl ReasoningChain {
                     "we {} {}, which is `{}`",
                     match explanation.kind {
                         ExpressionKind::Used => "use",
-                        ExpressionKind::Created => "create",
                     },
                     explanation.message,
                     types.value_to_str(self.explaining, 0),
@@ -367,7 +361,6 @@ impl ReasoningChain {
                     "we {} {}",
                     match explanation.kind {
                         ExpressionKind::Used => "use",
-                        ExpressionKind::Created => "create",
                     },
                     explanation.message
                 )

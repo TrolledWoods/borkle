@@ -750,8 +750,3 @@ fn emit_lvalue<'a>(
         }
     }
 }
-
-enum LValue {
-    Reference(Value, Member),
-    Value(Value, Member),
-}

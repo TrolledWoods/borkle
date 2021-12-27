@@ -125,18 +125,6 @@ impl ValueSetHandles {
         set.is_complete = true;
     }
 
-    pub fn make_erroneous(&mut self, value_sets: &mut ValueSets) {
-        // We drain here(without decrementing counters),
-        // because if the sets are erroneous they shouldn't get completed anyway.
-        // @Correctness: Should we decrement the counters though? Maybe it's useful to see if all nodes
-        // have finished emitting errors, though that doesn't quite work, with the way that errors propagate.
-        for &set in &self.sets {
-            value_sets.sets[set].has_errors = true;
-        }
-
-        self.is_complete = true;
-    }
-
     pub fn take_from(&mut self, mut other: ValueSetHandles, value_sets: &mut ValueSets) {
         if let Some(set) = other.sets {
             if !other.is_complete {

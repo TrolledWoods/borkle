@@ -11,7 +11,6 @@ use std::time::Instant;
 
 pub struct WorkPile {
     queue: Mutex<Vec<Task>>,
-    start: Instant,
     tasks_left: AtomicU32,
 }
 
@@ -19,7 +18,6 @@ impl WorkPile {
     pub fn new() -> Self {
         Self {
             queue: Mutex::new(Vec::new()),
-            start: Instant::now(),
             tasks_left: AtomicU32::new(0),
         }
     }
@@ -30,17 +28,8 @@ impl WorkPile {
     }
 
     pub fn dequeue(&self) -> Option<Task> {
-        // FIXME: This is only for finding bugs early purposes; it's not for actualy real use, in
-        // the future we want to make a proper scheduler that picks tasks appropriately depending
-        // on the circumstances.
         let mut queue = self.queue.lock();
-        if queue.len() > 0 {
-            // let seed = self.start.elapsed().as_nanos() as usize;
-            let i = 0; // seed % queue.len();
-            Some(queue.remove(i))
-        } else {
-            None
-        }
+        queue.pop()
     }
 }
 
@@ -353,44 +342,6 @@ fn worker<'a>(alloc: &'a mut Bump, program: &'a Program) -> (ThreadContext<'a>, 
                             program.flag_function_callable(function_id);
                         }
                     }
-                }
-                Task::TypeFunction { .. } => {
-                    todo!("Figure out if I can remove this task, shouldn't be necesasry anymore");
-                    /*
-                    program
-                        .logger
-                        .log(format_args!("typing function '{:?}'", function_id));
-
-                    match crate::typer::process_ast(
-                        &mut errors,
-                        &mut thread_context,
-                        program,
-                        yield_data,
-                    ) {
-                        Ok(Ok((dependencies, locals, ast))) => {
-                            program.queue_task(
-                                dependencies,
-                                Task::EmitFunction(function_id, locals, ast, type_),
-                            );
-                        }
-                        Ok(Err((dependencies, yield_data))) => {
-                            program.queue_task(
-                                dependencies,
-                                Task::TypeFunction(
-                                    function_id,
-                                    yield_data,
-                                    return_type,
-                                    type_,
-                                    poly_args,
-                                ),
-                            );
-                        }
-                        Err(()) => {
-                            // TODO: Here we want to poison the Value parameter of the thing this
-                            // Task is associated with.
-                        }
-                    }
-                    */
                 }
                 Task::EmitFunction(mut locals, mut types, ast, node_id, type_, function_id, stack_frame_id) => {
                     program

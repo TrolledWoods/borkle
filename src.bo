@@ -4,8 +4,12 @@ import "tests/main.bo";
 #entry fn() -> u64 {
     let x = "Hello!";
     let ptr_to_x = &x;
-    let value = ptr_to_x.ptr;
-    ptr_to_x.ptr = ptr_to_x.ptr + 1;
 
-    cast *value
+    let the_length = &ptr_to_x.len;
+    *the_length = *the_length - 3;
+
+    print(x);
+    print("\n");
+
+    0
 };

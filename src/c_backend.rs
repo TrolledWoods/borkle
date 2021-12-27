@@ -1,6 +1,5 @@
 use crate::ir::{Instr, Routine, Value};
 use crate::operators::{BinaryOp, UnaryOp};
-use crate::location::Location;
 use crate::program::{BuiltinFunction, FunctionId, Program};
 use crate::types::{IntTypeKind, PointerInType, Type, TypeKind, TYPES};
 use std::fmt;
@@ -248,9 +247,7 @@ pub fn routine_to_c(program: &Program, output: &mut String, routine: &Routine, a
                         debug_loc = *loc;
                     }
                     Instr::TruncateInt { to, from, .. } | Instr::ExtendInt { to, from, .. } => {
-                        let Value(_, to_type) = to else {
-                            unreachable!("Assigned to global in ir, should probably make this impossible in the type system in the future")
-                        };
+                        let Value(_, to_type) = to;
                         write!(
                             output, "{} = ({}){};",
                             c_format_value(to),

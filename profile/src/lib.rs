@@ -1,5 +1,6 @@
 #![feature(once_cell)]
 #![feature(thread_id_value)]
+#![allow(warnings)]
 
 //! A simple profiling backend for the "chrome://tracing" profiler built into google chrome.
 //! Output format is described here in detail:

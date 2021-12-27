@@ -3,8 +3,6 @@ use ustr::{Ustr, UstrMap};
 use std::sync::Arc;
 
 const ANSI_RED:     &str = "\x1b[31m";
-const ANSI_YELLOW:  &str = "\x1b[33m";
-// const ANSI_WHITE:   &str = "\x1b[37m";
 const ANSI_DEFAULT: &str = "\x1b[39m";
 const ANSI_DIM: &str = "\x1b[2m";
 const ANSI_RESET_DIM: &str = "\x1b[22m";
@@ -18,7 +16,6 @@ type InfoList = Vec<(Location, String)>;
 pub struct ErrorCtx {
     temp_info: Vec<(Location, String)>,
     errors: Vec<(Option<Location>, String, InfoList)>,
-    warnings: Vec<(Location, String, InfoList)>,
     notes: Vec<(Location, String, InfoList)>,
 }
 
@@ -29,14 +26,12 @@ impl ErrorCtx {
 
     pub fn join(&mut self, mut other: Self) {
         self.errors.append(&mut other.errors);
-        self.warnings.append(&mut other.warnings);
         self.notes.append(&mut other.notes);
     }
 
     pub fn clear(&mut self) {
         self.temp_info.clear();
         self.errors.clear();
-        self.warnings.clear();
         self.notes.clear();
     }
 
@@ -69,20 +64,6 @@ impl ErrorCtx {
             println!();
         }
 
-        if self.errors.is_empty() {
-            for &(loc, ref message, ref info) in &self.warnings {
-                let mut prev_file = None;
-                println!("{}WARNING: {}", ANSI_YELLOW, ANSI_DEFAULT);
-                print_loc(&mut prev_file, loc, message, file_contents);
-
-                for &(info_loc, ref info_message) in info {
-                    print_loc(&mut prev_file, info_loc, info_message, file_contents);
-                }
-            }
-
-            println!();
-        }
-
         self.errors.is_empty()
     }
 
@@ -102,11 +83,6 @@ impl ErrorCtx {
     pub fn error(&mut self, loc: Location, message: String) {
         let info = self.consume_info();
         self.errors.push((Some(loc), message, info));
-    }
-
-    pub fn warning(&mut self, loc: Location, message: String) {
-        let info = self.consume_info();
-        self.warnings.push((loc, message, info));
     }
 
     pub fn note(&mut self, loc: Location, message: String) {
