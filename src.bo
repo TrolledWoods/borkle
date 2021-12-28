@@ -1,9 +1,3 @@
-library "iter.bo";
-library "vec.bo";
 #entry fn() {
-    fold(take_while(stdin(),fn(v)*v!=*"\n".ptr),[*" ".ptr,*" ".ptr],fn(s,c){
-        print(if is_whitespace(c)&&not(is_whitespace(s._0)){if s._1==*"1".ptr "th"else{let d=2*cast min(s._0-DIGIT0,4);slice("thstndrdth",d,2+d)}}else"");
-        put_char(c);
-        [c,s._0]
-    });
+    print("Hello\n");
 };

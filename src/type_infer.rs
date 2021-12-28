@@ -706,27 +706,6 @@ fn compute_size(structures: &mut Structures, values: &mut Values, computable_siz
     }
 }
 
-fn get_disjoint_mut<'a>(structures: &'a mut Structures, values: &'a mut Values, a: ValueId, b: ValueId) -> Option<(ValueBorrowMut<'a>, ValueBorrowMut<'a>)> {
-    let (a, b) = slice_get_two_mut(&mut values.values, a.0 as usize, b.0 as usize)?;
-
-    let (structure_a, structure_b) = slice_get_two_mut(&mut structures.structure, a.structure_id as usize, b.structure_id as usize)?;
-
-    Some((
-        ValueBorrowMut {
-            kind: &mut structure_a.kind,
-            layout: &mut structure_a.layout,
-            value_sets: &mut a.value.value_sets,
-            is_base_value: &mut a.value.is_base_value,
-        },
-        ValueBorrowMut {
-            kind: &mut structure_b.kind,
-            layout: &mut structure_b.layout,
-            value_sets: &mut b.value.value_sets,
-            is_base_value: &mut b.value.is_base_value,
-        },
-    ))
-}
-
 fn set_value(structures: &mut Structures, values: &mut Values, id: ValueId, kind: Type, value_sets: &mut ValueSets, value_set_handles: ValueSetHandles) {
     let value = values.get_mut(id);
     let structure_id = value.structure_id;
@@ -824,18 +803,6 @@ impl Values {
     /// Returns the value id that will returned by the next call to `add`
     fn next_value_id(&self) -> ValueId {
         ValueId(self.values.len() as u32)
-    }
-}
-
-fn slice_get_two_mut<T>(slice: &mut [T], a: usize, b: usize) -> Option<(&mut T, &mut T)> {
-    if a == b { return None; }
-    assert!(a < slice.len());
-    assert!(b < slice.len());
-
-    // Safety: We know they are different fields, so this is fine.
-    unsafe {
-        let ptr = slice.as_mut_ptr();
-        Some((&mut *ptr.add(a), &mut *ptr.add(b)))
     }
 }
 
@@ -1818,12 +1785,11 @@ impl TypeSystem {
                 values: [a_id, b_id],
                 creator: _,
             } => {
-                let Some((a_value, b_value)) = get_disjoint_mut(&mut self.structures, &mut self.values, a_id, b_id) else {
-                    return;
-                };
+                let a_value = get_value(&self.structures, &self.values, a_id);
+                let b_value = get_value(&self.structures, &self.values, b_id);
 
-                let a = &mut *a_value.kind;
-                let b = &mut *b_value.kind;
+                let a = &*a_value.kind;
+                let b = &*b_value.kind;
                 let (to, from) = match (a, b) {
                     (None, None) => (a_id, b_id),
                     (None, Some(_)) => (b_id, a_id),
