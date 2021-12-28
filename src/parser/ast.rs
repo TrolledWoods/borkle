@@ -24,11 +24,11 @@ impl Ast {
         let mut stack = Vec::new();
         println!("Ast:");
         println!("{}{}: {:?}", ": ".repeat(stack.len()), self.root().id.0, self.root().node.kind);
-        stack.push(self.root());
-        while let Some(value) = stack.last_mut() {
-            if let Some(value) = value.children.next() {
+        stack.push((self.root().node, self.root().children.into_iter()));
+        while let Some((value, children)) = stack.last_mut() {
+            if let Some(value) = children.next() {
                 println!("{}{}: {:?}", ": ".repeat(stack.len()), value.id.0, value.node.kind);
-                stack.push(value);
+                stack.push((value.node, value.children.into_iter()));
             } else {
                 stack.pop();
             }
@@ -99,26 +99,9 @@ impl AstBuilder {
             }
         }
 
-        let ast = Ast {
+        Ast {
             builder: self,
-        };
-
-        // @Performance: Not necessary, just to make sure that all nodes are visited by iteration.
-        let mut stack = Vec::new();
-        stack.push(ast.root());
-        let mut counter = 0;
-        while let Some(value) = stack.last_mut() {
-            if let Some(value) = value.children.next() {
-                stack.push(value);
-            } else {
-                let new_value = stack.pop().unwrap();
-                assert_eq!(new_value.id.0, counter);
-
-                counter += 1;
-            }
         }
-
-        ast
     }
 
     pub fn add(&mut self) -> AstSlot<'_> {
@@ -269,20 +252,6 @@ pub struct ChildIteratorMut<'a> {
     num_children: u32,
 }
 
-impl<'a> ChildIteratorMut<'a> {
-    pub fn into_array<const N: usize>(self) -> [NodeViewMut<'a>; N] {
-        use std::mem::MaybeUninit;
-
-        assert_eq!(self.num_children as usize, N);
-
-        let mut array: [MaybeUninit<NodeViewMut<'_>>; N] = unsafe { MaybeUninit::uninit().assume_init() };
-
-        array.iter_mut().zip(self).for_each(|(to, from)| { to.write(from); });
-
-        array.map(|v| unsafe { v.assume_init() })
-    }
-}
-
 impl<'a> Iterator for ChildIteratorMut<'a> {
     type Item = NodeViewMut<'a>;
 
@@ -309,11 +278,68 @@ impl<'a> Iterator for ChildIteratorMut<'a> {
 
 impl ExactSizeIterator for ChildIteratorMut<'_> {}
 
+#[derive(Clone, Copy)]
+pub struct AstSlice<'a> {
+    base_id: NodeId,
+    next_subtree_size: u32,
+    num_children: u32,
+    nodes: &'a [Node],
+}
+
+impl<'a> IntoIterator for AstSlice<'a> {
+    type IntoIter = ChildIterator<'a>;
+    type Item = NodeView<'a>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        ChildIterator {
+            munching: self.nodes,
+            base_id: self.base_id,
+            next_subtree_size: self.next_subtree_size,
+            num_children: self.num_children,
+        }
+    }
+}
+
+pub struct AstSliceMut<'a> {
+    base_id: NodeId,
+    next_subtree_size: u32,
+    num_children: u32,
+    nodes: &'a mut [Node],
+}
+
+impl<'a> AstSliceMut<'a> {
+    pub fn into_array<const N: usize>(self) -> [NodeViewMut<'a>; N] {
+        use std::mem::MaybeUninit;
+
+        assert_eq!(self.num_children as usize, N);
+
+        let mut array: [MaybeUninit<NodeViewMut<'_>>; N] = unsafe { MaybeUninit::uninit().assume_init() };
+
+        array.iter_mut().zip(self).for_each(|(to, from)| { to.write(from); });
+
+        array.map(|v| unsafe { v.assume_init() })
+    }
+}
+
+impl<'a> IntoIterator for AstSliceMut<'a> {
+    type IntoIter = ChildIteratorMut<'a>;
+    type Item = NodeViewMut<'a>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        ChildIteratorMut {
+            munching: self.nodes,
+            base_id: self.base_id,
+            next_subtree_size: self.next_subtree_size,
+            num_children: self.num_children,
+        }
+    }
+}
+
 #[derive(Clone)]
 pub struct NodeView<'a> {
     pub id: NodeId,
     pub node: &'a Node,
-    pub children: ChildIterator<'a>,
+    pub children: AstSlice<'a>,
 }
 
 impl<'a> NodeView<'a> {
@@ -323,8 +349,8 @@ impl<'a> NodeView<'a> {
         Self {
             id: NodeId(base_id.0 + subtree.len() as u32),
             node,
-            children: ChildIterator {
-                munching: subtree,
+            children: AstSlice {
+                nodes: subtree,
                 base_id,
                 next_subtree_size,
                 num_children,
@@ -356,7 +382,7 @@ impl std::ops::Deref for NodeView<'_> {
 pub struct NodeViewMut<'a> {
     pub id: NodeId,
     pub node: &'a mut Node,
-    pub children: ChildIteratorMut<'a>,
+    pub children: AstSliceMut<'a>,
 }
 
 impl<'a> NodeViewMut<'a> {
@@ -366,8 +392,8 @@ impl<'a> NodeViewMut<'a> {
         Self {
             id: NodeId(base_id.0 + subtree.len() as u32),
             node,
-            children: ChildIteratorMut {
-                munching: subtree,
+            children: AstSliceMut {
+                nodes: subtree,
                 base_id,
                 next_subtree_size,
                 num_children,

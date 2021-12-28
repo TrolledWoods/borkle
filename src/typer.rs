@@ -571,7 +571,8 @@ fn build_constraints(
             ctx.infer.set_equal(node_type_id, temp, Reason::new(node_loc, ReasonKind::IsOfType));
         }
         NodeKind::PolymorphicArgs => {
-            let on = node.children.next().unwrap();
+            let mut children = node.children.into_iter();
+            let on = children.next().unwrap();
             let &NodeKind::Global { scope, name } = &on.kind else {
                 todo!("Handling of the case where you pass polymorphic args to something that shouldn't have it");
             };
@@ -591,14 +592,14 @@ fn build_constraints(
                     let mut param_reasons = Vec::with_capacity(num_args);
                     let sub_set = ctx.infer.value_sets.add(WaitingOnTypeInferrence::None);
 
-                    if num_args != node.children.len() {
-                        ctx.errors.error(node_loc, format!("Passed {} arguments to polymorphic value, but the polymorphic value needs {} values", node.children.len(), num_args));
+                    if num_args != children.len() {
+                        ctx.errors.error(node_loc, format!("Passed {} arguments to polymorphic value, but the polymorphic value needs {} values", children.len(), num_args));
                         // @Cleanup: This should probably just be a function on TypeSystem
                         ctx.infer.value_sets.get_mut(set).has_errors |= true;
                         return node_type_id;
                     }
 
-                    for (i, (param, other_poly_arg)) in node.children.zip(&other_yield_data.poly_params).enumerate() {
+                    for (i, (param, other_poly_arg)) in children.zip(&other_yield_data.poly_params).enumerate() {
                         let param_loc = param.loc;
                         if other_poly_arg.is_type() {
                             let type_id = build_type(ctx, param, sub_set);
@@ -632,7 +633,7 @@ fn build_constraints(
                     });
                 }
                 PolyOrMember::Member(id) => {
-                    if node.children.next().is_some() {
+                    if children.len() > 0 {
                         // This is an error, since it's not polymorphic
                         ctx.errors.error(node_loc, "Passed polymorphic parameters even though this value isn't polymorphic".to_string());
                         // @Cleanup: This should probably just be a function on TypeSystem
@@ -665,7 +666,7 @@ fn build_constraints(
                         }
                     }
 
-                    node.kind = NodeKind::ResolvedGlobal(id, meta_data);
+                    node.node.kind = NodeKind::ResolvedGlobal(id, meta_data);
                 }
             }
     
@@ -930,7 +931,8 @@ fn build_constraints(
             sub_ctx.infer.value_sets.lock(set);
 
             let mut function_type_ids = Vec::with_capacity(args.len() + 1);
-            for (&local_id, type_node) in args.iter().zip(node.children.by_ref().take(node.node.num_children as usize - 2)) {
+            let mut children = node.children.into_iter();
+            for (&local_id, type_node) in args.iter().zip(children.by_ref().take(node.node.num_children as usize - 2)) {
                 let local = sub_ctx.locals.get_mut(local_id);
                 let name = local.name;
                 local.stack_frame_id = sub_set;
@@ -945,13 +947,13 @@ fn build_constraints(
                 function_type_ids.push((local_type_id, Reason::new(node_loc, ReasonKind::FunctionDeclArgumentDeclaration(name))));
             }
 
-            let returns = node.children.next().unwrap();
+            let returns = children.next().unwrap();
             let returns_type_reason = Reason::new(returns.loc, ReasonKind::FunctionDeclReturnType);
             let returns_loc = returns.loc;
             let returns_type_id = build_type(&mut sub_ctx, returns, sub_set);
             function_type_ids.insert(0, (returns_type_id, returns_type_reason));
 
-            let body = node.children.next().unwrap();
+            let body = children.next().unwrap();
             let body_id = body.id;
             let body_type_id = build_constraints(&mut sub_ctx, body, sub_set);
 
@@ -973,7 +975,8 @@ fn build_constraints(
             debug_assert!(old_set.is_none());
         }
         NodeKind::FunctionCall => {
-            let calling = node.children.next().unwrap();
+            let mut children = node.children.into_iter();
+            let calling = children.next().unwrap();
             let calling_type_id = build_constraints(ctx, calling, set);
 
             // A little bit hacky, but since we are invariant to the return type
@@ -981,11 +984,11 @@ fn build_constraints(
             // we can get away with this.
             let return_type = node_type_id;
 
-            let mut typer_args = Vec::with_capacity(node.children.len());
+            let mut typer_args = Vec::with_capacity(children.len());
             typer_args.push((return_type, Reason::new(node_loc, ReasonKind::FunctionCallReturn)));
 
-            let num_args = node.children.len();
-            for arg in node.children {
+            let num_args = children.len();
+            for arg in children {
                 let function_arg_type_id = ctx.infer.add_unknown_type();
                 let arg_type_id = build_constraints(ctx, arg, set);
                 ctx.infer.set_equal(function_arg_type_id, arg_type_id, Reason::new(node_loc, ReasonKind::Passed));
@@ -1064,11 +1067,12 @@ fn build_constraints(
             }
 
             // @Performance: This isn't very fast, but it's fine for now
-            for statement_id in node.children.by_ref().take(node.node.num_children as usize - 1) {
+            let mut children = node.children.into_iter();
+            for statement_id in children.by_ref().take(node.node.num_children as usize - 1) {
                 build_constraints(ctx, statement_id, set);
             }
 
-            let last_type_id = build_constraints(ctx, node.children.next().unwrap(), set);
+            let last_type_id = build_constraints(ctx, children.next().unwrap(), set);
             ctx.infer
                 .set_equal(node_type_id, last_type_id, Reason::new(node_loc, ReasonKind::Passed));
         }
@@ -1138,7 +1142,7 @@ fn build_constraints(
 
 fn build_type(
     ctx: &mut Context<'_, '_>,
-    mut node: NodeViewMut<'_>,
+    node: NodeViewMut<'_>,
     set: ValueSetId,
 ) -> type_infer::ValueId {
     let node_loc = node.loc;
@@ -1170,13 +1174,14 @@ fn build_type(
             ctx.infer.set_compiler_type(ctx.program, node_type_id, type_, set);
         }
         NodeKind::FunctionType => {
-            let mut function_type_ids = Vec::with_capacity(node.children.len());
-            for type_node in node.children.by_ref().take(node.node.num_children as usize - 1) {
+            let mut children = node.children.into_iter();
+            let mut function_type_ids = Vec::with_capacity(children.len());
+            for type_node in children.by_ref().take(node.node.num_children as usize - 1) {
                 let type_id = build_type(ctx, type_node, set);
                 function_type_ids.push((type_id, Reason::temp(node_loc)));
             }
 
-            let returns_type_id = build_type(ctx, node.children.next().unwrap(), set);
+            let returns_type_id = build_type(ctx, children.next().unwrap(), set);
             function_type_ids.insert(0, (returns_type_id, Reason::temp(node_loc)));
 
             let infer_type_id = ctx.infer.add_type(TypeKind::Function, Args(function_type_ids), set);
@@ -1186,7 +1191,7 @@ fn build_type(
         NodeKind::StructType { ref fields } => {
             // @Performance: Many allocations
             let names = fields.to_vec().into_boxed_slice();
-            let fields: Vec<_> = node.children.map(|v| (build_type(ctx, v, set), Reason::temp(node_loc))).collect();
+            let fields: Vec<_> = node.children.into_iter().map(|v| (build_type(ctx, v, set), Reason::temp(node_loc))).collect();
             ctx.infer.set_type(node_type_id, TypeKind::Struct(names), Args(fields), set);
         }
         NodeKind::ReferenceType => {

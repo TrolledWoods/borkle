@@ -534,7 +534,7 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, node: NodeView<'a>) -> Value {
                 let ref_type_id = ctx.types.add_type(type_infer::TypeKind::Reference, Args([(internal_type_arg, Reason::temp_zero())]), ()); 
                 let reference = ctx.registers.create(ctx.types, ref_type_id, ref_type);
                 ctx.emit_reference(reference, to);
-                for (i, element) in node.children.enumerate() {
+                for (i, element) in node.children.into_iter().enumerate() {
                     if i > 0 {
                         ctx.emit_increment(reference);
                     }
@@ -607,7 +607,7 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, node: NodeView<'a>) -> Value {
 
             let head = ctx.registers.get_head();
 
-            let mut children = node.children.clone();
+            let mut children = node.children.into_iter();
             for content in children.by_ref().take(node.num_children as usize - 1) {
                 emit_node(ctx, content);
             }
@@ -650,7 +650,7 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, node: NodeView<'a>) -> Value {
             to
         }
         NodeKind::ResolvedFunctionCall { arg_indices } => {
-            let mut children = node.children.clone();
+            let mut children = node.children.into_iter();
             let calling_node = children.next().unwrap();
 
             let to = ctx.registers.create_min_align(node.type_(), 8);

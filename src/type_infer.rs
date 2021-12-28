@@ -5,6 +5,7 @@ use crate::errors::ErrorCtx;
 use crate::location::Location;
 use crate::operators::BinaryOp;
 use crate::types::{self, IntTypeKind};
+use crate::parser::{NodeId as AstNodeId};
 use std::collections::HashMap;
 use std::mem;
 use ustr::Ustr;
@@ -766,6 +767,12 @@ fn add_value(structures: &mut Structures, values: &mut Values, kind: Option<Type
         set_value(structures, values, id, kind, value_sets, ValueSetHandles::default());
     }
     id
+}
+
+#[derive(Clone)]
+pub struct AstNodeValueMap {
+    base: AstNodeId,
+    nodes: Box<[ValueWrapper]>,
 }
 
 #[derive(Clone)]
@@ -1787,6 +1794,12 @@ impl TypeSystem {
             } => {
                 let a_value = get_value(&self.structures, &self.values, a_id);
                 let b_value = get_value(&self.structures, &self.values, b_id);
+
+                // @Slight hack: If they have the same _pointer_ to a kind, they are the same structure, and therefore, we
+                // should not apply this constraint.
+                if std::ptr::eq(a_value.kind, b_value.kind) {
+                    return;
+                }
 
                 let a = &*a_value.kind;
                 let b = &*b_value.kind;

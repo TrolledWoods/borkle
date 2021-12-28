@@ -1,3 +1,5 @@
+import "tests/main.bo";
+
 #entry fn() {
-    print("Hello\n");
+    print("Hello, world!\n");
 };
