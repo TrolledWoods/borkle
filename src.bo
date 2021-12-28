@@ -1,4 +1,4 @@
-import "tests/main.bo";
+import "tests/main.bo"; 
 
 #entry fn() {
     print("Hello, world!\n");

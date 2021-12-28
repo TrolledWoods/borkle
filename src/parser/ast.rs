@@ -9,6 +9,55 @@ use std::fmt;
 use std::sync::Arc;
 use ustr::Ustr;
 
+pub trait TreeZippable: Sized {
+    type Target;
+
+    fn ensure_len(&self, len: usize);
+    fn slice(self, start: usize, end: usize) -> Self;
+    fn split_at(self, index: usize) -> (Self, Self);
+    fn split_last(self) -> (Self::Target, Self);
+}
+
+impl<A, B> TreeZippable for (A, B) where A: TreeZippable, B: TreeZippable {
+    type Target = (A::Target, B::Target);
+
+    fn ensure_len(&self, len: usize) {
+        self.0.ensure_len(len);
+        self.1.ensure_len(len);
+    }
+    fn slice(self, start: usize, end: usize) -> Self {
+        (self.0.slice(start, end), self.1.slice(start, end))
+    }
+    fn split_at(self, index: usize) -> (Self, Self) {
+        let a = self.0.split_at(index);
+        let b = self.1.split_at(index);
+        ((a.0, b.0), (a.1, b.1))
+    }
+    fn split_last(self) -> (Self::Target, Self) {
+        let a = self.0.split_last();
+        let b = self.1.split_last();
+        ((a.0, b.0), (a.1, b.1))
+    }
+}
+
+impl<'a, T> TreeZippable for &'a [T] {
+    type Target = &'a T;
+
+    fn ensure_len(&self, len: usize) { assert_eq!(self.len(), len); }
+    fn slice(self, start: usize, end: usize) -> Self { &self[start..end] }
+    fn split_at(self, index: usize) -> (Self, Self) { self.split_at(index) }
+    fn split_last(self) -> (Self::Target, Self) { self.split_last().unwrap() }
+}
+
+impl<'a, T> TreeZippable for &'a mut [T] {
+    type Target = &'a mut T;
+
+    fn ensure_len(&self, len: usize) { assert_eq!(self.len(), len); }
+    fn slice(self, start: usize, end: usize) -> Self { &mut self[start..end] }
+    fn split_at(self, index: usize) -> (Self, Self) { self.split_at_mut(index) }
+    fn split_last(self) -> (Self::Target, Self) { self.split_last_mut().unwrap() }
+}
+
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub struct NodeId(pub u32);
 
