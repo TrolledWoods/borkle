@@ -126,7 +126,7 @@ pub fn begin<'a>(
 
     // Create type inference variables for all variables and nodes, so that there's a way to talk about
     // all of them.
-    for node in &mut ast.nodes {
+    for node in &mut ast.data {
         node.type_infer_value_id = infer.add_unknown_type();
     }
 
@@ -241,7 +241,7 @@ pub fn finish<'a>(
     for (node_id, needs_explaining) in from.needs_explaining {
         let id_mapper = type_infer::IdMapper {
             poly_args: from.poly_params.len(),
-            ast_nodes: from.ast.nodes.len(),
+            ast_nodes: from.ast.data.len(),
             locals: from.locals.num_locals(),
             labels: from.locals.num_labels(),
         };
@@ -267,7 +267,7 @@ pub fn finish<'a>(
     }
 
     // @Temporary: Just to make it work for now, we should really only deal with the base set
-    for node in &mut from.ast.nodes {
+    for node in &mut from.ast.data {
         if node.type_.is_none() {
             node.type_ = Some(from.infer.value_to_compiler_type(node.type_infer_value_id));
         }
@@ -838,13 +838,13 @@ fn build_constraints(
         NodeKind::ArrayLiteral => {
             let inner_type = ctx.infer.add_unknown_type_with_set(set);
 
-            for arg in node.children {
+            for arg in node.children.iter() {
                 let arg_type_id = build_constraints(ctx, arg, set);
                 ctx.infer.set_equal(arg_type_id, inner_type, Reason::new(node_loc, ReasonKind::Passed));
             }
 
             let usize = ctx.infer.add_int(IntTypeKind::Usize, set);
-            let length = ctx.program.insert_buffer(types::Type::new(types::TypeKind::Int(IntTypeKind::Usize)), (node.node.num_children as usize).to_le_bytes().as_ptr());
+            let length = ctx.program.insert_buffer(types::Type::new(types::TypeKind::Int(IntTypeKind::Usize)), (node.children.len()).to_le_bytes().as_ptr());
 
             let variable_count = ctx.infer.add_value(
                 usize,
@@ -931,8 +931,9 @@ fn build_constraints(
             sub_ctx.infer.value_sets.lock(set);
 
             let mut function_type_ids = Vec::with_capacity(args.len() + 1);
-            let mut children = node.children.into_iter();
-            for (&local_id, type_node) in args.iter().zip(children.by_ref().take(node.node.num_children as usize - 2)) {
+            let mut children = node.children.iter();
+            let num_children = children.len();
+            for (&local_id, type_node) in args.iter().zip(children.by_ref().take(num_children - 2)) {
                 let local = sub_ctx.locals.get_mut(local_id);
                 let name = local.name;
                 local.stack_frame_id = sub_set;
@@ -1068,7 +1069,8 @@ fn build_constraints(
 
             // @Performance: This isn't very fast, but it's fine for now
             let mut children = node.children.into_iter();
-            for statement_id in children.by_ref().take(node.node.num_children as usize - 1) {
+            let children_len = children.len();
+            for statement_id in children.by_ref().take(children_len - 1) {
                 build_constraints(ctx, statement_id, set);
             }
 
@@ -1176,7 +1178,8 @@ fn build_type(
         NodeKind::FunctionType => {
             let mut children = node.children.into_iter();
             let mut function_type_ids = Vec::with_capacity(children.len());
-            for type_node in children.by_ref().take(node.node.num_children as usize - 1) {
+            let num_children = children.len();
+            for type_node in children.by_ref().take(num_children - 1) {
                 let type_id = build_type(ctx, type_node, set);
                 function_type_ids.push((type_id, Reason::temp(node_loc)));
             }

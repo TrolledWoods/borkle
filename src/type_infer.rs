@@ -816,7 +816,7 @@ impl Values {
 fn get_loc_of_value(poly_args: &[crate::typer::PolyParam], ast: &crate::parser::Ast, locals: &crate::locals::LocalVariables, value: ValueId) -> Option<Location> {
     let mapper = IdMapper {
         poly_args: poly_args.len(),
-        ast_nodes: ast.nodes.len(),
+        ast_nodes: ast.data.len(),
         locals: locals.num_locals(),
         labels: locals.num_labels(),
     };
@@ -1007,7 +1007,7 @@ impl TypeSystem {
                     // @TODO: This is not a very good way to print errors, but it's fine for nowj
                     let mapper = IdMapper {
                         poly_args: poly_args.len(),
-                        ast_nodes: ast.nodes.len(),
+                        ast_nodes: ast.data.len(),
                         locals: locals.num_locals(),
                         labels: locals.num_labels(),
                     };

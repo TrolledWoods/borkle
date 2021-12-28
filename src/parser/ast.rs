@@ -11,8 +11,10 @@ use ustr::Ustr;
 
 pub trait TreeZippable: Sized + Default {
     type Target;
+    type Reborrowed<'b>: TreeZippable where Self: 'b;
 
     fn ensure_len(&self, len: usize);
+    fn reborrow(&mut self) -> Self::Reborrowed<'_>;
     fn slice(self, start: usize, end: usize) -> Self;
     fn split_at(self, index: usize) -> (Self, Self);
     fn split_last(self) -> (Self::Target, Self);
@@ -20,8 +22,10 @@ pub trait TreeZippable: Sized + Default {
 
 impl TreeZippable for () {
     type Target = ();
+    type Reborrowed<'b> where Self: 'b = ();
 
     fn ensure_len(&self, _: usize) {}
+    fn reborrow(&mut self) -> Self::Reborrowed<'_> { () }
     fn slice(self, _: usize, _: usize) -> Self {
         ()
     }
@@ -35,10 +39,14 @@ impl TreeZippable for () {
 
 impl<A, B> TreeZippable for (A, B) where A: TreeZippable, B: TreeZippable {
     type Target = (A::Target, B::Target);
+    type Reborrowed<'b> where Self: 'b = (A::Reborrowed<'b>, B::Reborrowed<'b>);
 
     fn ensure_len(&self, len: usize) {
         self.0.ensure_len(len);
         self.1.ensure_len(len);
+    }
+    fn reborrow(&mut self) -> Self::Reborrowed<'_> {
+        (self.0.reborrow(), self.1.reborrow())
     }
     fn slice(self, start: usize, end: usize) -> Self {
         (self.0.slice(start, end), self.1.slice(start, end))
@@ -57,8 +65,10 @@ impl<A, B> TreeZippable for (A, B) where A: TreeZippable, B: TreeZippable {
 
 impl<'a, T> TreeZippable for &'a [T] {
     type Target = &'a T;
+    type Reborrowed<'b> where Self: 'b = &'a [T];
 
     fn ensure_len(&self, len: usize) { assert_eq!(self.len(), len); }
+    fn reborrow(&mut self) -> Self::Reborrowed<'_> { self }
     fn slice(self, start: usize, end: usize) -> Self { &self[start..end] }
     fn split_at(self, index: usize) -> (Self, Self) { self.split_at(index) }
     fn split_last(self) -> (Self::Target, Self) { self.split_last().unwrap() }
@@ -66,8 +76,10 @@ impl<'a, T> TreeZippable for &'a [T] {
 
 impl<'a, T> TreeZippable for &'a mut [T] {
     type Target = &'a mut T;
+    type Reborrowed<'b> where Self: 'b = &'b mut [T];
 
     fn ensure_len(&self, len: usize) { assert_eq!(self.len(), len); }
+    fn reborrow(&mut self) -> Self::Reborrowed<'_> { &mut **self }
     fn slice(self, start: usize, end: usize) -> Self { &mut self[start..end] }
     fn split_at(self, index: usize) -> (Self, Self) { self.split_at_mut(index) }
     fn split_last(self) -> (Self::Target, Self) { self.split_last_mut().unwrap() }
@@ -105,28 +117,34 @@ impl Ast {
 
     pub fn root(&self) -> NodeView<'_> {
         let (root, subtree) = self.builder.nodes.split_last().unwrap();
-        NodeView::new(NodeId(0), root, subtree)
+        let (zipped_root, zipped_subtree) = self.builder.data.split_last().unwrap();
+        NodeView::new(NodeId(0), root, zipped_root, subtree, zipped_subtree)
     }
 
     pub fn root_mut(&mut self) -> NodeViewMut<'_> {
-        let (root, subtree) = self.builder.nodes.split_last_mut().unwrap();
-        NodeViewMut::new(NodeId(0), root, subtree)
+        let (root, subtree) = self.builder.nodes.split_last().unwrap();
+        let (zipped_root, zipped_subtree) = self.builder.data.split_last_mut().unwrap();
+        NodeViewMut::new(NodeId(0), root, zipped_root, subtree, zipped_subtree)
     }
 
     pub fn get(&self, id: NodeId) -> NodeView<'_> {
         let node = &self.builder.nodes[id.0 as usize];
         let base_id = id.0 - node.subtree_size;
         let nodes = &self.builder.nodes[base_id as usize..=id.0 as usize];
+        let zipped = &self.builder.data[base_id as usize..=id.0 as usize];
         let (head, subtree) = nodes.split_last().unwrap();
-        NodeView::new(NodeId(base_id), head, subtree)
+        let (zipped_head, zipped_subtree) = zipped.split_last().unwrap();
+        NodeView::new(NodeId(base_id), head, zipped_head, subtree, zipped_subtree)
     }
 
     pub fn get_mut(&mut self, id: NodeId) -> NodeViewMut<'_> {
-        let node = &mut self.builder.nodes[id.0 as usize];
+        let node = &self.builder.nodes[id.0 as usize];
         let base_id = id.0 - node.subtree_size;
-        let nodes = &mut self.builder.nodes[base_id as usize..=id.0 as usize];
-        let (head, subtree) = nodes.split_last_mut().unwrap();
-        NodeViewMut::new(NodeId(base_id), head, subtree)
+        let nodes = &self.builder.nodes[base_id as usize..=id.0 as usize];
+        let zipped = &mut self.builder.data[base_id as usize..=id.0 as usize];
+        let (head, subtree) = nodes.split_last().unwrap();
+        let (zipped_head, zipped_subtree) = zipped.split_last_mut().unwrap();
+        NodeViewMut::new(NodeId(base_id), head, zipped_head, subtree, zipped_subtree)
     }
 }
 
@@ -146,7 +164,8 @@ impl std::ops::DerefMut for Ast {
 
 #[derive(Clone, Debug, Default)]
 pub struct AstBuilder {
-    pub nodes: Vec<Node>,
+    nodes: Vec<StructuralInfo>,
+    pub data: Vec<Node>,
 }
 
 impl AstBuilder {
@@ -157,7 +176,7 @@ impl AstBuilder {
     pub fn finish(self) -> Ast {
         // @Performance: This is not necessary, it's just to make sure that everything
         // is correct
-        for node in self.nodes.iter().rev().skip(1).rev() {
+        for node in self.data.iter().rev().skip(1).rev() {
             if node.parent.is_none() {
                 panic!("Node without a parent {:?}", node);
             }
@@ -171,6 +190,7 @@ impl AstBuilder {
     pub fn add(&mut self) -> AstSlot<'_> {
         AstSlot {
             nodes: &mut self.nodes,
+            data: &mut self.data,
             num_children: 0,
         }
     }
@@ -181,7 +201,8 @@ impl AstBuilder {
 /// you'll get the tree [+ [1, 2]]. Then if you added another number, [+ [1, 2], 3], and munched again into `*`, you'd
 /// get [* [+ [1, 2], 3]]. So this is useful for expressions, where we don't know how deep they may get before hand.
 pub struct Muncher<'a> {
-    nodes: &'a mut Vec<Node>,
+    nodes: &'a mut Vec<StructuralInfo>,
+    data: &'a mut Vec<Node>,
     num_nodes: u32,
 }
 
@@ -189,7 +210,8 @@ impl Muncher<'_> {
     pub fn add(&mut self) -> AstSlot<'_> {
         self.num_nodes += 1;
         AstSlot {
-            nodes: &mut *self.nodes,
+            nodes: self.nodes,
+            data: self.data,
             num_children: 0,
         }
     }
@@ -199,6 +221,7 @@ impl Muncher<'_> {
 
         let slot = AstSlot {
             nodes: self.nodes,
+            data: self.data,
             num_children: amount,
         };
        
@@ -217,7 +240,8 @@ impl Muncher<'_> {
 pub struct FinishedNode(());
 
 pub struct AstSlot<'a> {
-    nodes: &'a mut Vec<Node>,
+    nodes: &'a mut Vec<StructuralInfo>,
+    data: &'a mut Vec<Node>,
     num_children: u32,
 }
 
@@ -225,7 +249,8 @@ impl<'a> AstSlot<'a> {
     pub fn add(&mut self) -> AstSlot<'_> {
         self.num_children += 1;
         AstSlot {
-            nodes: &mut *self.nodes,
+            nodes: self.nodes,
+            data: self.data,
             num_children: 0,
         }
     }
@@ -234,6 +259,7 @@ impl<'a> AstSlot<'a> {
         debug_assert_eq!(self.num_children, 0, "You cannot convert something into a muncher when it has children already, convert before adding children");
         Muncher {
             nodes: self.nodes,
+            data: self.data,
             num_nodes: 0,
         }
     }
@@ -247,8 +273,9 @@ impl<'a> AstSlot<'a> {
         // Go through the children in reverse(it's the only thing we can do at this point),
         // and count the total subtree size, as well as compute the next children nodes.
         for _ in 0..self.num_children {
+            let child_data = &mut self.data[id_usize - subtree_size as usize - 1];
             let child = &mut self.nodes[id_usize - subtree_size as usize - 1];
-            child.parent = Some(id);
+            child_data.parent = Some(id);
             child.next_subtree_size = next_child_subtree_size;
             next_child_subtree_size = child.subtree_size;
             subtree_size += child.subtree_size + 1;
@@ -260,12 +287,14 @@ impl<'a> AstSlot<'a> {
             self.nodes.last_mut().unwrap().next_subtree_size = next_child_subtree_size;
         }
 
-        self.nodes.push(Node {
+        self.data.push(Node {
             loc,
             kind,
             parent: None,
             type_infer_value_id: crate::type_infer::ValueId::NONE,
             type_: None,
+        });
+        self.nodes.push(StructuralInfo {
             subtree_size,
             next_subtree_size: 0,
             num_children: self.num_children,
@@ -275,137 +304,15 @@ impl<'a> AstSlot<'a> {
     }
 }
 
-#[derive(Clone)]
-pub struct ChildIterator<'a> {
-    munching: &'a [Node],
-    base_id: NodeId,
-    next_subtree_size: u32,
-    num_children: u32,
-}
-
-impl<'a> Iterator for ChildIterator<'a> {
-    type Item = NodeView<'a>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        if self.num_children == 0 { return None; }
-        self.num_children -= 1;
-
-        let munching = std::mem::replace(&mut self.munching, &[]);
-        let (child_section, new_munching) = munching.split_at(self.next_subtree_size as usize + 1);
-        let old_base = self.base_id;
-        self.base_id = NodeId(self.base_id.0 + self.next_subtree_size + 1);
-        self.munching = new_munching;
-
-        let (child, child_subtree) = child_section.split_last().unwrap();
-        self.next_subtree_size = child.next_subtree_size;
-
-        Some(NodeView::new(old_base, child, child_subtree))
-    }
-
-    fn size_hint(&self) -> (usize, Option<usize>) {
-        (self.num_children as usize, Some(self.num_children as usize))
-    }
-}
-
-impl ExactSizeIterator for ChildIterator<'_> {}
-
-pub struct ChildIteratorMut<'a> {
-    munching: &'a mut [Node],
-    base_id: NodeId,
-    next_subtree_size: u32,
-    num_children: u32,
-}
-
-impl<'a> Iterator for ChildIteratorMut<'a> {
-    type Item = NodeViewMut<'a>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        if self.num_children == 0 { return None; }
-        self.num_children -= 1;
-
-        let munching = std::mem::replace(&mut self.munching, &mut []);
-        let (child_section, new_munching) = munching.split_at_mut(self.next_subtree_size as usize + 1);
-        let old_base = self.base_id;
-        self.base_id = NodeId(self.base_id.0 + self.next_subtree_size + 1);
-        self.munching = new_munching;
-
-        let (child, child_subtree) = child_section.split_last_mut().unwrap();
-        self.next_subtree_size = child.next_subtree_size;
-
-        Some(NodeViewMut::new(old_base, child, child_subtree))
-    }
-
-    fn size_hint(&self) -> (usize, Option<usize>) {
-        (self.num_children as usize, Some(self.num_children as usize))
-    }
-}
-
-impl ExactSizeIterator for ChildIteratorMut<'_> {}
-
-#[derive(Clone, Copy)]
-pub struct AstSlice<'a> {
-    base_id: NodeId,
-    next_subtree_size: u32,
-    num_children: u32,
-    nodes: &'a [Node],
-}
-
-impl<'a> IntoIterator for AstSlice<'a> {
-    type IntoIter = ChildIterator<'a>;
-    type Item = NodeView<'a>;
-
-    fn into_iter(self) -> Self::IntoIter {
-        ChildIterator {
-            munching: self.nodes,
-            base_id: self.base_id,
-            next_subtree_size: self.next_subtree_size,
-            num_children: self.num_children,
-        }
-    }
-}
-
-pub struct AstSliceMut<'a> {
-    base_id: NodeId,
-    next_subtree_size: u32,
-    num_children: u32,
-    nodes: &'a mut [Node],
-}
-
-impl<'a> AstSliceMut<'a> {
-    pub fn into_array<const N: usize>(self) -> [NodeViewMut<'a>; N] {
-        use std::mem::MaybeUninit;
-
-        assert_eq!(self.num_children as usize, N);
-
-        let mut array: [MaybeUninit<NodeViewMut<'_>>; N] = unsafe { MaybeUninit::uninit().assume_init() };
-
-        array.iter_mut().zip(self).for_each(|(to, from)| { to.write(from); });
-
-        array.map(|v| unsafe { v.assume_init() })
-    }
-}
-
-impl<'a> IntoIterator for AstSliceMut<'a> {
-    type IntoIter = ChildIteratorMut<'a>;
-    type Item = NodeViewMut<'a>;
-
-    fn into_iter(self) -> Self::IntoIter {
-        ChildIteratorMut {
-            munching: self.nodes,
-            base_id: self.base_id,
-            next_subtree_size: self.next_subtree_size,
-            num_children: self.num_children,
-        }
-    }
-}
-
 pub struct GenericChildIterator<'a, Zipped: TreeZippable> {
-    munching: &'a [Node],
+    munching: &'a [StructuralInfo],
     zipped: Zipped,
     base_id: NodeId,
     next_subtree_size: u32,
     num_children: u32,
 }
+
+impl<Zipped: TreeZippable> ExactSizeIterator for GenericChildIterator<'_, Zipped> {}
 
 impl<'a, Zipped: TreeZippable> Iterator for GenericChildIterator<'a, Zipped> {
     type Item = GenericNodeView<'a, Zipped>;
@@ -440,8 +347,50 @@ pub struct GenericAstSlice<'a, Zipped: TreeZippable> {
     base_id: NodeId,
     next_subtree_size: u32,
     num_children: u32,
-    nodes: &'a [Node],
+    nodes: &'a [StructuralInfo],
     zipped: Zipped,
+}
+
+impl<Zipped: TreeZippable> GenericAstSlice<'_, Zipped> {
+    pub fn len(&self) -> usize {
+        self.num_children as usize
+    }
+}
+
+impl<'a, Zipped: TreeZippable> GenericAstSlice<'a, Zipped> {
+    pub fn iter<'b>(&'b mut self) -> GenericChildIterator<'a, Zipped::Reborrowed<'b>> {
+        GenericChildIterator {
+            munching: self.nodes,
+            base_id: self.base_id,
+            next_subtree_size: self.next_subtree_size,
+            num_children: self.num_children,
+            zipped: self.zipped.reborrow(),
+        }
+    }
+
+    pub fn into_array<const N: usize>(self) -> [GenericNodeView<'a, Zipped>; N] {
+        use std::mem::MaybeUninit;
+
+        assert_eq!(self.num_children as usize, N);
+
+        let mut array: [MaybeUninit<GenericNodeView<'a, Zipped>>; N] = unsafe { MaybeUninit::uninit().assume_init() };
+
+        array.iter_mut().zip(self).for_each(|(to, from)| { to.write(from); });
+
+        array.map(|v| unsafe { v.assume_init() })
+    }
+
+    pub fn as_array<'b, const N: usize>(&'b mut self) -> [GenericNodeView<'a, Zipped::Reborrowed<'b>>; N] {
+        use std::mem::MaybeUninit;
+
+        assert_eq!(self.num_children as usize, N);
+
+        let mut array: [MaybeUninit<GenericNodeView<'a, Zipped::Reborrowed<'b>>>; N] = unsafe { MaybeUninit::uninit().assume_init() };
+
+        array.iter_mut().zip(self.iter()).for_each(|(to, from)| { to.write(from); });
+
+        array.map(|v| unsafe { v.assume_init() })
+    }
 }
 
 impl<'a, Zipped: TreeZippable> IntoIterator for GenericAstSlice<'a, Zipped> {
@@ -459,15 +408,16 @@ impl<'a, Zipped: TreeZippable> IntoIterator for GenericAstSlice<'a, Zipped> {
     }
 }
 
+#[derive(Clone)]
 pub struct GenericNodeView<'a, Zipped: TreeZippable> {
     pub id: NodeId,
     pub node: Zipped::Target,
-    internal_node: &'a Node,
+    internal_node: &'a StructuralInfo,
     pub children: GenericAstSlice<'a, Zipped>,
 }
 
 impl<'a, Zipped: TreeZippable> GenericNodeView<'a, Zipped> {
-    fn new(base_id: NodeId, node: &'a Node, zipped_node: Zipped::Target, subtree: &'a [Node], zipped: Zipped) -> Self {
+    fn new(base_id: NodeId, node: &'a StructuralInfo, zipped_node: Zipped::Target, subtree: &'a [StructuralInfo], zipped: Zipped) -> Self {
         let next_subtree_size = subtree.last().map_or(0, |v| v.next_subtree_size);
         let num_children = node.num_children;
         Self {
@@ -485,20 +435,6 @@ impl<'a, Zipped: TreeZippable> GenericNodeView<'a, Zipped> {
     }
 }
 
-impl<'a, Zipped: TreeZippable + Copy> GenericNodeView<'a, Zipped> {
-    pub fn children_array<const N: usize>(&self) -> [Self; N] {
-        use std::mem::MaybeUninit;
-
-        assert_eq!(self.internal_node.num_children as usize, N);
-
-        let mut array: [MaybeUninit<Self>; N] = unsafe { MaybeUninit::uninit().assume_init() };
-
-        array.iter_mut().zip(self.children).for_each(|(to, from)| { to.write(from); });
-
-        array.map(|v| unsafe { v.assume_init() })
-    }
-}
-
 impl<'a, Zipped: TreeZippable> std::ops::Deref for GenericNodeView<'a, Zipped> {
     type Target = Zipped::Target;
 
@@ -513,85 +449,18 @@ impl<'a, Zipped: TreeZippable> std::ops::DerefMut for GenericNodeView<'a, Zipped
     }
 }
 
-#[derive(Clone)]
-pub struct NodeView<'a> {
-    pub id: NodeId,
-    pub node: &'a Node,
-    pub children: AstSlice<'a>,
-}
+pub type NodeView<'a>    = GenericNodeView<'a, &'a [Node]>;
+pub type NodeViewMut<'a> = GenericNodeView<'a, &'a mut [Node]>;
 
-impl<'a> NodeView<'a> {
-    fn new(base_id: NodeId, node: &'a Node, subtree: &'a [Node]) -> Self {
-        let next_subtree_size = subtree.last().map_or(0, |v| v.next_subtree_size);
-        let num_children = node.num_children;
-        Self {
-            id: NodeId(base_id.0 + subtree.len() as u32),
-            node,
-            children: AstSlice {
-                nodes: subtree,
-                base_id,
-                next_subtree_size,
-                num_children,
-            },
-        }
-    }
-
-    pub fn children_array<const N: usize>(&self) -> [NodeView<'a>; N] {
-        use std::mem::MaybeUninit;
-
-        assert_eq!(self.num_children as usize, N);
-
-        let mut array: [MaybeUninit<NodeView<'a>>; N] = unsafe { MaybeUninit::uninit().assume_init() };
-
-        array.iter_mut().zip(self.children.clone()).for_each(|(to, from)| { to.write(from); });
-
-        array.map(|v| unsafe { v.assume_init() })
-    }
-}
-
-impl std::ops::Deref for NodeView<'_> {
-    type Target = Node;
-
-    fn deref(&self) -> &Self::Target {
-        self.node
-    }
-}
-
-pub struct NodeViewMut<'a> {
-    pub id: NodeId,
-    pub node: &'a mut Node,
-    pub children: AstSliceMut<'a>,
-}
-
-impl<'a> NodeViewMut<'a> {
-    fn new(base_id: NodeId, node: &'a mut Node, subtree: &'a mut [Node]) -> Self {
-        let next_subtree_size = subtree.last().map_or(0, |v| v.next_subtree_size);
-        let num_children = node.num_children;
-        Self {
-            id: NodeId(base_id.0 + subtree.len() as u32),
-            node,
-            children: AstSliceMut {
-                nodes: subtree,
-                base_id,
-                next_subtree_size,
-                num_children,
-            },
-        }
-    }
-}
-
-impl std::ops::Deref for NodeViewMut<'_> {
-    type Target = Node;
-
-    fn deref(&self) -> &Self::Target {
-        &*self.node
-    }
-}
-
-impl std::ops::DerefMut for NodeViewMut<'_> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        self.node
-    }
+#[derive(Debug, Clone)]
+struct StructuralInfo {
+    /// The number of elements in total that the subtree of children contain.
+    subtree_size: u32,
+    /// The number of elements in the "next" subtree, so the next child in the parent.
+    /// If we're the last child, and thus don't have a "next" subtree, this count means
+    /// the first instead.
+    next_subtree_size: u32,
+    num_children: u32,
 }
 
 #[derive(Clone)]
@@ -601,14 +470,6 @@ pub struct Node {
     pub parent: Option<NodeId>,
     pub type_infer_value_id: crate::type_infer::ValueId,
     pub type_: Option<Type>,
-
-    /// The number of elements in total that the subtree of children contain.
-    subtree_size: u32,
-    /// The number of elements in the "next" subtree, so the next child in the parent.
-    /// If we're the last child, and thus don't have a "next" subtree, this count means
-    /// the first instead.
-    next_subtree_size: u32,
-    pub num_children: u32,
 }
 
 impl Node {
