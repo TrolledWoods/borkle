@@ -9,13 +9,28 @@ use std::fmt;
 use std::sync::Arc;
 use ustr::Ustr;
 
-pub trait TreeZippable: Sized {
+pub trait TreeZippable: Sized + Default {
     type Target;
 
     fn ensure_len(&self, len: usize);
     fn slice(self, start: usize, end: usize) -> Self;
     fn split_at(self, index: usize) -> (Self, Self);
     fn split_last(self) -> (Self::Target, Self);
+}
+
+impl TreeZippable for () {
+    type Target = ();
+
+    fn ensure_len(&self, _: usize) {}
+    fn slice(self, _: usize, _: usize) -> Self {
+        ()
+    }
+    fn split_at(self, _: usize) -> (Self, Self) {
+        ((), ())
+    }
+    fn split_last(self) -> (Self::Target, Self) {
+        ((), ())
+    }
 }
 
 impl<A, B> TreeZippable for (A, B) where A: TreeZippable, B: TreeZippable {
@@ -381,6 +396,120 @@ impl<'a> IntoIterator for AstSliceMut<'a> {
             next_subtree_size: self.next_subtree_size,
             num_children: self.num_children,
         }
+    }
+}
+
+pub struct GenericChildIterator<'a, Zipped: TreeZippable> {
+    munching: &'a [Node],
+    zipped: Zipped,
+    base_id: NodeId,
+    next_subtree_size: u32,
+    num_children: u32,
+}
+
+impl<'a, Zipped: TreeZippable> Iterator for GenericChildIterator<'a, Zipped> {
+    type Item = GenericNodeView<'a, Zipped>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.num_children == 0 { return None; }
+        self.num_children -= 1;
+
+        let munching = std::mem::take(&mut self.munching);
+        let zipped = std::mem::take(&mut self.zipped);
+        let (child_section, new_munching) = munching.split_at(self.next_subtree_size as usize + 1);
+        let (child_zipped, new_zipped) = zipped.split_at(self.next_subtree_size as usize + 1);
+        let old_base = self.base_id;
+        self.base_id = NodeId(self.base_id.0 + self.next_subtree_size + 1);
+        self.munching = new_munching;
+        self.zipped = new_zipped;
+
+        let (child, child_subtree) = child_section.split_last().unwrap();
+        let (zipped_child, child_zipped_subtree) = child_zipped.split_last();
+        self.next_subtree_size = child.next_subtree_size;
+
+        Some(GenericNodeView::new(old_base, child, zipped_child, child_subtree, child_zipped_subtree))
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        (self.num_children as usize, Some(self.num_children as usize))
+    }
+}
+
+#[derive(Clone, Copy)]
+pub struct GenericAstSlice<'a, Zipped: TreeZippable> {
+    base_id: NodeId,
+    next_subtree_size: u32,
+    num_children: u32,
+    nodes: &'a [Node],
+    zipped: Zipped,
+}
+
+impl<'a, Zipped: TreeZippable> IntoIterator for GenericAstSlice<'a, Zipped> {
+    type IntoIter = GenericChildIterator<'a, Zipped>;
+    type Item = GenericNodeView<'a, Zipped>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        GenericChildIterator {
+            munching: self.nodes,
+            base_id: self.base_id,
+            next_subtree_size: self.next_subtree_size,
+            num_children: self.num_children,
+            zipped: self.zipped,
+        }
+    }
+}
+
+pub struct GenericNodeView<'a, Zipped: TreeZippable> {
+    pub id: NodeId,
+    pub node: Zipped::Target,
+    internal_node: &'a Node,
+    pub children: GenericAstSlice<'a, Zipped>,
+}
+
+impl<'a, Zipped: TreeZippable> GenericNodeView<'a, Zipped> {
+    fn new(base_id: NodeId, node: &'a Node, zipped_node: Zipped::Target, subtree: &'a [Node], zipped: Zipped) -> Self {
+        let next_subtree_size = subtree.last().map_or(0, |v| v.next_subtree_size);
+        let num_children = node.num_children;
+        Self {
+            id: NodeId(base_id.0 + subtree.len() as u32),
+            node: zipped_node,
+            internal_node: node,
+            children: GenericAstSlice {
+                nodes: subtree,
+                base_id,
+                next_subtree_size,
+                num_children,
+                zipped,
+            },
+        }
+    }
+}
+
+impl<'a, Zipped: TreeZippable + Copy> GenericNodeView<'a, Zipped> {
+    pub fn children_array<const N: usize>(&self) -> [Self; N] {
+        use std::mem::MaybeUninit;
+
+        assert_eq!(self.internal_node.num_children as usize, N);
+
+        let mut array: [MaybeUninit<Self>; N] = unsafe { MaybeUninit::uninit().assume_init() };
+
+        array.iter_mut().zip(self.children).for_each(|(to, from)| { to.write(from); });
+
+        array.map(|v| unsafe { v.assume_init() })
+    }
+}
+
+impl<'a, Zipped: TreeZippable> std::ops::Deref for GenericNodeView<'a, Zipped> {
+    type Target = Zipped::Target;
+
+    fn deref(&self) -> &Self::Target {
+        &self.node
+    }
+}
+
+impl<'a, Zipped: TreeZippable> std::ops::DerefMut for GenericNodeView<'a, Zipped> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.node
     }
 }
 
