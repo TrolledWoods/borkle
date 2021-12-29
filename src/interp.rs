@@ -16,7 +16,7 @@ pub fn emit_and_run<'a>(
     locals: &mut crate::locals::LocalVariables,
     types: &mut TypeSystem,
     ast: &crate::typer::Ast,
-    node: crate::typer::NodeId,
+    node: crate::ast::NodeId,
     stack_frame_id: crate::type_infer::ValueSetId,
     call_stack: &mut Vec<Location>,
 ) -> Result<ConstantRef, Box<[Location]>> {

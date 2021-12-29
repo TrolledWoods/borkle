@@ -379,8 +379,8 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, mut node: NodeView<'a>) -> Value {
                     Some(type_infer::Type { kind: type_infer::TypeKind::Int, args: Some(_) }),
                 ) => {
                     let is_signed_to = 0 < unsafe { *ctx.types.extract_constant_temp(to_args[0]).unwrap().as_ptr().cast::<u8>() };
-                    let to_size = node_type.layout.size;
-                    let from_size = value_type.layout.size;
+                    let to_size = node_type.layout.unwrap().size;
+                    let from_size = value_type.layout.unwrap().size;
 
                     if to_size <= from_size {
                         ctx.emit_truncate_int(to, from, to_size as u8);
@@ -526,7 +526,7 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, mut node: NodeView<'a>) -> Value {
             // This is a bit weird but it has to be checked here. The reason is we generate a temporary pointer to the elements
             // of the array, and this internal pointer does not account for the array being zero sized; i.e., getting a non zero
             // sized pointer from a zero sized type.
-            if node.children.len() > 0 && ctx.types.get(internal_type).layout.size > 0 {
+            if node.children.len() > 0 && ctx.types.get(internal_type).layout.unwrap().size > 0 {
                 let to = ctx.registers.create(ctx.types, node.type_infer_value_id, node.type_());
                 let ref_type = Type::new(TypeKind::Reference {
                     pointee: ctx.types.value_to_compiler_type(internal_type),

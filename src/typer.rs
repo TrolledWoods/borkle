@@ -5,13 +5,15 @@ use crate::location::Location;
 use crate::execution_time::ExecutionTime;
 use crate::locals::LocalVariables;
 use crate::operators::{BinaryOp, UnaryOp};
-pub use crate::parser::{Node, NodeViewMut, NodeKind, Ast};
-pub use crate::ast::NodeId;
+pub use crate::parser::{Node, NodeKind, Ast, NodeViewMut};
+use crate::ast::{self, NodeId};
 use crate::program::{PolyOrMember, PolyMemberId, Program, Task, constant::ConstantRef, BuiltinFunction};
 use crate::thread_pool::ThreadContext;
 use crate::type_infer::{self, ValueId as TypeId, Args, TypeSystem, ValueSetId, TypeKind, Reason, ReasonKind};
 use crate::types::{self, IntTypeKind};
 use ustr::Ustr;
+
+// type NodeViewMut<'a> = ast::GenericNodeView<'a, (&'a mut [Node], &'a [TypeId])>;
 
 #[derive(Clone)]
 pub struct PolyParam {
@@ -295,7 +297,7 @@ fn subset_was_completed(ctx: &mut Context<'_, '_>, ast: &mut Ast, waiting_on: Wa
             ctx.infer.value_sets.unlock(parent_set);
         }
         WaitingOnTypeInferrence::SizeOf { type_id, node_id, parent_set } => {
-            let size = ctx.infer.get(type_id).layout.size;
+            let size = ctx.infer.get(type_id).layout.expect("This value is supposed to be complete").size;
             let constant_ref = ctx.program.insert_buffer(types::Type::new(types::TypeKind::Int(IntTypeKind::Usize)), &size as *const _ as *const u8);
             ast.get_mut(node_id).kind = NodeKind::Constant(constant_ref, None);
             ctx.infer.value_sets.unlock(parent_set);

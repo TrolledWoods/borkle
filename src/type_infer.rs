@@ -179,7 +179,7 @@ fn compute_type_layout(kind: &TypeKind, structures: &Structures, values: &Values
             // @Correctness: We want to make sure that the type actually is a usize here
             let length = extract_constant_from_value(structures, values, children[1]).unwrap();
             let length = unsafe { *length.as_ptr().cast::<usize>() };
-            let inner_layout = get_value(structures, values, children[0]).layout;
+            let inner_layout = get_value(structures, values, children[0]).layout.unwrap();
             debug_assert!(inner_layout.align != 0);
             Layout { size: length * inner_layout.size, align: inner_layout.align }
         }
@@ -187,7 +187,7 @@ fn compute_type_layout(kind: &TypeKind, structures: &Structures, values: &Values
             let mut size = 0;
             let mut align = 1;
             for &child in children {
-                let child_layout = get_value(structures, values, child).layout;
+                let child_layout = get_value(structures, values, child).layout.unwrap();
                 debug_assert_ne!(child_layout.align, 0);
                 size += child_layout.size;
                 align = align.max(child_layout.align);
@@ -197,7 +197,7 @@ fn compute_type_layout(kind: &TypeKind, structures: &Structures, values: &Values
             Layout { size, align }
         }
         TypeKind::ConstantValue(_) => Layout { size: 0, align: 1 },
-        TypeKind::Constant => *get_value(structures, values, children[0]).layout,
+        TypeKind::Constant => *get_value(structures, values, children[0]).layout.unwrap(),
     }
 }
 
@@ -321,23 +321,60 @@ fn extract_constant_from_value(structures: &Structures, values: &Values, value: 
 
 fn get_value<'a>(structures: &'a Structures, values: &'a Values, id: ValueId) -> ValueBorrow<'a> {
     let value = values.get(id);
-    let structure = &structures.structure[value.structure_id as usize];
-    ValueBorrow {
-        kind: &structure.kind,
-        layout: &structure.layout,
-        value_sets: &value.value.value_sets,
-        is_base_value: &value.value.is_base_value,
+    match value.structure_id {
+        Some(id) => {
+            let structure = &structures.structure[id as usize];
+            ValueBorrow {
+                structure_id: value.structure_id,
+                kind: structure.kind.as_ref(),
+                layout: Some(&structure.layout),
+                value_sets: &value.value.value_sets,
+                is_base_value: &value.value.is_base_value,
+            }
+        }
+        None => ValueBorrow {
+            structure_id: value.structure_id,
+            kind: None,
+            layout: None,
+            value_sets: &value.value.value_sets,
+            is_base_value: &value.value.is_base_value,
+        }
     }
 }
 
 fn get_value_mut<'a>(structures: &'a mut Structures, values: &'a mut Values, id: ValueId) -> ValueBorrowMut<'a> {
     let value = values.get_mut(id);
-    let structure = &mut structures.structure[value.structure_id as usize];
-    ValueBorrowMut {
-        kind: &mut structure.kind,
-        layout: &mut structure.layout,
-        value_sets: &mut value.value.value_sets,
-        is_base_value: &mut value.value.is_base_value,
+    match value.structure_id {
+        Some(id) => {
+            let structure = &mut structures.structure[id as usize];
+            ValueBorrowMut {
+                kind: structure.kind.as_mut(),
+                layout: Some(&mut structure.layout),
+                value_sets: &mut value.value.value_sets,
+                is_base_value: &mut value.value.is_base_value,
+            }
+        }
+        None => {
+            ValueBorrowMut {
+                kind: None,
+                layout: None,
+                value_sets: &mut value.value.value_sets,
+                is_base_value: &mut value.value.is_base_value,
+            }
+        }
+    }
+}
+
+fn get_or_define_structure_of_value<'a>(structures: &'a mut Structures, values: &mut Values, id: ValueId) -> &'a mut StructureGroup {
+    let value = values.get_mut(id);
+    match value.structure_id {
+        Some(id) => &mut structures.structure[id as usize],
+        None => {
+            let structure_id = structures.structure.len() as u32;
+            structures.structure.push(StructureGroup::with_single(id));
+            value.structure_id = Some(structure_id);
+            structures.structure.last_mut().unwrap()
+        }
     }
 }
 
@@ -473,8 +510,9 @@ struct Value {
 
 #[derive(Clone, Copy)]
 pub struct ValueBorrow<'a> {
-    pub kind: &'a Option<Type>,
-    pub layout: &'a Layout,
+    structure_id: Option<u32>,
+    pub kind: Option<&'a Type>,
+    pub layout: Option<&'a Layout>,
     value_sets: &'a ValueSetHandles,
     is_base_value: &'a bool,
 }
@@ -486,8 +524,8 @@ impl ValueBorrow<'_> {
 }
 
 pub struct ValueBorrowMut<'a> {
-    pub kind: &'a mut Option<Type>,
-    pub layout: &'a mut Layout,
+    pub kind: Option<&'a mut Type>,
+    pub layout: Option<&'a mut Layout>,
     value_sets: &'a mut ValueSetHandles,
     pub is_base_value: &'a mut bool,
 }
@@ -501,7 +539,7 @@ struct LookupElement {
 #[derive(Clone)]
 struct ValueWrapper {
     value: Value,
-    structure_id: u32,
+    structure_id: Option<u32>,
     next_in_structure_group: ValueId,
 }
 
@@ -522,15 +560,29 @@ struct StructureGroup {
     num_values: u32,
 }
 
+impl StructureGroup {
+    fn with_single(first_value: ValueId) -> Self {
+        Self {
+            first_value,
+            kind: None,
+            layout: Layout::default(),
+            layout_dependants: Vec::new(),
+            num_values: 1,
+        }
+    }
+}
+
 #[derive(Default, Clone)]
 struct Structures {
     structure: Vec<StructureGroup>,
 }
 
 fn iter_values_in_structure<'a>(structures: &Structures, values: &'a Values, value_id: ValueId) -> impl Iterator<Item = ValueId> + 'a {
-    let structure = &structures.structure[values.get(value_id).structure_id as usize];
-
-    let mut value_id = structure.first_value;
+    let value = values.get(value_id);
+    let mut value_id = match value.structure_id {
+        Some(id) => structures.structure[id as usize].first_value,
+        None => value_id,
+    };
     std::iter::from_fn(move || {
         if value_id == ValueId::NONE { return None; }
         let v = value_id;
@@ -549,17 +601,29 @@ fn structurally_combine(structures: &mut Structures, values: &mut Values, comput
     let b_value_is_complete = b_value.value.value_sets.is_complete();
     debug_assert!(!(b_value_is_complete && !a_value_is_complete), "b can't be complete while a isn't, because a will replace b, so it makes no sense for b not to be complete?");
 
-    if structure_id == old_b_structure_id {
+    if structure_id.is_some() && structure_id == old_b_structure_id {
         return;
     }
 
-    let b_structure = mem::take(&mut structures.structure[old_b_structure_id as usize]);
+    let b_structure = match old_b_structure_id {
+        Some(id) => mem::take(&mut structures.structure[id as usize]),
+        None => StructureGroup::with_single(b),
+    };
+
+    let structure_id = structure_id.unwrap_or_else(|| {
+        let id = structures.structure.len() as u32;
+        structures.structure.push(StructureGroup::with_single(a));
+        values.get_mut(a).structure_id = Some(id);
+        id
+    });
+
     let a_structure = &mut structures.structure[structure_id as usize];
+
     a_structure.num_values += b_structure.num_values;
     match (a_structure.layout.align > 0, b_structure.layout.align > 0) {
         (true, false) => {
             for dependant in b_structure.layout_dependants {
-                let dependant_structure_id = values.get(dependant).structure_id;
+                let dependant_structure_id = values.get(dependant).structure_id.expect("If you depend on the size of another value, you have to have a structure");
                 let dependant_structure = &mut structures.structure[dependant_structure_id as usize];
 
                 // This seems scary, but in the cases we're in right now, where a complete structure combines
@@ -589,7 +653,7 @@ fn structurally_combine(structures: &mut Structures, values: &mut Values, comput
     let mut value_id = a;
     loop {
         let value = values.get_mut(value_id);
-        if value.next_in_structure_group == ValueId::NONE {
+        if value.next_in_structure_group == ValueId::None {
             value.next_in_structure_group = b_structure.first_value;
             break;
         }
@@ -603,8 +667,8 @@ fn structurally_combine(structures: &mut Structures, values: &mut Values, comput
         if a_value_is_complete && !b_value_is_complete {
             value.value.value_sets.complete(value_sets);
         }
-        value.structure_id = structure_id;
-        if value.next_in_structure_group == ValueId::NONE {
+        value.structure_id = Some(structure_id);
+        if value.next_in_structure_group == ValueId::None {
             break;
         }
         value_id = value.next_in_structure_group;
@@ -612,7 +676,7 @@ fn structurally_combine(structures: &mut Structures, values: &mut Values, comput
 }
 
 fn compute_size(structures: &mut Structures, values: &mut Values, computable_sizes: &mut Vec<ValueId>, id: ValueId, value_sets: &mut ValueSets) {
-    let id = values.get(id).structure_id;
+    let id = values.get(id).structure_id.expect("Cannot compute the size of something that doesn't even have a kind");
     let structure = &structures.structure[id as usize];
     if structure.layout.align > 0 {
         // We already know what the layout
@@ -640,9 +704,10 @@ fn compute_size(structures: &mut Structures, values: &mut Values, computable_siz
     let layout_dependants = mem::take(&mut structure.layout_dependants);
     for dependant in layout_dependants {
         let value = get_value_mut(structures, values, dependant);
-        if value.layout.align == 0 {
-            value.layout.size -= 1;
-            if value.layout.size == 0 {
+        let mut layout = value.layout.expect("Dependant of a layout has to have a defined structure, how else could it depend on a layout?");
+        if layout.align == 0 {
+            layout.size -= 1;
+            if layout.size == 0 {
                 computable_sizes.push(dependant);
             }
         }
@@ -651,7 +716,6 @@ fn compute_size(structures: &mut Structures, values: &mut Values, computable_siz
 
 fn set_value(structures: &mut Structures, values: &mut Values, id: ValueId, kind: Type, value_sets: &mut ValueSets, value_set_handles: ValueSetHandles) {
     let value = values.get_mut(id);
-    let structure_id = value.structure_id;
 
     value.value.value_sets.take_from(value_set_handles, value_sets);
 
@@ -662,7 +726,7 @@ fn set_value(structures: &mut Structures, values: &mut Values, id: ValueId, kind
         // type completion, for when we're going to insert it as a type
         // id.
         for &needed in args.iter() { // kind.get_needed_children_for_layout(&args)
-            let structure = &mut structures.structure[values.get(needed).structure_id as usize];
+            let structure = get_or_define_structure_of_value(structures, values, needed);
             if structure.layout.align == 0 {
                 number += 1;
                 structure.layout_dependants.push(id);
@@ -680,7 +744,7 @@ fn set_value(structures: &mut Structures, values: &mut Values, id: ValueId, kind
         }
     }
 
-    let structure = &mut structures.structure[structure_id as usize];
+    let structure = get_or_define_structure_of_value(structures, values, id);
     debug_assert_eq!(structure.layout.size, 0);
     debug_assert_eq!(structure.layout.align, 0);
     debug_assert_eq!(structure.num_values, 1);
@@ -693,16 +757,10 @@ fn add_value(structures: &mut Structures, values: &mut Values, kind: Option<Type
     let structure_id = structures.structure.len() as u32;
     let id = ValueId::Dynamic(values.values.len() as u32);
 
-    structures.structure.push(StructureGroup {
-        first_value: id,
-        kind: None,
-        layout: Layout::default(),
-        layout_dependants: Vec::new(),
-        num_values: 1,
-    });
+    structures.structure.push(StructureGroup::with_single(id));
     values.values.push(ValueWrapper {
         value: Value { value_sets: value_set_handles, is_base_value: false },
-        structure_id,
+        structure_id: Some(structure_id),
         next_in_structure_group: ValueId::NONE,
     });
     if let Some(kind) = kind {
@@ -731,7 +789,7 @@ impl Values {
         }
     }
 
-    fn structure_id_of_value(&self, value_id: ValueId) -> u32 {
+    fn structure_id_of_value(&self, value_id: ValueId) -> Option<u32> {
         self.get(value_id).structure_id
     }
 
@@ -833,15 +891,19 @@ impl TypeSystem {
 
         // Check if we've already converted the value
         let value_structure_id = other.values.structure_id_of_value(other_id);
-        for &(from_structure_id, converted_value) in already_converted.iter() {
-            if from_structure_id == value_structure_id {
-                return converted_value;
+        if let Some(value_structure_id) = value_structure_id {
+            for &(from_structure_id, converted_value) in already_converted.iter() {
+                if from_structure_id == value_structure_id {
+                    return converted_value;
+                }
             }
         }
 
         // We're going to need a new value
         let value_id = self.add_unknown_type_with_set(set);
-        already_converted.push((value_structure_id, value_id));
+        if let Some(value_structure_id) = value_structure_id {
+            already_converted.push((value_structure_id, value_id));
+        }
 
         let other_value = get_value(&other.structures, &other.values, other_id);
         match other_value.kind {
@@ -946,7 +1008,7 @@ impl TypeSystem {
     }
 
     pub fn value_layout(&self, value_id: ValueId) -> Layout {
-        let layout = *self.get(value_id).layout;
+        let layout = *self.get(value_id).layout.expect("Can't read layout of incomplete thing");
         debug_assert_ne!(layout.align, 0, "Tried to read an incomplete layout");
         layout
     }
@@ -960,7 +1022,7 @@ impl TypeSystem {
         match &self.get(value_id).kind {
             Some(Type { kind: TypeKind::Constant, args: Some(type_args) }) => {
                 let &[type_, constant_ref] = &**type_args else { panic!() };
-                let &Some(Type { kind: TypeKind::ConstantValue(constant_ref), .. }) = self.get(constant_ref).kind else { panic!() };
+                let Some(&Type { kind: TypeKind::ConstantValue(constant_ref), .. }) = self.get(constant_ref).kind else { panic!() };
 
                 let type_ = self.value_to_compiler_type(type_);
 
@@ -1713,12 +1775,14 @@ impl TypeSystem {
 
                 // @Slight hack: If they have the same _pointer_ to a kind, they are the same structure, and therefore, we
                 // should not apply this constraint.
-                if std::ptr::eq(a_value.kind, b_value.kind) {
-                    return;
+                if let (Some(a_struct_id), Some(b_struct_id)) = (a_value.structure_id, b_value.structure_id) {
+                    if a_struct_id == b_struct_id {
+                        return;
+                    }
                 }
 
-                let a = &*a_value.kind;
-                let b = &*b_value.kind;
+                let a = a_value.kind;
+                let b = b_value.kind;
                 let (to, from) = match (a, b) {
                     (None, None) => (a_id, b_id),
                     (None, Some(_)) => (b_id, a_id),
@@ -1750,7 +1814,7 @@ impl TypeSystem {
                                         }
                                     }
 
-                                    if get_value(&self.structures, &self.values, b_id).layout.align > 0 {
+                                    if get_value(&self.structures, &self.values, b_id).layout.map_or(false, |v| v.align > 0) {
                                         (b_id, a_id)
                                     } else {
                                         (a_id, b_id)
