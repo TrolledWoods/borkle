@@ -773,7 +773,7 @@ fn build_constraints(
 
             let label_type_infer_id = ctx.locals.get_label(label).type_infer_value_id;
 
-            ctx.infer.set_field_name_equal(iterating_type_id, "ptr".into(), ctx.locals.get(iterator).type_infer_value_id, Reason::temp(node_loc));
+            ctx.infer.set_for_relation(ctx.locals.get(iterator).type_infer_value_id, iterating_type_id, Reason::temp(node_loc));
 
             let else_type = build_constraints(ctx, else_body, set);
             ctx.infer.set_equal(label_type_infer_id, else_type, Reason::new(node_loc, ReasonKind::Passed));

@@ -47,10 +47,10 @@ pub fn emit<'a>(
 
     let result = emit_node(&mut ctx, ast.get(node));
 
-    // println!("The instructions are: ");
-    // for instr in &ctx.instr {
-    //     println!("{:?}", instr);
-    // }
+    /*println!("The instructions are: ");
+    for instr in &ctx.instr {
+        println!("{:?}", instr);
+    }*/
 
     (
         ctx.calling,
@@ -185,7 +185,7 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, mut node: NodeView<'a>) -> Value {
             ctx.locals.get_label_mut(*label).value = Some(to);
             ctx.locals.get_label_mut(*label).ir_labels = Some(vec![end_label]);
 
-            let iterating_value = emit_node(ctx, iterating.clone());
+            let mut iterating_value = emit_node(ctx, iterating.clone());
 
             let iterator_local = ctx.locals.get_mut(*iterator);
             let iterator_type = iterator_local.type_.unwrap();
@@ -206,13 +206,33 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, mut node: NodeView<'a>) -> Value {
                 None
             };
 
-            let start = ctx.registers.create(ctx.types, iterator_type_id, iterator_type);
-            let end = ctx.registers.create(ctx.types, iterator_type_id, iterator_type);
+            let mut dereference = true;
 
-            match ctx.types.get(TypeId::Node(iterating.id)).kind() {
-                type_infer::TypeKind::Buffer { .. } => {
+            let mut type_ = ctx.types.get(TypeId::Node(iterating.id));
+            if let type_infer::TypeKind::Reference = type_.kind() {
+                let inner_id = type_.args()[0];
+                dereference = false;
+
+                let inner_type = ctx.types.value_to_compiler_type(inner_id);
+                let new_iterating = ctx.registers.create(ctx.types, inner_id, inner_type);
+                ctx.emit_dereference(new_iterating, iterating_value);
+                iterating_value = new_iterating;
+
+                type_ = ctx.types.get(inner_id);
+            }
+
+            let (current, end) = match type_.kind() {
+                type_infer::TypeKind::Buffer => {
+                    let pointee = type_.args()[0];
+
+                    let iteration_type_id = ctx.types.add_type(type_infer::TypeKind::Reference, type_infer::Args([(pointee, type_infer::Reason::temp_zero())]), ());
+                    let iteration_type = ctx.types.value_to_compiler_type(iteration_type_id);
+
+                    let current = ctx.registers.create(ctx.types, iteration_type_id, iteration_type);
+                    let end = ctx.registers.create(ctx.types, iteration_type_id, iteration_type);
+
                     ctx.emit_member(
-                        start,
+                        current,
                         iterating_value,
                         Member {
                             offset: 0,
@@ -232,24 +252,30 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, mut node: NodeView<'a>) -> Value {
                         },
                     );
 
-                    ctx.emit_binary(BinaryOp::Add, end, start, len);
+                    ctx.emit_binary(BinaryOp::Add, end, current, len);
+
+                    (current, end)
                 }
                 _ => unreachable!(),
-            }
+            };
 
             let condition = ctx.registers.create(ctx.types, type_infer::static_values::BOOL, Type::new(TypeKind::Bool));
 
             let condition_label = ctx.create_label();
             ctx.define_label(condition_label);
 
-            ctx.emit_binary(BinaryOp::LessThan, condition, start, end);
+            ctx.emit_binary(BinaryOp::LessThan, condition, current, end);
 
             let else_body_label = ctx.create_label();
             ctx.emit_jump_if_zero(condition, else_body_label);
 
-            ctx.emit_move(iterator_value, start);
+            if dereference {
+                ctx.emit_dereference(iterator_value, current);
+            } else {
+                ctx.emit_move(iterator_value, current);
+            }
             emit_node(ctx, body);
-            ctx.emit_increment(start);
+            ctx.emit_increment(current);
 
             if let Some(iteration_var_value) = iteration_var_value {
                 ctx.emit_increment(iteration_var_value);

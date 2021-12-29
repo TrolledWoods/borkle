@@ -1,5 +1,21 @@
-import "tests/main.bo"; 
+#no_base:
+
+{
+    for [1, 2, 3 : u32]  v;
+};
+
+/*import "tests/main.bo"; 
 
 #entry fn() {
     print("Hello, world!\n");
-};
+
+    while i < 10  print("Ten times\n");
+
+    for "Hi!\n" {
+        print("The char code at ");
+        print_u64(cast i);
+        print(" is: ");
+        print_u64(cast v);
+        print("\n");
+    };
+};*/

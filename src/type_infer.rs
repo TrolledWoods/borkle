@@ -219,6 +219,7 @@ struct Constraint {
 enum Relation {
     Cast,
     BufferEqualsArray,
+    ForIterator { by_reference: bool },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -458,6 +459,10 @@ pub struct ValueBorrow<'a> {
 impl ValueBorrow<'_> {
     pub fn kind(&self) -> &TypeKind {
         &self.kind.as_ref().expect("Called kind on unknown type").kind
+    }
+
+    pub fn args(&self) -> &[ValueId] {
+        &self.kind.as_ref().unwrap().args.as_ref().unwrap()
     }
 }
 
@@ -1081,6 +1086,19 @@ impl TypeSystem {
         );
     }
 
+    pub fn set_for_relation(&mut self, arg: ValueId, iterator: ValueId, reason: Reason) {
+        insert_active_constraint(
+            &mut self.constraints,
+            &mut self.available_constraints,
+            &mut self.queued_constraints,
+            Constraint {
+                kind: ConstraintKind::Relation { kind: Relation::ForIterator { by_reference: false }, values: [iterator, arg] },
+                applied: false,
+                reason,
+            }
+        );
+    }
+
     pub fn set_equal(&mut self, a: ValueId, b: ValueId, reason: Reason) {
         if a == b {
             return;
@@ -1438,6 +1456,37 @@ impl TypeSystem {
                         let a = to_args[0];
                         let b = from_args[0];
                         self.set_equal(a, b, constraint.reason);
+                    }
+                    (
+                        Relation::ForIterator { by_reference: _ },
+                        Some(Type { kind: TypeKind::Buffer | TypeKind::Array, args: Some(to_args) }),
+                        _,
+                    ) => {
+                        let inner = to_args[0];
+                        self.set_equal(inner, from_id, constraint.reason);
+                    }
+                    (
+                        Relation::ForIterator { by_reference: false },
+                        Some(Type { kind: TypeKind::Reference, args: Some(to_args) }),
+                        _,
+                    ) => {
+                        let inner = to_args[0];
+
+                        let to_inner = self.add_unknown_type();
+
+                        insert_active_constraint(
+                            &mut self.constraints,
+                            &mut self.available_constraints,
+                            &mut self.queued_constraints,
+                            Constraint {
+                                kind: ConstraintKind::Relation { kind: Relation::ForIterator { by_reference: true }, values: [inner, to_inner] },
+                                applied: false,
+                                reason: constraint.reason,
+                            },
+                        );
+
+                        let to = self.add_type(TypeKind::Reference, Args([(to_inner, Reason::temp_zero())]), ());
+                        self.set_equal(from_id, to, constraint.reason);
                     }
                     (
                         _,
