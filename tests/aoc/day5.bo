@@ -64,7 +64,7 @@ const aoc_day5 = fn(include_diagonals: bool) -> u64 {
 
         let cell_id = y1 * width_cells + x_cell;
 
-        while _iters <= cast count {
+        while i <= cast count {
             let cell = (cells.ptr + cast cell_id);
             let bits = (*cell >> bit) & 2b11;
             if bits == 1  overlapping = overlapping + 1;

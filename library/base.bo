@@ -23,9 +23,9 @@ const print = fn(string: [] u8) {
     i_stdout_flush();
 };
 
-const filled_array.(N, T) = fn(v: T) -> [N] T {
+const filled_array.(N, T) = fn(fill_with: T) -> [N] T {
     let arr = #uninit : [N] T;
-    for cast &arr : [] T  { *_it = v; };
+    for cast &arr : [] T  { *v = fill_with; };
     arr
 };
 
@@ -52,14 +52,14 @@ const dealloc.(T) = fn(buf: [] T) {
 };
 
 const fill.(T) = fn(buf: [] T, value: T) {
-    for buf { *_it = value; };
+    for buf { *v = value; };
 };
 
 const slice_cmp.(T) = fn(a: [] T, b: [] T) -> bool { 'function
     if a.len != b.len  break 'function false;
 
-    while _iters < a.len {
-        if *(a.ptr + _iters) != *(b.ptr + _iters)  break 'function false;
+    while i < a.len {
+        if *(a.ptr + i) != *(b.ptr + i)  break 'function false;
     };
 
     true
@@ -80,14 +80,14 @@ const slice.(T) = fn(buf: [] T, start: usize, end: usize) -> [] T {
 
 const count_matches.(T) = fn(buf: [] T, predicate: fn(&T) -> bool) -> usize {
     let count = 0;
-    for buf  if predicate(_it)  count = count + 1;
+    for buf  if predicate(v)  count = count + 1;
     count
 };
 
 const count_ones.(T) = fn(number: T) -> usize {
     let bit = 1;
     let num_bits = 0;
-    while _iters < (8 * sizeof T) && bit <= number {
+    while i < (8 * sizeof T) && bit <= number {
         if (number & bit) > 0  num_bits = num_bits + 1;
         bit = bit << 1;
     };
@@ -103,7 +103,7 @@ const cmp_strings = fn(a: [] u8, b: [] u8) -> bool { 'function
     if a.len != b.len  break 'function false;
 
     for c in a {
-        if *c != *(b.ptr + _iters)  break false;
+        if *c != *(b.ptr + i)  break false;
     } else true
 };
 
@@ -227,7 +227,7 @@ const print_u64_with_base = fn(num: u64, base: u64, align: u64) { 'func_block
     let factor = 1;
 
     if align > 0 {
-        while _iters < cast align  factor = factor * base;
+        while i < cast align  factor = factor * base;
     } else {
         while factor <= num        factor = factor * base;
     };

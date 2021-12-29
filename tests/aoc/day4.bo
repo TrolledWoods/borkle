@@ -28,7 +28,7 @@ const aoc_day4 = fn() -> { part_1: u64; part_2: u64; } {
     while not(empty(&parse)) {
         let number = cast take_u64(&parse);
         if take_char(&parse) == NEW_LINE  break;
-        *(number_map.ptr + number) = cast _iters;
+        *(number_map.ptr + number) = cast i;
     };
 
     // Count the number of boards
@@ -36,7 +36,7 @@ const aoc_day4 = fn() -> { part_1: u64; part_2: u64; } {
     let boards_section = parse;
     let num_boards = 0;
     while not(empty(&parse)) {
-        while _iters < 25 {
+        while i < 25 {
             skip_num(&parse);
             take_whitespace(&parse);
         };
@@ -63,16 +63,16 @@ const aoc_day4 = fn() -> { part_1: u64; part_2: u64; } {
     let worst_board_i = 0;
     let worst_board_score = 0;
 
-    while _iters < num_boards {
-        let base_i = _iters * 25;
+    while i < num_boards {
+        let base_i = i * 25;
 
         let min = 0xffff;
         // Horizontal bars
-        while _iters < 5 {
-            let x = _iters;
+        while i < 5 {
+            let x = i;
             let line_max = 0;
-            while _iters < 5 {
-                let y = _iters;
+            while i < 5 {
+                let y = i;
 
                 let cell = board_cells.ptr + (base_i + y * 5 + x);
                 let when_taken = *(number_map.ptr + cast *cell);
@@ -84,11 +84,11 @@ const aoc_day4 = fn() -> { part_1: u64; part_2: u64; } {
         };
 
         // Vertical bars
-        while _iters < 5 {
-            let y = _iters;
+        while i < 5 {
+            let y = i;
             let line_max = 0;
-            while _iters < 5 {
-                let x = _iters;
+            while i < 5 {
+                let x = i;
 
                 let cell = board_cells.ptr + (base_i + y * 5 + x);
                 let when_taken = *(number_map.ptr + cast *cell);
@@ -100,20 +100,20 @@ const aoc_day4 = fn() -> { part_1: u64; part_2: u64; } {
         };
 
         if min < best_board_score {
-            best_board_i = _iters;
+            best_board_i = i;
             best_board_score = min;
         };
 
         if min >= worst_board_score {
-            worst_board_i = _iters;
+            worst_board_i = i;
             worst_board_score = min;
         };
     };
 
     let unmarked_nums = 0;
     let number_at_marked = 0;
-    while _iters < 25 {
-        let cell = board_cells.ptr + (best_board_i * 25 + _iters);
+    while i < 25 {
+        let cell = board_cells.ptr + (best_board_i * 25 + i);
         let when_taken = *(number_map.ptr + cast *cell);
         if when_taken > best_board_score  unmarked_nums = unmarked_nums + cast *cell;
         if when_taken == best_board_score  number_at_marked = cast *cell;
@@ -121,8 +121,8 @@ const aoc_day4 = fn() -> { part_1: u64; part_2: u64; } {
 
     let worst_unmarked_nums = 0;
     let worst_number_at_marked = 0;
-    while _iters < 25 {
-        let cell = board_cells.ptr + (worst_board_i * 25 + _iters);
+    while i < 25 {
+        let cell = board_cells.ptr + (worst_board_i * 25 + i);
         let when_taken = *(number_map.ptr + cast *cell);
         if when_taken > worst_board_score  worst_unmarked_nums = worst_unmarked_nums + cast *cell;
         if when_taken == worst_board_score  worst_number_at_marked = cast *cell;

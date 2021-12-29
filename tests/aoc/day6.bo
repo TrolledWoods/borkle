@@ -11,28 +11,28 @@ const aoc_day6 = fn(time: usize) -> u64 {
     let array = #0 : [16] u64;
     let array_ptr = cast &array : &u64;
     let sum = 1;
-    while _iters < time {
+    while i < time {
         let cell =
-            (if _iters == 0  1 else 0)
+            (if i == 0  1 else 0)
             // -7 mod 16 is 9
-            + *(array_ptr + ((_iters + 9) & 15))
+            + *(array_ptr + ((i + 9) & 15))
             // -9 mod 16 is 7
-            + *(array_ptr + ((_iters + 7) & 15));
-        *(array_ptr + (_iters & 15)) = cell;
+            + *(array_ptr + ((i + 7) & 15));
+        *(array_ptr + (i & 15)) = cell;
         sum = sum + cell;
     };
 
     let rolling_sum = #0 : [7] u64;
     let rolling_sum_ptr = cast &rolling_sum : &u64;
-    while _iters < 7 {
-        *(rolling_sum_ptr + _iters) = sum;
-        sum = sum - *(array_ptr + ((time - 1 - _iters) & 15));
+    while i < 7 {
+        *(rolling_sum_ptr + i) = sum;
+        sum = sum - *(array_ptr + ((time - 1 - i) & 15));
     };
 
     let parse = INPUT;
     let total = 0;
-    while _iters * 2 < parse.len {
-        let fish_timer = *(parse.ptr + _iters * 2) - DIGIT0;
+    while i * 2 < parse.len {
+        let fish_timer = *(parse.ptr + i * 2) - DIGIT0;
 
         total = total + *(rolling_sum_ptr + cast fish_timer);
     };

@@ -11,7 +11,7 @@ const TestsDay7 = fn() {
 };
 
 const aoc_day7 = fn() -> { part_1: u64; part_2: u64 } {
-    let count = 1 + count_matches(INPUT, fn(v) *v == COMMA);
+    let count = 1 + count_matches(INPUT, fn(x) *x == COMMA);
 
     let crabs = alloc(count);
     defer dealloc(crabs);
@@ -22,7 +22,7 @@ const aoc_day7 = fn() -> { part_1: u64; part_2: u64 } {
     let max = 0;
     while not(empty(&parse)) {
         let number = take_u64(&parse);
-        *(crabs.ptr + _iters) = number;
+        *(crabs.ptr + i) = number;
         if number < min  min = number;
         if number > max  max = number;
         advance(&parse);
@@ -33,24 +33,24 @@ const aoc_day7 = fn() -> { part_1: u64; part_2: u64 } {
 
     let best_cost_b_i = 0;
     let best_cost_b = 9999999999999999;
-    while cast _iters < max - min {
-        let i = min + cast _iters;
+    while cast i < max - min {
+        let index = min + cast i;
         let cost = 0;
         let cost_b = 0;
         for crab in crabs {
-            let crab_cost = if *crab < i  i - *crab else *crab - i;
+            let crab_cost = if *crab < index  index - *crab else *crab - index;
             cost = cost + crab_cost;
             cost_b = cost_b + (crab_cost * (crab_cost + 1)) / 2;
         };
 
         if cost < best_cost {
             best_cost = cost;
-            best_cost_i = _iters;
+            best_cost_i = i;
         };
 
         if cost_b < best_cost_b {
             best_cost_b = cost_b;
-            best_cost_b_i = _iters;
+            best_cost_b_i = i;
         };
     };
 

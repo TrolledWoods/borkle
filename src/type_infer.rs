@@ -754,17 +754,23 @@ fn set_value(structures: &mut Structures, values: &mut Values, id: ValueId, kind
 }
 
 fn add_value(structures: &mut Structures, values: &mut Values, kind: Option<Type>, value_sets: &mut ValueSets, value_set_handles: ValueSetHandles) -> ValueId {
-    let structure_id = structures.structure.len() as u32;
     let id = ValueId::Dynamic(values.values.len() as u32);
 
-    structures.structure.push(StructureGroup::with_single(id));
-    values.values.push(ValueWrapper {
-        value: Value { value_sets: value_set_handles, is_base_value: false },
-        structure_id: Some(structure_id),
-        next_in_structure_group: ValueId::NONE,
-    });
     if let Some(kind) = kind {
+        let structure_id = structures.structure.len() as u32;
+        structures.structure.push(StructureGroup::with_single(id));
+        values.values.push(ValueWrapper {
+            value: Value { value_sets: value_set_handles, is_base_value: false },
+            structure_id: Some(structure_id),
+            next_in_structure_group: ValueId::NONE,
+        });
         set_value(structures, values, id, kind, value_sets, ValueSetHandles::default());
+    } else {
+        values.values.push(ValueWrapper {
+            value: Value { value_sets: value_set_handles, is_base_value: false },
+            structure_id: None,
+            next_in_structure_group: ValueId::NONE,
+        });
     }
     id
 }

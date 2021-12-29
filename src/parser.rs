@@ -677,13 +677,13 @@ fn value_without_unaries(
 
                 Local::new(name_loc, name)
             } else {
-                Local::new(token.loc, "_it".into())
+                Local::new(token.loc, "v".into())
             };
 
             expression(global, imperative, slot.add())?;
 
             let iterator = imperative.insert_local(iterator_local);
-            let iteration_var = imperative.insert_local(Local::new(token.loc, "_iters".into()));
+            let iteration_var = imperative.insert_local(Local::new(token.loc, "i".into()));
 
             expression(global, imperative, slot.add())?;
 
@@ -712,7 +712,7 @@ fn value_without_unaries(
             imperative.push_scope_boundary();
             let label = parse_default_label(global, imperative)?;
 
-            let iteration_var = imperative.insert_local(Local::new(token.loc, "_iters".into()));
+            let iteration_var = imperative.insert_local(Local::new(token.loc, "i".into()));
 
             expression(global, imperative, slot.add())?;
             expression(global, imperative, slot.add())?;

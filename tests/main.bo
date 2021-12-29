@@ -48,20 +48,20 @@ const ok = fn(name: [] u8) {
         *order = *order + 1;
     };
 
-    let i = 0;
+    let index = 0;
 
     {
-        defer set_order(&i, 4);
-        defer set_order(&i, 3);
+        defer set_order(&index, 4);
+        defer set_order(&index, 3);
 
         let a = { 'name
-            defer set_order(&i, 2);
-            defer set_order(&i, 1);
+            defer set_order(&index, 2);
+            defer set_order(&index, 1);
 
             let b = 4;
 
             {
-                defer set_order(&i, 0);
+                defer set_order(&index, 0);
                 break 'name 3 : u64;
             };
 
