@@ -1,15 +1,14 @@
-import "tests/main.bo"; 
+import "tests/main.bo";
 
 #entry fn() {
-    print("Hello, world!\n");
 
-    while i < 10  print("Ten times\n");
+    let array = [1, 2, 3, 4];
+    let buffer = cast &array : [] _;
 
-    for "Hi!\n" {
-        print("The char code at ");
-        print_u64(cast i);
-        print(" is: ");
-        print_u64(cast v);
+    for buffer {
+        print("The number is ");
+        print_u64(v);
         print("\n");
     };
+
 };

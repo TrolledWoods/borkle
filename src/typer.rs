@@ -201,12 +201,6 @@ pub fn solve<'a>(
             debug_assert_eq!(value_set.uncomputed_values(), 0, "The number of uncomputed values cannot be less than zero");
 
             let related_nodes = std::mem::take(&mut value_set.related_nodes);
-            for &node_id in &related_nodes {
-                let mut node = data.ast.get_mut(node_id);
-                if node.node.type_.is_none() {
-                    node.type_ = Some(ctx.infer.value_to_compiler_type(TypeId::Node(node_id)));
-                }
-            }
             for local in ctx.locals.iter_mut() {
                 if local.stack_frame_id == value_set_id {
                     debug_assert!(local.type_.is_none());
@@ -255,12 +249,6 @@ pub fn finish<'a>(
         // from.infer.output_incompleteness_errors(errors, &from.poly_params, &from.ast, &from.locals);
         from.infer.flag_all_values_as_complete();
         return Err(());
-    }
-
-    for (i, node) in from.ast.nodes.iter_mut().enumerate() {
-        if node.type_.is_none() {
-            node.type_ = Some(from.infer.value_to_compiler_type(TypeId::Node(NodeId(i as u32))));
-        }
     }
 
     for local in from.locals.iter_mut() {

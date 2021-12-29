@@ -1,6 +1,7 @@
 use crate::dependencies::{DepKind, DependencyList, MemberDep};
 use crate::errors::ErrorCtx;
 use crate::location::Location;
+use crate::type_infer::ValueId as TypeId;
 use crate::program::{MemberMetaData, Program, ScopeId, Task};
 use bumpalo::Bump;
 // use crossbeam::queue::SegQueue;
@@ -182,13 +183,13 @@ fn worker<'a>(alloc: &'a mut Bump, program: &'a Program) -> (ThreadContext<'a>, 
                                     _ => MemberMetaData::None,
                                 };
 
-                                let type_ = ast.root().type_();
+                                let type_ = types.value_to_compiler_type(TypeId::Node(ast.root().id));
 
                                 if type_.can_be_stored_in_constant() {
                                     program.logger.log(format_args!(
                                         "type '{}' {:?}",
                                         program.member_name(member_id),
-                                        ast.root().type_(),
+                                        type_,
                                     ));
 
                                     program.set_type_of_member(member_id, type_, meta_data);
@@ -219,10 +220,11 @@ fn worker<'a>(alloc: &'a mut Bump, program: &'a Program) -> (ThreadContext<'a>, 
                         profile::profile!("Task::EmitMember");
                         use crate::typer::NodeKind;
 
+                        let type_ = types.value_to_compiler_type(TypeId::Node(ast.root_id()));
                         program.logger.log(format_args!(
                             "emitting member '{}' {:?}",
                             program.member_name(member_id),
-                            ast.root().type_(),
+                            type_,
                         ));
 
                         match &ast.root().kind {
@@ -230,7 +232,7 @@ fn worker<'a>(alloc: &'a mut Bump, program: &'a Program) -> (ThreadContext<'a>, 
                                 program.logger.log(format_args!(
                                     "value(at emitting step, through shortcut) '{}': {}",
                                     program.member_name(member_id),
-                                    crate::program::constant_to_str(ast.root().type_(), *result, 0),
+                                    crate::program::constant_to_str(type_, *result, 0),
                                 ));
 
                                 program.set_value_of_member(member_id, *result);
@@ -240,7 +242,7 @@ fn worker<'a>(alloc: &'a mut Bump, program: &'a Program) -> (ThreadContext<'a>, 
                                 // pointers behind other pointers yet!
                                 let mut dependencies = DependencyList::new();
                                 for function_id in unsafe {
-                                    ast.root().type_().get_function_ids(result.as_ptr())
+                                    type_.get_function_ids(result.as_ptr())
                                 } {
                                     dependencies
                                         .add(ast.root().loc, DepKind::Callable(function_id));
@@ -255,7 +257,7 @@ fn worker<'a>(alloc: &'a mut Bump, program: &'a Program) -> (ThreadContext<'a>, 
                                 program.logger.log(format_args!(
                                     "value(at emitting step, through shortcut) '{}': {}",
                                     program.member_name(member_id),
-                                    crate::program::constant_to_str(ast.root().type_(), result, 0),
+                                    crate::program::constant_to_str(type_, result, 0),
                                 ));
 
                                 program.set_value_of_member(member_id, result);
@@ -265,7 +267,7 @@ fn worker<'a>(alloc: &'a mut Bump, program: &'a Program) -> (ThreadContext<'a>, 
                                 // pointers behind other pointers yet!
                                 let mut dependencies = DependencyList::new();
                                 for function_id in unsafe {
-                                    ast.root().type_().get_function_ids(result.as_ptr())
+                                    type_.get_function_ids(result.as_ptr())
                                 } {
                                     dependencies
                                         .add(ast.root().loc, DepKind::Callable(function_id));

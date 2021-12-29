@@ -2,6 +2,7 @@ use crate::command_line_arguments::Arguments;
 use crate::dependencies::{DepKind, DependencyList, MemberDep};
 use crate::errors::ErrorCtx;
 use crate::id::{Id, IdVec};
+use crate::type_infer::ValueId as TypeId;
 use crate::ir::Routine;
 use crate::location::Location;
 use crate::logging::Logger;
@@ -706,7 +707,7 @@ impl Program {
         };
 
         // FIXME: Calculate the member meta data here.
-        self.set_type_of_member(member_id, typed_ast.root().type_(), MemberMetaData::None);
+        self.set_type_of_member(member_id, types.value_to_compiler_type(TypeId::Node(typed_ast.root_id())), MemberMetaData::None);
 
         if wanted_dep < MemberDep::Value {
             self.queue_task(

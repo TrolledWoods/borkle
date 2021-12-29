@@ -8,7 +8,7 @@ use crate::ast::NodeId;
 use crate::program::{FunctionId, Program};
 use crate::thread_pool::ThreadContext;
 use crate::type_infer::{ValueId as TypeId, TypeSystem, Reason, Args, self};
-use crate::types::{IntTypeKind, Type, TypeKind};
+use crate::types::{Type, TypeKind};
 
 mod context;
 use context::Context;
@@ -397,7 +397,7 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, mut node: NodeView<'a>) -> Value {
         NodeKind::Literal(Literal::Int(num)) => {
             let bytes = num.to_le_bytes();
 
-            let buffer = ctx.program.insert_buffer(node.type_(), bytes.as_ptr());
+            let buffer = ctx.program.insert_buffer(ctx.types.value_to_compiler_type(TypeId::Node(node.id)), bytes.as_ptr());
 
             let to = ctx.registers.create(ctx.types, TypeId::Node(node.id));
             ctx.emit_global(to, buffer);
@@ -698,7 +698,7 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, mut node: NodeView<'a>) -> Value {
             let mut children = node.children.into_iter();
             let calling_node = children.next().unwrap();
 
-            let to = ctx.registers.create_min_align(node.type_(), 8);
+            let to = ctx.registers.create_min_align(ctx.types.value_to_compiler_type(TypeId::Node(node.id)), 8);
             let calling = emit_node(ctx, calling_node.clone());
 
             let mut args = vec![ctx.registers.zst(); node.children.len() - 1];
@@ -748,7 +748,7 @@ fn emit_lvalue<'a>(
                 (ctx.types.value_to_compiler_type(arg), emit_node(ctx, of))
             } else {
                 let parent_value = emit_lvalue(ctx, can_reference_temporaries, of.clone());
-                (of.type_(), parent_value)
+                (ctx.types.value_to_compiler_type(TypeId::Node(of.id)), parent_value)
             };
 
             let member = base_type.member(*name).expect("This should have already been made sure to exist in the typer");

@@ -1222,7 +1222,6 @@ fn offset_path(path: &Path, addition: &str) -> PathBuf {
 pub struct Node {
     pub loc: Location,
     pub kind: NodeKind,
-    pub type_: Option<Type>,
 }
 
 impl Node {
@@ -1230,12 +1229,7 @@ impl Node {
         Self {
             loc,
             kind,
-            type_: None,
         }
-    }
-
-    pub fn type_(&self) -> Type {
-        self.type_.unwrap()
     }
 }
 
