@@ -554,8 +554,6 @@ fn value_without_unaries(
         }
         TokenKind::Literal(literal) => slot.finish(Node::new(token.loc, NodeKind::Literal(literal))),
         TokenKind::Keyword(Keyword::BuiltinFunction) => {
-            use crate::program::BuiltinFunction;
-
             let (name_loc, name) = global.tokens.expect_identifier(global.errors)?;
 
             let builtin_kind = match name.as_str() {

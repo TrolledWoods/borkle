@@ -33,9 +33,8 @@ pub mod static_values {
     pub const EIGHT    : ValueId = ValueId::Dynamic(10);
     pub const TRUE     : ValueId = ValueId::Dynamic(12);
     pub const FALSE    : ValueId = ValueId::Dynamic(14);
-    pub const EMPTY    : ValueId = ValueId::Dynamic(16);
-    pub const USIZE    : ValueId = ValueId::Dynamic(17);
-    pub const STATIC_VALUES_SIZE : u32 = 18;
+    pub const USIZE    : ValueId = ValueId::Dynamic(16);
+    pub const STATIC_VALUES_SIZE : u32 = 17;
 }
 
 pub trait IntoConstant {
@@ -207,12 +206,6 @@ pub struct Type {
     pub args: Option<Box<[ValueId]>>,
 }
 
-impl Type {
-    fn is_complete(&self) -> bool {
-        self.args.is_some()
-    }
-}
-
 type ConstraintId = usize;
 
 #[derive(Debug, Clone, Copy)]
@@ -264,16 +257,6 @@ impl Constraint {
         }
     }
 
-    fn values_mut(&mut self) -> &mut [ValueId] {
-        match &mut self.kind {
-            ConstraintKind::Relation { values, .. } => &mut *values,
-            ConstraintKind::Equal { values, .. }
-            | ConstraintKind::EqualsField { values, .. }
-            | ConstraintKind::EqualNamedField { values, .. } => &mut *values,
-            ConstraintKind::BinaryOp { values, .. } => &mut *values,
-        }
-    }
-
     fn equal(a: ValueId, b: ValueId, creator: Option<ConstraintId>, reason: Reason) -> Self {
         let kind = ConstraintKind::Equal {
             values: [a, b],
@@ -299,10 +282,7 @@ impl Error {
 
 #[derive(Debug, Clone)]
 pub enum ErrorKind {
-    NonexistantOperation,
-    MixingTypesAndValues,
     IncompatibleTypes(ConstraintId),
-    ValueAndTypesIntermixed,
     IndexOutOfBounds(usize),
     NonexistantName(Ustr),
 }
@@ -328,7 +308,6 @@ fn get_value<'a>(structures: &'a Structures, values: &'a Values, id: ValueId) ->
                 structure_id: value.structure_id,
                 kind: structure.kind.as_ref(),
                 layout: Some(&structure.layout),
-                value_sets: &value.value.value_sets,
                 is_base_value: &value.value.is_base_value,
             }
         }
@@ -336,7 +315,6 @@ fn get_value<'a>(structures: &'a Structures, values: &'a Values, id: ValueId) ->
             structure_id: value.structure_id,
             kind: None,
             layout: None,
-            value_sets: &value.value.value_sets,
             is_base_value: &value.value.is_base_value,
         }
     }
@@ -440,45 +418,6 @@ fn insert_active_constraint(
     queued_constraints.push(id);
 }
 
-fn type_kind_to_str(
-    string: &mut String,
-    type_kind: &TypeKind,
-    num_args: Option<usize>,
-) -> std::fmt::Result {
-    use std::fmt::Write;
-    match type_kind {
-        TypeKind::Type => write!(string, "type"),
-        TypeKind::Constant => write!(string, "constant"),
-        TypeKind::ConstantValue(_) => write!(string, "<constant value>"),
-        TypeKind::Int => write!(string, "int"),
-        TypeKind::IntSize => write!(string, "<size of int>"),
-        TypeKind::Bool => write!(string, "bool"),
-        TypeKind::Empty => write!(string, "Empty"),
-        TypeKind::Function => {
-            write!(string, "fn(")?;
-            if let Some(num_args) = num_args {
-                write!(string, "{}", vec!["_"; num_args - 1].join(", "))?;
-            } else {
-                write!(string, "...")?;
-            }
-            write!(string, ") -> _")
-        }
-        TypeKind::Struct(names) => {
-            write!(string, "{{ ")?;
-            for (i, name) in names.iter().enumerate() {
-                if i > 0 {
-                    write!(string, ", ")?;
-                }
-                write!(string, "{}: _", name)?;
-            }
-            write!(string, " }}")
-        }
-        TypeKind::Array => write!(string, "[_] _"),
-        TypeKind::Reference => write!(string, "&_"),
-        TypeKind::Buffer => write!(string, "[] _"),
-    }
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ValueId {
     None,
@@ -513,7 +452,6 @@ pub struct ValueBorrow<'a> {
     structure_id: Option<u32>,
     pub kind: Option<&'a Type>,
     pub layout: Option<&'a Layout>,
-    value_sets: &'a ValueSetHandles,
     is_base_value: &'a bool,
 }
 
@@ -528,11 +466,6 @@ pub struct ValueBorrowMut<'a> {
     pub layout: Option<&'a mut Layout>,
     value_sets: &'a mut ValueSetHandles,
     pub is_base_value: &'a mut bool,
-}
-
-struct LookupElement {
-    internal_id: u32,
-    next_in_lookup: Option<u32>,
 }
 
 // @Temporary: Should be replaced with the real value some day
@@ -776,12 +709,6 @@ fn add_value(structures: &mut Structures, values: &mut Values, kind: Option<Type
 }
 
 #[derive(Clone)]
-pub struct AstNodeValueMap {
-    base: AstNodeId,
-    nodes: Box<[ValueWrapper]>,
-}
-
-#[derive(Clone)]
 pub struct Values {
     values: Vec<ValueWrapper>,
     ast_values: Box<[ValueWrapper]>,
@@ -813,10 +740,6 @@ impl Values {
             ValueId::Dynamic(id) => &mut self.values[id as usize],
             ValueId::Node(id) => &mut self.ast_values[usize::from(id)],
         }
-    }
-
-    fn iter(&self) -> impl Iterator<Item = &Value> {
-        self.values.iter().chain(&self.ast_values[..]).map(|v| &v.value)
     }
 
     fn iter_mut(&mut self) -> impl Iterator<Item = &mut Value> {
@@ -876,7 +799,6 @@ impl TypeSystem {
             this.add_value(static_values::BOOL, buffer, ());
         }
 
-        this.add_type(TypeKind::Empty, Args([]), ());
         this.add_int(IntTypeKind::Usize, ());
 
         this
@@ -1011,12 +933,6 @@ impl TypeSystem {
         }
 
         has_errors
-    }
-
-    pub fn value_layout(&self, value_id: ValueId) -> Layout {
-        let layout = *self.get(value_id).layout.expect("Can't read layout of incomplete thing");
-        debug_assert_ne!(layout.align, 0, "Tried to read an incomplete layout");
-        layout
     }
 
     pub fn extract_constant_temp(&self, value_id: ValueId) -> Option<ConstantRef> {
@@ -1458,21 +1374,6 @@ impl TypeSystem {
         println!();
     }
 
-    pub fn finish(&self) {
-        if !self.errors.is_empty() {
-            println!("There were errors:");
-
-            for error in &self.errors {
-                println!(
-                    "{}, {}\n{:?}",
-                    self.value_to_str(error.a, 0),
-                    self.value_to_str(error.b, 0),
-                    error.kind
-                );
-            }
-        }
-    }
-
     fn apply_constraint(&mut self, constraint_id: ConstraintId) {
         let constraint = self.constraints[constraint_id];
         if constraint.applied { return; }
@@ -1845,13 +1746,6 @@ impl TypeSystem {
 
                 structurally_combine(&mut self.structures, &mut self.values, &mut self.computable_value_sizes, &mut self.value_sets, to, from);
             }
-        }
-    }
-
-    pub fn params(&self, value: ValueId) -> Option<&[ValueId]> {
-        match self.get(value).kind {
-            Some(Type { ref args, .. }) => args.as_deref(),
-            _ => None,
         }
     }
 

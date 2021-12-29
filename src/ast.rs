@@ -370,7 +370,6 @@ impl<'a, Zipped: TreeZippable> IntoIterator for GenericAstSlice<'a, Zipped> {
 pub struct GenericNodeView<'a, Zipped: TreeZippable> {
     pub id: NodeId,
     pub node: Zipped::Target,
-    internal_node: &'a StructuralInfo,
     pub children: GenericAstSlice<'a, Zipped>,
 }
 
@@ -381,7 +380,6 @@ impl<'a, Zipped: TreeZippable> GenericNodeView<'a, Zipped> {
         Self {
             id: NodeId(base_id.0 + subtree.len() as u32),
             node: zipped_node,
-            internal_node: node,
             children: GenericAstSlice {
                 nodes: subtree,
                 base_id,

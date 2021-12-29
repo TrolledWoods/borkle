@@ -81,14 +81,6 @@ impl LocalVariables {
         id
     }
 
-    pub fn num_locals(&self) -> usize {
-        self.locals.len()
-    }
-
-    pub fn num_labels(&self) -> usize {
-        self.labels.len()
-    }
-
     #[allow(unused)]
     pub fn iter(&self) -> impl Iterator<Item = &'_ Local> {
         self.locals.iter()

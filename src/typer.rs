@@ -6,7 +6,7 @@ use crate::execution_time::ExecutionTime;
 use crate::locals::LocalVariables;
 use crate::operators::{BinaryOp, UnaryOp};
 pub use crate::parser::{Node, NodeKind, Ast, NodeViewMut};
-use crate::ast::{self, NodeId};
+use crate::ast::NodeId;
 use crate::program::{PolyOrMember, PolyMemberId, Program, Task, constant::ConstantRef, BuiltinFunction};
 use crate::thread_pool::ThreadContext;
 use crate::type_infer::{self, ValueId as TypeId, Args, TypeSystem, ValueSetId, TypeKind, Reason, ReasonKind};
@@ -20,7 +20,6 @@ pub struct PolyParam {
     used_as_type: Option<Location>,
     used_as_value: Option<Location>,
     pub loc: Location,
-    name: Ustr,
     value_id: type_infer::ValueId,
 }
 
@@ -113,13 +112,12 @@ pub fn begin<'a>(
 
     let mut poly_params: Vec<_> = poly_params
         .into_iter()
-        .map(|(loc, name)| {
+        .map(|(loc, _)| {
             let value_id = infer.add_unknown_type();
             *infer.get_mut(value_id).is_base_value = true;
 
             PolyParam {
                 loc,
-                name,
                 value_id,
                 used_as_type: None,
                 used_as_value: None,
@@ -1227,14 +1225,6 @@ fn build_type(
     }
 
     node_type_id
-}
-
-pub fn type_reason_of_node(ast: &Ast, node_id: NodeId) -> Reason {
-    let node_loc = ast.get(node_id).loc;
-    match ast.get(node_id).kind {
-        NodeKind::LiteralType(_) => Reason::new(node_loc, ReasonKind::LiteralType),
-        _ => Reason::temp(node_loc),
-    }
 }
 
 /// Normal values are assumed to be readonly, because they are temporaries, it doesn't really make sense to

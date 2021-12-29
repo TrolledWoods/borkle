@@ -68,11 +68,6 @@ impl Type {
         }
     }
 
-    pub fn new_named(loc: Location, name: Ustr, kind: TypeKind, aliases: Vec<Alias>) -> Self {
-        let mut types = TYPES.lock();
-        Self::new_unique(&mut *types, kind, Some((loc, name)), aliases, true)
-    }
-
     fn new_unique(
         types: &mut Vec<&'static TypeData>,
         kind: TypeKind,
@@ -83,13 +78,6 @@ impl Type {
         let (size, align) = kind.calculate_size_align();
         let can_be_stored_in_constant = kind.can_be_stored_in_constant();
 
-        let mut is_never_type = matches!(kind, TypeKind::Never);
-        kind.for_each_child(|child| {
-            if child.0.is_never_type {
-                is_never_type = true
-            }
-        });
-
         let mut pointers = Vec::new();
         kind.get_pointers(types, &mut pointers);
 
@@ -99,8 +87,6 @@ impl Type {
             aliases,
             members: kind.get_members(types),
             is_pointer_to_zst: matches!(kind, TypeKind::Reference { pointee: inner, .. } | TypeKind::Buffer { pointee: inner, .. } if inner.size() == 0),
-            call_scheme: kind.call_scheme(),
-            is_never_type,
             size,
             align,
             kind,
@@ -124,16 +110,8 @@ impl Type {
         self.0.is_pointer_to_zst
     }
 
-    pub fn call_scheme(self) -> Option<&'static (Vec<Type>, Type)> {
-        self.0.call_scheme.as_ref()
-    }
-
     pub fn can_be_stored_in_constant(self) -> bool {
         self.0.can_be_stored_in_constant
-    }
-
-    pub fn is_never_type(self) -> bool {
-        self.0.is_never_type
     }
 
     pub unsafe fn get_function_ids(
@@ -150,15 +128,6 @@ impl Type {
 
     pub fn pointers(self) -> &'static [(usize, PointerInType)] {
         &self.0.pointers
-    }
-
-    pub fn as_id(self) -> usize {
-        self.0 as *const _ as usize
-    }
-
-    #[inline]
-    pub fn as_ptr(self) -> *const u8 {
-        self.0 as *const TypeData as *const _
     }
 
     #[inline]
@@ -218,10 +187,8 @@ pub struct TypeData {
     pub size: usize,
     align: usize,
 
-    call_scheme: Option<(Vec<Type>, Type)>,
     pointers: Vec<(usize, PointerInType)>,
 
-    is_never_type: bool,
     can_be_stored_in_constant: bool,
     pub is_pointer_to_zst: bool,
 }
@@ -233,7 +200,6 @@ impl Display for TypeKind {
             Self::VoidBuffer => write!(fmt, "[] void"),
             Self::VoidPtr => write!(fmt, "&void"),
             Self::AnyPtr => write!(fmt, "&any"),
-            Self::Never => write!(fmt, "!"),
             Self::Type => write!(fmt, "type"),
             Self::Empty => write!(fmt, "()"),
             Self::F64 => write!(fmt, "f64"),
@@ -281,7 +247,6 @@ pub fn to_align(value: usize, align: usize) -> usize {
 
 #[derive(Clone, Hash, PartialEq, Eq)]
 pub enum TypeKind {
-    Never,
     Type,
     Empty,
     F64,
@@ -302,8 +267,7 @@ pub enum TypeKind {
 impl TypeKind {
     fn for_each_child(&self, mut on_inner: impl FnMut(Type)) {
         match self {
-            TypeKind::Never
-            | TypeKind::Type
+            TypeKind::Type
             | TypeKind::AnyPtr
             | TypeKind::VoidPtr
             | TypeKind::VoidBuffer
@@ -383,17 +347,10 @@ impl TypeKind {
         }
     }
 
-    fn call_scheme(&self) -> Option<(Vec<Type>, Type)> {
-        match self {
-            TypeKind::Function { args, returns, .. } => Some((args.clone(), *returns)),
-            _ => None,
-        }
-    }
-
     fn can_be_stored_in_constant(&self) -> bool {
         match self {
             TypeKind::Array(_, 0) | TypeKind::Function { .. } => true,
-            TypeKind::VoidPtr | TypeKind::VoidBuffer | TypeKind::Never => false,
+            TypeKind::VoidPtr | TypeKind::VoidBuffer => false,
             _ => {
                 let mut can_be = true;
                 self.for_each_child(|child| {
@@ -408,7 +365,6 @@ impl TypeKind {
 
     fn calculate_size_align(&self) -> (usize, usize) {
         match self {
-            Self::Never => (0, 0),
             Self::Type => (8, 8),
             Self::Empty => (0, 1),
             Self::VoidPtr | Self::F64 | Self::Reference { .. } | Self::Function { .. } => (8, 8),
@@ -450,8 +406,7 @@ impl TypeKind {
         pointers: &mut Vec<(usize, PointerInType)>,
     ) {
         match self {
-            Self::Never
-            | Self::Type
+            Self::Type
             | Self::Empty
             | Self::Int(_)
             | Self::F32
@@ -512,16 +467,6 @@ impl TypeKind {
             }
         }
     }
-}
-
-pub fn get_struct_field(fields: &[(Ustr, Type)], field: Ustr) -> Option<(usize, Type)> {
-    for (name, offset, type_) in struct_field_offsets(fields) {
-        if name == field {
-            return Some((offset, type_));
-        }
-    }
-
-    None
 }
 
 pub fn struct_field_offsets(

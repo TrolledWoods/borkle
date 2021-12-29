@@ -1,4 +1,4 @@
-use super::{static_values, TypeSystem, ConstraintId, ValueId, ConstraintKind};
+use super::{TypeSystem, ConstraintId, ValueId, ConstraintKind};
 use crate::location::Location;
 use std::collections::{hash_map, HashMap};
 use crate::errors::ErrorCtx;

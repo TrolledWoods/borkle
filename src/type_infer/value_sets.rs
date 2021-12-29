@@ -1,4 +1,3 @@
-use std::panic::Location;
 pub type ValueSetId = usize;
 
 #[derive(Clone, Default)]
@@ -7,14 +6,12 @@ pub struct ValueSets {
 }
 
 impl ValueSets {
-    #[track_caller]
     pub fn with_one(&mut self, set_id: ValueSetId) -> ValueSetHandles {
         self.sets[set_id].uncomputed_values += 1;
 
         ValueSetHandles {
             sets: Some(set_id),
             is_complete: false,
-            caller_location: Location::caller(),
         }
     }
 
@@ -90,7 +87,6 @@ impl ValueSet {
 pub struct ValueSetHandles {
     sets: Option<ValueSetId>,
     is_complete: bool,
-    caller_location: &'static Location<'static>,
 }
 
 impl Default for ValueSetHandles {
@@ -101,12 +97,10 @@ impl Default for ValueSetHandles {
 }
 
 impl ValueSetHandles {
-    #[track_caller]
     pub fn empty() -> Self {
         Self {
             sets: None,
             is_complete: false,
-            caller_location: Location::caller(),
         }
     }
 
@@ -143,7 +137,6 @@ impl ValueSetHandles {
         other.is_complete = true;
     }
 
-    #[track_caller]
     pub fn clone(&self, value_sets: &mut ValueSets) -> Self {
         let sets = self.sets;
 
@@ -154,7 +147,6 @@ impl ValueSetHandles {
         Self {
             sets,
             is_complete: false,
-            caller_location: Location::caller(),
         }
     }
 
@@ -173,12 +165,3 @@ impl ValueSetHandles {
         self.is_complete = true;
     }
 }
-
-// // @Correctness: This crashes during incompleteness errors as well, because, they are incomplete. We should probably mass-flag all values as complete when generating incompleteness errors.
-// impl Drop for ValueSetHandles {
-//     fn drop(&mut self) {
-//         if !self.is_complete && !std::thread::panicking() {
-//             unreachable!("A value set cannot be dropped non-completed, created at: {}", self.caller_location);
-//         }
-//     }
-// }

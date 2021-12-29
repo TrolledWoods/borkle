@@ -7,7 +7,7 @@ use crate::location::Location;
 use crate::logging::Logger;
 use crate::parser::Ast;
 use crate::thread_pool::{ThreadContext, WorkPile};
-use crate::types::{IntTypeKind, PointerInType, Type, TypeKind};
+use crate::types::{PointerInType, Type, TypeKind};
 use constant::{Constant, ConstantRef};
 use parking_lot::{Mutex, RwLock};
 use std::alloc;
@@ -325,14 +325,6 @@ impl Program {
         profile::profile!("Get member type");
         let members = self.members.read();
         members[id].type_.unwrap().0
-    }
-
-    /// Locks
-    /// * ``members`` read
-    pub fn try_get_member_meta_data(&self, id: MemberId) -> Option<(Type, Arc<MemberMetaData>)> {
-        profile::profile!("program::try_get_member_meta_data");
-        let members = self.members.read();
-        members[id].type_.to_option().map(|v| v.clone())
     }
 
     /// Locks
