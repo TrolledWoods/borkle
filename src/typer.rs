@@ -240,13 +240,7 @@ pub fn finish<'a>(
     mut from: YieldData,
 ) -> Result<Result<(DependencyList, LocalVariables, TypeSystem, Ast), (DependencyList, YieldData)>, ()> {
     for (node_id, needs_explaining) in from.needs_explaining {
-        let id_mapper = type_infer::IdMapper {
-            poly_args: from.poly_params.len(),
-            ast_nodes: from.ast.structure.len(),
-            locals: from.locals.num_locals(),
-            labels: from.locals.num_labels(),
-        };
-        for chain in type_infer::get_reasons(needs_explaining, &from.infer, &id_mapper, &from.ast) {
+        for chain in type_infer::get_reasons(needs_explaining, &from.infer, &from.ast) {
             chain.output(errors, &from.ast, &from.infer);
             errors.note(from.ast.get(node_id).loc, format!("The type is `{}` because...", from.infer.value_to_str(needs_explaining, 0)));
         }
@@ -261,8 +255,8 @@ pub fn finish<'a>(
         }
     }
 
-    if are_incomplete_sets | from.infer.output_errors(errors, &from.poly_params, &from.ast, &from.locals) {
-        from.infer.output_incompleteness_errors(errors, &from.poly_params, &from.ast, &from.locals);
+    if are_incomplete_sets | from.infer.output_errors(errors, &from.ast) {
+        // from.infer.output_incompleteness_errors(errors, &from.poly_params, &from.ast, &from.locals);
         from.infer.flag_all_values_as_complete();
         return Err(());
     }

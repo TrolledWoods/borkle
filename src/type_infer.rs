@@ -24,17 +24,17 @@ pub mod static_values {
     //! like integers and so on.
     use super::ValueId;
 
-    pub const INT_SIZE : ValueId = ValueId(0);
-    pub const BOOL     : ValueId = ValueId(1);
-    pub const POINTER  : ValueId = ValueId(2);
-    pub const ONE      : ValueId = ValueId(4);
-    pub const TWO      : ValueId = ValueId(6);
-    pub const FOUR     : ValueId = ValueId(8);
-    pub const EIGHT    : ValueId = ValueId(10);
-    pub const TRUE     : ValueId = ValueId(12);
-    pub const FALSE    : ValueId = ValueId(14);
-    pub const EMPTY    : ValueId = ValueId(16);
-    pub const USIZE    : ValueId = ValueId(17);
+    pub const INT_SIZE : ValueId = ValueId::Dynamic(0);
+    pub const BOOL     : ValueId = ValueId::Dynamic(1);
+    pub const POINTER  : ValueId = ValueId::Dynamic(2);
+    pub const ONE      : ValueId = ValueId::Dynamic(4);
+    pub const TWO      : ValueId = ValueId::Dynamic(6);
+    pub const FOUR     : ValueId = ValueId::Dynamic(8);
+    pub const EIGHT    : ValueId = ValueId::Dynamic(10);
+    pub const TRUE     : ValueId = ValueId::Dynamic(12);
+    pub const FALSE    : ValueId = ValueId::Dynamic(14);
+    pub const EMPTY    : ValueId = ValueId::Dynamic(16);
+    pub const USIZE    : ValueId = ValueId::Dynamic(17);
     pub const STATIC_VALUES_SIZE : u32 = 18;
 }
 
@@ -108,54 +108,6 @@ pub struct Empty;
 pub struct Var(pub ValueId);
 #[derive(Clone, Copy)]
 pub struct Unknown;
-
-// A struct that maps from value ids to Poly args / Ast node / Local / Label ids or vice versa
-#[derive(Clone)]
-pub struct IdMapper {
-    pub poly_args: usize,
-    pub ast_nodes: usize,
-    pub locals: usize,
-    pub labels: usize,
-}
-
-pub enum MappedId {
-    PolyArg(usize),
-    AstNode(crate::ast::NodeId),
-    Local(crate::locals::LocalId),
-    Label(crate::locals::LabelId),
-    None,
-}
-
-impl IdMapper {
-    pub fn map(&self, value: ValueId) -> MappedId {
-        let mut id = value.0;
-        if id < static_values::STATIC_VALUES_SIZE {
-            return MappedId::None;
-        }
-        id -= static_values::STATIC_VALUES_SIZE;
-
-        if id < self.poly_args as _ {
-            return MappedId::PolyArg(id as usize);
-        }
-        id -= self.poly_args as u32;
-
-        if id < self.ast_nodes as _ {
-            return MappedId::AstNode(AstNodeId(id));
-        }
-        id -= self.ast_nodes as u32;
-
-        if id < self.locals as _ {
-            return MappedId::Local(crate::locals::LocalId(id as _));
-        }
-        id -= self.locals as u32;
-
-        if id < self.labels as _ {
-            return MappedId::Label(crate::locals::LabelId(id as _));
-        }
-
-        MappedId::None
-    }
-}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TypeKind {
@@ -302,26 +254,6 @@ enum ConstraintKind {
 }
 
 impl Constraint {
-    /// Fixes the order of the fields, or sets the constraint to Dead if it becomes redundant.
-    fn fix_order(&mut self) {
-        match &mut self.kind {
-            ConstraintKind::Equal {
-                values: [a, b],
-                ..
-            } => {
-                if a == b {
-                    self.applied = true;
-                } else if a.0 > b.0 {
-                    mem::swap(a, b);
-                }
-            }
-            ConstraintKind::EqualsField { .. }
-            | ConstraintKind::EqualNamedField { .. }
-            | ConstraintKind::BinaryOp { .. }
-            | ConstraintKind::Relation { .. } => {}
-        }
-    }
-
     fn values(&self) -> &[ValueId] {
         match &self.kind {
             ConstraintKind::Relation { values, .. } => &*values,
@@ -511,16 +443,26 @@ fn type_kind_to_str(
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct ValueId(u32);
+pub enum ValueId {
+    None,
+    Dynamic(u32),
+    Node(AstNodeId),
+}
 
 impl Default for ValueId {
     fn default() -> Self {
-        Self::NONE
+        Self::None
     }
 }
 
 impl ValueId {
-    pub const NONE: Self = Self(u32::MAX);
+    pub fn is_static_value(&self) -> bool {
+        matches!(self, ValueId::Dynamic(v) if *v < static_values::STATIC_VALUES_SIZE)
+    }
+}
+
+impl ValueId {
+    pub const NONE: Self = Self::None;
 }
 
 #[derive(Debug, Clone)]
@@ -749,7 +691,7 @@ fn set_value(structures: &mut Structures, values: &mut Values, id: ValueId, kind
 
 fn add_value(structures: &mut Structures, values: &mut Values, kind: Option<Type>, value_sets: &mut ValueSets, value_set_handles: ValueSetHandles) -> ValueId {
     let structure_id = structures.structure.len() as u32;
-    let id = ValueId(values.values.len() as u32);
+    let id = ValueId::Dynamic(values.values.len() as u32);
 
     structures.structure.push(StructureGroup {
         first_value: id,
@@ -778,12 +720,14 @@ pub struct AstNodeValueMap {
 #[derive(Clone)]
 pub struct Values {
     values: Vec<ValueWrapper>,
+    ast_values: Box<[ValueWrapper]>,
 }
 
 impl Values {
     fn new() -> Self {
         Self {
             values: Vec::with_capacity(32),
+            ast_values: Box::new([]),
         }
     }
 
@@ -792,41 +736,34 @@ impl Values {
     }
 
     fn get(&self, id: ValueId) -> &ValueWrapper {
-        &self.values[id.0 as usize]
+        match id {
+            ValueId::None => unreachable!("Tried reading from a ValueId::None"),
+            ValueId::Dynamic(id) => &self.values[id as usize],
+            ValueId::Node(id) => &self.ast_values[usize::from(id)],
+        }
     }
 
     fn get_mut(&mut self, id: ValueId) -> &mut ValueWrapper {
-        &mut self.values[id.0 as usize]
+        match id {
+            ValueId::None => unreachable!("Tried reading from a ValueId::None"),
+            ValueId::Dynamic(id) => &mut self.values[id as usize],
+            ValueId::Node(id) => &mut self.ast_values[usize::from(id)],
+        }
     }
 
     fn iter(&self) -> impl Iterator<Item = &Value> {
-        self.values.iter().map(|v| &v.value)
+        self.values.iter().chain(&self.ast_values[..]).map(|v| &v.value)
     }
 
     fn iter_mut(&mut self) -> impl Iterator<Item = &mut Value> {
-        self.values.iter_mut().map(|v| &mut v.value)
-    }
-
-    /// Returns the value id that will returned by the next call to `add`
-    fn next_value_id(&self) -> ValueId {
-        ValueId(self.values.len() as u32)
+        self.values.iter_mut().chain(&mut self.ast_values[..]).map(|v| &mut v.value)
     }
 }
 
-fn get_loc_of_value(poly_args: &[crate::typer::PolyParam], ast: &crate::parser::Ast, locals: &crate::locals::LocalVariables, value: ValueId) -> Option<Location> {
-    let mapper = IdMapper {
-        poly_args: poly_args.len(),
-        ast_nodes: ast.structure.len(),
-        locals: locals.num_locals(),
-        labels: locals.num_labels(),
-    };
-
-    match mapper.map(value) {
-        MappedId::PolyArg(id) => Some(poly_args[id].loc),
-        MappedId::AstNode(id) => Some(ast.get(id).loc),
-        MappedId::Local(id) => Some(locals.get(id).loc),
-        MappedId::Label(id) => Some(locals.get_label(id).loc),
-        MappedId::None => None,
+fn get_loc_of_value(ast: &crate::parser::Ast, value: ValueId) -> Option<Location> {
+    match value {
+        ValueId::Node(id) => Some(ast.get(id).loc),
+        _ => None,
     }
 }
 
@@ -890,7 +827,7 @@ impl TypeSystem {
         set: ValueSetId,
     ) -> ValueId {
         // Static values are the same in both sets
-        if other_id.0 < static_values::STATIC_VALUES_SIZE {
+        if other_id.is_static_value() {
             return other_id;
         }
 
@@ -961,20 +898,7 @@ impl TypeSystem {
         }
     }
 
-    pub fn output_incompleteness_errors(&self, errors: &mut ErrorCtx, poly_args: &[crate::typer::PolyParam], ast: &crate::parser::Ast, locals: &crate::locals::LocalVariables) {
-        for node_id in 0..self.values.values.len() as u32 {
-            if !self.get(ValueId(node_id)).value_sets.is_complete() {
-                // Generate an error
-                if let Some(loc) = get_loc_of_value(poly_args, ast, locals, ValueId(node_id)) {
-                    errors.error(loc, format!("Ambiguous type"));
-                } else {
-                    errors.global_error(format!("Ambiguous type"));
-                }
-            }
-        }
-    }
-
-    pub fn output_errors(&self, errors: &mut ErrorCtx, poly_args: &[crate::typer::PolyParam], ast: &crate::parser::Ast, locals: &crate::locals::LocalVariables) -> bool {
+    pub fn output_errors(&self, errors: &mut ErrorCtx, ast: &crate::parser::Ast) -> bool {
         let mut has_errors = false;
         if self.value_sets.iter().any(|v| v.has_errors) {
             has_errors = true;
@@ -985,7 +909,7 @@ impl TypeSystem {
 
             match *error {
                 Error { a, b: _, kind: ErrorKind::NonexistantName(name) } => {
-                    if let Some(loc) = get_loc_of_value(poly_args, ast, locals, a) {
+                    if let Some(loc) = get_loc_of_value(ast, a) {
                         errors.info(loc, format!("Here"));
                     }
                     errors.global_error(format!("Field '{}' doesn't exist on type {}", name, self.value_to_str(a, 0)));
@@ -1004,19 +928,11 @@ impl TypeSystem {
                         }
                     }
 
-                    // @TODO: This is not a very good way to print errors, but it's fine for nowj
-                    let mapper = IdMapper {
-                        poly_args: poly_args.len(),
-                        ast_nodes: ast.structure.len(),
-                        locals: locals.num_locals(),
-                        labels: locals.num_labels(),
-                    };
-
-                    for chain in explain::get_reasons_with_look_inside(a_id, a_id, self, &mapper, ast) {
+                    for chain in explain::get_reasons_with_look_inside(a_id, a_id, self, ast) {
                         chain.output(errors, ast, self);
                     }
 
-                    for chain in explain::get_reasons_with_look_inside(a_id, b_id, self, &mapper, ast) {
+                    for chain in explain::get_reasons_with_look_inside(a_id, b_id, self, ast) {
                         chain.output(errors, ast, self);
                     }
 
@@ -1428,10 +1344,10 @@ impl TypeSystem {
                 creator: _,
             } => {
                 format!(
-                    "{}({}) == {}({})",
-                    a_id.0,
+                    "{:?}({}) == {:?}({})",
+                    a_id,
                     self.value_to_str(a_id, 0),
-                    b_id.0,
+                    b_id,
                     self.value_to_str(b_id, 0)
                 )
             }
@@ -1440,11 +1356,11 @@ impl TypeSystem {
                 index: field_index,
             } => {
                 format!(
-                    "{}({}).{} == {}({})",
-                    a_id.0,
+                    "{:?}({}).{} == {:?}({})",
+                    a_id,
                     self.value_to_str(a_id, 0),
                     field_index,
-                    b_id.0,
+                    b_id,
                     self.value_to_str(b_id, 0)
                 )
             }
@@ -1454,11 +1370,11 @@ impl TypeSystem {
                 hidden_subdivisions: _,
             } => {
                 format!(
-                    "{}({}).{} == {}({})",
-                    a_id.0,
+                    "{:?}({}).{} == {:?}({})",
+                    a_id,
                     self.value_to_str(a_id, 0),
                     field_name,
-                    b_id.0,
+                    b_id,
                     self.value_to_str(b_id, 0)
                 )
             }

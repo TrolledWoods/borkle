@@ -1,4 +1,4 @@
-use super::{static_values, TypeSystem, ConstraintId, ValueId, IdMapper, MappedId, ConstraintKind};
+use super::{static_values, TypeSystem, ConstraintId, ValueId, ConstraintKind};
 use crate::location::Location;
 use std::collections::{hash_map, HashMap};
 use crate::errors::ErrorCtx;
@@ -7,11 +7,11 @@ use crate::parser::Ast;
 use crate::type_infer;
 use ustr::Ustr;
 
-pub fn get_reasons(base_value: ValueId, types: &TypeSystem, mapper: &IdMapper, ast: &crate::parser::Ast) -> Vec<ReasoningChain> {
-    get_reasons_with_look_inside(base_value, base_value, types, mapper, ast)
+pub fn get_reasons(base_value: ValueId, types: &TypeSystem, ast: &crate::parser::Ast) -> Vec<ReasoningChain> {
+    get_reasons_with_look_inside(base_value, base_value, types, ast)
 }
 
-pub fn get_reasons_with_look_inside(base_value: ValueId, look_inside: ValueId, types: &TypeSystem, mapper: &IdMapper, ast: &crate::parser::Ast) -> Vec<ReasoningChain> {
+pub fn get_reasons_with_look_inside(base_value: ValueId, look_inside: ValueId, types: &TypeSystem, ast: &crate::parser::Ast) -> Vec<ReasoningChain> {
     #[derive(Debug, Default)]
     struct Node {
         source: Option<(ValueId, Vec<usize>)>,
@@ -30,7 +30,7 @@ pub fn get_reasons_with_look_inside(base_value: ValueId, look_inside: ValueId, t
             let Some((index, _)) = frontier.iter().enumerate().min_by_key(|(_, v)| v.distance) else { panic!("Exited too early I think") };
             let Frontier { source, distance, constraint_id } = frontier.swap_remove(index);
 
-            if source.0.0 < static_values::STATIC_VALUES_SIZE {
+            if source.0.is_static_value() {
                 continue;
             }
 
@@ -129,8 +129,8 @@ pub fn get_reasons_with_look_inside(base_value: ValueId, look_inside: ValueId, t
             // It's a base value, which means that we can draw a chain of reasoning from it.
             let node = Node {
                 source: None,
-                reason: match mapper.map(value_id) {
-                    MappedId::AstNode(id) => Some(crate::typer::explain_given_type(ast, id)),
+                reason: match value_id {
+                    ValueId::Node(id) => Some(crate::typer::explain_given_type(ast, id)),
                     _ => None,
                 },
                 distance: 0,

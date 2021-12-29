@@ -106,6 +106,12 @@ impl<'a, T> TreeZippable for &'a mut [T] {
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub struct NodeId(pub u32);
 
+impl From<NodeId> for usize {
+    fn from(other: NodeId) -> usize {
+        other.0 as usize
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct AstStructure {
     structure: Vec<StructuralInfo>,
