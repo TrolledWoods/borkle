@@ -1224,7 +1224,6 @@ fn offset_path(path: &Path, addition: &str) -> PathBuf {
 pub struct Node {
     pub loc: Location,
     pub kind: NodeKind,
-    pub type_infer_value_id: crate::type_infer::ValueId,
     pub type_: Option<Type>,
 }
 
@@ -1233,7 +1232,6 @@ impl Node {
         Self {
             loc,
             kind,
-            type_infer_value_id: crate::type_infer::ValueId::NONE,
             type_: None,
         }
     }

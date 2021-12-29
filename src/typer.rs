@@ -129,10 +129,6 @@ pub fn begin<'a>(
 
     // Create type inference variables for all variables and nodes, so that there's a way to talk about
     // all of them.
-    for (i, node) in ast.nodes.iter_mut().enumerate() {
-        node.type_infer_value_id = TypeId::Node(NodeId(i as u32));
-    }
-
     for local in locals.iter_mut() {
         local.type_infer_value_id = infer.add_unknown_type();
     }
@@ -210,7 +206,7 @@ pub fn solve<'a>(
             for &node_id in &related_nodes {
                 let mut node = data.ast.get_mut(node_id);
                 if node.node.type_.is_none() {
-                    node.type_ = Some(ctx.infer.value_to_compiler_type(node.type_infer_value_id));
+                    node.type_ = Some(ctx.infer.value_to_compiler_type(TypeId::Node(node_id)));
                 }
             }
             for local in ctx.locals.iter_mut() {
@@ -263,10 +259,9 @@ pub fn finish<'a>(
         return Err(());
     }
 
-    // @Temporary: Just to make it work for now, we should really only deal with the base set
-    for node in &mut from.ast.nodes {
+    for (i, node) in from.ast.nodes.iter_mut().enumerate() {
         if node.type_.is_none() {
-            node.type_ = Some(from.infer.value_to_compiler_type(node.type_infer_value_id));
+            node.type_ = Some(from.infer.value_to_compiler_type(TypeId::Node(NodeId(i as u32))));
         }
     }
 
@@ -320,7 +315,7 @@ fn subset_was_completed(ctx: &mut Context<'_, '_>, ast: &mut Ast, waiting_on: Wa
             if let Ok(member_id) = ctx.program.monomorphise_poly_member(ctx.errors, ctx.thread_context, poly_member_id, &fixed_up_params, wanted_dep) {
                 let (type_, meta_data) = ctx.program.get_member_meta_data(member_id);
                 let compiler_type = ctx.infer.add_compiler_type(ctx.program, type_, parent_set);
-                ctx.infer.set_equal(ast.get(node_id).type_infer_value_id, compiler_type, Reason::new(node_loc, ReasonKind::IsOfType));
+                ctx.infer.set_equal(TypeId::Node(node_id), compiler_type, Reason::new(node_loc, ReasonKind::IsOfType));
                 ast.get_mut(node_id).kind = NodeKind::ResolvedGlobal(member_id, meta_data.clone());
 
                 match when_needed {
@@ -357,8 +352,7 @@ fn subset_was_completed(ctx: &mut Context<'_, '_>, ast: &mut Ast, waiting_on: Wa
             ) {
                 Ok(constant_ref) => {
                     let computation_node = ast.get(computation);
-                    let type_id = computation_node.type_infer_value_id;
-                    let finished_value = ctx.infer.add_value(type_id, constant_ref, set);
+                    let finished_value = ctx.infer.add_value(TypeId::Node(computation), constant_ref, set);
 
                     ctx.infer.set_equal(finished_value, value_id, Reason::new(computation_node.loc, ReasonKind::IsOfType));
                 }
@@ -506,7 +500,7 @@ fn build_constraints(
     set: ValueSetId,
 ) -> type_infer::ValueId {
     let node_loc = node.loc;
-    let node_type_id = node.type_infer_value_id;
+    let node_type_id = TypeId::Node(node.id);
 
     ctx.infer.set_value_set(node_type_id, set);
     ctx.infer.value_sets.add_node_to_set(set, node.id);
@@ -574,9 +568,9 @@ fn build_constraints(
                 todo!("Handling of the case where you pass polymorphic args to something that shouldn't have it");
             };
 
-            ctx.infer.set_value_set(on.type_infer_value_id, set);
+            ctx.infer.set_value_set(TypeId::Node(on.id), set);
             ctx.infer.value_sets.add_node_to_set(set, on.id);
-            ctx.infer.set_equal(on.type_infer_value_id, node_type_id, Reason::temp(node_loc));
+            ctx.infer.set_equal(TypeId::Node(on.id), node_type_id, Reason::temp(node_loc));
 
             let id = ctx.program.get_member_id(scope, name).expect("The dependency system should have made sure that this is defined");
 
@@ -1145,7 +1139,7 @@ fn build_type(
     set: ValueSetId,
 ) -> type_infer::ValueId {
     let node_loc = node.loc;
-    let node_type_id = node.type_infer_value_id;
+    let node_type_id = TypeId::Node(node.id);
 
     ctx.infer.set_value_set(node_type_id, set);
     ctx.infer.value_sets.add_node_to_set(set, node.id);
@@ -1254,7 +1248,7 @@ fn build_lvalue(
     set: ValueSetId,
 ) -> type_infer::ValueId {
     let node_loc = node.loc;
-    let node_type_id = node.type_infer_value_id;
+    let node_type_id = TypeId::Node(node.id);
 
     match node.kind {
         NodeKind::Member { name } => {
@@ -1329,7 +1323,7 @@ fn build_inferrable_constant_value(
 ) -> (type_infer::ValueId, type_infer::ValueId) {
     let node_loc = node.loc;
     let node_id = node.id;
-    let node_type_id = node.type_infer_value_id;
+    let node_type_id = TypeId::Node(node.id);
 
     let value_id = match node.kind {
         NodeKind::PolymorphicArgument(index) => {
