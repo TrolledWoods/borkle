@@ -11,7 +11,6 @@ const aoc_day3_part1 = fn() -> u64 {
     let input = INPUT;
 
     let one_counts = #0 : [12] u64;
-    let one_counts_buf = cast &one_counts : [] u64;
     let total_count = 0;
 
     let one = *"1".ptr;
@@ -19,7 +18,7 @@ const aoc_day3_part1 = fn() -> u64 {
     // Both of these are backward, but the backwardness cancels out :)
     take_whitespace(&input);
     while not(empty(&input)) {
-        for one_counts_buf {
+        for &one_counts {
             if take_char(&input) == one {
                 *v = *v + 1;
             };
@@ -32,13 +31,13 @@ const aoc_day3_part1 = fn() -> u64 {
 
     let a_rate = 2b0_0000;
     let b_rate = 2b0_0000;
-    for one_counts_buf {
+    for one_counts {
         a_rate = a_rate * 2;
         b_rate = b_rate * 2;
 
-        if *v > total_count - *v {
+        if v > total_count - v {
             a_rate = a_rate + 1;
-        } else if *v < total_count - *v {
+        } else if v < total_count - v {
             b_rate = b_rate + 1;
         } else {
             print("Warning! Both bit counts are the same");
@@ -88,7 +87,7 @@ const aoc_day3_part2 = fn() -> u64 {
         let b_rate_total_nums = 0 : u64;
         let b_rate_nums = 0 : u64;
 
-        for entry in numbers {
+        for entry in &numbers {
             let is_set = ((*entry).number & mask) > 0;
 
             if (*entry).consider_for_a_rate {
@@ -108,10 +107,10 @@ const aoc_day3_part2 = fn() -> u64 {
         let b_rate_bit = b_rate_nums < b_rate_total_nums - b_rate_nums;
 
         for entry in numbers {
-            let is_set = ((*entry).number & mask) > 0;
+            let is_set = ((entry).number & mask) > 0;
 
-            if is_set != a_rate_bit { (*entry).consider_for_a_rate = false; };
-            if is_set != b_rate_bit { (*entry).consider_for_b_rate = false; };
+            if is_set != a_rate_bit { (entry).consider_for_a_rate = false; };
+            if is_set != b_rate_bit { (entry).consider_for_b_rate = false; };
         };
 
         mask = mask / 2;

@@ -170,8 +170,9 @@ impl Registers {
         self.create_min_align_with_name(type_.into(), 1, name)
     }
 
-    pub fn create(&mut self, _types: &TypeSystem, _value: TypeId, type_: impl Into<Type>) -> Value {
-        self.create_min_align(type_.into(), 1)
+    pub fn create(&mut self, types: &TypeSystem, value: TypeId) -> Value {
+        let type_ = types.value_to_compiler_type(value);
+        self.create_min_align(type_, 1)
     }
 
     pub fn zst(&mut self) -> Value {

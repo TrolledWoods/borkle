@@ -1,10 +1,4 @@
-#no_base:
-
-{
-    for [1, 2, 3 : u32]  v;
-};
-
-/*import "tests/main.bo"; 
+import "tests/main.bo"; 
 
 #entry fn() {
     print("Hello, world!\n");
@@ -18,4 +12,4 @@
         print_u64(cast v);
         print("\n");
     };
-};*/
+};

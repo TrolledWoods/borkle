@@ -26,7 +26,7 @@ const print = fn(string: [] u8) {
 
 const filled_array.(N, T) = fn(fill_with: T) -> [N] T {
     let arr = #uninit : [N] T;
-    for cast &arr : [] T  { *v = fill_with; };
+    for &arr { *v = fill_with; };
     arr
 };
 
@@ -53,7 +53,7 @@ const dealloc.(T) = fn(buf: [] T) {
 };
 
 const fill.(T) = fn(buf: [] T, value: T) {
-    for buf { *v = value; };
+    for &buf { *v = value; };
 };
 
 const slice_cmp.(T) = fn(a: [] T, b: [] T) -> bool { 'function
@@ -81,7 +81,7 @@ const slice.(T) = fn(buf: [] T, start: usize, end: usize) -> [] T {
 
 const count_matches.(T) = fn(buf: [] T, predicate: fn(&T) -> bool) -> usize {
     let count = 0;
-    for buf  if predicate(v)  count = count + 1;
+    for &buf  if predicate(v)  count = count + 1;
     count
 };
 
@@ -103,8 +103,8 @@ const not = fn(v: bool) -> bool  if v false else true;
 const cmp_strings = fn(a: [] u8, b: [] u8) -> bool { 'function
     if a.len != b.len  break 'function false;
 
-    for c in a {
-        if *c != *(b.ptr + i)  break false;
+    for a {
+        if v != *(b.ptr + i)  break false;
     } else true
 };
 

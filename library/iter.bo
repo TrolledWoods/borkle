@@ -60,7 +60,7 @@ const split.(T) = fn(buffer: [] T, split_if: fn(T) -> bool) -> typeof Iterator.(
         let begin = state.buffer.ptr;
 
         for state.buffer {
-            if state.split_if(*v) {
+            if state.split_if(v) {
                 out.ptr = state.buffer.ptr;
                 out.len = i;
 
@@ -253,8 +253,6 @@ const vec_from_iter.(State, Item) = fn(stream: typeof Iterator.(State, Item)) ->
 
 const array_from_iter.(State, Item, N) = fn(stream: typeof Iterator.(State, Item)) -> [N] Item {
     let array = #uninit;
-    for cast &array : [] Item {
-        assert(stream.next(&stream.state, v));
-    };
+    for &array  assert(stream.next(&stream.state, v));
     array
 };

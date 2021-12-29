@@ -48,7 +48,7 @@ const aoc_day4 = fn() -> { part_1: u64; part_2: u64; } {
 
     // Read the numbers into the boards
     parse = boards_section;
-    for cell in board_cells {
+    for cell in &board_cells {
         assert(parse.len != 0);
 
         let number = cast take_u64(&parse);
