@@ -109,7 +109,7 @@ pub fn begin<'a>(
     poly_params: Vec<(Location, Ustr)>,
 ) -> YieldData {
     let mut emit_deps = DependencyList::new();
-    let mut infer = TypeSystem::new(program);
+    let mut infer = TypeSystem::new(program, ast.structure.len());
 
     let mut poly_params: Vec<_> = poly_params
         .into_iter()
@@ -129,8 +129,8 @@ pub fn begin<'a>(
 
     // Create type inference variables for all variables and nodes, so that there's a way to talk about
     // all of them.
-    for node in &mut ast.nodes {
-        node.type_infer_value_id = infer.add_unknown_type();
+    for (i, node) in ast.nodes.iter_mut().enumerate() {
+        node.type_infer_value_id = TypeId::Node(NodeId(i as u32));
     }
 
     for local in locals.iter_mut() {

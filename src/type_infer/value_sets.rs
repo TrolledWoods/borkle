@@ -93,7 +93,6 @@ pub struct ValueSetHandles {
     caller_location: &'static Location<'static>,
 }
 
-// @Cleanup: Remove this because it can be confusing....
 impl Default for ValueSetHandles {
     #[track_caller]
     fn default() -> Self {

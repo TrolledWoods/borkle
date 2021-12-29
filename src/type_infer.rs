@@ -502,7 +502,7 @@ impl ValueId {
     pub const NONE: Self = Self::None;
 }
 
-#[derive(Debug, Clone)]
+#[derive(Default, Debug, Clone)]
 struct Value {
     value_sets: ValueSetHandles,
     is_base_value: bool,
@@ -536,7 +536,7 @@ struct LookupElement {
 }
 
 // @Temporary: Should be replaced with the real value some day
-#[derive(Clone)]
+#[derive(Default, Clone)]
 struct ValueWrapper {
     value: Value,
     structure_id: Option<u32>,
@@ -788,10 +788,10 @@ pub struct Values {
 }
 
 impl Values {
-    fn new() -> Self {
+    fn new(ast_size: usize) -> Self {
         Self {
             values: Vec::with_capacity(32),
-            ast_values: Box::new([]),
+            ast_values: vec![ValueWrapper::default(); ast_size].into_boxed_slice(),
         }
     }
 
@@ -848,13 +848,13 @@ pub struct TypeSystem {
 }
 
 impl TypeSystem {
-    pub fn new(program: &crate::program::Program) -> Self {
+    pub fn new(program: &crate::program::Program, ast_size: usize) -> Self {
         let u8_type = crate::types::Type::new(crate::types::TypeKind::Int(IntTypeKind::U8));
         let bool_type = crate::types::Type::new(crate::types::TypeKind::Bool);
 
         let mut this = Self {
             structures: Structures::default(),
-            values: Values::new(),
+            values: Values::new(ast_size),
             value_sets: ValueSets::default(),
             constraints: Vec::new(),
             computable_value_sizes: Vec::new(),
