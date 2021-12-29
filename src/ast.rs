@@ -55,6 +55,58 @@ impl TreeZippable for () {
     }
 }
 
+#[derive(Default, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct Attached<A, B> {
+    pub base: A,
+    pub extra: B,
+}
+
+impl<A, B> std::ops::Deref for Attached<A, B> {
+    type Target = A;
+
+    fn deref(&self) -> &Self::Target {
+        &self.base
+    }
+}
+
+impl<A, B> std::ops::DerefMut for Attached<A, B> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.base
+    }
+}
+
+impl<A, B> TreeZippable for Attached<A, B> where A: TreeZippable, B: TreeZippable {
+    type Target = Attached<A::Target, B::Target>;
+    type Reborrowed<'b> where Self: 'b = Attached<A::Reborrowed<'b>, B::Reborrowed<'b>>;
+
+    fn ensure_len(&self, len: usize) {
+        self.base.ensure_len(len);
+        self.extra.ensure_len(len);
+    }
+    fn reborrow(&mut self) -> Self::Reborrowed<'_> {
+        Attached { base: self.base.reborrow(), extra: self.extra.reborrow() }
+    }
+    fn slice(self, start: usize, end: usize) -> Self {
+        Attached { base: self.base.slice(start, end), extra: self.extra.slice(start, end) }
+    }
+    fn split_at(self, index: usize) -> (Self, Self) {
+        let base = self.base.split_at(index);
+        let extra = self.extra.split_at(index);
+        (
+            Attached { base: base.0, extra: extra.0 },
+            Attached { base: base.1, extra: extra.1 },
+        )
+    }
+    fn split_last(self) -> (Self::Target, Self) {
+        let base = self.base.split_last();
+        let extra = self.extra.split_last();
+        (
+            Attached { base: base.0, extra: extra.0 },
+            Attached { base: base.1, extra: extra.1 },
+        )
+    }
+}
+
 impl<A, B> TreeZippable for (A, B) where A: TreeZippable, B: TreeZippable {
     type Target = (A::Target, B::Target);
     type Reborrowed<'b> where Self: 'b = (A::Reborrowed<'b>, B::Reborrowed<'b>);

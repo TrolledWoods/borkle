@@ -470,7 +470,7 @@ pub struct ValueBorrowMut<'a> {
 
 // @Temporary: Should be replaced with the real value some day
 #[derive(Default, Clone)]
-struct ValueWrapper {
+pub struct ValueWrapper {
     value: Value,
     structure_id: Option<u32>,
     next_in_structure_group: ValueId,

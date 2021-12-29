@@ -13,7 +13,7 @@ use crate::type_infer::{self, ValueId as TypeId, Args, TypeSystem, ValueSetId, T
 use crate::types::{self, IntTypeKind};
 use ustr::Ustr;
 
-// type NodeViewMut<'a> = ast::GenericNodeView<'a, (&'a mut [Node], &'a [TypeId])>;
+// type NodeViewMut<'a> = ast::GenericNodeView<'a, Attached<&'a mut [Node], &'a mut [ValueWrapper]>>;
 
 #[derive(Clone)]
 pub struct PolyParam {
