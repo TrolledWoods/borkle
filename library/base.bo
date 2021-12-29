@@ -55,6 +55,16 @@ const fill.(T) = fn(buf: [] T, value: T) {
     for buf { *_it = value; };
 };
 
+const slice_cmp.(T) = fn(a: [] T, b: [] T) -> bool { 'function
+    if a.len != b.len  break 'function false;
+
+    while _iters < a.len {
+        if *(a.ptr + _iters) != *(b.ptr + _iters)  break 'function false;
+    };
+
+    true
+};
+
 const slice_to_end.(T) = fn(buf: [] T, start: usize) -> [] T {
     slice.(T)(buf, start, buf.len)
 };
@@ -102,23 +112,6 @@ const put_char = fn(c: u8) {
     buf.ptr = &c;
     buf.len = 1;
     i_stdout_write(buf);
-};
-
-// This doesn't really work, it looks liike!!!!
-const take_until = fn(string: &[] u8, c: u8) -> [] u8 {
-    let new = #uninit;
-    // Why no typing error if you remove the dereference in (*string)???
-    new.ptr = string.ptr;
-    new.len = 0;
-
-    while 'loop (*string).len > 0 {
-        if *string.ptr == c  break 'loop;
-        new.len = new.len + 1;
-
-        advance(string);
-    };
-
-    new
 };
 
 const take_char = fn(string: &[] u8) -> u8 {

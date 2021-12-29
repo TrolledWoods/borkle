@@ -5,7 +5,7 @@ use crate::location::Location;
 use crate::execution_time::ExecutionTime;
 use crate::locals::LocalVariables;
 use crate::operators::{BinaryOp, UnaryOp};
-pub use crate::parser::{ast::{Node, NodeViewMut}, ast::NodeId, ast::NodeKind, Ast};
+pub use crate::parser::{Node, NodeViewMut, ast::NodeId, NodeKind, Ast};
 use crate::program::{PolyOrMember, PolyMemberId, Program, Task, constant::ConstantRef, BuiltinFunction};
 use crate::thread_pool::ThreadContext;
 use crate::type_infer::{self, ValueId as TypeId, Args, TypeSystem, ValueSetId, TypeKind, Reason, ReasonKind};
@@ -126,7 +126,7 @@ pub fn begin<'a>(
 
     // Create type inference variables for all variables and nodes, so that there's a way to talk about
     // all of them.
-    for node in &mut ast.data {
+    for node in &mut ast.nodes {
         node.type_infer_value_id = infer.add_unknown_type();
     }
 
@@ -241,7 +241,7 @@ pub fn finish<'a>(
     for (node_id, needs_explaining) in from.needs_explaining {
         let id_mapper = type_infer::IdMapper {
             poly_args: from.poly_params.len(),
-            ast_nodes: from.ast.data.len(),
+            ast_nodes: from.ast.structure.len(),
             locals: from.locals.num_locals(),
             labels: from.locals.num_labels(),
         };
@@ -267,7 +267,7 @@ pub fn finish<'a>(
     }
 
     // @Temporary: Just to make it work for now, we should really only deal with the base set
-    for node in &mut from.ast.data {
+    for node in &mut from.ast.nodes {
         if node.type_.is_none() {
             node.type_ = Some(from.infer.value_to_compiler_type(node.type_infer_value_id));
         }

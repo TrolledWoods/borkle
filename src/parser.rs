@@ -1,16 +1,61 @@
 use crate::dependencies::{DepKind, DependencyList, MemberDep};
 use crate::errors::ErrorCtx;
 use crate::literal::Literal;
-use crate::locals::{Local, LocalVariables};
+use crate::locals::{Local, LocalVariables, LabelId, LocalId};
 use crate::location::Location;
 use crate::operators::{BinaryOp, Operator, UnaryOp};
-use crate::program::{Program, ScopeId, Task};
+use crate::program::{Program, ScopeId, Task, BuiltinFunction, constant::ConstantRef, MemberMetaData, MemberId};
+use std::sync::Arc;
 use crate::types::{Type, TypeKind};
-pub use ast::{Ast, AstBuilder, AstSlot, Node, NodeId, NodeKind, FinishedNode, Muncher};
 use context::{DataContext, ImperativeContext};
 use lexer::{Bracket, Keyword, Token, TokenKind};
 use std::path::{Path, PathBuf};
+use std::fmt;
 use ustr::Ustr;
+
+pub use ast::{AstBuilder, NodeId, FinishedNode};
+
+pub type NodeView<'a>    = ast::GenericNodeView<'a, &'a [Node]>;
+pub type NodeViewMut<'a> = ast::GenericNodeView<'a, &'a mut [Node]>;
+
+type AstSlot<'a> = ast::AstSlot<'a, Vec<Node>>;
+type Muncher<'a> = ast::Muncher<'a, Vec<Node>>;
+
+#[derive(Debug, Clone)]
+pub struct Ast {
+    pub structure: ast::AstStructure,
+    pub nodes: Vec<Node>,
+}
+
+impl Ast {
+    fn from_builder(builder: ast::AstBuilder<Vec<Node>>) -> Self {
+        let (structure, nodes) = builder.finish();
+        Self {
+            structure,
+            nodes,
+        }
+    }
+
+    pub fn root_id(&self) -> NodeId {
+        self.structure.root_id()
+    }
+
+    pub fn root(&self) -> NodeView<'_> {
+        self.structure.root(&self.nodes[..])
+    }
+
+    pub fn root_mut(&mut self) -> NodeViewMut<'_> {
+        self.structure.root(&mut self.nodes[..])
+    }
+
+    pub fn get(&self, id: NodeId) -> NodeView<'_> {
+        self.structure.get(id, &self.nodes[..])
+    }
+
+    pub fn get_mut(&mut self, id: NodeId) -> NodeViewMut<'_> {
+        self.structure.get(id, &mut self.nodes[..])
+    }
+}
 
 pub mod ast;
 mod context;
@@ -82,7 +127,7 @@ pub fn process_string(
                 let mut imperative =
                     ImperativeContext::new(&mut dependencies, &mut locals, false, &[]);
                 expression(&mut context, &mut imperative, buffer.add())?;
-                let tree = buffer.finish();
+                let tree = Ast::from_builder(buffer);
 
                 context
                     .tokens
@@ -143,7 +188,7 @@ pub fn process_string(
                     &[],
                 );
                 expression(&mut context, &mut imperative, buffer.add())?;
-                let tree = buffer.finish();
+                let tree = Ast::from_builder(buffer);
 
                 let id = context
                     .program
@@ -185,7 +230,7 @@ fn constant(global: &mut DataContext<'_>) -> Result<(), ()> {
             &poly_args,
         );
         expression(global, &mut imperative, buffer.add())?;
-        let tree = buffer.finish();
+        let tree = Ast::from_builder(buffer);
 
         if poly_args.is_empty() {
             let id = global
@@ -254,10 +299,10 @@ fn expression_rec(
 
         if op == BinaryOp::TypeBound {
             type_(global, imperative, muncher.add())?;
-            muncher.munch(2, loc, NodeKind::TypeBound);
+            muncher.munch(2, Node::new(loc, NodeKind::TypeBound));
         } else {
             expression_rec(global, imperative, muncher.add(), op.precedence())?;
-            muncher.munch(2, loc, NodeKind::Binary { op });
+            muncher.munch(2, Node::new(loc, NodeKind::Binary { op }));
         }
     }
 
@@ -280,7 +325,7 @@ fn type_(
             // in here, so that it doesn't fetch them unnecessarily
             value(global, imperative, slot.add())?;
 
-            Ok(slot.finish(loc, NodeKind::TypeOf))
+            Ok(slot.finish(Node::new(loc, NodeKind::TypeOf)))
         }
         TokenKind::Identifier(name) => {
             global.tokens.next();
@@ -290,7 +335,7 @@ fn type_(
                 .iter()
                 .position(|(_, arg)| *arg == name)
             {
-                Ok(slot.finish(loc, NodeKind::PolymorphicArgument(index)))
+                Ok(slot.finish(Node::new(loc, NodeKind::PolymorphicArgument(index))))
             } else {
                 imperative.dependencies.add(
                     loc,
@@ -301,13 +346,13 @@ fn type_(
                     ),
                 );
 
-                Ok(slot.finish(loc, NodeKind::Global { scope: global.scope, name }))
+                Ok(slot.finish(Node::new(loc, NodeKind::Global { scope: global.scope, name })))
             }
         }
         TokenKind::Keyword(Keyword::Underscore) => {
             global.tokens.next();
 
-            Ok(slot.finish(loc, NodeKind::ImplicitType))
+            Ok(slot.finish(Node::new(loc, NodeKind::ImplicitType)))
         }
         TokenKind::Open(Bracket::Curly) => {
             global.tokens.next();
@@ -347,7 +392,7 @@ fn type_(
                 }
             }
 
-            Ok(slot.finish(loc, NodeKind::StructType { fields }))
+            Ok(slot.finish(Node::new(loc, NodeKind::StructType { fields })))
         }
         TokenKind::Open(Bracket::Square) => {
             global.tokens.next();
@@ -359,13 +404,13 @@ fn type_(
                         .tokens
                         .try_consume(&TokenKind::Keyword(Keyword::Void))
                     {
-                        Ok(slot.finish(
+                        Ok(slot.finish(Node::new(
                             loc,
                             NodeKind::LiteralType(TypeKind::VoidBuffer.into()),
-                        ))
+                        )))
                     } else {
                         type_(global, imperative, slot.add())?;
-                        Ok(slot.finish(loc, NodeKind::BufferType))
+                        Ok(slot.finish(Node::new(loc, NodeKind::BufferType)))
                     }
                 }
                 _ => {
@@ -378,26 +423,26 @@ fn type_(
                     imperative.evaluate_at_typing = old_evaluate_at_typing;
                     type_(global, imperative, slot.add())?;
 
-                    Ok(slot.finish(
+                    Ok(slot.finish(Node::new(
                         loc,
                         NodeKind::ArrayType,
-                    ))
+                    )))
                 }
             }
         }
         TokenKind::Open(Bracket::Round) => {
             global.tokens.next();
             if global.tokens.try_consume(&TokenKind::Close(Bracket::Round)) {
-                Ok(slot.finish(
+                Ok(slot.finish(Node::new(
                     loc,
                     NodeKind::LiteralType(TypeKind::Empty.into()),
-                ))
+                )))
             } else {
                 type_(global, imperative, slot.add())?;
                 global
                     .tokens
                     .expect_next_is(global.errors, &TokenKind::Close(Bracket::Round))?;
-                Ok(slot.finish(loc, NodeKind::Parenthesis))
+                Ok(slot.finish(Node::new(loc, NodeKind::Parenthesis)))
             }
         }
         TokenKind::Keyword(Keyword::Function) => {
@@ -406,15 +451,15 @@ fn type_(
         }
         TokenKind::Keyword(Keyword::Bool) => {
             global.tokens.next();
-            Ok(slot.finish(loc, NodeKind::LiteralType(TypeKind::Bool.into())))
+            Ok(slot.finish(Node::new(loc, NodeKind::LiteralType(TypeKind::Bool.into()))))
         }
         TokenKind::Type(type_) => {
             global.tokens.next();
-            Ok(slot.finish(loc, NodeKind::LiteralType(type_)))
+            Ok(slot.finish(Node::new(loc, NodeKind::LiteralType(type_))))
         }
         TokenKind::PrimitiveInt(type_) => {
             global.tokens.next();
-            Ok(slot.finish(loc, NodeKind::LiteralType(type_.into())))
+            Ok(slot.finish(Node::new(loc, NodeKind::LiteralType(type_.into()))))
         }
         _ => {
             if global.tokens.try_consume_operator_string("&").is_some() {
@@ -423,19 +468,19 @@ fn type_(
                     .try_consume(&TokenKind::Keyword(Keyword::Void))
                 {
                     // @TODO: This type should also have pointer permits
-                    Ok(slot.finish(
+                    Ok(slot.finish(Node::new(
                         loc,
                         NodeKind::LiteralType(Type::new(TypeKind::VoidPtr)),
-                    ))
+                    )))
                 } else if global.tokens.try_consume(&TokenKind::Keyword(Keyword::Any)) {
                     // @TODO: This type should also have pointer permits
-                    Ok(slot.finish(
+                    Ok(slot.finish(Node::new(
                         loc,
                         NodeKind::LiteralType(Type::new(TypeKind::AnyPtr)),
-                    ))
+                    )))
                 } else {
                     type_(global, imperative, slot.add())?;
-                    Ok(slot.finish(loc, NodeKind::ReferenceType))
+                    Ok(slot.finish(Node::new(loc, NodeKind::ReferenceType)))
                 }
             } else {
                 global.error(
@@ -456,10 +501,10 @@ fn value(
     if let Some((loc, op)) = global.tokens.try_consume_operator() {
         if op == UnaryOp::Reference {
             value(global, imperative, slot.add())?;
-            Ok(slot.finish(loc, NodeKind::Reference))
+            Ok(slot.finish(Node::new(loc, NodeKind::Reference)))
         } else {
             value(global, imperative, slot.add())?;
-            Ok(slot.finish(loc, NodeKind::Unary { op }))
+            Ok(slot.finish(Node::new(loc, NodeKind::Unary { op })))
         }
     } else {
         value_without_unaries(global, imperative, slot)
@@ -479,20 +524,20 @@ fn value_without_unaries(
     let mut slot = muncher.add();
     match token.kind {
         TokenKind::Keyword(Keyword::Underscore) => {
-            slot.finish(token.loc, NodeKind::ImplicitType)
+            slot.finish(Node::new(token.loc, NodeKind::ImplicitType))
         }
         TokenKind::Identifier(name) => {
             if let Some(local_id) = imperative.get_local(name) {
                 let local = imperative.locals.get_mut(local_id);
                 local.num_uses += 1;
                 local.uses.push(token.loc);
-                slot.finish(token.loc, NodeKind::Local(local_id))
+                slot.finish(Node::new(token.loc, NodeKind::Local(local_id)))
             } else if let Some(index) = imperative
                 .poly_args
                 .iter()
                 .position(|(_, arg)| *arg == name)
             {
-                slot.finish(token.loc, NodeKind::PolymorphicArgument(index))
+                slot.finish(Node::new(token.loc, NodeKind::PolymorphicArgument(index)))
             } else {
                 imperative.dependencies.add(
                     token.loc,
@@ -502,13 +547,13 @@ fn value_without_unaries(
                         if imperative.evaluate_at_typing { MemberDep::ValueAndCallableIfFunction } else { MemberDep::Type },
                     ),
                 );
-                slot.finish(
+                slot.finish(Node::new(
                     token.loc,
                     NodeKind::Global { scope: global.scope, name },
-                )
+                ))
             }
         }
-        TokenKind::Literal(literal) => slot.finish(token.loc, NodeKind::Literal(literal)),
+        TokenKind::Literal(literal) => slot.finish(Node::new(token.loc, NodeKind::Literal(literal))),
         TokenKind::Keyword(Keyword::BuiltinFunction) => {
             use crate::program::BuiltinFunction;
 
@@ -532,10 +577,10 @@ fn value_without_unaries(
                 }
             };
 
-            slot.finish(
+            slot.finish(Node::new(
                 token.loc,
                 NodeKind::BuiltinFunction(builtin_kind),
-            )
+            ))
         }
         TokenKind::Keyword(Keyword::Const) => {
             // @TODO: Prevent cross-referencing of variable values here!!!!!!!!!!!
@@ -547,30 +592,30 @@ fn value_without_unaries(
             imperative.in_const_expression = old_in_const_expr;
 
             if imperative.evaluate_at_typing {
-                slot.finish(token.loc, NodeKind::ConstAtTyping)
+                slot.finish(Node::new(token.loc, NodeKind::ConstAtTyping))
             } else {
-                slot.finish(token.loc, NodeKind::ConstAtEvaluation)
+                slot.finish(Node::new(token.loc, NodeKind::ConstAtEvaluation))
             }
         }
         TokenKind::Keyword(Keyword::SizeOf) => {
             type_(global, imperative, slot.add())?;
-            slot.finish(token.loc, NodeKind::SizeOf)
+            slot.finish(Node::new(token.loc, NodeKind::SizeOf))
         }
         TokenKind::Keyword(Keyword::Explain) => {
             expression(global, imperative, slot.add())?;
 
-            slot.finish(
+            slot.finish(Node::new(
                 token.loc,
                 NodeKind::Explain,
-            )
+            ))
         }
         TokenKind::Keyword(Keyword::Type) => {
             type_(global, imperative, slot.add())?;
-            slot.finish(token.loc, NodeKind::TypeAsValue)
+            slot.finish(Node::new(token.loc, NodeKind::TypeAsValue))
         }
         TokenKind::PrimitiveInt(type_) => {
-            slot.add().finish(token.loc, NodeKind::LiteralType(type_.into()));
-            slot.finish(token.loc, NodeKind::TypeAsValue)
+            slot.add().finish(Node::new(token.loc, NodeKind::LiteralType(type_.into())));
+            slot.finish(Node::new(token.loc, NodeKind::TypeAsValue))
         }
         TokenKind::Keyword(Keyword::Break) => {
             let id = if global.tokens.try_consume(&TokenKind::SingleQuote) {
@@ -600,7 +645,7 @@ fn value_without_unaries(
                 kind: TokenKind::SemiColon,
             }) = global.tokens.peek()
             {
-                slot.add().finish(loc, NodeKind::Empty);
+                slot.add().finish(Node::new(loc, NodeKind::Empty));
             } else {
                 expression(global, imperative, slot.add())?;
             }
@@ -610,13 +655,13 @@ fn value_without_unaries(
                 label_mut.first_break_location = Some(loc);
             }
 
-            slot.finish(
+            slot.finish(Node::new(
                 token.loc,
                 NodeKind::Break {
                     label: id,
                     num_defer_deduplications,
                 },
-            )
+            ))
         }
         TokenKind::Keyword(Keyword::For) => {
             imperative.push_scope_boundary();
@@ -652,17 +697,17 @@ fn value_without_unaries(
             {
                 expression(global, imperative, slot.add())?;
             } else {
-                slot.add().finish(loc, NodeKind::Empty);
+                slot.add().finish(Node::new(loc, NodeKind::Empty));
             }
 
-            slot.finish(
+            slot.finish(Node::new(
                 token.loc,
                 NodeKind::For {
                     iterator,
                     iteration_var,
                     label,
                 },
-            )
+            ))
         }
         TokenKind::Keyword(Keyword::While) => {
             imperative.push_scope_boundary();
@@ -682,16 +727,16 @@ fn value_without_unaries(
             {
                 expression(global, imperative, slot.add())?;
             } else {
-                slot.add().finish(loc, NodeKind::Empty);
+                slot.add().finish(Node::new(loc, NodeKind::Empty));
             }
 
-            slot.finish(
+            slot.finish(Node::new(
                 token.loc,
                 NodeKind::While {
                     iteration_var,
                     label,
                 },
-            )
+            ))
         }
         TokenKind::Keyword(Keyword::If) => {
             // Parse tags
@@ -710,28 +755,28 @@ fn value_without_unaries(
             {
                 expression(global, imperative, slot.add())?;
             } else {
-                slot.add().finish(loc, NodeKind::Empty);
+                slot.add().finish(Node::new(loc, NodeKind::Empty));
             }
 
-            slot.finish(
+            slot.finish(Node::new(
                 token.loc,
                 NodeKind::If {
                     is_const,
                 },
-            )
+            ))
         }
-        TokenKind::Keyword(Keyword::Uninit) => slot.finish(token.loc, NodeKind::Uninit),
-        TokenKind::Keyword(Keyword::Zeroed) => slot.finish(token.loc, NodeKind::Zeroed),
+        TokenKind::Keyword(Keyword::Uninit) => slot.finish(Node::new(token.loc, NodeKind::Uninit)),
+        TokenKind::Keyword(Keyword::Zeroed) => slot.finish(Node::new(token.loc, NodeKind::Zeroed)),
         TokenKind::Keyword(Keyword::Function) => {
             function_declaration(global, imperative, slot, token.loc)?
         }
         TokenKind::Keyword(Keyword::Cast) => {
             value(global, imperative, slot.add())?;
-            slot.finish(token.loc, NodeKind::Cast)
+            slot.finish(Node::new(token.loc, NodeKind::Cast))
         }
         TokenKind::Keyword(Keyword::BitCast) => {
             value(global, imperative, slot.add())?;
-            slot.finish(token.loc, NodeKind::BitCast)
+            slot.finish(Node::new(token.loc, NodeKind::BitCast))
         }
         TokenKind::Open(Bracket::Square) => {
             loop {
@@ -755,7 +800,7 @@ fn value_without_unaries(
                 }
             }
 
-            slot.finish(token.loc, NodeKind::ArrayLiteral)
+            slot.finish(Node::new(token.loc, NodeKind::ArrayLiteral))
         }
         TokenKind::Open(Bracket::Round) => {
             expression(global, imperative, slot.add())?;
@@ -764,7 +809,7 @@ fn value_without_unaries(
                 .tokens
                 .expect_next_is(global.errors, &TokenKind::Close(Bracket::Round))?;
 
-            slot.finish(token.loc, NodeKind::Parenthesis)
+            slot.finish(Node::new(token.loc, NodeKind::Parenthesis))
         }
 
         TokenKind::Open(Bracket::Curly) => {
@@ -777,7 +822,7 @@ fn value_without_unaries(
                     .tokens
                     .try_consume_with_data(&TokenKind::Close(Bracket::Curly))
                 {
-                    slot.add().finish(loc, NodeKind::Empty);
+                    slot.add().finish(Node::new(loc, NodeKind::Empty));
                     break;
                 }
 
@@ -789,7 +834,7 @@ fn value_without_unaries(
 
                         let mut defer_node = slot.add();
                         expression(global, imperative, defer_node.add())?;
-                        defer_node.finish(loc, NodeKind::Defer);
+                        defer_node.finish(Node::new(loc, NodeKind::Defer));
 
                         imperative.defer_depth += 1;
 
@@ -813,12 +858,12 @@ fn value_without_unaries(
 
                             let id = imperative.insert_local(Local::new(token.loc, name));
 
-                            let_node.finish(
+                            let_node.finish(Node::new(
                                 equals,
                                 NodeKind::Declare {
                                     local: id,
                                 },
-                            );
+                            ));
                         } else {
                             global.error(token.loc, "Expected identifier".to_string());
                             return Err(());
@@ -844,7 +889,7 @@ fn value_without_unaries(
             }
 
             imperative.pop_scope_boundary();
-            slot.finish(token.loc, NodeKind::Block { label })
+            slot.finish(Node::new(token.loc, NodeKind::Block { label }))
         }
 
         _ => {
@@ -864,7 +909,7 @@ fn value_without_unaries(
                 let token = global.tokens.expect_next(global.errors)?;
                 match token.kind {
                     TokenKind::Identifier(name) => {
-                        muncher.munch(1, loc, NodeKind::Member { name });
+                        muncher.munch(1, Node::new(loc, NodeKind::Member { name }));
                     }
                     TokenKind::Open(Bracket::Round) => {
                         let old_evaluate_at_typing = imperative.evaluate_at_typing;
@@ -872,7 +917,7 @@ fn value_without_unaries(
                         let count = function_arguments(global, imperative, &mut muncher)?;
                         imperative.evaluate_at_typing = old_evaluate_at_typing;
 
-                        muncher.munch(count + 1, loc, NodeKind::PolymorphicArgs);
+                        muncher.munch(count + 1, Node::new(loc, NodeKind::PolymorphicArgs));
                     }
                     _ => {
                         global.error(token.loc, "Expected either an identifier, or a generic argument list".to_string());
@@ -884,7 +929,7 @@ fn value_without_unaries(
                 global.tokens.next();
 
                 let count = function_arguments(global, imperative, &mut muncher)?;
-                muncher.munch(count + 1, loc, NodeKind::FunctionCall);
+                muncher.munch(count + 1, Node::new(loc, NodeKind::FunctionCall));
             }
             _ => break,
         }
@@ -925,13 +970,13 @@ fn function_type(
     if global.tokens.try_consume_operator_string("->").is_some() {
         type_(global, imperative, slot.add())?;
     } else {
-        slot.add().finish(
+        slot.add().finish(Node::new(
             loc,
             NodeKind::LiteralType(TypeKind::Empty.into()),
-        );
+        ));
     };
 
-    Ok(slot.finish(loc, NodeKind::FunctionType))
+    Ok(slot.finish(Node::new(loc, NodeKind::FunctionType)))
 }
 
 fn function_arguments(
@@ -994,7 +1039,7 @@ fn function_declaration(
             if global.tokens.try_consume_operator_string(":").is_some() {
                 type_(global, imperative, slot.add())?;
             } else {
-                slot.add().finish(loc, NodeKind::ImplicitType);
+                slot.add().finish(Node::new(loc, NodeKind::ImplicitType));
             }
         } else {
             global.error(
@@ -1018,19 +1063,19 @@ fn function_declaration(
     if global.tokens.try_consume_operator_string("->").is_some() {
         type_(global, imperative, slot.add())?;
     } else {
-        slot.add().finish(loc, NodeKind::ImplicitType);
+        slot.add().finish(Node::new(loc, NodeKind::ImplicitType));
     }
 
     expression(global, imperative, slot.add())?;
 
     imperative.pop_scope_boundary();
 
-    Ok(slot.finish(
+    Ok(slot.finish(Node::new(
         loc,
         NodeKind::FunctionDeclaration {
             args,
         },
-    ))
+    )))
 }
 
 fn maybe_parse_polymorphic_arguments(
@@ -1174,4 +1219,154 @@ fn offset_path(path: &Path, addition: &str) -> PathBuf {
     }
 
     path
+}
+
+#[derive(Clone)]
+pub struct Node {
+    pub loc: Location,
+    pub kind: NodeKind,
+    pub type_infer_value_id: crate::type_infer::ValueId,
+    pub type_: Option<Type>,
+}
+
+impl Node {
+    fn new(loc: Location, kind: NodeKind) -> Self {
+        Self {
+            loc,
+            kind,
+            type_infer_value_id: crate::type_infer::ValueId::NONE,
+            type_: None,
+        }
+    }
+
+    pub fn type_(&self) -> Type {
+        self.type_.unwrap()
+    }
+}
+
+#[derive(Debug, Clone)]
+pub enum NodeKind {
+    Literal(Literal),
+    ArrayLiteral,
+    BuiltinFunction(BuiltinFunction),
+
+    Explain,
+
+    PolymorphicArgument(usize),
+    ConstAtTyping,
+    ConstAtEvaluation,
+
+    Global {
+        scope: ScopeId,
+        name: Ustr,
+    },
+
+    /// [ of, ..args ]
+    PolymorphicArgs,
+
+    Constant(ConstantRef, Option<Arc<MemberMetaData>>),
+    ResolvedGlobal(MemberId, Arc<MemberMetaData>),
+
+    /// [ iterator, body, else_body ]
+    For {
+        iterator: LocalId,
+        iteration_var: LocalId,
+        label: LabelId,
+    },
+    /// [ condition, body, else_body ]
+    While {
+        iteration_var: LocalId,
+        label: LabelId,
+    },
+    /// [ condition, body, else_body ]
+    If {
+        is_const: Option<Location>,
+    },
+
+    Member {
+        name: Ustr,
+    },
+
+    /// [ .. args, returns, body ]  (at least 2 children)
+    FunctionDeclaration {
+        args: Vec<LocalId>,
+    },
+
+    /// [ inner ]
+    TypeOf,
+    /// [ inner ]
+    SizeOf,
+    /// Type expressions actually use the type of the node to mean the type of the expression. So if you were to do
+    /// &T, this would have the type &T. This of course, isn't compatible with how normal expressions work, so we
+    /// need this node to convert from the way type expressions work to the way values work, by taking the type of the
+    /// type expression, inserting it into the global type table, and then making that value a constant. (and the type
+    /// is of course `Type`). Except that this isn't the full story, in reality type expressions are what's called
+    /// "inferrable constants", which means that if you use a `type`, inside of a type, it just "disappears", and
+    /// allows for inferrence through it. This is vital for allowing constants with `type` to behave as you'd expect.
+    /// [ inner ]
+    TypeAsValue,
+    ImplicitType,
+    /// [ .. fields ]
+    StructType {
+        fields: Vec<Ustr>,
+    },
+    /// [ len, member ]
+    ArrayType,
+    /// [ .. args, returns ]
+    FunctionType,
+    /// [ inner ]
+    BufferType,
+    /// [ inner ]
+    ReferenceType,
+    LiteralType(Type),
+    /// [ inner ]
+    Reference,
+    /// [ operand ]
+    Unary {
+        op: UnaryOp,
+    },
+    /// [ left, right ]
+    Binary {
+        op: BinaryOp,
+    },
+    /// [ expression ]
+    Break {
+        label: LabelId,
+        num_defer_deduplications: usize,
+    },
+    /// [ inner ]
+    Defer,
+    /// [ calling, .. args ]
+    FunctionCall,
+    /// [ calling, .. args ]
+    ResolvedFunctionCall {
+        arg_indices: Vec<usize>,
+    },
+    /// [ .. contents ]
+    Block {
+        label: Option<LabelId>,
+    },
+    /// [ inner ]
+    Parenthesis,
+    Empty,
+    Uninit,
+    Zeroed,
+
+    /// [ value, bound ]
+    TypeBound,
+    /// [ inner ]
+    Cast,
+    /// [ inner ]
+    BitCast,
+    /// [ value ]
+    Declare {
+        local: LocalId,
+    },
+    Local(LocalId),
+}
+
+impl fmt::Debug for Node {
+    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.kind.fmt(fmt)
+    }
 }

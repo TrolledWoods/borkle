@@ -162,7 +162,7 @@ fn worker<'a>(alloc: &'a mut Bump, program: &'a Program) -> (ThreadContext<'a>, 
                     // If it's a polymorphic thing this task could have been scheduled twice, so we have to do this check.
                     if !program.member_is_typed(member_id) {
                         profile::profile!("Task::TypeMember");
-                        use crate::parser::ast::NodeKind;
+                        use crate::parser::NodeKind;
 
                         match crate::typer::process_ast(
                             &mut errors,
