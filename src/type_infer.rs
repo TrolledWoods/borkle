@@ -5,7 +5,7 @@ use crate::errors::ErrorCtx;
 use crate::location::Location;
 use crate::operators::BinaryOp;
 use crate::types::{self, IntTypeKind};
-use crate::parser::{NodeId as AstNodeId};
+use crate::ast::{NodeId as AstNodeId};
 use std::collections::HashMap;
 use std::mem;
 use ustr::Ustr;
@@ -120,7 +120,7 @@ pub struct IdMapper {
 
 pub enum MappedId {
     PolyArg(usize),
-    AstNode(crate::parser::NodeId),
+    AstNode(crate::ast::NodeId),
     Local(crate::locals::LocalId),
     Label(crate::locals::LabelId),
     None,
@@ -140,7 +140,7 @@ impl IdMapper {
         id -= self.poly_args as u32;
 
         if id < self.ast_nodes as _ {
-            return MappedId::AstNode(crate::parser::NodeId(id));
+            return MappedId::AstNode(AstNodeId(id));
         }
         id -= self.ast_nodes as u32;
 

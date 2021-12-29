@@ -13,22 +13,26 @@ use std::path::{Path, PathBuf};
 use std::fmt;
 use ustr::Ustr;
 
-pub use ast::{AstBuilder, NodeId, FinishedNode};
+use crate::ast::{self, AstStructure, AstBuilder, NodeId, FinishedNode};
 
 pub type NodeView<'a>    = ast::GenericNodeView<'a, &'a [Node]>;
 pub type NodeViewMut<'a> = ast::GenericNodeView<'a, &'a mut [Node]>;
+
+mod context;
+mod lexer;
+mod token_stream;
 
 type AstSlot<'a> = ast::AstSlot<'a, Vec<Node>>;
 type Muncher<'a> = ast::Muncher<'a, Vec<Node>>;
 
 #[derive(Debug, Clone)]
 pub struct Ast {
-    pub structure: ast::AstStructure,
+    pub structure: AstStructure,
     pub nodes: Vec<Node>,
 }
 
 impl Ast {
-    fn from_builder(builder: ast::AstBuilder<Vec<Node>>) -> Self {
+    fn from_builder(builder: AstBuilder<Vec<Node>>) -> Self {
         let (structure, nodes) = builder.finish();
         Self {
             structure,
@@ -56,11 +60,6 @@ impl Ast {
         self.structure.get(id, &mut self.nodes[..])
     }
 }
-
-pub mod ast;
-mod context;
-mod lexer;
-mod token_stream;
 
 pub fn process_string(
     errors: &mut ErrorCtx,

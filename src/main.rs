@@ -4,6 +4,7 @@
 // long time, but I still want some of the benefits of the very useful warnings.
 #![deny(rust_2018_idioms, mutable_borrow_reservation_conflict, unused_variables, unused_mut, unused_unsafe)]
 
+mod ast;
 mod c_backend;
 mod command_line_arguments;
 mod dependencies;

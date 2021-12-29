@@ -1251,7 +1251,7 @@ pub enum Task {
         crate::locals::LocalVariables,
         crate::type_infer::TypeSystem,
         crate::typer::Ast,
-        crate::parser::ast::NodeId,
+        crate::ast::NodeId,
         Type,
         FunctionId,
         crate::type_infer::ValueSetId,

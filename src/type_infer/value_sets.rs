@@ -31,7 +31,7 @@ impl ValueSets {
         id
     }
 
-    pub fn add_node_to_set(&mut self, value_set: ValueSetId, node: crate::parser::ast::NodeId) {
+    pub fn add_node_to_set(&mut self, value_set: ValueSetId, node: crate::ast::NodeId) {
         self.sets[value_set].related_nodes.push(node);
     }
 
@@ -67,7 +67,7 @@ impl ValueSets {
 
 #[derive(Clone)]
 pub struct ValueSet {
-    pub related_nodes: Vec<crate::parser::ast::NodeId>,
+    pub related_nodes: Vec<crate::ast::NodeId>,
 
     uncomputed_values: i32,
     pub has_errors: bool,
