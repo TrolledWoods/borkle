@@ -431,17 +431,38 @@ fn type_(
         }
         TokenKind::Open(Bracket::Round) => {
             global.tokens.next();
-            if global.tokens.try_consume(&TokenKind::Close(Bracket::Round)) {
+
+            let has_to_be_tuple = loop {
+                if global
+                    .tokens
+                    .try_consume(&TokenKind::Close(Bracket::Round))
+                {
+                    break true;
+                }
+
+                type_(global, imperative, slot.add())?;
+
+                let token = global.tokens.expect_next(global.errors)?;
+                match token.kind {
+                    TokenKind::Close(Bracket::Round) => break false,
+                    TokenKind::Comma => {}
+                    _ => {
+                        global.error(token.loc, "Expected either ',' or ']'".to_string());
+                        return Err(());
+                    }
+                }
+            };
+
+            if slot.num_children() == 1 && !has_to_be_tuple {
+                Ok(slot.finish(Node::new(loc, NodeKind::Parenthesis)))
+            } else if slot.num_children() == 0 {
+                // Temporary! We want to replace `Empty` with an empty tuple later on
                 Ok(slot.finish(Node::new(
                     loc,
                     NodeKind::LiteralType(TypeKind::Empty.into()),
                 )))
             } else {
-                type_(global, imperative, slot.add())?;
-                global
-                    .tokens
-                    .expect_next_is(global.errors, &TokenKind::Close(Bracket::Round))?;
-                Ok(slot.finish(Node::new(loc, NodeKind::Parenthesis)))
+                Ok(slot.finish(Node::new(loc, NodeKind::TupleType)))
             }
         }
         TokenKind::Keyword(Keyword::Function) => {
@@ -809,13 +830,32 @@ fn value_without_unaries(
             slot.finish(Node::new(token.loc, NodeKind::ArrayLiteral))
         }
         TokenKind::Open(Bracket::Round) => {
-            expression(global, imperative, slot.add())?;
+            let has_to_be_tuple = loop {
+                if global
+                    .tokens
+                    .try_consume(&TokenKind::Close(Bracket::Round))
+                {
+                    break true;
+                }
 
-            global
-                .tokens
-                .expect_next_is(global.errors, &TokenKind::Close(Bracket::Round))?;
+                expression(global, imperative, slot.add())?;
 
-            slot.finish(Node::new(token.loc, NodeKind::Parenthesis))
+                let token = global.tokens.expect_next(global.errors)?;
+                match token.kind {
+                    TokenKind::Close(Bracket::Round) => break false,
+                    TokenKind::Comma => {}
+                    _ => {
+                        global.error(token.loc, "Expected either ',' or ']'".to_string());
+                        return Err(());
+                    }
+                }
+            };
+
+            if slot.num_children() == 1 && !has_to_be_tuple {
+                slot.finish(Node::new(token.loc, NodeKind::Parenthesis))
+            } else {
+                slot.finish(Node::new(token.loc, NodeKind::Tuple))
+            }
         }
 
         TokenKind::Open(Bracket::Curly) => {
@@ -1316,6 +1356,8 @@ pub enum NodeKind {
     },
     /// [ len, member ]
     ArrayType,
+    /// [ args .. ]
+    TupleType,
     /// [ .. args, returns ]
     FunctionType,
     /// [ inner ]
@@ -1352,6 +1394,8 @@ pub enum NodeKind {
     },
     /// [ inner ]
     Parenthesis,
+    /// [ args .. ]
+    Tuple,
     Empty,
     Uninit,
     Zeroed,

@@ -269,6 +269,10 @@ pub struct AstSlot<'a, D: TreeGrowable> {
 }
 
 impl<'a, D: TreeGrowable> AstSlot<'a, D> {
+    pub fn num_children(&self) -> u32 {
+        self.num_children
+    }
+
     pub fn add(&mut self) -> AstSlot<'_, D> {
         self.num_children += 1;
         AstSlot {

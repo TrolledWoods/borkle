@@ -1,16 +1,11 @@
+library "vec.bo";
 import "tests/main.bo";
 
 #entry fn() {
-    let x = 13 : u32;
-    let result = if #const: x > 4 {
-        42
-    } else {
-        "Hello, world!\n"
-    };
+    let a = (1, 2);
 
-    print(result);
+    print_u64(a._0);
+    print_u64(a._1);
+    
+    print("Hello, world!\n");
 };
-
-
-
-

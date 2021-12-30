@@ -210,7 +210,9 @@ pub fn solve<'a>(
             value_set.has_been_computed = true;
             let waiting_on = std::mem::replace(&mut value_set.waiting_on_completion, WaitingOnTypeInferrence::None);
 
-            subset_was_completed(&mut ctx, &mut data.ast, waiting_on, value_set_id);
+            if !value_set.has_errors {
+                subset_was_completed(&mut ctx, &mut data.ast, waiting_on, value_set_id);
+            }
 
             progress = true;
         }
