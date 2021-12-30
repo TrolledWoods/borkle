@@ -1054,7 +1054,6 @@ fn function_declaration(
 
     imperative.push_scope_boundary();
 
-    let mut args = Vec::new();
     loop {
         if global.tokens.try_consume(&TokenKind::Close(Bracket::Round)) {
             break;
@@ -1067,7 +1066,7 @@ fn function_declaration(
         }) = global.tokens.next()
         {
             let local_id = imperative.insert_local(Local::new(loc, name));
-            args.push(local_id);
+            slot.add().finish(Node::new(loc, NodeKind::Declare { local: local_id }));
 
             if global.tokens.try_consume_operator_string(":").is_some() {
                 type_(global, imperative, slot.add())?;
@@ -1105,9 +1104,7 @@ fn function_declaration(
 
     Ok(slot.finish(Node::new(
         loc,
-        NodeKind::FunctionDeclaration {
-            args,
-        },
+        NodeKind::FunctionDeclaration,
     )))
 }
 
@@ -1315,10 +1312,8 @@ pub enum NodeKind {
         name: Ustr,
     },
 
-    /// [ .. args, returns, body ]  (at least 2 children)
-    FunctionDeclaration {
-        args: Vec<LocalId>,
-    },
+    /// [ .. (arg_lvalue, arg_type), returns, body ]  (at least 2 children)
+    FunctionDeclaration,
 
     /// [ inner ]
     TypeOf,

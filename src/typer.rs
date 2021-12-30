@@ -407,6 +407,9 @@ fn subset_was_completed(ctx: &mut Context<'_, '_>, ast: &mut Ast, waiting_on: Wa
             parent_set,
             time,
         } => {
+            // @TODO!!!!!!!!!!!
+            // Function declarations should NOT assume the argument ids are the first few value ids.
+
             let node_loc = ast.get(node_id).loc;
             let function_id = ctx.program.insert_function(node_loc);
 
@@ -961,7 +964,7 @@ fn build_constraints(
             ctx.infer
                 .set_equal(operand_type_id, temp, Reason::new(node_loc, ReasonKind::Passed));
         }
-        NodeKind::FunctionDeclaration { ref args } => {
+        NodeKind::FunctionDeclaration => {
             let mut emit_deps = DependencyList::new();
 
             let mut sub_ctx = Context {
@@ -982,22 +985,19 @@ fn build_constraints(
             // it can continue, so we lock it to make sure it doesn't get emitted before then.
             sub_ctx.infer.value_sets.lock(set);
 
-            let mut function_type_ids = Vec::with_capacity(args.len() + 1);
             let mut children = node.children.iter();
             let num_children = children.len();
-            for (&local_id, type_node) in args.iter().zip(children.by_ref().take(num_children - 2)) {
-                let local = sub_ctx.locals.get_mut(local_id);
-                let name = local.name;
-                local.stack_frame_id = sub_set;
-                let local_type_id = TypeId::Node(local.declared_at.unwrap());
-                sub_ctx.infer.set_value_set(local_type_id, sub_set);
+            let mut function_type_ids = Vec::with_capacity((num_children - 2) / 2);
+            for _ in (0..num_children - 2).step_by(2) {
+                let argument_decl = children.next().unwrap();
+                let argument_decl_loc = argument_decl.loc;
+                let argument_type = children.next().unwrap();
 
-                let type_node_loc = type_node.loc;
-                let type_id = build_type(&mut sub_ctx, type_node, sub_set);
-                sub_ctx.infer
-                    .set_equal(type_id, local_type_id, Reason::new(type_node_loc, ReasonKind::FunctionDeclArgumentType(name)));
+                let decl_id = build_lvalue(&mut sub_ctx, argument_decl, sub_set);
+                let type_id = build_type(&mut sub_ctx, argument_type, sub_set);
 
-                function_type_ids.push((local_type_id, Reason::new(node_loc, ReasonKind::FunctionDeclArgumentDeclaration(name))));
+                sub_ctx.infer.set_equal(decl_id, type_id, Reason::temp(argument_decl_loc));
+                function_type_ids.push((type_id, Reason::temp(node_loc)));
             }
 
             let returns = children.next().unwrap();
