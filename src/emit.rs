@@ -70,7 +70,7 @@ pub fn emit_function_declaration<'a>(
     #[warn(unused)]
     stack_frame_id: crate::type_infer::ValueSetId,
 ) {
-    let mut sub_ctx = Context {
+    let mut ctx = Context {
         thread_context,
         instr: Vec::new(),
         registers: Registers::new(),
@@ -83,51 +83,73 @@ pub fn emit_function_declaration<'a>(
         last_location: None,
     };
 
-    let result = emit_node(&mut sub_ctx, ast.get(node_id));
+    let function_type = ctx.types.get(TypeId::Node(node_id));
+    let args = function_type.args();
+
+    // Pretend there are actual values on the stack
+    let arg_values: Vec<_> = args.iter().take(args.len() - 1).map(|&v| {
+        ctx.registers.create(ctx.types, v)
+    }).collect();
+
+    let node = ast.get(node_id);
+    let mut children = node.children.into_iter();
+    for passed_as in arg_values.into_iter() {
+        let child = children.next().unwrap();
+        // Skip the type bound
+        children.next();
+        let child_id = emit_declarative_lvalue(&mut ctx, child);
+        ctx.emit_move(child_id, passed_as);
+    }
+
+    // Now that we've read all the arguments of the function, only the return type,
+    // and the body are left. We don't need the return type, as that is only for the typer,
+    // so we skip that one.
+
+    let result = emit_node(&mut ctx, children.nth(1).unwrap());
 
     let routine = Routine::UserDefined(UserDefinedRoutine {
         loc,
-        label_locations: sub_ctx.label_locations,
-        instr: sub_ctx.instr,
-        registers: sub_ctx.registers,
+        label_locations: ctx.label_locations,
+        instr: ctx.instr,
+        registers: ctx.registers,
         result,
     });
 
-    if sub_ctx.program.arguments.release {
+    if ctx.program.arguments.release {
         if let TypeKind::Function { args, returns } = type_.kind() {
             crate::c_backend::function_declaration(
-                &mut sub_ctx.thread_context.c_headers,
+                &mut ctx.thread_context.c_headers,
                 crate::c_backend::c_format_function(function_id),
                 args,
                 *returns,
             );
 
-            sub_ctx.thread_context.c_headers.push_str(";\n");
+            ctx.thread_context.c_headers.push_str(";\n");
 
             crate::c_backend::function_declaration(
-                &mut sub_ctx.thread_context.c_declarations,
+                &mut ctx.thread_context.c_declarations,
                 crate::c_backend::c_format_function(function_id),
                 args,
                 *returns,
             );
-            sub_ctx.thread_context.c_declarations.push_str(" {\n");
+            ctx.thread_context.c_declarations.push_str(" {\n");
 
             crate::c_backend::routine_to_c(
-                sub_ctx.program,
-                &mut sub_ctx.thread_context.c_declarations,
+                ctx.program,
+                &mut ctx.thread_context.c_declarations,
                 &routine,
                 args,
                 *returns,
             );
-            sub_ctx.thread_context.c_declarations.push_str("}\n");
+            ctx.thread_context.c_declarations.push_str("}\n");
         } else {
             unreachable!("A function type node has to have a function type kind!!!!!!");
         }
     }
 
-    sub_ctx
+    ctx
         .program
-        .set_routine_of_function(function_id, sub_ctx.calling, routine);
+        .set_routine_of_function(function_id, ctx.calling, routine);
 }
 
 fn emit_node<'a>(ctx: &mut Context<'a, '_>, mut node: NodeView<'a>) -> Value {

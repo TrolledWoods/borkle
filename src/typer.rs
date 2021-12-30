@@ -402,14 +402,11 @@ fn subset_was_completed(ctx: &mut Context<'_, '_>, ast: &mut Ast, waiting_on: Wa
         }
         WaitingOnTypeInferrence::FunctionDeclaration {
             node_id,
-            body,
+            body: _,
             function_type,
             parent_set,
             time,
         } => {
-            // @TODO!!!!!!!!!!!
-            // Function declarations should NOT assume the argument ids are the first few value ids.
-
             let node_loc = ast.get(node_id).loc;
             let function_id = ctx.program.insert_function(node_loc);
 
@@ -428,7 +425,7 @@ fn subset_was_completed(ctx: &mut Context<'_, '_>, ast: &mut Ast, waiting_on: Wa
                             ctx.locals.clone(),
                             ctx.infer.clone(),
                             ast.clone(),
-                            body,
+                            node_id,
                             type_,
                             function_id,
                             set,
@@ -442,7 +439,7 @@ fn subset_was_completed(ctx: &mut Context<'_, '_>, ast: &mut Ast, waiting_on: Wa
                         ctx.locals,
                         ctx.infer,
                         ast,
-                        body,
+                        node_id,
                         type_,
                         node_loc,
                         function_id,

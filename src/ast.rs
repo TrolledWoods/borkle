@@ -456,10 +456,10 @@ impl<'a, Zipped: TreeZippable> GenericNodeView<'a, Zipped> {
     }
 }
 
-impl<'a, Zipped: TreeZippable> GenericNodeView<'a, Zipped> where Zipped::Target: std::fmt::Debug {
+impl<'a, Zipped: TreeZippable + Copy> GenericNodeView<'a, Zipped> where Zipped::Target: std::fmt::Debug + Copy {
     // Because this is a debugging function, it may be unused
     #[allow(unused)]
-    pub fn print(self) {
+    pub fn print(&self) {
         let mut stack = Vec::new();
         println!("Ast:");
         println!("{}{}: {:?}", ": ".repeat(stack.len()), self.id.0, self.node);
