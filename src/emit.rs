@@ -86,8 +86,10 @@ pub fn emit_function_declaration<'a>(
     let function_type = ctx.types.get(TypeId::Node(node_id));
     let args = function_type.args();
 
+    debug_assert_eq!(function_type.kind(), &type_infer::TypeKind::Function);
+
     // Pretend there are actual values on the stack
-    let arg_values: Vec<_> = args.iter().take(args.len() - 1).map(|&v| {
+    let arg_values: Vec<_> = args.iter().skip(1).map(|&v| {
         ctx.registers.create(ctx.types, v)
     }).collect();
 
@@ -106,6 +108,11 @@ pub fn emit_function_declaration<'a>(
     // so we skip that one.
 
     let result = emit_node(&mut ctx, children.nth(1).unwrap());
+
+    /*println!("The instructions are: ");
+    for instr in &ctx.instr {
+        println!("{:?}", instr);
+    }*/
 
     let routine = Routine::UserDefined(UserDefinedRoutine {
         loc,
