@@ -1915,6 +1915,13 @@ impl TypeSystem {
                 let length_value = self.add_value(usize_type, constant_ref_length, set.clone());
                 self.set_type(id, TypeKind::Array, Args([(inner, Reason::temp_zero()), (length_value, Reason::temp_zero())]), set.clone())
             }
+            types::TypeKind::Tuple(ref fields) => {
+                let field_types: Vec<_> = fields
+                    .iter()
+                    .map(|&v| (self.add_compiler_type(program, v, set.clone()), Reason::temp_zero()))
+                    .collect();
+                self.set_type(id, TypeKind::Tuple, Args(field_types), set.clone())
+            }
             types::TypeKind::Struct(ref fields) => {
                 let field_names = fields.iter().map(|&(v, _)| v).collect();
                 let field_types: Vec<_> = fields

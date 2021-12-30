@@ -1,11 +1,23 @@
 library "vec.bo";
 import "tests/main.bo";
 
-#entry fn() {
-    let a = (1, 2);
+const print_tuple.(A, B) = fn(value: &(A, B)) {
+    print_u64(cast value._0);
+    print(", ");
+    print_u64(cast value._1);
+    print("\n");
+};
 
-    print_u64(a._0);
-    print_u64(a._1);
+#entry fn() {
+    let a = (6 : u32, 4 : u8);
+    let b = (42 : u64, a._0);
+
+    print_tuple(&a);
+    print_tuple(&b);
     
     print("Hello, world!\n");
 };
+
+
+
+

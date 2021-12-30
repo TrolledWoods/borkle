@@ -562,6 +562,19 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, mut node: NodeView<'a>) -> Value {
 
             to
         }
+        NodeKind::Tuple => {
+            let to = ctx.registers.create(ctx.types, TypeId::Node(node.id));
+            let base_type = ctx.types.value_to_compiler_type(TypeId::Node(node.id));
+
+            for (i, child) in node.children.into_iter().enumerate() {
+                let child_value = emit_node(ctx, child);
+
+                let (name, offset, _) = base_type.0.members[i];
+                ctx.emit_move_to_member_of_value(to, child_value, Member { offset, name });
+            }
+
+            to
+        }
         NodeKind::ArrayLiteral => {
             let node_type = ctx.types.get(TypeId::Node(node.id));
             let internal_type =

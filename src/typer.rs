@@ -1248,7 +1248,7 @@ fn build_type(
             ctx.infer
                 .set_equal(infer_type_id, node_type_id, Reason::temp(node_loc));
         }
-        NodeKind::Tuple => {
+        NodeKind::TupleType => {
             let mut values = Vec::with_capacity(node.children.len());
             for child in node.children {
                 let child_id = build_type(ctx, child, set);
