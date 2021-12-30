@@ -565,39 +565,17 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, mut node: NodeView<'a>) -> Value {
             to
         }
         NodeKind::ArrayLiteral => {
-            let node_type = ctx.types.get(TypeId::Node(node.id));
-            let internal_type =
-                if let type_infer::TypeKind::Array = node_type.kind() {
-                    node_type.kind.as_ref().unwrap().args.as_ref().unwrap()[0]
-                } else {
-                    unreachable!()
-                };
+            let to = ctx.registers.create(ctx.types, TypeId::Node(node.id));
+            let base_type = ctx.types.value_to_compiler_type(TypeId::Node(node.id));
 
-            let internal_type_node = ctx.types.get(TypeId::Node(node.id));
-            let Some(type_infer::Type { kind: type_infer::TypeKind::Array, args: Some(internal_type_args) }) = &internal_type_node.kind else {
-                unreachable!()
-            };
+            for (i, child) in node.children.into_iter().enumerate() {
+                let child_value = emit_node(ctx, child);
 
-            // This is a bit weird but it has to be checked here. The reason is we generate a temporary pointer to the elements
-            // of the array, and this internal pointer does not account for the array being zero sized; i.e., getting a non zero
-            // sized pointer from a zero sized type.
-            if node.children.len() > 0 && ctx.types.get(internal_type).layout.unwrap().size > 0 {
-                let to = ctx.registers.create(ctx.types, TypeId::Node(node.id));
-                let internal_type_arg = internal_type_args[0];
-                let ref_type_id = ctx.types.add_type(type_infer::TypeKind::Reference, Args([(internal_type_arg, Reason::temp_zero())]), ()); 
-                let reference = ctx.registers.create(ctx.types, ref_type_id);
-                ctx.emit_reference(reference, to);
-                for (i, element) in node.children.into_iter().enumerate() {
-                    if i > 0 {
-                        ctx.emit_increment(reference);
-                    }
-                    let from = emit_node(ctx, element);
-                    ctx.emit_indirect_move(reference, from);
-                }
-                to
-            } else {
-                ctx.registers.zst()
+                let (name, offset, _) = base_type.0.members[i];
+                ctx.emit_move_to_member_of_value(to, child_value, Member { offset, name });
             }
+
+            to
         }
         NodeKind::Reference => {
             let [operand] = node.children.as_array();
@@ -745,6 +723,36 @@ fn emit_declarative_lvalue<'a>(
         NodeKind::Declare => {
             let [value] = node.children.as_array();
             emit_declarative_lvalue(ctx, value, from, true);
+        }
+        NodeKind::Tuple => {
+            let base_type = ctx.types.value_to_compiler_type(TypeId::Node(node.id));
+
+            let mut temp = Vec::with_capacity(node.children.len());
+            for (i, child) in node.children.into_iter().enumerate() {
+                let to = ctx.registers.create(ctx.types, TypeId::Node(child.id));
+                let (name, offset, _) = base_type.0.members[i];
+                ctx.emit_member(to, from, Member { offset, name });
+                temp.push(to);
+            }
+
+            for (child, to) in node.children.into_iter().zip(temp) {
+                emit_declarative_lvalue(ctx, child, to, is_declaring);
+            }
+        }
+        NodeKind::ArrayLiteral => {
+            let base_type = ctx.types.value_to_compiler_type(TypeId::Node(node.id));
+
+            let mut temp = Vec::with_capacity(node.children.len());
+            for (i, child) in node.children.into_iter().enumerate() {
+                let to = ctx.registers.create(ctx.types, TypeId::Node(child.id));
+                let (name, offset, _) = base_type.0.members[i];
+                ctx.emit_member(to, from, Member { offset, name });
+                temp.push(to);
+            }
+
+            for (child, to) in node.children.into_iter().zip(temp) {
+                emit_declarative_lvalue(ctx, child, to, is_declaring);
+            }
         }
         NodeKind::Unary {
             op: UnaryOp::Dereference,

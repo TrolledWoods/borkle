@@ -2,11 +2,31 @@ library "iter.bo";
 library "vec.bo";
 
 {
-    let vec = get_line();
+    /*let vec = get_line();
     defer vec_free(vec);
 
     for vec_as_buffer(&vec) {
         print_u64(cast v);
         print("\n");
-    };
+    };*/
+
+    /*let array = [1, 2, 3, 4, 5];
+
+    for cast &array : [] u64 {
+        print_u64(v);
+        print("\n");
+    };*/
+
+
+    let t = [42, 99];
+
+    [t._1, t._0] = t;
+
+    let b = #0;
+    [let a, b] = t;
+
+    print_u64(a);
+    print(", ");
+    print_u64(b);
+    print("\n");
 };

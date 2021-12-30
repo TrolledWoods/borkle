@@ -1277,12 +1277,15 @@ fn build_type(
 
 fn build_declarative_lvalue(
     ctx: &mut Context<'_, '_>,
-    node: NodeViewMut<'_>,
+    mut node: NodeViewMut<'_>,
     set: ValueSetId,
     is_declaring: bool,
 ) -> type_infer::ValueId {
     let node_loc = node.loc;
     let node_type_id = TypeId::Node(node.id);
+
+    ctx.infer.set_value_set(node_type_id, set);
+    ctx.infer.value_sets.add_node_to_set(set, node.id);
 
     match node.kind {
         NodeKind::Member { name } if !is_declaring => {
@@ -1319,6 +1322,39 @@ fn build_declarative_lvalue(
             let inner = build_declarative_lvalue(ctx, value, set, is_declaring);
             ctx.infer.set_equal(node_type_id, inner, Reason::temp(node_loc));
         }
+        NodeKind::Tuple => {
+            let mut values = Vec::with_capacity(node.children.len());
+            for child in node.children {
+                let child_id = build_declarative_lvalue(ctx, child, set, is_declaring);
+                values.push((child_id, Reason::temp(node_loc)));
+            }
+
+            ctx.infer.set_type(node_type_id, TypeKind::Tuple, Args(values), set);
+        }
+        NodeKind::ArrayLiteral => {
+            let inner_type = ctx.infer.add_unknown_type_with_set(set);
+
+            for arg in node.children.iter() {
+                let arg_type_id = build_declarative_lvalue(ctx, arg, set, is_declaring);
+                ctx.infer.set_equal(arg_type_id, inner_type, Reason::new(node_loc, ReasonKind::Passed));
+            }
+
+            let usize = ctx.infer.add_int(IntTypeKind::Usize, set);
+            let length = ctx.program.insert_buffer(types::Type::new(types::TypeKind::Int(IntTypeKind::Usize)), (node.children.len()).to_le_bytes().as_ptr());
+
+            let variable_count = ctx.infer.add_value(
+                usize,
+                length,
+                set,
+            );
+
+            let array_type = ctx.infer.add_type(
+                TypeKind::Array, Args([(inner_type, Reason::temp(node_loc)), (variable_count, Reason::temp(node_loc))]),
+                set,
+            );
+
+            ctx.infer.set_equal(node_type_id, array_type, Reason::new(node_loc, ReasonKind::Passed));
+        }
         NodeKind::TypeBound => {
             let [value, bound] = node.children.into_array();
             // @Improvment: Here, both things are invariant. One of them could potentially be variant,
@@ -1353,9 +1389,6 @@ fn build_declarative_lvalue(
             ctx.infer.value_sets.get_mut(set).has_errors = true;
         }
     }
-
-    ctx.infer.set_value_set(node_type_id, set);
-    ctx.infer.value_sets.add_node_to_set(set, node.id);
 
     node_type_id
 }
