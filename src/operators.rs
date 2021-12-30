@@ -99,7 +99,7 @@ operator!(UnaryOp {
 });
 
 operator!(BinaryOp {
-    TypeBound = (":", 2),
+    TypeBound = (":", 9),
 
     And = ("&&", 6),
     Or  = ("||", 6),

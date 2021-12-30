@@ -717,6 +717,12 @@ fn emit_declarative_lvalue<'a>(
             let to = emit_lvalue(ctx, false, node);
             ctx.emit_indirect_move(to, from);
         }
+        NodeKind::Binary { op: BinaryOp::BitAnd } => {
+            let [left, right] = node.children.into_array();
+
+            emit_declarative_lvalue(ctx, left, from, is_declaring);
+            emit_declarative_lvalue(ctx, right, from, is_declaring);
+        }
         NodeKind::ImplicitType => {}
         NodeKind::Declare => {
             let [value] = node.children.as_array();

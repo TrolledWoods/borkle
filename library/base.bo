@@ -31,11 +31,11 @@ const filled_array.(N, T) = fn(fill_with: T) -> [N] T {
 };
 
 const copy.(T) = fn(to: &T, from: &T, size: usize) {
-    i_copy(cast to, cast from, size * sizeof T);
+    i_copy(cast from, cast to, size * sizeof T);
 };
 
 const copy_nonoverlapping.(T) = fn(to: &T, from: &T, size: usize) {
-    i_copy_nonoverlapping(cast to, cast from, size * sizeof T);
+    i_copy_nonoverlapping(cast from, cast to, size * sizeof T);
 };
 
 const alloc.(T) = fn(count: usize) -> [] T {

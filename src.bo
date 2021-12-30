@@ -1,31 +1,46 @@
 library "iter.bo";
 library "vec.bo";
 
-const print_tuple.(A, B) = fn((a: A, b: B)) {
-    print_u64(cast a);
-    print(", ");
-    print_u64(cast b);
-    print("\n");
-};
+import "tests/main.bo";
 
-{
+#entry fn() {
+    run_aoc_tests();
 
-    /*let vec = get_line();
-    defer vec_free(vec);
-
-    for vec_as_buffer(&vec) {
-        print_u64(cast v);
+    let hello = fn([a, b, c] & array) {
+        print("array: ");
+        for array {
+            if i > 0 print(", ");
+            print_u64(v);
+        };
         print("\n");
-    };*/
 
-    /*let array = [1, 2, 3, 4, 5];
+        print("a: ");
+        print_u64(a);
+        print("\n");
+        print("b: ");
+        print_u64(b);
+        print("\n");
+        print("c: ");
+        print_u64(c);
+        print("\n");
+    };
 
-    for cast &array : [] u64 {
+    hello([1, 2, 3]);
+
+    let c = &90;
+    (let a)&*c=200;
+
+    print_u64(a);
+    print("\n");
+
+    let to = [9, 8, 7, 6];
+    let from = [1, 2, 3, 4];
+
+    copy_nonoverlapping(&to, &from, 1);
+
+    for to {
         print_u64(v);
         print("\n");
-    };*/
+    };
 
-    let tuple = (1 : u64, 2 : u64);
-
-    print_tuple(tuple);
 };

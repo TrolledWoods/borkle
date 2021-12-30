@@ -1287,6 +1287,15 @@ fn build_declarative_lvalue(
             ctx.infer
                 .set_field_name_equal(of_type_id, name, node_type_id, Reason::new(node_loc, ReasonKind::NamedField(name)));
         }
+        NodeKind::Binary { op: BinaryOp::BitAnd } => {
+            let [left, right] = node.children.into_array();
+
+            let left_id = build_declarative_lvalue(ctx, left, set, is_declaring);
+            let right_id = build_declarative_lvalue(ctx, right, set, is_declaring);
+
+            ctx.infer.set_equal(node_type_id, left_id, Reason::temp(node_loc));
+            ctx.infer.set_equal(node_type_id, right_id, Reason::temp(node_loc));
+        }
         NodeKind::ImplicitType => {}
         NodeKind::Declare if !is_declaring => {
             let [inner] = node.children.into_array();
