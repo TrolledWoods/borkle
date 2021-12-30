@@ -423,6 +423,23 @@ fn insert_active_constraint(
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum RelativeValueId {
+    None,
+    Dynamic(u32),
+    Node(AstNodeId),
+}
+
+impl RelativeValueId {
+    pub fn make_absolute(self, _by: AstNodeId) -> ValueId {
+        match self {
+            Self::None => ValueId::None,
+            Self::Dynamic(id) => ValueId::Dynamic(id),
+            Self::Node(id) => ValueId::Node(id),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ValueId {
     None,
     Dynamic(u32),

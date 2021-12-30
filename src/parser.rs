@@ -715,8 +715,10 @@ fn value_without_unaries(
 
             expression(global, imperative, slot.add())?;
 
-            let iterator = imperative.insert_local(iterator_local);
             let iteration_var = imperative.insert_local(Local::new(token.loc, "i".into()));
+            slot.add().finish(Node::new(loc, NodeKind::Declare { local: iteration_var }));
+            let iterator = imperative.insert_local(iterator_local);
+            slot.add().finish(Node::new(loc, NodeKind::Declare { local: iterator }));
 
             expression(global, imperative, slot.add())?;
 
@@ -735,8 +737,6 @@ fn value_without_unaries(
             slot.finish(Node::new(
                 token.loc,
                 NodeKind::For {
-                    iterator,
-                    iteration_var,
                     label,
                 },
             ))
@@ -746,6 +746,7 @@ fn value_without_unaries(
             let label = parse_default_label(global, imperative)?;
 
             let iteration_var = imperative.insert_local(Local::new(token.loc, "i".into()));
+            slot.add().finish(Node::new(loc, NodeKind::Declare { local: iteration_var }));
 
             expression(global, imperative, slot.add())?;
             expression(global, imperative, slot.add())?;
@@ -765,7 +766,6 @@ fn value_without_unaries(
             slot.finish(Node::new(
                 token.loc,
                 NodeKind::While {
-                    iteration_var,
                     label,
                 },
             ))
@@ -1298,15 +1298,12 @@ pub enum NodeKind {
     Constant(ConstantRef, Option<Arc<MemberMetaData>>),
     ResolvedGlobal(MemberId, Arc<MemberMetaData>),
 
-    /// [ iterator, body, else_body ]
+    /// [ iterator, i, v, body, else_body ]
     For {
-        iterator: LocalId,
-        iteration_var: LocalId,
         label: LabelId,
     },
-    /// [ condition, body, else_body ]
+    /// [ i, condition, body, else_body ]
     While {
-        iteration_var: LocalId,
         label: LabelId,
     },
     /// [ condition, body, else_body ]
@@ -1393,7 +1390,7 @@ pub enum NodeKind {
     Cast,
     /// [ inner ]
     BitCast,
-    /// [ value ]
+    /// no child nodes
     Declare {
         local: LocalId,
     },

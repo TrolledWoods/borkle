@@ -1,16 +1,6 @@
-library "vec.bo";
-import "tests/main.bo";
+#no_base:
 
-#entry fn() {
-    let b = 5;
-    let a = 9;
-
-    print_u64(a);
-    print(", ");
-    print_u64(b);
-    print("\n");
+{
+    let x = 99;
+    x : u32
 };
-
-
-
-

@@ -1,4 +1,6 @@
 use crate::location::Location;
+use crate::ir::Value;
+use crate::ast::NodeId;
 use crate::types::Type;
 use ustr::Ustr;
 
@@ -12,14 +14,14 @@ pub struct LabelId(pub usize);
 pub struct Local {
     pub name: Ustr,
     pub loc: Location,
-    pub type_infer_value_id: crate::type_infer::ValueId,
+    pub declared_at: Option<NodeId>,
     /// The "stack frame" that you're in. This is because you can mix inline constants and function declarations
     /// and stuff into the same scope, and we have to make sure that nobody tries to read the value of another
     /// set of things to execute. So when reading/writing to a value, you have to make sure that this id
     /// matches.
     pub stack_frame_id: crate::type_infer::ValueSetId,
     pub type_: Option<Type>,
-    pub value: Option<crate::ir::Value>,
+    pub value: Option<Value>,
     pub uses: Vec<Location>,
     pub num_uses: usize,
 }
@@ -30,9 +32,9 @@ impl Local {
             name,
             loc,
             type_: None,
-            type_infer_value_id: crate::type_infer::ValueId::NONE,
-            stack_frame_id: 123123,
             value: None,
+            declared_at: None,
+            stack_frame_id: 123123,
             uses: Vec::new(),
             num_uses: 0,
         }

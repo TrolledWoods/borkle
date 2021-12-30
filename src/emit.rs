@@ -21,6 +21,7 @@ pub fn emit<'a>(
     types: &mut TypeSystem,
     ast: &Ast,
     node: NodeId,
+    #[warn(unused)]
     stack_frame_id: crate::type_infer::ValueSetId,
 ) -> (Vec<FunctionId>, UserDefinedRoutine) {
     let mut ctx = Context {
@@ -36,14 +37,6 @@ pub fn emit<'a>(
 
         defers: Vec::new(),
     };
-
-    // Allocate registers for all the locals
-    for local in ctx.locals.iter_mut() {
-        if local.stack_frame_id == stack_frame_id {
-            let value = ctx.registers.create_with_name(ctx.types, local.type_infer_value_id, local.type_.unwrap(), Some(local.name));
-            local.value = Some(value);
-        }
-    }
 
     let result = emit_node(&mut ctx, ast.get(node));
 
@@ -74,6 +67,7 @@ pub fn emit_function_declaration<'a>(
     type_: Type,
     loc: Location,
     function_id: FunctionId,
+    #[warn(unused)]
     stack_frame_id: crate::type_infer::ValueSetId,
 ) {
     let mut sub_ctx = Context {
@@ -88,14 +82,6 @@ pub fn emit_function_declaration<'a>(
         calling: Vec::new(),
         last_location: None,
     };
-
-    // Allocate registers for all the locals
-    for local in sub_ctx.locals.iter_mut() {
-        if local.stack_frame_id == stack_frame_id {
-            let value = sub_ctx.registers.create_with_name(sub_ctx.types, local.type_infer_value_id, local.type_.unwrap(), Some(local.name));
-            local.value = Some(value);
-        }
-    }
 
     let result = emit_node(&mut sub_ctx, ast.get(node_id));
 
@@ -174,11 +160,9 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, mut node: NodeView<'a>) -> Value {
             ctx.registers.zst()
         }
         NodeKind::For {
-            iterator,
-            iteration_var,
             label,
         } => {
-            let [iterating, body, else_body] = node.children.as_array();
+            let [iterating, iteration_var, iterator, body, else_body] = node.children.as_array();
 
             let end_label = ctx.create_label();
             let to = ctx.registers.create(ctx.types, TypeId::Node(node.id));
@@ -187,23 +171,11 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, mut node: NodeView<'a>) -> Value {
 
             let mut iterating_value = emit_node(ctx, iterating.clone());
 
-            let iterator_local = ctx.locals.get_mut(*iterator);
-            let iterator_type_id = iterator_local.type_infer_value_id;
-
-            let iterator_value = ctx.registers.create(ctx.types, iterator_type_id);
-            iterator_local.value = Some(iterator_value);
+            let iterator_value = emit_declarative_lvalue(ctx, iterator);
 
             // Set up iterator values
-            let iteration_var_value = if ctx.locals.get(*iteration_var).num_uses > 0 {
-                let reg = ctx
-                    .registers
-                    .create(ctx.types, type_infer::static_values::USIZE);
-                ctx.locals.get_mut(*iteration_var).value = Some(reg);
-                ctx.emit_move_from_constant(reg, &0_usize.to_le_bytes());
-                Some(reg)
-            } else {
-                None
-            };
+            let iteration_var_value = emit_declarative_lvalue(ctx, iteration_var);
+            ctx.emit_move_from_constant(iteration_var_value, &0_usize.to_le_bytes());
 
             let mut by_value = true;
 
@@ -300,9 +272,7 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, mut node: NodeView<'a>) -> Value {
             emit_node(ctx, body);
             ctx.emit_increment(current);
 
-            if let Some(iteration_var_value) = iteration_var_value {
-                ctx.emit_increment(iteration_var_value);
-            }
+            ctx.emit_increment(iteration_var_value);
 
             ctx.emit_jump(condition_label);
 
@@ -316,10 +286,9 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, mut node: NodeView<'a>) -> Value {
             to
         }
         NodeKind::While {
-            iteration_var,
             label,
         } => {
-            let [condition, body, else_body] = node.children.as_array();
+            let [iteration_var, condition, body, else_body] = node.children.as_array();
 
             let end_label = ctx.create_label();
             let else_body_label = ctx.create_label();
@@ -329,17 +298,8 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, mut node: NodeView<'a>) -> Value {
             label.value = Some(to);
             label.ir_labels = Some(vec![end_label]);
 
-            let iteration_var_mut = ctx.locals.get_mut(*iteration_var);
-            let iteration_var_value = if iteration_var_mut.num_uses > 0 {
-                let reg = ctx
-                    .registers
-                    .create(ctx.types, type_infer::static_values::USIZE);
-                iteration_var_mut.value = Some(reg);
-                ctx.emit_move_from_constant(reg, &0_usize.to_le_bytes());
-                Some(reg)
-            } else {
-                None
-            };
+            let iteration_var_value = emit_declarative_lvalue(ctx, iteration_var);
+            ctx.emit_move_from_constant(iteration_var_value, &0_usize.to_le_bytes());
 
             // Condition
             let condition_label = ctx.create_label();
@@ -350,9 +310,7 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, mut node: NodeView<'a>) -> Value {
 
             // Loop body
             emit_node(ctx, body);
-            if let Some(iteration_var_value) = iteration_var_value {
-                ctx.emit_increment(iteration_var_value);
-            }
+            ctx.emit_increment(iteration_var_value);
             ctx.emit_jump(condition_label);
 
             // Else body
@@ -630,7 +588,9 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, mut node: NodeView<'a>) -> Value {
             ctx.emit_unary(*op, to, from);
             to
         }
-        NodeKind::Local(id) => ctx.locals.get(*id).value.unwrap(),
+        NodeKind::Local(id) => {
+            ctx.locals.get(*id).value.unwrap()
+        }
         NodeKind::ConstAtEvaluation { .. } => {
             // TODO: Implement this, it's not going to work yet because emission cannot produce errors,
             // and assertion failures are errors.
@@ -735,6 +695,28 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, mut node: NodeView<'a>) -> Value {
     }
 }
 
+fn emit_declarative_lvalue<'a>(
+    ctx: &mut Context<'a, '_>,
+    node: NodeView<'a>,
+) -> Value {
+    ctx.emit_debug(node.loc);
+
+    match &node.kind {
+        NodeKind::Declare { local: id } => {
+            let local = ctx.locals.get_mut(*id);
+            let local_value = ctx.registers.create(ctx.types, TypeId::Node(local.declared_at.unwrap()));
+            local.value = Some(local_value);
+            local_value
+        }
+        kind => {
+            unreachable!(
+                "{:?} is not an lvalue. This is just something I haven't implemented checking for in the compiler yet",
+                kind
+            )
+        }
+    }
+}
+
 fn emit_lvalue<'a>(
     ctx: &mut Context<'a, '_>,
     can_reference_temporaries: bool,
@@ -772,7 +754,16 @@ fn emit_lvalue<'a>(
             let [operand] = node.children.as_array();
             emit_node(ctx, operand)
         }
-        NodeKind::Local(id) | NodeKind::Declare { local: id } => {
+        NodeKind::Declare { local: id } => {
+            let to = ctx.registers.create(ctx.types, ref_type_id);
+
+            let local = ctx.locals.get_mut(*id);
+            let local_value = ctx.registers.create(ctx.types, TypeId::Node(local.declared_at.unwrap()));
+            local.value = Some(local_value);
+            ctx.emit_reference(to, local_value);
+            to
+        }
+        NodeKind::Local(id) => {
             let to = ctx.registers.create(ctx.types, ref_type_id);
             let from = ctx.locals.get(*id).value.unwrap();
             ctx.emit_reference(to, from);

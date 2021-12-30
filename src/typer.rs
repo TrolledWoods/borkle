@@ -125,10 +125,6 @@ pub fn begin<'a>(
 
     // Create type inference variables for all variables and nodes, so that there's a way to talk about
     // all of them.
-    for local in locals.iter_mut() {
-        local.type_infer_value_id = infer.add_unknown_type();
-    }
-
     for label in locals.iter_labels_mut() {
         label.type_infer_value_id = infer.add_unknown_type();
     }
@@ -202,7 +198,7 @@ pub fn solve<'a>(
             for local in ctx.locals.iter_mut() {
                 if local.stack_frame_id == value_set_id {
                     debug_assert!(local.type_.is_none());
-                    local.type_ = Some(ctx.infer.value_to_compiler_type(local.type_infer_value_id));
+                    local.type_ = Some(ctx.infer.value_to_compiler_type(TypeId::Node(local.declared_at.unwrap())));
                 }
             }
             let value_set = ctx.infer.value_sets.get_mut(value_set_id);
@@ -254,7 +250,7 @@ pub fn finish<'a>(
 
     for local in from.locals.iter_mut() {
         if local.type_.is_none() {
-            local.type_ = Some(from.infer.value_to_compiler_type(local.type_infer_value_id));
+            local.type_ = Some(from.infer.value_to_compiler_type(TypeId::Node(local.declared_at.unwrap())));
         }
     }
 
@@ -779,15 +775,15 @@ fn build_constraints(
             }
         }
         NodeKind::While {
-            iteration_var,
             label,
         } => {
-            let [condition, body, else_body] = node.children.into_array();
+            let [iteration_var, condition, body, else_body] = node.children.into_array();
 
-            ctx.locals.get_mut(iteration_var).stack_frame_id = set;
+            let iteration_var_id = build_lvalue(ctx, iteration_var, set);
+
             ctx.locals.get_label_mut(label).stack_frame_id = set;
 
-            ctx.infer.set_int(ctx.locals.get(iteration_var).type_infer_value_id, IntTypeKind::Usize, set);
+            ctx.infer.set_int(iteration_var_id, IntTypeKind::Usize, set);
 
             let condition_type_id = build_constraints(ctx, condition, set);
             let bool_type = ctx.infer.add_type(TypeKind::Bool, Args([]), set);
@@ -803,17 +799,16 @@ fn build_constraints(
             ctx.infer.set_equal(node_type_id, label_type_infer_id, Reason::new(node_loc, ReasonKind::Passed));
         }
         NodeKind::For {
-            iterator,
-            iteration_var,
             label,
         } => {
-            let [iterating, body, else_body] = node.children.into_array();
+            let [iterating, iteration_var, iterator, body, else_body] = node.children.into_array();
 
-            ctx.locals.get_mut(iteration_var).stack_frame_id = set;
-            ctx.locals.get_mut(iterator).stack_frame_id = set;
+            let iteration_var_id = build_lvalue(ctx, iteration_var, set);
+            let iterator_id = build_lvalue(ctx, iterator, set);
+
             ctx.locals.get_label_mut(label).stack_frame_id = set;
 
-            ctx.infer.set_int(ctx.locals.get(iteration_var).type_infer_value_id, IntTypeKind::Usize, set);
+            ctx.infer.set_int(iteration_var_id, IntTypeKind::Usize, set);
 
             // The type the body returns doesn't matter, since we don't forward it.
             let iterating_type_id = build_constraints(ctx, iterating, set);
@@ -822,7 +817,7 @@ fn build_constraints(
 
             let label_type_infer_id = ctx.locals.get_label(label).type_infer_value_id;
 
-            ctx.infer.set_for_relation(ctx.locals.get(iterator).type_infer_value_id, iterating_type_id, Reason::temp(node_loc));
+            ctx.infer.set_for_relation(iterator_id, iterating_type_id, Reason::temp(node_loc));
 
             let else_type = build_constraints(ctx, else_body, set);
             ctx.infer.set_equal(label_type_infer_id, else_type, Reason::new(node_loc, ReasonKind::Passed));
@@ -905,7 +900,7 @@ fn build_constraints(
         }
         NodeKind::Local(local_id) => {
             let local = ctx.locals.get(local_id);
-            let local_type_id = local.type_infer_value_id;
+            let local_type_id = TypeId::Node(local.declared_at.unwrap());
             ctx.infer
                 .set_equal(local_type_id, node_type_id, Reason::new(node_loc, ReasonKind::LocalVariableIs(local.name)));
 
@@ -994,7 +989,7 @@ fn build_constraints(
                 let local = sub_ctx.locals.get_mut(local_id);
                 let name = local.name;
                 local.stack_frame_id = sub_set;
-                let local_type_id = local.type_infer_value_id;
+                let local_type_id = TypeId::Node(local.declared_at.unwrap());
                 sub_ctx.infer.set_value_set(local_type_id, sub_set);
 
                 let type_node_loc = type_node.loc;
@@ -1169,10 +1164,10 @@ fn build_constraints(
             ctx.infer
                 .set_equal(value_type_id, node_type_id, Reason::new(node_loc, ReasonKind::Passed));
         }
-        _ => unimplemented!(
-            "Ast node does not have a typing relationship yet {:?}",
-            node.kind
-        ),
+        _ => {
+            ctx.errors.error(node_loc, format!("Invalid expression(it might only be valid as an lvalue, or as a type)"));
+            ctx.infer.value_sets.get_mut(set).has_errors |= true;
+        }
     }
 
     node_type_id
@@ -1305,12 +1300,12 @@ fn build_lvalue(
         }
         NodeKind::Declare { local } => {
             let local = ctx.locals.get_mut(local);
+            local.declared_at = Some(node.id);
             local.stack_frame_id = set;
-            local.type_infer_value_id = node_type_id;
         }
         NodeKind::Local(local_id) => {
             let local = ctx.locals.get(local_id);
-            let local_type_id = local.type_infer_value_id;
+            let local_type_id = TypeId::Node(local.declared_at.unwrap());
             ctx.infer
                 .set_equal(local_type_id, node_type_id, Reason::new(node_loc, ReasonKind::LocalVariableIs(local.name)));
 
