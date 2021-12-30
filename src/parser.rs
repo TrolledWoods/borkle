@@ -546,6 +546,20 @@ fn value_without_unaries(
         TokenKind::Keyword(Keyword::Underscore) => {
             slot.finish(Node::new(token.loc, NodeKind::ImplicitType))
         }
+        TokenKind::Keyword(Keyword::Let) => {
+            let token = global.tokens.expect_next(global.errors)?;
+            if let TokenKind::Identifier(name) = token.kind {
+                let id = imperative.insert_local(Local::new(token.loc, name));
+
+                slot.finish(Node::new(
+                    loc,
+                    NodeKind::Declare { local: id },
+                ))
+            } else {
+                global.error(token.loc, "Expected identifier".to_string());
+                return Err(());
+            }
+        }
         TokenKind::Identifier(name) => {
             if let Some(local_id) = imperative.get_local(name) {
                 let local = imperative.locals.get_mut(local_id);
@@ -886,33 +900,6 @@ fn value_without_unaries(
 
                         if let Some(label) = label {
                             imperative.locals.get_label_mut(label).num_defers += 1;
-                        }
-                    }
-                    TokenKind::Keyword(Keyword::Let) => {
-                        global.tokens.next();
-                        let token = global.tokens.expect_next(global.errors)?;
-                        if let TokenKind::Identifier(name) = token.kind {
-                            let equals = global
-                                .tokens
-                                .try_consume_operator_string("=")
-                                .ok_or_else(|| {
-                                    global.error(token.loc, "Expected '=' after identifier".into());
-                                })?;
-
-                            let mut let_node = slot.add();
-                            expression(global, imperative, let_node.add())?;
-
-                            let id = imperative.insert_local(Local::new(token.loc, name));
-
-                            let_node.finish(Node::new(
-                                equals,
-                                NodeKind::Declare {
-                                    local: id,
-                                },
-                            ));
-                        } else {
-                            global.error(token.loc, "Expected identifier".to_string());
-                            return Err(());
                         }
                     }
                     _ => {

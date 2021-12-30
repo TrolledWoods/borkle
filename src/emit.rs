@@ -630,16 +630,6 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, mut node: NodeView<'a>) -> Value {
             ctx.emit_unary(*op, to, from);
             to
         }
-        NodeKind::Declare {
-            local: id,
-        } => {
-            let [value] = node.children.as_array();
-            let from = emit_node(ctx, value.clone());
-            let to = ctx.registers.create(ctx.types, TypeId::Node(value.id));
-            ctx.locals.get_mut(*id).value = Some(to);
-            ctx.emit_move(to, from);
-            to
-        }
         NodeKind::Local(id) => ctx.locals.get(*id).value.unwrap(),
         NodeKind::ConstAtEvaluation { .. } => {
             // TODO: Implement this, it's not going to work yet because emission cannot produce errors,
@@ -782,7 +772,7 @@ fn emit_lvalue<'a>(
             let [operand] = node.children.as_array();
             emit_node(ctx, operand)
         }
-        NodeKind::Local(id) => {
+        NodeKind::Local(id) | NodeKind::Declare { local: id } => {
             let to = ctx.registers.create(ctx.types, ref_type_id);
             let from = ctx.locals.get(*id).value.unwrap();
             ctx.emit_reference(to, from);

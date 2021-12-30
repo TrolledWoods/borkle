@@ -1062,27 +1062,6 @@ fn build_constraints(
                 arg_indices: (0..num_args).collect(),
             };
         }
-        NodeKind::Declare {
-            local,
-        } => {
-            let [value] = node.children.into_array();
-            // Set the set of the local to this type set
-            let local = ctx.locals.get_mut(local);
-            local.stack_frame_id = set;
-            ctx.infer.set_value_set(local.type_infer_value_id, set);
-            let local_type_id = local.type_infer_value_id;
-
-            let right_type_id = build_constraints(ctx, value, set);
-
-            ctx.infer
-                .set_equal(local_type_id, right_type_id, Reason::new(node_loc, ReasonKind::Declaration));
-
-            ctx.infer.set_type(
-                node_type_id,
-                TypeKind::Empty, Args([]),
-                set,
-            );
-        }
         NodeKind::Binary {
             op: BinaryOp::Assign,
         } => {
@@ -1323,6 +1302,11 @@ fn build_lvalue(
             let of_type_id = build_lvalue(ctx, of, set);
             ctx.infer
                 .set_field_name_equal(of_type_id, name, node_type_id, Reason::new(node_loc, ReasonKind::NamedField(name)));
+        }
+        NodeKind::Declare { local } => {
+            let local = ctx.locals.get_mut(local);
+            local.stack_frame_id = set;
+            local.type_infer_value_id = node_type_id;
         }
         NodeKind::Local(local_id) => {
             let local = ctx.locals.get(local_id);
