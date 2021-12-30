@@ -372,6 +372,10 @@ impl<Zipped: TreeZippable> GenericAstSlice<'_, Zipped> {
 }
 
 impl<'a, Zipped: TreeZippable> GenericAstSlice<'a, Zipped> {
+    pub fn subtree_region(&self) -> (NodeId, usize) {
+        (self.base_id, self.nodes.len())
+    }
+
     pub fn iter<'b>(&'b mut self) -> GenericChildIterator<'a, Zipped::Reborrowed<'b>> {
         self.borrow().into_iter()
     }
@@ -440,6 +444,11 @@ impl<'a, Zipped: TreeZippable> GenericNodeView<'a, Zipped> {
                 zipped,
             },
         }
+    }
+
+    pub fn subtree_region(&self) -> (NodeId, usize) {
+        let (base_id, nodes) = self.children.subtree_region();
+        (base_id, nodes + 1)
     }
 }
 

@@ -13,8 +13,6 @@ use crate::type_infer::{self, ValueId as TypeId, Args, TypeSystem, ValueSetId, T
 use crate::types::{self, IntTypeKind};
 use ustr::Ustr;
 
-// type NodeViewMut<'a> = ast::GenericNodeView<'a, Attached<&'a mut [Node], &'a mut [ValueWrapper]>>;
-
 #[derive(Clone)]
 pub struct PolyParam {
     used_as_type: Option<Location>,
@@ -237,7 +235,8 @@ pub fn finish<'a>(
     }
 
     let mut are_incomplete_sets = false;
-    for value_set_id in from.infer.value_sets.iter_ids() {
+    // We only care about the base set.
+    for value_set_id in from.infer.value_sets.iter_ids().take(1) {
         let value_set = from.infer.value_sets.get(value_set_id);
         if value_set.has_errors || value_set.uncomputed_values() > 0 {
             errors.global_error(format!("Set {} is uncomputable! (uncomputability doesn't have a proper error yet, this is temporary)", value_set_id));
@@ -264,6 +263,57 @@ pub fn finish<'a>(
 
 fn subset_was_completed(ctx: &mut Context<'_, '_>, ast: &mut Ast, waiting_on: WaitingOnTypeInferrence, set: ValueSetId) {
     match waiting_on {
+        WaitingOnTypeInferrence::ConditionalCompilation { node_id, condition, true_body, false_body, parent_set, runs } => {
+            
+            let loc = ast.get(condition).loc;
+            let result = match crate::interp::emit_and_run(
+                ctx.thread_context,
+                ctx.program,
+                ctx.locals,
+                ctx.infer,
+                ast,
+                condition,
+                set,
+                &mut vec![loc],
+            ) {
+                Ok(constant_ref) => {
+                    unsafe { *constant_ref.as_ptr().cast::<u8>() > 0 }
+                }
+                Err(call_stack) => {
+                    for &caller in call_stack.iter().rev().skip(1) {
+                        ctx.errors.info(caller, "".to_string());
+                    }
+
+                    ctx.errors.error(*call_stack.last().unwrap(), "Assert failed!".to_string());
+                    ctx.infer.value_sets.get_mut(set).has_errors = true;
+
+                    return;
+                }
+            };
+            
+            let emitting = if result { true_body } else { false_body };
+
+            let mut emit_deps = ctx.infer.value_sets.get_mut(parent_set).emit_deps.take().unwrap_or_default();
+            let mut sub_ctx = Context {
+                thread_context: ctx.thread_context,
+                errors: ctx.errors,
+                program: ctx.program,
+                locals: ctx.locals,
+                emit_deps: &mut emit_deps,
+                poly_params: ctx.poly_params,
+                infer: ctx.infer,
+                needs_explaining: ctx.needs_explaining,
+                runs,
+            };
+
+            let child_type = build_constraints(&mut sub_ctx, ast.get_mut(emitting), parent_set);
+            ctx.infer.value_sets.get_mut(parent_set).emit_deps = Some(emit_deps);
+            ctx.infer.set_equal(TypeId::Node(node_id), child_type, Reason::temp_zero());
+
+            ast.get_mut(node_id).kind = NodeKind::ConditionalCompilation { child: if result { 1 } else { 2 } };
+
+            ctx.infer.value_sets.unlock(parent_set);
+        }
         WaitingOnTypeInferrence::ConstantFromValueId { value_id, to, parent_set } => {
             // We expect the type to already be checked by some other mechanism,
             // e.g., node_type_id should be equal to the type of the constant.
@@ -849,28 +899,47 @@ fn build_constraints(
                 .set_equal(local_type_id, node_type_id, Reason::new(node_loc, ReasonKind::LocalVariableIs(local.name)));
 
             if ctx.runs != ExecutionTime::Never && local.stack_frame_id != set {
-                dbg!(local.stack_frame_id);
                 ctx.errors.error(node_loc, "Variable is defined in a different execution context, you cannot access it here, other than for its type". to_string());
                 ctx.infer.value_sets.get_mut(set).has_errors = true;
             }
         }
         NodeKind::If {
-            is_const: _,
+            is_const,
         } => {
             let [condition, true_body, else_body] = node.children.into_array();
-            let condition_type_id = build_constraints(ctx, condition, set);
-            // @Performance: This could be better, I really want a constraint for this kind of thing...
-            let condition_type = ctx.infer.add_type(TypeKind::Bool, Args([]), set);
-            ctx.infer
-                .set_equal(condition_type_id, condition_type, Reason::new(node_loc, ReasonKind::IsOfType));
 
-            let true_body_id = build_constraints(ctx, true_body, set);
-            let false_body_id = build_constraints(ctx, else_body, set);
+            if let Some(_) = is_const {
+                let sub_set = ctx.infer.value_sets.add(WaitingOnTypeInferrence::ConditionalCompilation {
+                    node_id: node.id,
+                    condition: condition.id,
+                    true_body: true_body.id,
+                    false_body: else_body.id,
+                    parent_set: set,
+                    runs: ctx.runs,
+                });
+                ctx.infer.value_sets.lock(set);
 
-            ctx.infer
-                .set_equal(true_body_id, node_type_id, Reason::new(node_loc, ReasonKind::Passed));
-            ctx.infer
-                .set_equal(false_body_id, node_type_id, Reason::new(node_loc, ReasonKind::Passed));
+                let old_runs = ctx.runs;
+                ctx.runs = ctx.runs.combine(ExecutionTime::Typing);
+                let condition_type_id = build_constraints(ctx, condition, sub_set);
+                ctx.runs = old_runs;
+                let condition_type = ctx.infer.add_type(TypeKind::Bool, Args([]), sub_set);
+                ctx.infer
+                    .set_equal(condition_type_id, condition_type, Reason::new(node_loc, ReasonKind::IsOfType));
+            } else {
+                let condition_type_id = build_constraints(ctx, condition, set);
+                let condition_type = ctx.infer.add_type(TypeKind::Bool, Args([]), set);
+                ctx.infer
+                    .set_equal(condition_type_id, condition_type, Reason::new(node_loc, ReasonKind::IsOfType));
+
+                let true_body_id = build_constraints(ctx, true_body, set);
+                let false_body_id = build_constraints(ctx, else_body, set);
+
+                ctx.infer
+                    .set_equal(true_body_id, node_type_id, Reason::new(node_loc, ReasonKind::Passed));
+                ctx.infer
+                    .set_equal(false_body_id, node_type_id, Reason::new(node_loc, ReasonKind::Passed));
+            }
         }
         NodeKind::Unary {
             op: UnaryOp::Dereference,
@@ -1370,6 +1439,14 @@ pub fn explain_given_type(ast: &Ast, node_id: NodeId) -> Reason {
 
 #[derive(Clone)]
 pub enum WaitingOnTypeInferrence {
+    ConditionalCompilation {
+        node_id: NodeId,
+        condition: NodeId,
+        true_body: NodeId,
+        false_body: NodeId,
+        runs: ExecutionTime,
+        parent_set: ValueSetId,
+    },
     TypeAsValue {
         type_id: type_infer::ValueId,
         node_id: NodeId,

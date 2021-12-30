@@ -743,7 +743,16 @@ fn value_without_unaries(
                 ("const".into(), &mut is_const),
             ])?;
 
-            expression(global, imperative, slot.add())?;
+            // Condition
+            if is_const.is_some() {
+                let old = imperative.evaluate_at_typing;
+                imperative.evaluate_at_typing = true;
+                expression(global, imperative, slot.add())?;
+                imperative.evaluate_at_typing = old;
+            } else {
+                expression(global, imperative, slot.add())?;
+            }
+
             expression(global, imperative, slot.add())?;
 
             if global
@@ -1248,6 +1257,12 @@ pub enum NodeKind {
     Global {
         scope: ScopeId,
         name: Ustr,
+    },
+
+    /// Like a parenthesis, but for one child
+    /// [ .. args ]
+    ConditionalCompilation {
+        child: usize,
     },
 
     /// [ of, ..args ]

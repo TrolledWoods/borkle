@@ -366,9 +366,15 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, mut node: NodeView<'a>) -> Value {
 
             to
         }
+        NodeKind::ConditionalCompilation { child } => {
+            let child = node.children.into_iter().nth(*child).unwrap();
+            emit_node(ctx, child)
+        }
         NodeKind::If {
-            is_const: _,
+            is_const,
         } => {
+            debug_assert!(is_const.is_none(), "const ifs should be dealt with in the typer");
+
             let [condition, true_body, false_body] = node.children.as_array();
 
             let condition = emit_node(ctx, condition);

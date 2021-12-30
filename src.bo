@@ -1,14 +1,16 @@
 import "tests/main.bo";
 
 #entry fn() {
-
-    let array = [1, 2, 3, 4];
-    let buffer = cast &array : [] _;
-
-    for buffer {
-        print("The number is ");
-        print_u64(v);
-        print("\n");
+    let x = 13 : u32;
+    let result = if #const: x > 4 {
+        42
+    } else {
+        "Hello, world!\n"
     };
 
+    print(result);
 };
+
+
+
+
