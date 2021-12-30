@@ -322,7 +322,10 @@ fn type_(
             // @TODO: We want to tell the parser about
             // the fact that we don't actually need the values of anything
             // in here, so that it doesn't fetch them unnecessarily
+            let old_in_declarative_lvalue = imperative.in_declarative_lvalue;
+            imperative.in_declarative_lvalue = false;
             value(global, imperative, slot.add())?;
+            imperative.in_declarative_lvalue = old_in_declarative_lvalue;
 
             Ok(slot.finish(Node::new(loc, NodeKind::TypeOf)))
         }
@@ -547,44 +550,50 @@ fn value_without_unaries(
             slot.finish(Node::new(token.loc, NodeKind::ImplicitType))
         }
         TokenKind::Keyword(Keyword::Let) => {
-            let token = global.tokens.expect_next(global.errors)?;
-            if let TokenKind::Identifier(name) = token.kind {
-                let id = imperative.insert_local(Local::new(token.loc, name));
-
-                slot.finish(Node::new(
-                    loc,
-                    NodeKind::Declare { local: id },
-                ))
-            } else {
-                global.error(token.loc, "Expected identifier".to_string());
+            if imperative.in_declarative_lvalue {
+                global.error(token.loc, format!("Cannot use `let` when already inside of a declarative lvalue"));
                 return Err(());
             }
+
+            imperative.in_declarative_lvalue = true;
+            expression_rec(global, imperative, slot.add(), 2)?;
+            imperative.in_declarative_lvalue = false;
+
+            slot.finish(Node::new(
+                loc,
+                NodeKind::Declare,
+            ))
         }
         TokenKind::Identifier(name) => {
-            if let Some(local_id) = imperative.get_local(name) {
-                let local = imperative.locals.get_mut(local_id);
-                local.num_uses += 1;
-                local.uses.push(token.loc);
+            if imperative.in_declarative_lvalue {
+                let local_id = imperative.insert_local(Local::new(token.loc, name));
                 slot.finish(Node::new(token.loc, NodeKind::Local(local_id)))
-            } else if let Some(index) = imperative
-                .poly_args
-                .iter()
-                .position(|(_, arg)| *arg == name)
-            {
-                slot.finish(Node::new(token.loc, NodeKind::PolymorphicArgument(index)))
             } else {
-                imperative.dependencies.add(
-                    token.loc,
-                    DepKind::MemberByName(
-                        global.scope,
-                        name,
-                        if imperative.evaluate_at_typing { MemberDep::ValueAndCallableIfFunction } else { MemberDep::Type },
-                    ),
-                );
-                slot.finish(Node::new(
-                    token.loc,
-                    NodeKind::Global { scope: global.scope, name },
-                ))
+                if let Some(local_id) = imperative.get_local(name) {
+                    let local = imperative.locals.get_mut(local_id);
+                    local.num_uses += 1;
+                    local.uses.push(token.loc);
+                    slot.finish(Node::new(token.loc, NodeKind::Local(local_id)))
+                } else if let Some(index) = imperative
+                    .poly_args
+                    .iter()
+                    .position(|(_, arg)| *arg == name)
+                {
+                    slot.finish(Node::new(token.loc, NodeKind::PolymorphicArgument(index)))
+                } else {
+                    imperative.dependencies.add(
+                        token.loc,
+                        DepKind::MemberByName(
+                            global.scope,
+                            name,
+                            if imperative.evaluate_at_typing { MemberDep::ValueAndCallableIfFunction } else { MemberDep::Type },
+                        ),
+                    );
+                    slot.finish(Node::new(
+                        token.loc,
+                        NodeKind::Global { scope: global.scope, name },
+                    ))
+                }
             }
         }
         TokenKind::Literal(literal) => slot.finish(Node::new(token.loc, NodeKind::Literal(literal))),
@@ -716,9 +725,9 @@ fn value_without_unaries(
             expression(global, imperative, slot.add())?;
 
             let iteration_var = imperative.insert_local(Local::new(token.loc, "i".into()));
-            slot.add().finish(Node::new(loc, NodeKind::Declare { local: iteration_var }));
+            slot.add().finish(Node::new(loc, NodeKind::Local(iteration_var)));
             let iterator = imperative.insert_local(iterator_local);
-            slot.add().finish(Node::new(loc, NodeKind::Declare { local: iterator }));
+            slot.add().finish(Node::new(loc, NodeKind::Local(iterator)));
 
             expression(global, imperative, slot.add())?;
 
@@ -746,7 +755,7 @@ fn value_without_unaries(
             let label = parse_default_label(global, imperative)?;
 
             let iteration_var = imperative.insert_local(Local::new(token.loc, "i".into()));
-            slot.add().finish(Node::new(loc, NodeKind::Declare { local: iteration_var }));
+            slot.add().finish(Node::new(loc, NodeKind::Local(iteration_var)));
 
             expression(global, imperative, slot.add())?;
             expression(global, imperative, slot.add())?;
@@ -1066,7 +1075,7 @@ fn function_declaration(
         }) = global.tokens.next()
         {
             let local_id = imperative.insert_local(Local::new(loc, name));
-            slot.add().finish(Node::new(loc, NodeKind::Declare { local: local_id }));
+            slot.add().finish(Node::new(loc, NodeKind::Local(local_id)));
 
             if global.tokens.try_consume_operator_string(":").is_some() {
                 type_(global, imperative, slot.add())?;
@@ -1385,10 +1394,8 @@ pub enum NodeKind {
     Cast,
     /// [ inner ]
     BitCast,
-    /// no child nodes
-    Declare {
-        local: LocalId,
-    },
+    /// [ declaring ]
+    Declare,
     Local(LocalId),
 }
 

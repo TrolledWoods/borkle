@@ -703,7 +703,6 @@ fn build_constraints(
                     node.node.kind = NodeKind::ResolvedGlobal(id, meta_data);
                 }
             }
-    
         }
         // @Cleanup: We could unify these two nodes probably
         NodeKind::Global { scope, name } => {
@@ -779,7 +778,7 @@ fn build_constraints(
         } => {
             let [iteration_var, condition, body, else_body] = node.children.into_array();
 
-            let iteration_var_id = build_lvalue(ctx, iteration_var, set);
+            let iteration_var_id = build_declarative_lvalue(ctx, iteration_var, set, true);
 
             ctx.locals.get_label_mut(label).stack_frame_id = set;
 
@@ -803,12 +802,13 @@ fn build_constraints(
         } => {
             let [iterating, iteration_var, iterator, body, else_body] = node.children.into_array();
 
-            let iteration_var_id = build_lvalue(ctx, iteration_var, set);
-            let iterator_id = build_lvalue(ctx, iterator, set);
+            let iteration_var_id = build_declarative_lvalue(ctx, iteration_var, set, true);
+            let iterator_id = build_declarative_lvalue(ctx, iterator, set, true);
 
             ctx.locals.get_label_mut(label).stack_frame_id = set;
 
-            ctx.infer.set_int(iteration_var_id, IntTypeKind::Usize, set);
+            let usize_id = ctx.infer.add_int(IntTypeKind::Usize, set);
+            ctx.infer.set_equal(iteration_var_id, usize_id, Reason::temp(node_loc));
 
             // The type the body returns doesn't matter, since we don't forward it.
             let iterating_type_id = build_constraints(ctx, iterating, set);
@@ -990,7 +990,7 @@ fn build_constraints(
                 let argument_decl_loc = argument_decl.loc;
                 let argument_type = children.next().unwrap();
 
-                let decl_id = build_lvalue(&mut sub_ctx, argument_decl, sub_set);
+                let decl_id = build_declarative_lvalue(&mut sub_ctx, argument_decl, sub_set, true);
                 let type_id = build_type(&mut sub_ctx, argument_type, sub_set);
 
                 sub_ctx.infer.set_equal(decl_id, type_id, Reason::temp(argument_decl_loc));
@@ -1058,7 +1058,7 @@ fn build_constraints(
             op: BinaryOp::Assign,
         } => {
             let [left, right] = node.children.into_array();
-            let left_type_id = build_lvalue(ctx, left, set);
+            let left_type_id = build_declarative_lvalue(ctx, left, set, false);
             let right_type_id = build_constraints(ctx, right, set);
 
             ctx.infer
@@ -1078,7 +1078,7 @@ fn build_constraints(
         }
         NodeKind::Reference => {
             let [operand] = node.children.into_array();
-            let inner = build_lvalue(ctx, operand, set);
+            let inner = build_lvalue(ctx, operand, set, true);
             ctx.infer.set_type(
                 node_type_id,
                 TypeKind::Reference,
@@ -1275,6 +1275,91 @@ fn build_type(
     node_type_id
 }
 
+fn build_declarative_lvalue(
+    ctx: &mut Context<'_, '_>,
+    node: NodeViewMut<'_>,
+    set: ValueSetId,
+    is_declaring: bool,
+) -> type_infer::ValueId {
+    let node_loc = node.loc;
+    let node_type_id = TypeId::Node(node.id);
+
+    match node.kind {
+        NodeKind::Member { name } if !is_declaring => {
+            let [of] = node.children.into_array();
+            let of_type_id = build_lvalue(ctx, of, set, false);
+            ctx.infer
+                .set_field_name_equal(of_type_id, name, node_type_id, Reason::new(node_loc, ReasonKind::NamedField(name)));
+        }
+        NodeKind::ImplicitType => {}
+        NodeKind::Declare if !is_declaring => {
+            let [inner] = node.children.into_array();
+            let inner = build_declarative_lvalue(ctx, inner, set, true);
+            ctx.infer.set_equal(node_type_id, inner, Reason::temp(node_loc));
+        }
+        NodeKind::Local(local_id) => {
+            if is_declaring {
+                let local = ctx.locals.get_mut(local_id);
+                local.declared_at = Some(node.id);
+                local.stack_frame_id = set;
+            } else {
+                let local = ctx.locals.get(local_id);
+                let local_type_id = TypeId::Node(local.declared_at.unwrap());
+                ctx.infer
+                    .set_equal(local_type_id, node_type_id, Reason::new(node_loc, ReasonKind::LocalVariableIs(local.name)));
+
+                if local.stack_frame_id != set {
+                    ctx.errors.error(node_loc, "Variable is defined in a different execution context, you cannot access it here, other than for its type".to_string());
+                    ctx.infer.value_sets.get_mut(set).has_errors = true;
+                }
+            }
+        }
+        NodeKind::Parenthesis => {
+            let [value] = node.children.into_array();
+            let inner = build_declarative_lvalue(ctx, value, set, is_declaring);
+            ctx.infer.set_equal(node_type_id, inner, Reason::temp(node_loc));
+        }
+        NodeKind::TypeBound => {
+            let [value, bound] = node.children.into_array();
+            // @Improvment: Here, both things are invariant. One of them could potentially be variant,
+            // but only in some cases. After I think about how cases like this actually work,
+            // I could try integrating this variance with the `access` variance passed in here to make it
+            // less restrictive. It would also be nice if it was consistant with how non lvalue typebounds work,
+            // since right now that's an inconsistancy that's going to be weird if you trigger it.
+            let bound_type_id = build_type(ctx, bound, set);
+            ctx.infer
+                .set_equal(node_type_id, bound_type_id, Reason::temp(node_loc));
+            let value_type_id = build_declarative_lvalue(ctx, value, set, is_declaring);
+            ctx.infer
+                .set_equal(value_type_id, node_type_id, Reason::temp(node_loc));
+        }
+        NodeKind::Unary {
+            op: UnaryOp::Dereference,
+        } if !is_declaring => {
+            let [operand] = node.children.into_array();
+
+            let temp = ctx.infer.add_type(
+                TypeKind::Reference,
+                Args([(node_type_id, Reason::temp(node_loc))]),
+                set,
+            );
+
+            let operand_type_id = build_constraints(ctx, operand, set);
+            ctx.infer
+                .set_equal(operand_type_id, temp, Reason::temp(node_loc));
+        }
+        _ => {
+            ctx.errors.error(node_loc, "Not a valid declarative lvalue".to_string());
+            ctx.infer.value_sets.get_mut(set).has_errors = true;
+        }
+    }
+
+    ctx.infer.set_value_set(node_type_id, set);
+    ctx.infer.value_sets.add_node_to_set(set, node.id);
+
+    node_type_id
+}
+
 /// Normal values are assumed to be readonly, because they are temporaries, it doesn't really make sense to
 /// write to them. However, in some cases the value isn't a temporary at all, but actually refers to a value
 /// inside of another value. That's what this is for. Instead of forcing the value to be readonly, we can make
@@ -1284,6 +1369,7 @@ fn build_lvalue(
     ctx: &mut Context<'_, '_>,
     node: NodeViewMut<'_>,
     set: ValueSetId,
+    can_reference_temporaries: bool,
 ) -> type_infer::ValueId {
     let node_loc = node.loc;
     let node_type_id = TypeId::Node(node.id);
@@ -1291,14 +1377,9 @@ fn build_lvalue(
     match node.kind {
         NodeKind::Member { name } => {
             let [of] = node.children.into_array();
-            let of_type_id = build_lvalue(ctx, of, set);
+            let of_type_id = build_lvalue(ctx, of, set, can_reference_temporaries);
             ctx.infer
                 .set_field_name_equal(of_type_id, name, node_type_id, Reason::new(node_loc, ReasonKind::NamedField(name)));
-        }
-        NodeKind::Declare { local } => {
-            let local = ctx.locals.get_mut(local);
-            local.declared_at = Some(node.id);
-            local.stack_frame_id = set;
         }
         NodeKind::Local(local_id) => {
             let local = ctx.locals.get(local_id);
@@ -1313,7 +1394,7 @@ fn build_lvalue(
         }
         NodeKind::Parenthesis => {
             let [value] = node.children.into_array();
-            let inner = build_lvalue(ctx, value, set);
+            let inner = build_lvalue(ctx, value, set, can_reference_temporaries);
             ctx.infer.set_equal(node_type_id, inner, Reason::temp(node_loc));
         }
         NodeKind::TypeBound => {
@@ -1326,7 +1407,7 @@ fn build_lvalue(
             let bound_type_id = build_type(ctx, bound, set);
             ctx.infer
                 .set_equal(node_type_id, bound_type_id, Reason::temp(node_loc));
-            let value_type_id = build_lvalue(ctx, value, set);
+            let value_type_id = build_lvalue(ctx, value, set, can_reference_temporaries);
             ctx.infer
                 .set_equal(value_type_id, node_type_id, Reason::temp(node_loc));
         }
@@ -1346,9 +1427,14 @@ fn build_lvalue(
                 .set_equal(operand_type_id, temp, Reason::temp(node_loc));
         }
         _ => {
-            // Make it a reference to a temporary instead. This forces the pointer to be readonly.
-            // TODO: Make it require it to be read-only here.
-            return build_constraints(ctx, node, set);
+            if can_reference_temporaries {
+                // Make it a reference to a temporary instead. This forces the pointer to be readonly.
+                // TODO: Make it require it to be read-only here.
+                return build_constraints(ctx, node, set);
+            } else {
+                ctx.errors.error(node_loc, "Not a valid lvalue, as this is assigned to, we can't use temporary values".to_string());
+                ctx.infer.value_sets.get_mut(set).has_errors = true;
+            }
         }
     }
 

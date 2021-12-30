@@ -1,21 +1,11 @@
 library "iter.bo";
 library "vec.bo";
 
-import "tests/main.bo";
-
-#entry fn() {
-    
-    let vec = vec_new.(u32)();
+{
+    let vec = get_line();
     defer vec_free(vec);
 
-    vec_push(&vec, 14 : u32);
-    vec_push(&vec, 99);
-    vec_push(&vec, 451);
-
     for vec_as_buffer(&vec) {
-        print("vec[");
-        print_u64(cast i);
-        print("] = ");
         print_u64(cast v);
         print("\n");
     };

@@ -49,6 +49,7 @@ pub struct ImperativeContext<'a> {
     pub defer_depth: usize,
     pub evaluate_at_typing: bool,
     pub in_const_expression: bool,
+    pub in_declarative_lvalue: bool,
     pub poly_args: &'a [(Location, Ustr)],
     default_labels: Vec<LabelId>,
     scope_boundaries: Vec<ScopeBoundary>,
@@ -69,6 +70,7 @@ impl<'a> ImperativeContext<'a> {
             defer_depth: 0,
             evaluate_at_typing,
             in_const_expression: false,
+            in_declarative_lvalue: false,
             poly_args,
 
             default_labels: Vec::new(),

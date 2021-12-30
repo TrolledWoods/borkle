@@ -166,8 +166,9 @@ impl Registers {
         self.buffer_head = head;
     }
 
-    pub fn create_with_name(&mut self, _types: &TypeSystem, _value: TypeId, type_: impl Into<Type>, name: Option<Ustr>) -> Value {
-        self.create_min_align_with_name(type_.into(), 1, name)
+    pub fn create_with_name(&mut self, types: &TypeSystem, value: TypeId, name: Option<Ustr>) -> Value {
+        let type_ = types.value_to_compiler_type(value);
+        self.create_min_align_with_name(type_, 1, name)
     }
 
     pub fn create(&mut self, types: &TypeSystem, value: TypeId) -> Value {

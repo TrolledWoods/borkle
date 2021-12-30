@@ -99,7 +99,7 @@ pub fn emit_function_declaration<'a>(
         let child = children.next().unwrap();
         // Skip the type bound
         children.next();
-        emit_declarative_lvalue(&mut ctx, child, passed_as);
+        emit_declarative_lvalue(&mut ctx, child, passed_as, true);
     }
 
     // Now that we've read all the arguments of the function, only the return type,
@@ -290,14 +290,14 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, mut node: NodeView<'a>) -> Value {
             let else_body_label = ctx.create_label();
             ctx.emit_jump_if_zero(condition, else_body_label);
 
-            emit_declarative_lvalue(ctx, iteration_var, iteration_var_value);
+            emit_declarative_lvalue(ctx, iteration_var, iteration_var_value, true);
 
             if by_value {
                 let temp = ctx.registers.create(ctx.types, TypeId::Node(iterator.id));
                 ctx.emit_dereference(temp, current);
-                emit_declarative_lvalue(ctx, iterator, temp);
+                emit_declarative_lvalue(ctx, iterator, temp, true);
             } else {
-                emit_declarative_lvalue(ctx, iterator, current);
+                emit_declarative_lvalue(ctx, iterator, current, true);
             }
             emit_node(ctx, body);
             ctx.emit_increment(current);
@@ -335,7 +335,7 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, mut node: NodeView<'a>) -> Value {
             let condition_label = ctx.create_label();
             ctx.define_label(condition_label);
 
-            emit_declarative_lvalue(ctx, iteration_var, iteration_var_value);
+            emit_declarative_lvalue(ctx, iteration_var, iteration_var_value, true);
 
             let condition = emit_node(ctx, condition);
             ctx.emit_jump_if_zero(condition, else_body_label);
@@ -534,11 +534,10 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, mut node: NodeView<'a>) -> Value {
             op: BinaryOp::Assign,
         } => {
             let [to, from] = node.children.as_array();
-            let to = emit_lvalue(ctx, false, to);
             let from = emit_node(ctx, from);
+            emit_declarative_lvalue(ctx, to, from, false);
 
             let empty_result = ctx.registers.zst();
-            ctx.emit_indirect_move(to, from);
             empty_result
         }
         NodeKind::Binary { op } => {
@@ -729,17 +728,50 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, mut node: NodeView<'a>) -> Value {
 
 fn emit_declarative_lvalue<'a>(
     ctx: &mut Context<'a, '_>,
-    node: NodeView<'a>,
+    mut node: NodeView<'a>,
     from: Value,
+    is_declaring: bool,
 ) {
     ctx.emit_debug(node.loc);
 
     match &node.kind {
-        NodeKind::Declare { local: id } => {
-            let local = ctx.locals.get_mut(*id);
-            let local_value = ctx.registers.create(ctx.types, TypeId::Node(local.declared_at.unwrap()));
-            local.value = Some(local_value);
-            ctx.emit_move(local_value, from);
+        NodeKind::Member { .. } => {
+            debug_assert!(!is_declaring);
+
+            let to = emit_lvalue(ctx, false, node);
+            ctx.emit_indirect_move(to, from);
+        }
+        NodeKind::ImplicitType => {}
+        NodeKind::Declare => {
+            let [value] = node.children.as_array();
+            emit_declarative_lvalue(ctx, value, from, true);
+        }
+        NodeKind::Unary {
+            op: UnaryOp::Dereference,
+        } => {
+            debug_assert!(!is_declaring);
+            let [operand] = node.children.as_array();
+            let pointer = emit_node(ctx, operand);
+            ctx.emit_indirect_move(pointer, from);
+        }
+        NodeKind::Local(id) => {
+            if is_declaring {
+                let local = ctx.locals.get_mut(*id);
+                let local_value = ctx.registers.create_with_name(ctx.types, TypeId::Node(local.declared_at.unwrap()), Some(local.name));
+                local.value = Some(local_value);
+                ctx.emit_move(local_value, from);
+            } else {
+                let to = ctx.locals.get(*id).value.unwrap();
+                ctx.emit_move(to, from);
+            }
+        }
+        NodeKind::Parenthesis => {
+            let [value] = node.children.as_array();
+            emit_declarative_lvalue(ctx, value, from, is_declaring);
+        }
+        NodeKind::TypeBound => {
+            let [value, _] = node.children.as_array();
+            emit_declarative_lvalue(ctx, value, from, is_declaring);
         }
         kind => {
             unreachable!(
@@ -787,15 +819,6 @@ fn emit_lvalue<'a>(
             let [operand] = node.children.as_array();
             emit_node(ctx, operand)
         }
-        NodeKind::Declare { local: id } => {
-            let to = ctx.registers.create(ctx.types, ref_type_id);
-
-            let local = ctx.locals.get_mut(*id);
-            let local_value = ctx.registers.create(ctx.types, TypeId::Node(local.declared_at.unwrap()));
-            local.value = Some(local_value);
-            ctx.emit_reference(to, local_value);
-            to
-        }
         NodeKind::Local(id) => {
             let to = ctx.registers.create(ctx.types, ref_type_id);
             let from = ctx.locals.get(*id).value.unwrap();
@@ -810,6 +833,10 @@ fn emit_lvalue<'a>(
         }
         NodeKind::Parenthesis => {
             let [value] = node.children.as_array();
+            emit_lvalue(ctx, can_reference_temporaries, value)
+        }
+        NodeKind::TypeBound => {
+            let [value, _] = node.children.as_array();
             emit_lvalue(ctx, can_reference_temporaries, value)
         }
         kind => {
