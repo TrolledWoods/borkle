@@ -984,17 +984,10 @@ fn build_constraints(
 
             let mut children = node.children.iter();
             let num_children = children.len();
-            let mut function_type_ids = Vec::with_capacity((num_children - 2) / 2);
-            for _ in (0..num_children - 2).step_by(2) {
-                let argument_decl = children.next().unwrap();
-                let argument_decl_loc = argument_decl.loc;
-                let argument_type = children.next().unwrap();
-
-                let decl_id = build_declarative_lvalue(&mut sub_ctx, argument_decl, sub_set, true);
-                let type_id = build_type(&mut sub_ctx, argument_type, sub_set);
-
-                sub_ctx.infer.set_equal(decl_id, type_id, Reason::temp(argument_decl_loc));
-                function_type_ids.push((type_id, Reason::temp(node_loc)));
+            let mut function_type_ids = Vec::with_capacity(num_children - 2);
+            for argument in children.by_ref().take(num_children - 2) {
+                let decl_id = build_declarative_lvalue(&mut sub_ctx, argument, sub_set, true);
+                function_type_ids.push((decl_id, Reason::temp(node_loc)));
             }
 
             let returns = children.next().unwrap();

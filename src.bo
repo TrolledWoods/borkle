@@ -1,7 +1,15 @@
 library "iter.bo";
 library "vec.bo";
 
+const print_tuple.(A, B) = fn((a: A, b: B)) {
+    print_u64(cast a);
+    print(", ");
+    print_u64(cast b);
+    print("\n");
+};
+
 {
+
     /*let vec = get_line();
     defer vec_free(vec);
 
@@ -17,16 +25,7 @@ library "vec.bo";
         print("\n");
     };*/
 
+    let tuple = (1 : u64, 2 : u64);
 
-    let t = [42, 99];
-
-    [t._1, t._0] = t;
-
-    let b = #0;
-    [let a, b] = t;
-
-    print_u64(a);
-    print(", ");
-    print_u64(b);
-    print("\n");
+    print_tuple(tuple);
 };

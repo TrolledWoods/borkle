@@ -417,12 +417,15 @@ fn type_(
                 }
                 _ => {
                     let old_evaluate_at_typing = imperative.evaluate_at_typing;
+                    let old_in_declarative_lvalue = imperative.in_declarative_lvalue;
                     imperative.evaluate_at_typing = true;
+                    imperative.in_declarative_lvalue = false;
                     expression(global, imperative, slot.add())?;
                     global
                         .tokens
                         .expect_next_is(global.errors, &TokenKind::Close(Bracket::Square))?;
                     imperative.evaluate_at_typing = old_evaluate_at_typing;
+                    imperative.in_declarative_lvalue = old_in_declarative_lvalue;
                     type_(global, imperative, slot.add())?;
 
                     Ok(slot.finish(Node::new(
@@ -1068,27 +1071,10 @@ fn function_declaration(
             break;
         }
 
-        if let Some(Token {
-            loc,
-            kind: TokenKind::Identifier(name),
-            ..
-        }) = global.tokens.next()
-        {
-            let local_id = imperative.insert_local(Local::new(loc, name));
-            slot.add().finish(Node::new(loc, NodeKind::Local(local_id)));
-
-            if global.tokens.try_consume_operator_string(":").is_some() {
-                type_(global, imperative, slot.add())?;
-            } else {
-                slot.add().finish(Node::new(loc, NodeKind::ImplicitType));
-            }
-        } else {
-            global.error(
-                global.tokens.loc(),
-                "Expected identifier for function argument name".to_string(),
-            );
-            return Err(());
-        }
+        let old = imperative.in_declarative_lvalue;
+        imperative.in_declarative_lvalue = true;
+        expression_rec(global, imperative, slot.add(), 1)?;
+        imperative.in_declarative_lvalue = old;
 
         let token = global.tokens.expect_next(global.errors)?;
         match token.kind {
@@ -1321,7 +1307,7 @@ pub enum NodeKind {
         name: Ustr,
     },
 
-    /// [ .. (arg_lvalue, arg_type), returns, body ]  (at least 2 children)
+    /// [ .. arg, returns, body ]  (at least 2 children)
     FunctionDeclaration,
 
     /// [ inner ]

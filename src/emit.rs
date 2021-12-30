@@ -97,8 +97,6 @@ pub fn emit_function_declaration<'a>(
     let mut children = node.children.into_iter();
     for passed_as in arg_values.into_iter() {
         let child = children.next().unwrap();
-        // Skip the type bound
-        children.next();
         emit_declarative_lvalue(&mut ctx, child, passed_as, true);
     }
 
