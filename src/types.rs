@@ -224,6 +224,17 @@ impl Display for TypeKind {
                 }
                 Ok(())
             }
+            Self::Tuple(members) => {
+                write!(fmt, "(")?;
+                for (i, member) in members.iter().enumerate() {
+                    if i > 0 {
+                        write!(fmt, ", ")?;
+                    }
+                    write!(fmt, "{}", member)?;
+                }
+                write!(fmt, ")")?;
+                Ok(())
+            }
             Self::Struct(members) => {
                 write!(fmt, "{{")?;
                 for (i, (name, member)) in members.iter().enumerate() {
@@ -262,6 +273,7 @@ pub enum TypeKind {
     Buffer { pointee: Type },
     Function { args: Vec<Type>, returns: Type },
     Struct(Vec<(Ustr, Type)>),
+    Tuple(Vec<Type>),
 }
 
 impl TypeKind {
@@ -286,6 +298,11 @@ impl TypeKind {
                 }
 
                 on_inner(*returns);
+            }
+            TypeKind::Tuple(members) => {
+                for member in members {
+                    on_inner(*member);
+                }
             }
             TypeKind::Struct(members) => {
                 for (_, member) in members {
@@ -319,7 +336,14 @@ impl TypeKind {
             }
             TypeKind::Struct(ref members) => {
                 let mut new_members = Vec::new();
-                for (name, offset, type_) in struct_field_offsets(&*members) {
+                for (name, offset, type_) in struct_field_offsets(members.iter().copied()) {
+                    new_members.push((name, offset, type_));
+                }
+                new_members
+            }
+            TypeKind::Tuple(ref members) => {
+                let mut new_members = Vec::new();
+                for (name, offset, type_) in struct_field_offsets(members.iter().enumerate().map(|(i, v)| (format!("_{}", i).into(), *v))) {
                     new_members.push((name, offset, type_));
                 }
                 new_members
@@ -382,6 +406,19 @@ impl TypeKind {
                 (size, align)
             }
             Self::Int(kind) => kind.size_align(),
+            Self::Tuple(members) => {
+                let mut size = 0;
+                let mut align = 1;
+                for member in members {
+                    size += member.size();
+                    if member.align() > align {
+                        align = member.align();
+                    }
+                    size = to_align(size, member.align());
+                }
+                size = to_align(size, align);
+                (size, align)
+            }
             Self::Struct(members) => {
                 let mut size = 0;
                 let mut align = 1;
@@ -458,8 +495,16 @@ impl TypeKind {
                     },
                 ));
             }
+            Self::Tuple(fields) => {
+                let def_field = "".into();
+                for (_, offset, field_type) in struct_field_offsets(fields.iter().copied().map(|v| (def_field, v))) {
+                    for &(field_pointer_offset, ref field_pointer_type) in field_type.pointers() {
+                        pointers.push((offset + field_pointer_offset, field_pointer_type.clone()));
+                    }
+                }
+            }
             Self::Struct(fields) => {
-                for (_name, offset, field_type) in struct_field_offsets(fields) {
+                for (_name, offset, field_type) in struct_field_offsets(fields.iter().copied()) {
                     for &(field_pointer_offset, ref field_pointer_type) in field_type.pointers() {
                         pointers.push((offset + field_pointer_offset, field_pointer_type.clone()));
                     }
@@ -469,10 +514,10 @@ impl TypeKind {
     }
 }
 
-pub fn struct_field_offsets(
-    fields: &[(Ustr, Type)],
-) -> impl Iterator<Item = (Ustr, usize, Type)> + '_ {
-    fields.iter().scan(0, |offset, &(name, type_)| {
+pub fn struct_field_offsets<'a>(
+    fields: impl Iterator<Item = (Ustr, Type)> + 'a,
+) -> impl Iterator<Item = (Ustr, usize, Type)> + 'a {
+    fields.scan(0, |offset, (name, type_)| {
         *offset = to_align(*offset, type_.align());
         let field_offset = *offset;
         *offset += type_.size();

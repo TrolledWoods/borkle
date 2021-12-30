@@ -564,6 +564,15 @@ fn build_constraints(
                 parent_set: set,
             });
         }
+        NodeKind::Tuple => {
+            let mut values = Vec::with_capacity(node.children.len());
+            for child in node.children {
+                let child_id = build_constraints(ctx, child, set);
+                values.push((child_id, Reason::temp(node_loc)));
+            }
+
+            ctx.infer.set_type(node_type_id, TypeKind::Tuple, Args(values), set);
+        }
         NodeKind::Explain => {
             let [inner] = node.children.into_array();
             let inner = build_constraints(ctx, inner, set);
@@ -1238,6 +1247,15 @@ fn build_type(
             let infer_type_id = ctx.infer.add_type(TypeKind::Function, Args(function_type_ids), set);
             ctx.infer
                 .set_equal(infer_type_id, node_type_id, Reason::temp(node_loc));
+        }
+        NodeKind::Tuple => {
+            let mut values = Vec::with_capacity(node.children.len());
+            for child in node.children {
+                let child_id = build_type(ctx, child, set);
+                values.push((child_id, Reason::temp(node_loc)));
+            }
+
+            ctx.infer.set_type(node_type_id, TypeKind::Tuple, Args(values), set);
         }
         NodeKind::StructType { ref fields } => {
             // @Performance: Many allocations

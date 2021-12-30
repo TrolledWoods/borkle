@@ -129,6 +129,8 @@ pub enum TypeKind {
     Buffer,
     // (type, type, type, type), in the same order as the strings.
     Struct(Box<[Ustr]>),
+    // (type, type, type, ..)
+    Tuple,
 
     // no fields
     ConstantValue(ConstantRef),
@@ -144,6 +146,7 @@ impl TypeKind {
             TypeKind::Int => &children[1..2],
             TypeKind::Array => children,
             TypeKind::Struct(_) => children,
+            TypeKind::Tuple => children,
             // A constant pretends to care about the actual ConstantValue for the layout as well. This is not
             // because it "needs" to itself, but because things that need the constant, like the arrays layout,
             // does actually care about the value, so if it isn't required we get problems.
@@ -182,7 +185,7 @@ fn compute_type_layout(kind: &TypeKind, structures: &Structures, values: &Values
             debug_assert!(inner_layout.align != 0);
             Layout { size: length * inner_layout.size, align: inner_layout.align }
         }
-        TypeKind::Struct(_) => {
+        TypeKind::Struct(_) | TypeKind::Tuple => {
             let mut size = 0;
             let mut align = 1;
             for &child in children {
@@ -1046,6 +1049,13 @@ impl TypeSystem {
 
                 types::Type::new(types::TypeKind::Reference { pointee })
             }
+            TypeKind::Tuple => {
+                let fields = type_args
+                    .iter()
+                    .map(|&v| self.value_to_compiler_type(v))
+                    .collect::<Vec<_>>();
+                types::Type::new(types::TypeKind::Tuple(fields))
+            }
             TypeKind::Struct(ref fields) => {
                 let fields = fields
                     .iter()
@@ -1291,6 +1301,16 @@ impl TypeSystem {
                 ),
                 _ => unreachable!("A function pointer type has to have at least a return type"),
             },
+            Some(Type { kind: TypeKind::Tuple, args: Some(c), .. }) => {
+                let list = c
+                    .iter()
+                    .map(|type_| {
+                        format!("{}", self.value_to_str(*type_, rec + 1))
+                    })
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                format!("{{ {} }}", list)
+            }
             Some(Type { kind: TypeKind::Struct(names), args: Some(c), .. }) => {
                 let list = names
                     .iter()
@@ -1640,6 +1660,31 @@ impl TypeSystem {
                                     kind: ConstraintKind::EqualsField {
                                         values: [a_id, b_id],
                                         index: pos,
+                                    },
+                                    reason,
+                                    applied: false,
+                                },
+                            );
+                        } else {
+                            self.errors.push(Error::new(
+                                a_id,
+                                b_id,
+                                ErrorKind::NonexistantName(field_name),
+                            ));
+                            return;
+                        }
+                    }
+                    Some(Type { kind: TypeKind::Tuple, .. }) => {
+                        if let Some(number) = field_name.strip_prefix("_").and_then(|v| v.parse::<usize>().ok()) {
+                            let reason = constraint.reason;
+                            insert_active_constraint(
+                                &mut self.constraints,
+                                &mut self.available_constraints,
+                                &mut self.queued_constraints,
+                                Constraint {
+                                    kind: ConstraintKind::EqualsField {
+                                        values: [a_id, b_id],
+                                        index: number,
                                     },
                                     reason,
                                     applied: false,
