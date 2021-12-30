@@ -99,8 +99,7 @@ pub fn emit_function_declaration<'a>(
         let child = children.next().unwrap();
         // Skip the type bound
         children.next();
-        let child_id = emit_declarative_lvalue(&mut ctx, child);
-        ctx.emit_move(child_id, passed_as);
+        emit_declarative_lvalue(&mut ctx, child, passed_as);
     }
 
     // Now that we've read all the arguments of the function, only the return type,
@@ -200,10 +199,8 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, mut node: NodeView<'a>) -> Value {
 
             let mut iterating_value = emit_node(ctx, iterating.clone());
 
-            let iterator_value = emit_declarative_lvalue(ctx, iterator);
-
             // Set up iterator values
-            let iteration_var_value = emit_declarative_lvalue(ctx, iteration_var);
+            let iteration_var_value = ctx.registers.create(ctx.types, TypeId::Node(iteration_var.id));
             ctx.emit_move_from_constant(iteration_var_value, &0_usize.to_le_bytes());
 
             let mut by_value = true;
@@ -293,10 +290,14 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, mut node: NodeView<'a>) -> Value {
             let else_body_label = ctx.create_label();
             ctx.emit_jump_if_zero(condition, else_body_label);
 
+            emit_declarative_lvalue(ctx, iteration_var, iteration_var_value);
+
             if by_value {
-                ctx.emit_dereference(iterator_value, current);
+                let temp = ctx.registers.create(ctx.types, TypeId::Node(iterator.id));
+                ctx.emit_dereference(temp, current);
+                emit_declarative_lvalue(ctx, iterator, temp);
             } else {
-                ctx.emit_move(iterator_value, current);
+                emit_declarative_lvalue(ctx, iterator, current);
             }
             emit_node(ctx, body);
             ctx.emit_increment(current);
@@ -327,12 +328,14 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, mut node: NodeView<'a>) -> Value {
             label.value = Some(to);
             label.ir_labels = Some(vec![end_label]);
 
-            let iteration_var_value = emit_declarative_lvalue(ctx, iteration_var);
+            let iteration_var_value = ctx.registers.create(ctx.types, TypeId::Node(iteration_var.id)); 
             ctx.emit_move_from_constant(iteration_var_value, &0_usize.to_le_bytes());
 
             // Condition
             let condition_label = ctx.create_label();
             ctx.define_label(condition_label);
+
+            emit_declarative_lvalue(ctx, iteration_var, iteration_var_value);
 
             let condition = emit_node(ctx, condition);
             ctx.emit_jump_if_zero(condition, else_body_label);
@@ -727,7 +730,8 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, mut node: NodeView<'a>) -> Value {
 fn emit_declarative_lvalue<'a>(
     ctx: &mut Context<'a, '_>,
     node: NodeView<'a>,
-) -> Value {
+    from: Value,
+) {
     ctx.emit_debug(node.loc);
 
     match &node.kind {
@@ -735,7 +739,7 @@ fn emit_declarative_lvalue<'a>(
             let local = ctx.locals.get_mut(*id);
             let local_value = ctx.registers.create(ctx.types, TypeId::Node(local.declared_at.unwrap()));
             local.value = Some(local_value);
-            local_value
+            ctx.emit_move(local_value, from);
         }
         kind => {
             unreachable!(
