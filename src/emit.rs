@@ -8,7 +8,7 @@ use crate::ast::NodeId;
 use crate::program::{FunctionId, Program};
 use crate::thread_pool::ThreadContext;
 use crate::type_infer::{ValueId as TypeId, TypeSystem, Reason, Args, AstVariantId, self};
-use crate::typer::AdditionalInfo;
+use crate::typer::{AdditionalInfo, AdditionalInfoKind};
 use crate::types::{Type, TypeKind};
 
 mod context;
@@ -362,10 +362,8 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, mut node: NodeView<'a>) -> Value {
             to
         }
         NodeKind::If {
-            is_const,
+            is_const: None,
         } => {
-            debug_assert!(is_const.is_none(), "const ifs should be dealt with in the typer");
-
             let [condition, true_body, false_body] = node.children.as_array();
 
             let condition = emit_node(ctx, condition);
@@ -717,6 +715,52 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, mut node: NodeView<'a>) -> Value {
             let constant_ref = ctx.program.insert_buffer(Type::new(TypeKind::Type), &compiler_type as *const _ as *const u8);
 
             let to = ctx.registers.create(ctx.types, node_type_id);
+            ctx.emit_global(to, constant_ref);
+            to
+        }
+        NodeKind::PolymorphicArgument(_) => {
+            let &AdditionalInfoKind::Constant(constant) = &ctx.additional_info[&(ctx.variant_id, node.id)] else { panic!() };
+            let inner_type = TypeId::Node(ctx.variant_id, node.id);
+            let to = ctx.registers.create(ctx.types, inner_type);
+            ctx.emit_global(to, constant);
+            to
+        }
+        NodeKind::If {
+            is_const: Some(_),
+        } => {
+            let [_, true_body, false_body] = node.children.as_array();
+
+            let &AdditionalInfoKind::ConstIfResult(result) = &ctx.additional_info[&(ctx.variant_id, node.id)] else { panic!() };
+            if result {
+                emit_node(ctx, true_body)
+            } else {
+                emit_node(ctx, false_body)
+            }
+        }
+        NodeKind::PolymorphicArgs { .. } | NodeKind::Global { .. } => {
+            let &AdditionalInfoKind::Monomorphised(id, _) = &ctx.additional_info[&(ctx.variant_id, node.id)] else { panic!() };
+
+            let (ptr, _) = ctx.program.get_member_value(id);
+
+            if let type_infer::TypeKind::Function = ctx.types.get(TypeId::Node(ctx.variant_id, node.id)).kind() {
+                let function_id = unsafe { *(ptr.as_ptr() as *const FunctionId) };
+                if !ctx.calling.contains(&function_id) {
+                    ctx.calling.push(function_id);
+                }
+            }
+
+            let to = ctx.registers.create(ctx.types, TypeId::Node(ctx.variant_id, node.id));
+            ctx.emit_global(to, ptr);
+            to
+        }
+        NodeKind::BuiltinFunction(_) | NodeKind::FunctionDeclaration { .. } => {
+            let &AdditionalInfoKind::Function(id) = &ctx.additional_info[&(ctx.variant_id, node.id)] else { panic!() };
+
+            let inner_type = TypeId::Node(ctx.variant_id, node.id);
+            let compiler_type = ctx.types.value_to_compiler_type(inner_type);
+            let constant_ref = ctx.program.insert_buffer(compiler_type, &id as *const _ as *const u8);
+
+            let to = ctx.registers.create(ctx.types, inner_type);
             ctx.emit_global(to, constant_ref);
             to
         }

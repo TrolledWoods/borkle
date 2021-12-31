@@ -512,8 +512,7 @@ fn subset_was_completed(ctx: &mut Context<'_, '_>, ast: &mut Ast, waiting_on: Wa
                 ctx.thread_context.c_declarations.push_str("}\n");
             }
 
-            let constant = ctx.program.insert_buffer(type_, &function_id as *const _ as *const u8);
-            ctx.additional_info.insert((ast_variant_id, node_id), AdditionalInfoKind::Constant(constant));
+            ctx.additional_info.insert((ast_variant_id, node_id), AdditionalInfoKind::Function(function_id));
             ctx.infer.value_sets.unlock(parent_set);
         }
         WaitingOnTypeInferrence::None => {},
