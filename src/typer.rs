@@ -329,7 +329,7 @@ fn subset_was_completed(ctx: &mut Context<'_, '_>, ast: &mut Ast, waiting_on: Wa
                 ast,
                 ctx.additional_info,
                 condition,
-                AstVariantId::root(),
+                ast_variant_id,
                 &mut vec![loc],
             ) {
                 Ok(constant_ref) => {
@@ -366,7 +366,7 @@ fn subset_was_completed(ctx: &mut Context<'_, '_>, ast: &mut Ast, waiting_on: Wa
 
             let child_type = build_constraints(&mut sub_ctx, ast.get_mut(emitting), parent_set);
             ctx.infer.value_sets.get_mut(parent_set).emit_deps = Some(emit_deps);
-            ctx.infer.set_equal(TypeId::Node(ctx.ast_variant_id, node_id), child_type, Reason::temp_zero());
+            ctx.infer.set_equal(TypeId::Node(ast_variant_id, node_id), child_type, Reason::temp_zero());
 
             ctx.additional_info.insert((ast_variant_id, node_id), AdditionalInfoKind::ConstIfResult(result));
             ctx.infer.value_sets.unlock(parent_set);
@@ -403,7 +403,7 @@ fn subset_was_completed(ctx: &mut Context<'_, '_>, ast: &mut Ast, waiting_on: Wa
             if let Ok(member_id) = ctx.program.monomorphise_poly_member(ctx.errors, ctx.thread_context, poly_member_id, &fixed_up_params, wanted_dep) {
                 let (type_, meta_data) = ctx.program.get_member_meta_data(member_id);
                 let compiler_type = ctx.infer.add_compiler_type(ctx.program, type_, parent_set);
-                ctx.infer.set_equal(TypeId::Node(ctx.ast_variant_id, node_id), compiler_type, Reason::new(node_loc, ReasonKind::IsOfType));
+                ctx.infer.set_equal(TypeId::Node(ast_variant_id, node_id), compiler_type, Reason::new(node_loc, ReasonKind::IsOfType));
 
                 ctx.additional_info.insert((ast_variant_id, node_id), AdditionalInfoKind::Monomorphised(member_id, meta_data.clone()));
 

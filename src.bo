@@ -1,8 +1,23 @@
 // import "tests/main.bo";
 
+const print_thing.(T) = fn(thing: T) {
+    if #const: type T == u64 {
+        print("number(u64) ");
+        print_u64(thing);
+        print("\n");
+    } else if #const: type T == u32 {
+        print("number(u32) ");
+        print_u64(cast thing);
+        print("\n");
+    } else {
+        print(thing);
+        print("\n");
+    };
+};
+
 {
-    for #const: x in ("Hello!\n", "Sir!\n") {
-        print(x);
+    for #const: (99 : u32, "hello", 56 : u64) {
+        print_thing(v);
     };
 };
 

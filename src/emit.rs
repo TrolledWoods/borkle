@@ -193,6 +193,48 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, mut node: NodeView<'a>) -> Value {
             ctx.registers.zst()
         }
         NodeKind::For {
+            is_const: Some(_),
+            label,
+        } => {
+            let [iterating, i_value_decl, mut inner, else_body] = node.children.as_array();
+
+            let AdditionalInfoKind::ConstForAstVariants(variants) = &ctx.additional_info[&(ctx.variant_id, node.id)] else { panic!() };
+
+            let end_label = ctx.create_label();
+
+            let to = ctx.registers.create(ctx.types, TypeId::Node(ctx.variant_id, node.id));
+            ctx.locals.get_label_mut(*label).value = Some(to);
+
+            // Set up iterator values
+            let i_value = ctx.registers.create(ctx.types, TypeId::Node(ctx.variant_id, i_value_decl.id));
+            ctx.emit_move_from_constant(i_value, &0_usize.to_le_bytes());
+
+            let iterating_value = emit_node(ctx, iterating.clone());
+            let base_iterator_type = ctx.types.value_to_compiler_type(TypeId::Node(ctx.variant_id, iterating.id));
+            for (i, &variant_id) in variants.iter().enumerate() {
+                emit_declarative_lvalue(ctx, i_value_decl.clone(), i_value, true);
+
+                let [v_value_decl, body] = inner.children.as_array();
+
+                let temp_iterator_value = ctx.registers.create(ctx.types, TypeId::Node(variant_id, v_value_decl.id));
+                let (name, offset, _) = base_iterator_type.0.members[i];
+                ctx.emit_member(temp_iterator_value, iterating_value, Member { offset, name });
+
+                let old_variant_id = ctx.variant_id;
+                ctx.variant_id = variant_id;
+                emit_declarative_lvalue(ctx, v_value_decl, temp_iterator_value, true);
+                emit_node(ctx, body);
+                ctx.variant_id = old_variant_id;
+
+                ctx.emit_increment(i_value);
+            }
+
+            let evaluate_to = emit_node(ctx, else_body);
+            ctx.emit_move(to, evaluate_to);
+            ctx.define_label(end_label);
+            evaluate_to
+        }
+        NodeKind::For {
             is_const: None,
             label,
         } => {
