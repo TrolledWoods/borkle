@@ -243,7 +243,7 @@ pub fn finish<'a>(
     }
 
     if are_incomplete_sets | from.infer.output_errors(errors, &from.ast) {
-        // from.infer.output_incompleteness_errors(errors, &from.poly_params, &from.ast, &from.locals);
+        from.infer.output_incompleteness_errors(errors, &from.ast);
         from.infer.flag_all_values_as_complete();
         return Err(());
     }

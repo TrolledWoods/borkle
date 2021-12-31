@@ -423,23 +423,6 @@ fn insert_active_constraint(
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum RelativeValueId {
-    None,
-    Dynamic(u32),
-    Node(AstNodeId),
-}
-
-impl RelativeValueId {
-    pub fn make_absolute(self, _by: AstNodeId) -> ValueId {
-        match self {
-            Self::None => ValueId::None,
-            Self::Dynamic(id) => ValueId::Dynamic(id),
-            Self::Node(id) => ValueId::Node(id),
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ValueId {
     None,
     Dynamic(u32),
@@ -910,6 +893,16 @@ impl TypeSystem {
     pub fn flag_all_values_as_complete(&mut self) {
         for value in self.values.iter_mut() {
             value.value_sets.complete(&mut self.value_sets);
+        }
+    }
+
+    pub fn output_incompleteness_errors(&self, errors: &mut ErrorCtx, ast: &crate::parser::Ast) {
+        for id in ast.root().iter_all_ids() {
+            let value = get_value(&self.structures, &self.values, ValueId::Node(id));
+
+            if value.layout.map_or(0, |v| v.align) == 0 {
+                errors.error(ast.get(id).loc, format!("Unknown type"));
+            }
         }
     }
 

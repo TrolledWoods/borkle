@@ -141,7 +141,7 @@ const take_u64_with_base = fn(string: &[] u8, base: u64) -> u64 {
     while string.len > 0 {
         let c = *string.ptr;
         if not(is_digit(c))  break;
-        number = number * base + (cast (c - DIGIT0) : u64);
+        number = number * base + cast (c - DIGIT0) : u64;
         advance(string);
     };
     number
@@ -152,7 +152,7 @@ const take_u64 = fn(string: &[] u8) -> u64 {
     while string.len > 0 {
         let c = *string.ptr;
         if not(is_digit(c))  break;
-        number = number * 10 + (cast (c - DIGIT0) : u64);
+        number = number * 10 + cast (c - DIGIT0) : u64;
         advance(string);
     };
     number

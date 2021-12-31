@@ -5,9 +5,7 @@ const TestsDay3 = fn() {
     defer ok("AOC day 3");
     assert(aoc_day3_part1() == 2003336);
     
-    let result = aoc_day3_part2();
-    print_u64(result);
-    assert(result == 1877139);
+    assert(aoc_day3_part2() == 1877139);
 };
 
 const aoc_day3_part1 = fn() -> u64 {
@@ -93,13 +91,13 @@ const aoc_day3_part2 = fn() -> u64 {
         for entry in &numbers {
             let is_set = ((*entry).number & mask) > 0;
 
-            if (*entry).consider_for_a_rate {
+            if entry.consider_for_a_rate {
                 a_rate_total_nums = a_rate_total_nums + 1;
                 if is_set  a_rate_nums = a_rate_nums + 1;
                 a_rate = cast (*entry).number;
             };
 
-            if (*entry).consider_for_b_rate {
+            if entry.consider_for_b_rate {
                 b_rate_total_nums = b_rate_total_nums + 1;
                 if is_set  b_rate_nums = b_rate_nums + 1;
                 b_rate = cast (*entry).number;
@@ -109,11 +107,11 @@ const aoc_day3_part2 = fn() -> u64 {
         let a_rate_bit = a_rate_nums >= a_rate_total_nums - a_rate_nums;
         let b_rate_bit = b_rate_nums < b_rate_total_nums - b_rate_nums;
 
-        for entry in numbers {
-            let is_set = ((entry).number & mask) > 0;
+        for entry in &numbers {
+            let is_set = (entry.number & mask) > 0;
 
-            if is_set != a_rate_bit { (entry).consider_for_a_rate = false; };
-            if is_set != b_rate_bit { (entry).consider_for_b_rate = false; };
+            if is_set != a_rate_bit { entry.consider_for_a_rate = false; };
+            if is_set != b_rate_bit { entry.consider_for_b_rate = false; };
         };
 
         mask = mask / 2;

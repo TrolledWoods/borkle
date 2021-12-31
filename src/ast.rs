@@ -450,6 +450,13 @@ impl<'a, Zipped: TreeZippable> GenericNodeView<'a, Zipped> {
         }
     }
 
+    pub fn iter_all_ids(&self) -> impl Iterator<Item = NodeId> {
+        let base_id = self.children.base_id.0;
+        let num_children = self.children.nodes.len() as u32 + 1;
+
+        (base_id..base_id + num_children).map(|v| NodeId(v))
+    }
+
     pub fn subtree_region(&self) -> (NodeId, usize) {
         let (base_id, nodes) = self.children.subtree_region();
         (base_id, nodes + 1)

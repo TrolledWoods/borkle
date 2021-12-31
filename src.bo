@@ -1,46 +1,8 @@
-library "iter.bo";
-library "vec.bo";
-
 import "tests/main.bo";
 
 #entry fn() {
     run_aoc_tests();
-
-    let hello = fn([a, b, c] & array) {
-        print("array: ");
-        for array {
-            if i > 0 print(", ");
-            print_u64(v);
-        };
-        print("\n");
-
-        print("a: ");
-        print_u64(a);
-        print("\n");
-        print("b: ");
-        print_u64(b);
-        print("\n");
-        print("c: ");
-        print_u64(c);
-        print("\n");
-    };
-
-    hello([1, 2, 3]);
-
-    let c = &90;
-    (let a)&*c=200;
-
-    print_u64(a);
-    print("\n");
-
-    let to = [9, 8, 7, 6];
-    let from = [1, 2, 3, 4];
-
-    copy_nonoverlapping(&to, &from, 1);
-
-    for to {
-        print_u64(v);
-        print("\n");
-    };
-
 };
+
+// TODO:
+// - Make [ptr + usize -> _] also infer to [ptr + usize -> ptr] (maybe similar for other operators too?)
