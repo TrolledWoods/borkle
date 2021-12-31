@@ -21,6 +21,7 @@ pub type AdditionalInfo = HashMap<(AstVariantId, NodeId), AdditionalInfoKind>;
 pub enum AdditionalInfoKind {
     Function(FunctionId),
     ConstIfResult(bool),
+    ConstForAstVariants(Vec<AstVariantId>),
     Constant(ConstantRef),
     Monomorphised(MemberId, Arc<MemberMetaData>),
 }
@@ -271,6 +272,53 @@ pub fn finish<'a>(
 
 fn subset_was_completed(ctx: &mut Context<'_, '_>, ast: &mut Ast, waiting_on: WaitingOnTypeInferrence, set: ValueSetId) {
     match waiting_on {
+        WaitingOnTypeInferrence::ConstFor { node_id, ast_variant_id, parent_set, runs } => {
+            let node = ast.get_mut(node_id);
+            let [iterator, _i_value, mut inner, _else_body] = node.children.into_array();
+
+            let iterator_type_id = TypeId::Node(ast_variant_id, iterator.id);
+            let iterator_type = ctx.infer.get(iterator_type_id);
+            if !matches!(iterator_type.kind(), TypeKind::Tuple) {
+                ctx.errors.error(iterator.loc, "Constant for loops can only iterate over tuples for now".to_string());
+                return;
+            }
+
+            let iterator_args = iterator_type.args().to_vec();
+
+            let mut emit_deps = ctx.infer.value_sets.get_mut(parent_set).emit_deps.take().unwrap_or_default();
+            let mut sub_ctx = Context {
+                thread_context: ctx.thread_context,
+                errors: ctx.errors,
+                program: ctx.program,
+                locals: ctx.locals,
+                emit_deps: &mut emit_deps,
+                poly_params: ctx.poly_params,
+                infer: ctx.infer,
+                needs_explaining: ctx.needs_explaining,
+                runs,
+                ast_variant_id: AstVariantId::invalid(),
+                additional_info: ctx.additional_info,
+            };
+
+            let mut variant_ids = Vec::with_capacity(iterator_args.len());
+            for iterator_arg in iterator_args {
+                let sub_variant_id = sub_ctx.infer.values.add_ast_variant(ast_variant_id, inner.subtree_region());
+                sub_ctx.ast_variant_id = sub_variant_id;
+                variant_ids.push(sub_variant_id);
+
+                let [v_value_decl, body] = inner.children.borrow().into_array();
+
+                let v_value_id = build_declarative_lvalue(&mut sub_ctx, v_value_decl, parent_set, true);
+                sub_ctx.infer.set_equal(iterator_arg, v_value_id, Reason::temp(node.node.loc));
+
+                build_constraints(&mut sub_ctx, body, parent_set);
+            }
+
+            ctx.infer.value_sets.get_mut(parent_set).emit_deps = Some(emit_deps);
+            ctx.additional_info.insert((ast_variant_id, node_id), AdditionalInfoKind::ConstForAstVariants(variant_ids));
+
+            ctx.infer.value_sets.unlock(parent_set);
+        }
         WaitingOnTypeInferrence::ConditionalCompilation { node_id, condition, true_body, false_body, ast_variant_id, parent_set, runs } => {
             let loc = ast.get(condition).loc;
             let result = match crate::interp::emit_and_run(
@@ -522,10 +570,10 @@ fn subset_was_completed(ctx: &mut Context<'_, '_>, ast: &mut Ast, waiting_on: Wa
 fn validate_contracts(
     ctx: &mut Context<'_, '_>,
     ast: &Ast,
-    related_nodes: &[crate::ast::NodeId],
+    related_nodes: &[(AstVariantId, NodeId)],
     set: ValueSetId,
 ) {
-    for &related_node in related_nodes {
+    for &(_, related_node) in related_nodes {
         let node = ast.get(related_node);
         
         match node.kind {
@@ -558,7 +606,7 @@ fn build_constraints(
     let node_type_id = TypeId::Node(ctx.ast_variant_id, node.id);
 
     ctx.infer.set_value_set(node_type_id, set);
-    ctx.infer.value_sets.add_node_to_set(set, node.id);
+    ctx.infer.value_sets.add_node_to_set(set, ctx.ast_variant_id, node.id);
 
     match node.node.kind {
         NodeKind::Uninit | NodeKind::Zeroed => {}
@@ -629,7 +677,7 @@ fn build_constraints(
             };
 
             ctx.infer.set_value_set(TypeId::Node(ctx.ast_variant_id, on.id), set);
-            ctx.infer.value_sets.add_node_to_set(set, on.id);
+            ctx.infer.value_sets.add_node_to_set(set, ctx.ast_variant_id, on.id);
             ctx.infer.set_equal(TypeId::Node(ctx.ast_variant_id, on.id), node_type_id, Reason::temp(node_loc));
 
             let id = ctx.program.get_member_id(scope, name).expect("The dependency system should have made sure that this is defined");
@@ -718,7 +766,7 @@ fn build_constraints(
                         }
                     }
 
-                    node.node.kind = NodeKind::ResolvedGlobal(id, meta_data);
+                    ctx.additional_info.insert((ctx.ast_variant_id, node.id), AdditionalInfoKind::Monomorphised(id, meta_data.clone()));
                 }
             }
         }
@@ -788,7 +836,7 @@ fn build_constraints(
                         }
                     }
 
-                    node.kind = NodeKind::ResolvedGlobal(id, meta_data);
+                    ctx.additional_info.insert((ctx.ast_variant_id, node.id), AdditionalInfoKind::Monomorphised(id, meta_data));
                 }
             }
         }
@@ -817,9 +865,40 @@ fn build_constraints(
             ctx.infer.set_equal(node_type_id, label_type_infer_id, Reason::new(node_loc, ReasonKind::Passed));
         }
         NodeKind::For {
+            is_const: Some(_),
             label,
         } => {
-            let [iterating, iteration_var, iterator, body, else_body] = node.children.into_array();
+            let [iterating, i_value, _inner, else_body] = node.children.into_array();
+
+            let iteration_var_id = build_declarative_lvalue(ctx, i_value, set, true);
+
+            ctx.locals.get_label_mut(label).stack_frame_id = set;
+
+            let usize_id = ctx.infer.add_int(IntTypeKind::Usize, set);
+            ctx.infer.set_equal(iteration_var_id, usize_id, Reason::temp(node_loc));
+
+            let sub_set = ctx.infer.value_sets.add(WaitingOnTypeInferrence::ConstFor {
+                node_id: node.id,
+                ast_variant_id: ctx.ast_variant_id,
+                runs: ctx.runs,
+                parent_set: set,
+            });
+
+            ctx.infer.value_sets.lock(set);
+            build_constraints(ctx, iterating, sub_set);
+
+            let label_type_infer_id = ctx.locals.get_label(label).type_infer_value_id;
+
+            let else_type = build_constraints(ctx, else_body, set);
+            ctx.infer.set_equal(node_type_id, else_type, Reason::new(node_loc, ReasonKind::Passed));
+            ctx.infer.set_equal(node_type_id, label_type_infer_id, Reason::new(node_loc, ReasonKind::Passed));
+        }
+        NodeKind::For {
+            is_const: None,
+            label,
+        } => {
+            let [iterating, iteration_var, inner, else_body] = node.children.into_array();
+            let [iterator, body] = inner.children.into_array();
 
             let iteration_var_id = build_declarative_lvalue(ctx, iteration_var, set, true);
             let iterator_id = build_declarative_lvalue(ctx, iterator, set, true);
@@ -856,20 +935,9 @@ fn build_constraints(
 
             ctx.infer.set_equal(node_type_id, empty_id, Reason::new(node_loc, ReasonKind::IsOfType));
         }
-        NodeKind::Literal(Literal::String(ref data)) => {
+        NodeKind::Literal(Literal::String(_)) => {
             let u8_type = ctx.infer.add_int(IntTypeKind::U8, set);
             ctx.infer.set_type(node_type_id, TypeKind::Buffer, Args([(u8_type, Reason::temp(node_loc))]), set);
-
-            let u8_type = types::Type::new(types::TypeKind::Int(IntTypeKind::U8));
-            let type_ = types::Type::new(types::TypeKind::Buffer { pointee: u8_type });
-            let ptr = ctx.program.insert_buffer(
-                type_,
-                &crate::types::BufferRepr {
-                    ptr: data.as_ptr() as *mut _,
-                    length: data.len(),
-                } as *const _ as *const _,
-            );
-            node.kind = NodeKind::Constant(ptr, None);
         }
         NodeKind::BuiltinFunction(function) => {
             let function_type_id = ctx.infer.add_unknown_type();
@@ -1054,7 +1122,6 @@ fn build_constraints(
             let mut typer_args = Vec::with_capacity(children.len());
             typer_args.push((return_type, Reason::new(node_loc, ReasonKind::FunctionCallReturn)));
 
-            let num_args = children.len();
             for arg in children {
                 let function_arg_type_id = ctx.infer.add_unknown_type();
                 let arg_type_id = build_constraints(ctx, arg, set);
@@ -1066,10 +1133,6 @@ fn build_constraints(
             let type_id = ctx.infer.add_type(TypeKind::Function, Args(typer_args), set);
             ctx.infer
                 .set_equal(calling_type_id, type_id, Reason::new(node_loc, ReasonKind::FunctionCall));
-
-            node.node.kind = NodeKind::ResolvedFunctionCall {
-                arg_indices: (0..num_args).collect(),
-            };
         }
         NodeKind::Binary {
             op: BinaryOp::Assign,
@@ -1173,8 +1236,8 @@ fn build_constraints(
             ctx.infer
                 .set_equal(value_type_id, node_type_id, Reason::new(node_loc, ReasonKind::Passed));
         }
-        _ => {
-            ctx.errors.error(node_loc, format!("Invalid expression(it might only be valid as an lvalue, or as a type)"));
+        ref kind => {
+            ctx.errors.error(node_loc, format!("Invalid expression(it might only be valid as an lvalue, or as a type) {:?}", kind));
             ctx.infer.value_sets.get_mut(set).has_errors |= true;
         }
     }
@@ -1191,7 +1254,7 @@ fn build_type(
     let node_type_id = TypeId::Node(ctx.ast_variant_id, node.id);
 
     ctx.infer.set_value_set(node_type_id, set);
-    ctx.infer.value_sets.add_node_to_set(set, node.id);
+    ctx.infer.value_sets.add_node_to_set(set, ctx.ast_variant_id, node.id);
 
     match node.kind {
         NodeKind::ImplicitType => {},
@@ -1297,7 +1360,7 @@ fn build_declarative_lvalue(
     let node_type_id = TypeId::Node(ctx.ast_variant_id, node.id);
 
     ctx.infer.set_value_set(node_type_id, set);
-    ctx.infer.value_sets.add_node_to_set(set, node.id);
+    ctx.infer.value_sets.add_node_to_set(set, ctx.ast_variant_id, node.id);
 
     match node.kind {
         NodeKind::Member { name } if !is_declaring => {
@@ -1502,7 +1565,7 @@ fn build_lvalue(
     }
 
     ctx.infer.set_value_set(node_type_id, set);
-    ctx.infer.value_sets.add_node_to_set(set, node.id);
+    ctx.infer.value_sets.add_node_to_set(set, ctx.ast_variant_id, node.id);
 
     node_type_id
 }
@@ -1571,7 +1634,7 @@ fn build_inferrable_constant_value(
     };
 
     ctx.infer.set_value_set(node_type_id, set);
-    ctx.infer.value_sets.add_node_to_set(set, node_id);
+    ctx.infer.value_sets.add_node_to_set(set, ctx.ast_variant_id, node_id);
 
     (node_type_id, value_id)
 }
@@ -1583,6 +1646,12 @@ pub enum WaitingOnTypeInferrence {
         condition: NodeId,
         true_body: NodeId,
         false_body: NodeId,
+        ast_variant_id: AstVariantId,
+        runs: ExecutionTime,
+        parent_set: ValueSetId,
+    },
+    ConstFor {
+        node_id: NodeId,
         ast_variant_id: AstVariantId,
         runs: ExecutionTime,
         parent_set: ValueSetId,

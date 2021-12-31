@@ -9,7 +9,7 @@ use crate::program::{FunctionId, Program};
 use crate::thread_pool::ThreadContext;
 use crate::type_infer::{ValueId as TypeId, TypeSystem, Reason, Args, AstVariantId, self};
 use crate::typer::{AdditionalInfo, AdditionalInfoKind};
-use crate::types::{Type, TypeKind};
+use crate::types::{Type, TypeKind, IntTypeKind};
 
 mod context;
 use context::Context;
@@ -193,9 +193,11 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, mut node: NodeView<'a>) -> Value {
             ctx.registers.zst()
         }
         NodeKind::For {
+            is_const: None,
             label,
         } => {
-            let [iterating, i_value_decl, v_value_decl, body, else_body] = node.children.as_array();
+            let [iterating, i_value_decl, mut inner, else_body] = node.children.as_array();
+            let [v_value_decl, body] = inner.children.as_array();
 
             let end_label = ctx.create_label();
             let to = ctx.registers.create(ctx.types, TypeId::Node(ctx.variant_id, node.id));
@@ -387,6 +389,21 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, mut node: NodeView<'a>) -> Value {
 
             ctx.define_label(end_of_false_body);
 
+            to
+        }
+        NodeKind::Literal(Literal::String(data)) => {
+            let u8_type = Type::new(TypeKind::Int(IntTypeKind::U8));
+            let type_ = Type::new(TypeKind::Buffer { pointee: u8_type });
+            let ptr = ctx.program.insert_buffer(
+                type_,
+                &crate::types::BufferRepr {
+                    ptr: data.as_ptr() as *mut _,
+                    length: data.len(),
+                } as *const _ as *const _,
+            );
+
+            let to = ctx.registers.create(ctx.types, TypeId::Node(ctx.variant_id, node.id));
+            ctx.emit_global(to, ptr);
             to
         }
         NodeKind::Literal(Literal::Int(num)) => {
@@ -671,7 +688,7 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, mut node: NodeView<'a>) -> Value {
             ctx.emit_global(to, ptr);
             to
         }
-        NodeKind::ResolvedFunctionCall { arg_indices } => {
+        NodeKind::FunctionCall => {
             let mut children = node.children.into_iter();
             let calling_node = children.next().unwrap();
 
@@ -679,7 +696,7 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, mut node: NodeView<'a>) -> Value {
             let calling = emit_node(ctx, calling_node.clone());
 
             let mut args = vec![ctx.registers.zst(); node.children.len() - 1];
-            for (&i, node) in arg_indices.iter().zip(children) {
+            for (i, node) in children.into_iter().enumerate() {
                 args[i] = emit_node(ctx, node);
             }
 

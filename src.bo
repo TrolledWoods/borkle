@@ -1,7 +1,9 @@
-import "tests/main.bo";
+// import "tests/main.bo";
 
-#entry fn() {
-    run_aoc_tests();
+{
+    for #const: x in ("Hello!\n", "Sir!\n") {
+        print(x);
+    };
 };
 
 // TODO:

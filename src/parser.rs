@@ -710,6 +710,9 @@ fn value_without_unaries(
         TokenKind::Keyword(Keyword::For) => {
             imperative.push_scope_boundary();
 
+            let mut is_const = None;
+            parse_tags(global, "for", &mut [("const".into(), &mut is_const)])?;
+
             let label = parse_default_label(global, imperative)?;
 
             let iterator_local = if let Some(Token {
@@ -729,10 +732,14 @@ fn value_without_unaries(
 
             let iteration_var = imperative.insert_local(Local::new(token.loc, "i".into()).read_only());
             slot.add().finish(Node::new(loc, NodeKind::Local { local_id: iteration_var, usage: LocalUsage::Standard }));
-            let iterator = imperative.insert_local(iterator_local.read_only());
-            slot.add().finish(Node::new(loc, NodeKind::Local { local_id: iterator, usage: LocalUsage::Standard }));
 
-            expression(global, imperative, slot.add())?;
+            let mut for_inner = slot.add();
+            let iterator = imperative.insert_local(iterator_local.read_only());
+            for_inner.add().finish(Node::new(loc, NodeKind::Local { local_id: iterator, usage: LocalUsage::Standard }));
+
+            expression(global, imperative, for_inner.add())?;
+
+            for_inner.finish(Node::new(loc, NodeKind::ForInner));
 
             imperative.pop_default_label();
             imperative.pop_scope_boundary();
@@ -749,6 +756,7 @@ fn value_without_unaries(
             slot.finish(Node::new(
                 token.loc,
                 NodeKind::For {
+                    is_const,
                     label,
                 },
             ))
@@ -1284,8 +1292,13 @@ pub enum NodeKind {
     Constant(ConstantRef, Option<Arc<MemberMetaData>>),
     ResolvedGlobal(MemberId, Arc<MemberMetaData>),
 
-    /// [ iterator, i, v, body, else_body ]
+    /// The reason this is separate from `For` is that const for loops
+    /// only "polymorph" this part of the for, the rest isn't polymorphed.
+    /// [v_value, body]
+    ForInner,
+    /// [ iterator, i_value, inner: ForInner, else_body ]
     For {
+        is_const: Option<Location>,
         label: LabelId,
     },
     /// [ i, condition, body, else_body ]

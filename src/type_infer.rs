@@ -755,6 +755,16 @@ impl Values {
             ],
         }
     }
+
+    pub fn add_ast_variant(&mut self, parent_id: AstVariantId, (base_id, size): (AstNodeId, usize)) -> AstVariantId {
+        let id = self.ast_values.len();
+        self.ast_values.push(AstValues {
+            parent: Some(parent_id),
+            base_id: base_id.0,
+            nodes: vec![ValueWrapper::default(); size].into_boxed_slice(),
+        });
+        AstVariantId(id as u32)
+    }
     
     fn structure_id_of_value(&self, value_id: ValueId) -> Option<u32> {
         self.get(value_id).structure_id
@@ -770,7 +780,8 @@ impl Values {
                     let parent_id = variant.parent.expect("The node id seems to be out of bounds");
                     variant = &self.ast_values[parent_id.0 as usize];
                 }
-                &variant.nodes[usize::from(id)]
+                let base_id = variant.base_id;
+                &variant.nodes[usize::from(id) - base_id as usize]
             }
         }
     }
@@ -785,7 +796,8 @@ impl Values {
                     variant_id = variant.parent.expect("The node id seems to be out of bounds");
                     variant = &self.ast_values[variant_id.0 as usize];
                 }
-                &mut self.ast_values[variant_id.0 as usize].nodes[usize::from(id)]
+                let base_id = variant.base_id;
+                &mut self.ast_values[variant_id.0 as usize].nodes[usize::from(id) - base_id as usize]
             }
         }
     }
