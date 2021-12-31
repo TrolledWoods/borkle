@@ -639,6 +639,10 @@ fn name_of_type(mut out: impl Write, type_: Type, rec: u32) -> fmt::Result {
             out.write_str("buf_")?;
             name_of_type(out, pointee, rec + 1)?;
         }
+        TypeKind::Tuple { .. } => {
+            out.write_str("tuple")?;
+            fallback_name(out, type_)?;
+        }
         TypeKind::Struct { .. } => {
             out.write_str("struct")?;
             fallback_name(out, type_)?;
@@ -691,6 +695,14 @@ pub fn declare_types(output: &mut String) {
             }
             TypeKind::Buffer { pointee, .. } => {
                 write!(output, "{} *inner; usize len; ", c_format_type(pointee)).unwrap();
+            }
+            TypeKind::Tuple(ref fields) => {
+                for (i, &arg_type) in fields.iter().enumerate() {
+                    if arg_type.size() == 0 { continue; }
+
+                    output.push_str("\n\t");
+                    write!(output, "{} _{};", c_format_type(arg_type), i).unwrap();
+                }
             }
             TypeKind::Struct(ref fields) => {
                 for &(name, arg_type) in fields {

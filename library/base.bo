@@ -400,4 +400,3 @@ const write.(Args) = fn(writer: typeof Writer.(u8), format_str: [] u8, args: Arg
 const print.(Args) = fn(format_str: [] u8, args: Args) {
     write(stdout_writer(), format_str, args);
 };
-

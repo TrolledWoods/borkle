@@ -1,11 +1,13 @@
-import "tests/main.bo";
-library "iter.bo";
-library "intrinsics.bo";
-library "vec.bo";
-
 #entry fn() {
-    let values = [1 : u32, 2, 3];
-    for values print("%: %\n", (i, base(v, 3)));
+    let values & [a, b, c] = [1 : u32, 2, 3];
+
+    print("a,b is %, %\n", (a,b));
+    print("b,c is %, %\n", (b,c));
+    print("c,a is %, %\n", (c,a));
+
+    for values {
+        print("%: %\n", (i, v));
+    };
 };
 
 // TODO:
