@@ -312,16 +312,10 @@ fn subset_was_completed(ctx: &mut Context<'_, '_>, ast: &mut Ast, waiting_on: Wa
             ast.get_mut(to).kind = NodeKind::Constant(constant_ref, None);
             ctx.infer.value_sets.unlock(parent_set);
         }
-        WaitingOnTypeInferrence::TypeAsValue { type_id, node_id, parent_set } => {
-            let compiler_type = ctx.infer.value_to_compiler_type(type_id);
-            let constant_ref = ctx.program.insert_buffer(types::Type::new(types::TypeKind::Type), &compiler_type as *const _ as *const u8);
-            ast.get_mut(node_id).kind = NodeKind::Constant(constant_ref, None);
+        WaitingOnTypeInferrence::TypeAsValue { parent_set } => {
             ctx.infer.value_sets.unlock(parent_set);
         }
-        WaitingOnTypeInferrence::SizeOf { type_id, node_id, parent_set } => {
-            let size = ctx.infer.get(type_id).layout.expect("This value is supposed to be complete").size;
-            let constant_ref = ctx.program.insert_buffer(types::Type::new(types::TypeKind::Int(IntTypeKind::Usize)), &size as *const _ as *const u8);
-            ast.get_mut(node_id).kind = NodeKind::Constant(constant_ref, None);
+        WaitingOnTypeInferrence::SizeOf { parent_set } => {
             ctx.infer.value_sets.unlock(parent_set);
         }
         WaitingOnTypeInferrence::MonomorphiseMember { node_id, poly_member_id, when_needed, params, parent_set } => {
@@ -600,17 +594,12 @@ fn build_constraints(
         }
         NodeKind::SizeOf => {
             let [inner] = node.children.into_array();
-            let subset = ctx.infer.value_sets.add(WaitingOnTypeInferrence::None);
-            let inner = build_type(ctx, inner, subset);
+            let subset = ctx.infer.value_sets.add(WaitingOnTypeInferrence::SizeOf { parent_set: set });
+            build_type(ctx, inner, subset);
 
             ctx.infer.set_int(node_type_id, IntTypeKind::Usize, set);
 
             ctx.infer.value_sets.lock(set);
-            ctx.infer.set_waiting_on_value_set(subset, WaitingOnTypeInferrence::SizeOf {
-                type_id: inner,
-                node_id: node.id,
-                parent_set: set,
-            });
         }
         NodeKind::Cast => {
             let [inner] = node.children.into_array();
@@ -1156,15 +1145,10 @@ fn build_constraints(
             let [inner] = node.children.into_array();
             let old_runs = ctx.runs;
             ctx.runs = ctx.runs.combine(ExecutionTime::Typing);
-            let subset = ctx.infer.value_sets.add(WaitingOnTypeInferrence::None);
-            let type_id = build_type(ctx, inner, subset);
+            let subset = ctx.infer.value_sets.add(WaitingOnTypeInferrence::TypeAsValue { parent_set: set });
+            build_type(ctx, inner, subset);
 
             ctx.infer.value_sets.lock(set);
-            ctx.infer.set_waiting_on_value_set(subset, WaitingOnTypeInferrence::TypeAsValue {
-                type_id,
-                node_id: node.id,
-                parent_set: set,
-            });
             
             ctx.infer.set_type(node_type_id, TypeKind::Type, Args([]), set);
             ctx.runs = old_runs;
@@ -1590,13 +1574,9 @@ pub enum WaitingOnTypeInferrence {
         parent_set: ValueSetId,
     },
     TypeAsValue {
-        type_id: type_infer::ValueId,
-        node_id: NodeId,
         parent_set: ValueSetId,
     },
     SizeOf {
-        type_id: type_infer::ValueId,
-        node_id: NodeId,
         parent_set: ValueSetId,
     },
     MonomorphiseMember {

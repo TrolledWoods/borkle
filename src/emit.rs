@@ -159,6 +159,8 @@ pub fn emit_function_declaration<'a>(
 fn emit_node<'a>(ctx: &mut Context<'a, '_>, mut node: NodeView<'a>) -> Value {
     ctx.emit_debug(node.loc);
 
+    let node_type_id = TypeId::Node(ctx.variant_id, node.id);
+
     match &node.kind {
         NodeKind::Empty => ctx.registers.zst(),
         NodeKind::Break {
@@ -697,6 +699,25 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, mut node: NodeView<'a>) -> Value {
         NodeKind::Parenthesis | NodeKind::Explain => {
             let [value] = node.children.as_array();
             emit_node(ctx, value)
+        }
+        NodeKind::SizeOf => {
+            let [inner] = node.children.as_array();
+            let inner_type = TypeId::Node(ctx.variant_id, inner.id);
+            let size = ctx.types.get(inner_type).layout.unwrap().size;
+
+            let to = ctx.registers.create(ctx.types, node_type_id);
+            ctx.emit_move_from_constant(to, &size.to_le_bytes());
+            to
+        }
+        NodeKind::TypeOf => {
+            let [inner] = node.children.as_array();
+            let inner_type = TypeId::Node(ctx.variant_id, inner.id);
+            let compiler_type = ctx.types.value_to_compiler_type(inner_type);
+            let constant_ref = ctx.program.insert_buffer(Type::new(TypeKind::Type), &compiler_type as *const _ as *const u8);
+
+            let to = ctx.registers.create(ctx.types, node_type_id);
+            ctx.emit_global(to, constant_ref);
+            to
         }
         c => unreachable!("This node should not reach emission: {:?}", c),
     }
