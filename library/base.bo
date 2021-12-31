@@ -19,11 +19,6 @@ const get_line = fn() -> typeof Vec.(u8) {
     vec_from_iter(take_while(stdin(), fn(v) *v != NEW_LINE))
 };
 
-const print = fn(string: [] u8) {
-    i_stdout_write(string);
-    i_stdout_flush();
-};
-
 const filled_array.(N, T) = fn(fill_with: T) -> [N] T {
     let arr = #uninit : [N] T;
     for &arr { *v = fill_with; };
@@ -219,43 +214,190 @@ const is_digit = fn(c: u8) -> bool {
     c >= DIGIT0 && c < DIGIT0 + 10
 };
 
-const print_u64_with_base = fn(num: u64, base: u64, align: u64) { 'func_block
+const PERCENT = *"%".ptr;
+
+const Writer.(T) = #0 : {
+    state: &u8;
+    write_buf : fn(&u8, [] T) -> usize;
+    write_single : fn(&u8, T) -> usize;
+    // If the writer discards the written things. Used for optimizations(you can skip calling write_buf or write_single altogether).
+    discarding: bool;
+};
+
+// Writer that does nothing, except pretends everything went smoothly. This means you can read how many bytes were "written" without
+// allocating a buffer to write into.
+const count_writer.(T) = fn() -> typeof Writer.(T) {
+    let writer = #0;
+    writer.discarding = true;
+    writer.write_buf    = fn(_, buffer) buffer.len;
+    writer.write_single = fn(_, _)      1;
+    writer
+};
+
+const vec_writer.(T) = fn(vec: &typeof Vec.(T)) -> typeof Writer.(T) {
+    let writer = #0;
+    writer.state = cast vec;
+    writer.write_buf = fn(vec_ptr, buffer) {
+        let vec = cast vec_ptr : &typeof Vec.(T);
+        vec_push_buf(vec, buffer);
+        buffer.len
+    };
+    writer.write_single = fn(vec_ptr, single) {
+        let vec = cast vec_ptr : &typeof Vec.(T);
+        vec_push(vec, single);
+        1
+    };
+    writer
+};
+
+const stdout_writer = fn() -> typeof Writer.(u8) {
+    let writer = #0;
+    writer.write_buf = fn(_, buffer) {
+        i_stdout_write(buffer);
+        buffer.len
+    };
+    writer.write_single = fn(_, c) {
+        put_char(c);
+        1
+    };
+    writer
+};
+
+const write_buf.(T) = fn(to: &typeof Writer.(T), buf: [] T) -> usize {
+    to.write_buf(to.state, buf)
+};
+
+const write_single.(T) = fn(to: &typeof Writer.(T), value: T) -> usize {
+    to.write_single(to.state, value)
+};
+
+const PAD_LEFT   = 0 : u8;
+const PAD_CENTER = 1 : u8;
+const PAD_RIGHT  = 2 : u8;
+
+const Format.(T) = #0 : {
+    value: T;
+    pad: usize;
+    pad_char: u8;
+    pad_dir: u8;
+    base: u8;
+};
+
+const write_u64 = fn(to: typeof Writer.(u8), num: u64, base: u64) -> usize { 'func
     if num == 0 {
-        put_char(DIGIT0);
-        break 'func_block;
+        break 'func write_single(&to, DIGIT0);
     };
 
     let factor = 1;
 
-    if align > 0 {
-        while i < cast align  factor = factor * base;
-    } else {
-        while factor <= num        factor = factor * base;
-    };
+    while factor <= num     factor = factor * base;
 
+    let written = 0;
     while factor >= base {
         factor = factor / base;
         let digit = num / factor;
         num = num - digit * factor;
 
-        put_char(DIGIT0 + (cast digit : u8));
+        written = written + write_single(&to, DIGIT0 + (cast digit : u8));
     };
+
+    written
 };
 
-const print_u64 = fn(num: u64) { 'func_block
-    if num == 0 {
-        put_char(DIGIT0);
-        break 'func_block;
-    };
-
-    let factor = 1;
-    while factor <= num  factor = factor * 10;
-
-    while factor >= 10 {
-        factor = factor / 10;
-        let digit = num / factor;
-        num = num - digit * factor;
-
-        put_char(DIGIT0 + (cast digit : u8));
-    };
+const write_fmt_no_padding.(T) = fn(to: typeof Writer.(u8), val: typeof Format.(T)) -> usize {
+    if #const: type T == type &u8 || type T == type &u16 || type T == type &u32 || type T == type &u64 || type T == type &usize {
+        let base = if val.base == 0 { 10 } else { val.base };
+        write_u64(to, cast *val.value, cast base)
+    } else if #const: type T == u8 || type T == u16 || type T == u32 || type T == u64 || type T == usize {
+        let base = if val.base == 0 { 10 } else { val.base };
+        write_u64(to, cast val.value, cast base)
+    } else if #const: type T == type typeof Vec.(u8) || type T == type typeof &Vec.(u8) {
+        write_buf(&to, vec_as_buffer(&val.value))
+    } else if #const: type T == type [] u8 {
+        write_buf(&to, val.value)
+    } else {
+        // Cannot format this type of value
+        assert(false);
+        0
+    }
 };
+
+const write_fmt.(T) = fn(to: typeof Writer.(u8), val: typeof Format.(T)) -> usize {
+    // pad left doesn't need any pre-computation
+    let written = 0;
+    if val.pad != 0 && val.pad_dir != PAD_LEFT {
+        let count = write_fmt_no_padding(count_writer(), val);
+        if val.pad > count {
+            let padding = if val.pad_dir == PAD_RIGHT {
+                val.pad - count
+            } else {
+                (val.pad - count) / 2
+            };
+            while i < padding {
+                written = written + write_single(&to, val.pad_char);
+            };
+        };
+    };
+
+    written = written + write_fmt_no_padding(to, val);
+
+    if val.pad != 0 && val.pad > written {
+        let remaining = val.pad - written;
+        let pad_char = if val.pad_char == 0  SPACE else val.pad_char;
+        while i < remaining {
+            written = written + write_single(&to, pad_char);
+        };
+    };
+
+    written
+};
+
+const fmt.(T) = fn(val: T) -> typeof Format {
+    if #const:
+    type T == type typeof Format.(u8)
+    || type T == type typeof Format.(u16)
+    || type T == type typeof Format.(u32)
+    || type T == type typeof Format.(u64)
+    || type T == type typeof Format.(type [] u8) {
+        val
+    } else {
+        let thing = #0;
+        thing.value = val;
+        thing
+    }
+};
+
+const pad.(T) = fn(value: T, pad: usize, pad_dir: u8, pad_char: u8) -> typeof Format {
+    let format = fmt(value);
+    format.pad = pad;
+    format.pad_dir = pad_dir;
+    format.pad_char = pad_char;
+    format
+};
+
+const base.(T) = fn(value: T, base: u8) -> typeof Format {
+    let format = fmt(value);
+    format.base = base;
+    format
+};
+
+const write.(Args) = fn(writer: typeof Writer.(u8), format_str: [] u8, args: Args) -> usize {
+    let splits = split(format_str, fn(v) v == PERCENT);
+
+    let written = 0;
+    let sub_str = #0;
+    for #const: args {
+        assert(splits.next(&splits.state, &sub_str));
+        written = written + write_buf(&writer, sub_str);
+        written = written + write_fmt(writer, fmt(v));
+    };
+
+    if splits.next(&splits.state, &sub_str)  written = written + write_buf(&writer, sub_str);
+
+    written
+};
+
+const print.(Args) = fn(format_str: [] u8, args: Args) {
+    write(stdout_writer(), format_str, args);
+};
+
