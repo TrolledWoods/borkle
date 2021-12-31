@@ -7,11 +7,23 @@ use crate::locals::LocalVariables;
 use crate::operators::{BinaryOp, UnaryOp};
 pub use crate::parser::{LocalUsage, Node, NodeKind, Ast, NodeViewMut};
 use crate::ast::NodeId;
-use crate::program::{PolyOrMember, PolyMemberId, Program, Task, constant::ConstantRef, BuiltinFunction};
+use crate::program::{PolyOrMember, PolyMemberId, Program, Task, constant::ConstantRef, BuiltinFunction, MemberId, MemberMetaData, FunctionId};
 use crate::thread_pool::ThreadContext;
 use crate::type_infer::{self, AstVariantId, ValueId as TypeId, Args, TypeSystem, ValueSetId, TypeKind, Reason, ReasonKind};
 use crate::types::{self, IntTypeKind};
+use std::collections::HashMap;
+use std::sync::Arc;
 use ustr::Ustr;
+
+pub type AdditionalInfo = HashMap<(AstVariantId, NodeId), AdditionalInfoKind>;
+
+#[derive(Clone)]
+pub enum AdditionalInfoKind {
+    Function(FunctionId),
+    ConstIfResult(bool),
+    Constant(ConstantRef),
+    Monomorphised(MemberId, Arc<MemberMetaData>),
+}
 
 #[derive(Clone)]
 pub struct PolyParam {
@@ -45,6 +57,7 @@ pub struct YieldData {
     root_value_id: type_infer::ValueId,
     locals: LocalVariables,
     ast: Ast,
+    additional_info: AdditionalInfo,
     infer: TypeSystem,
     poly_params: Vec<PolyParam>,
     needs_explaining: Vec<(NodeId, type_infer::ValueId)>,
@@ -84,6 +97,7 @@ struct Context<'a, 'b> {
     runs: ExecutionTime,
     needs_explaining: &'a mut Vec<(NodeId, type_infer::ValueId)>,
     ast_variant_id: AstVariantId,
+    additional_info: &'a mut AdditionalInfo,
 }
 
 pub fn process_ast<'a>(
@@ -92,7 +106,7 @@ pub fn process_ast<'a>(
     program: &'a Program,
     locals: LocalVariables,
     ast: Ast,
-) -> Result<Result<(DependencyList, LocalVariables, TypeSystem, Ast), (DependencyList, YieldData)>, ()> {
+) -> Result<Result<(DependencyList, LocalVariables, TypeSystem, Ast, AdditionalInfo), (DependencyList, YieldData)>, ()> {
     let mut yield_data = begin(errors, thread_context, program, locals, ast, Vec::new());
     solve(errors, thread_context, program, &mut yield_data);
     finish(errors, yield_data)
@@ -131,6 +145,7 @@ pub fn begin<'a>(
     }
 
     let mut needs_explaining = Vec::new();
+    let mut additional_info = Default::default();
     let mut ctx = Context {
         thread_context,
         errors,
@@ -142,6 +157,7 @@ pub fn begin<'a>(
         runs: ExecutionTime::RuntimeFunc,
         needs_explaining: &mut needs_explaining,
         ast_variant_id: AstVariantId::root(),
+        additional_info: &mut additional_info,
     };
 
     // Build the type relationships between nodes.
@@ -157,6 +173,7 @@ pub fn begin<'a>(
         infer,
         poly_params,
         needs_explaining,
+        additional_info,
     }
 }
 
@@ -179,6 +196,7 @@ pub fn solve<'a>(
         runs: ExecutionTime::Never,
         needs_explaining: &mut data.needs_explaining,
         ast_variant_id: AstVariantId::root(),
+        additional_info: &mut data.additional_info,
     };
 
     loop {
@@ -223,7 +241,7 @@ pub fn solve<'a>(
 pub fn finish<'a>(
     errors: &mut ErrorCtx,
     mut from: YieldData,
-) -> Result<Result<(DependencyList, LocalVariables, TypeSystem, Ast), (DependencyList, YieldData)>, ()> {
+) -> Result<Result<(DependencyList, LocalVariables, TypeSystem, Ast, AdditionalInfo), (DependencyList, YieldData)>, ()> {
     for (node_id, needs_explaining) in from.needs_explaining {
         for chain in type_infer::get_reasons(needs_explaining, &from.infer, &from.ast) {
             chain.output(errors, &from.ast, &from.infer);
@@ -248,13 +266,12 @@ pub fn finish<'a>(
 
     let emit_deps = from.infer.value_sets.get_mut(from.root_set_id).emit_deps.take().unwrap();
 
-    Ok(Ok((emit_deps, from.locals, from.infer, from.ast)))
+    Ok(Ok((emit_deps, from.locals, from.infer, from.ast, from.additional_info)))
 }
 
 fn subset_was_completed(ctx: &mut Context<'_, '_>, ast: &mut Ast, waiting_on: WaitingOnTypeInferrence, set: ValueSetId) {
     match waiting_on {
-        WaitingOnTypeInferrence::ConditionalCompilation { node_id, condition, true_body, false_body, parent_set, runs } => {
-            
+        WaitingOnTypeInferrence::ConditionalCompilation { node_id, condition, true_body, false_body, ast_variant_id, parent_set, runs } => {
             let loc = ast.get(condition).loc;
             let result = match crate::interp::emit_and_run(
                 ctx.thread_context,
@@ -262,6 +279,7 @@ fn subset_was_completed(ctx: &mut Context<'_, '_>, ast: &mut Ast, waiting_on: Wa
                 ctx.locals,
                 ctx.infer,
                 ast,
+                ctx.additional_info,
                 condition,
                 AstVariantId::root(),
                 &mut vec![loc],
@@ -294,22 +312,23 @@ fn subset_was_completed(ctx: &mut Context<'_, '_>, ast: &mut Ast, waiting_on: Wa
                 infer: ctx.infer,
                 needs_explaining: ctx.needs_explaining,
                 runs,
-                ast_variant_id: ctx.ast_variant_id,
+                ast_variant_id: ast_variant_id,
+                additional_info: ctx.additional_info,
             };
 
             let child_type = build_constraints(&mut sub_ctx, ast.get_mut(emitting), parent_set);
             ctx.infer.value_sets.get_mut(parent_set).emit_deps = Some(emit_deps);
             ctx.infer.set_equal(TypeId::Node(ctx.ast_variant_id, node_id), child_type, Reason::temp_zero());
 
-            ast.get_mut(node_id).kind = NodeKind::ConditionalCompilation { child: if result { 1 } else { 2 } };
-
+            ctx.additional_info.insert((ast_variant_id, node_id), AdditionalInfoKind::ConstIfResult(result));
             ctx.infer.value_sets.unlock(parent_set);
         }
-        WaitingOnTypeInferrence::ConstantFromValueId { value_id, to, parent_set } => {
+        WaitingOnTypeInferrence::ConstantFromValueId { value_id, to, ast_variant_id, parent_set } => {
             // We expect the type to already be checked by some other mechanism,
             // e.g., node_type_id should be equal to the type of the constant.
             let constant_ref = ctx.infer.extract_constant_temp(value_id).unwrap();
-            ast.get_mut(to).kind = NodeKind::Constant(constant_ref, None);
+
+            ctx.additional_info.insert((ast_variant_id, to), AdditionalInfoKind::Constant(constant_ref));
             ctx.infer.value_sets.unlock(parent_set);
         }
         WaitingOnTypeInferrence::TypeAsValue { parent_set } => {
@@ -318,7 +337,7 @@ fn subset_was_completed(ctx: &mut Context<'_, '_>, ast: &mut Ast, waiting_on: Wa
         WaitingOnTypeInferrence::SizeOf { parent_set } => {
             ctx.infer.value_sets.unlock(parent_set);
         }
-        WaitingOnTypeInferrence::MonomorphiseMember { node_id, poly_member_id, when_needed, params, parent_set } => {
+        WaitingOnTypeInferrence::MonomorphiseMember { node_id, poly_member_id, when_needed, params, parent_set, ast_variant_id } => {
             let node_loc = ast.get(node_id).loc;
             let mut fixed_up_params = Vec::with_capacity(params.len());
 
@@ -337,7 +356,8 @@ fn subset_was_completed(ctx: &mut Context<'_, '_>, ast: &mut Ast, waiting_on: Wa
                 let (type_, meta_data) = ctx.program.get_member_meta_data(member_id);
                 let compiler_type = ctx.infer.add_compiler_type(ctx.program, type_, parent_set);
                 ctx.infer.set_equal(TypeId::Node(ctx.ast_variant_id, node_id), compiler_type, Reason::new(node_loc, ReasonKind::IsOfType));
-                ast.get_mut(node_id).kind = NodeKind::ResolvedGlobal(member_id, meta_data.clone());
+
+                ctx.additional_info.insert((ast_variant_id, node_id), AdditionalInfoKind::Monomorphised(member_id, meta_data.clone()));
 
                 match when_needed {
                     // This will never be emitted anyway so it doesn't matter if the value isn't accessible.
@@ -359,7 +379,7 @@ fn subset_was_completed(ctx: &mut Context<'_, '_>, ast: &mut Ast, waiting_on: Wa
                 ctx.infer.value_sets.get_mut(parent_set).has_errors |= true;
             }
         }
-        WaitingOnTypeInferrence::ValueIdFromConstantComputation { computation, value_id } => {
+        WaitingOnTypeInferrence::ValueIdFromConstantComputation { computation, value_id, ast_variant_id } => {
             let len_loc = ast.get(computation).loc;
             match crate::interp::emit_and_run(
                 ctx.thread_context,
@@ -367,8 +387,9 @@ fn subset_was_completed(ctx: &mut Context<'_, '_>, ast: &mut Ast, waiting_on: Wa
                 ctx.locals,
                 ctx.infer,
                 ast,
+                ctx.additional_info,
                 computation,
-                AstVariantId::root(),
+                ast_variant_id,
                 &mut vec![len_loc],
             ) {
                 Ok(constant_ref) => {
@@ -393,6 +414,7 @@ fn subset_was_completed(ctx: &mut Context<'_, '_>, ast: &mut Ast, waiting_on: Wa
             function_type,
             parent_set,
             time,
+            ast_variant_id,
         } => {
             let node_loc = ast.get(node_id).loc;
             let function_id = ctx.program.insert_function(node_loc);
@@ -411,6 +433,7 @@ fn subset_was_completed(ctx: &mut Context<'_, '_>, ast: &mut Ast, waiting_on: Wa
                         Task::EmitFunction(
                             ctx.locals.clone(),
                             ctx.infer.clone(),
+                            ctx.additional_info.clone(),
                             ast.clone(),
                             node_id,
                             type_,
@@ -426,6 +449,7 @@ fn subset_was_completed(ctx: &mut Context<'_, '_>, ast: &mut Ast, waiting_on: Wa
                         ctx.locals,
                         ctx.infer,
                         ast,
+                        ctx.additional_info,
                         node_id,
                         AstVariantId::root(),
                         type_,
@@ -435,24 +459,7 @@ fn subset_was_completed(ctx: &mut Context<'_, '_>, ast: &mut Ast, waiting_on: Wa
                 }
             }
 
-            let function_id_buffer = ctx
-                .program
-                .insert_buffer(type_, &function_id as *const _ as *const u8);
-
-            // We are only allowed to change the node type here, because if this function declaration
-            // is in a "polymorphic subtree"(that may be copied several times and use different types),
-            // we need to become different functions.
-            ast.get_mut(node_id).kind = NodeKind::Constant(
-                function_id_buffer,
-                None,
-                // Later, we probably want the meta data for the function
-                // included as well.
-                /*Some(Arc::new(MemberMetaData::Function {
-                    arg_names,
-                    default_values,
-                })),*/
-            );
-
+            ctx.additional_info.insert((ast_variant_id, node_id), AdditionalInfoKind::Function(function_id));
             ctx.infer.value_sets.unlock(parent_set);
         }
         WaitingOnTypeInferrence::BuiltinFunctionInTyping {
@@ -460,6 +467,7 @@ fn subset_was_completed(ctx: &mut Context<'_, '_>, ast: &mut Ast, waiting_on: Wa
             function,
             type_,
             parent_set,
+            ast_variant_id,
         } => {
             let node = ast.get_mut(node_id);
             let node_loc = node.loc;
@@ -504,11 +512,8 @@ fn subset_was_completed(ctx: &mut Context<'_, '_>, ast: &mut Ast, waiting_on: Wa
                 ctx.thread_context.c_declarations.push_str("}\n");
             }
 
-            ast.get_mut(node_id).kind = NodeKind::Constant(
-                ctx.program.insert_buffer(type_, &function_id as *const _ as *const u8),
-                None,
-            );
-
+            let constant = ctx.program.insert_buffer(type_, &function_id as *const _ as *const u8);
+            ctx.additional_info.insert((ast_variant_id, node_id), AdditionalInfoKind::Constant(constant));
             ctx.infer.value_sets.unlock(parent_set);
         }
         WaitingOnTypeInferrence::None => {},
@@ -575,6 +580,7 @@ fn build_constraints(
                 value_id,
                 to: node.id,
                 parent_set: set,
+                ast_variant_id: ctx.ast_variant_id,
             });
         }
         NodeKind::Tuple => {
@@ -676,6 +682,7 @@ fn build_constraints(
                         when_needed: ctx.runs,
                         params: param_values,
                         parent_set: set,
+                        ast_variant_id: ctx.ast_variant_id,
                     });
                 }
                 PolyOrMember::Member(id) => {
@@ -753,6 +760,7 @@ fn build_constraints(
                         when_needed: ctx.runs,
                         params: param_values,
                         parent_set: set,
+                        ast_variant_id: ctx.ast_variant_id,
                     });
                 }
                 PolyOrMember::Member(id) => {
@@ -871,6 +879,7 @@ fn build_constraints(
                 function,
                 type_: function_type_id,
                 parent_set: set,
+                ast_variant_id: ctx.ast_variant_id,
             });
 
             // The parent value set has to wait for this function declaration to be emitted until
@@ -932,6 +941,7 @@ fn build_constraints(
                     condition: condition.id,
                     true_body: true_body.id,
                     false_body: else_body.id,
+                    ast_variant_id: ctx.ast_variant_id,
                     parent_set: set,
                     runs: ctx.runs,
                 });
@@ -987,6 +997,7 @@ fn build_constraints(
                 needs_explaining: ctx.needs_explaining,
                 runs: ctx.runs.combine(ExecutionTime::RuntimeFunc),
                 ast_variant_id: ctx.ast_variant_id,
+                additional_info: ctx.additional_info,
             };
 
             let sub_set = sub_ctx.infer.value_sets.add(WaitingOnTypeInferrence::None);
@@ -1026,6 +1037,7 @@ fn build_constraints(
                 function_type: infer_type_id,
                 parent_set: set,
                 time: ctx.runs,
+                ast_variant_id: ctx.ast_variant_id,
             });
             let old_set = ctx.infer.value_sets.get_mut(sub_set).emit_deps.replace(emit_deps);
             debug_assert!(old_set.is_none());
@@ -1535,6 +1547,7 @@ fn build_inferrable_constant_value(
                 runs: ctx.runs.combine(ExecutionTime::Typing),
                 needs_explaining: ctx.needs_explaining,
                 ast_variant_id: ctx.ast_variant_id,
+                additional_info: ctx.additional_info,
             };
             let sub_set = sub_ctx.infer.value_sets.add(WaitingOnTypeInferrence::None);
 
@@ -1545,6 +1558,7 @@ fn build_inferrable_constant_value(
             ctx.infer.set_waiting_on_value_set(sub_set, WaitingOnTypeInferrence::ValueIdFromConstantComputation {
                 computation: node_id,
                 value_id,
+                ast_variant_id: ctx.ast_variant_id,
             });
 
             // Because the set of the node is already set by build_constraints, we early return type
@@ -1570,6 +1584,7 @@ pub enum WaitingOnTypeInferrence {
         condition: NodeId,
         true_body: NodeId,
         false_body: NodeId,
+        ast_variant_id: AstVariantId,
         runs: ExecutionTime,
         parent_set: ValueSetId,
     },
@@ -1585,6 +1600,7 @@ pub enum WaitingOnTypeInferrence {
         when_needed: ExecutionTime,
         params: Vec<type_infer::ValueId>,
         parent_set: ValueSetId,
+        ast_variant_id: AstVariantId,
     },
     FunctionDeclaration {
         node_id: NodeId,
@@ -1595,20 +1611,24 @@ pub enum WaitingOnTypeInferrence {
         /// emitted before that constant is created.
         parent_set: ValueSetId,
         time: ExecutionTime,
+        ast_variant_id: AstVariantId,
     },
     BuiltinFunctionInTyping {
         node_id: NodeId,
         function: BuiltinFunction,
         type_: TypeId,
         parent_set: ValueSetId,
+        ast_variant_id: AstVariantId,
     },
     ConstantFromValueId {
         value_id: type_infer::ValueId,
         to: NodeId,
         parent_set: ValueSetId,
+        ast_variant_id: AstVariantId,
     },
     ValueIdFromConstantComputation {
         computation: NodeId,
+        ast_variant_id: AstVariantId,
         value_id: type_infer::ValueId,
     },
     None,

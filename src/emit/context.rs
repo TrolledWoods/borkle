@@ -5,6 +5,7 @@ use crate::operators::{BinaryOp, UnaryOp};
 use crate::parser::NodeView;
 use crate::program::{FunctionId, Program, constant::ConstantRef};
 use crate::thread_pool::ThreadContext;
+use crate::typer::AdditionalInfo;
 use crate::type_infer::{TypeSystem, AstVariantId};
 
 pub struct Context<'a, 'b> {
@@ -18,6 +19,7 @@ pub struct Context<'a, 'b> {
     pub calling: Vec<FunctionId>,
     pub last_location: Option<Location>,
     pub variant_id: AstVariantId,
+    pub additional_info: &'a AdditionalInfo,
 
     pub defers: Vec<NodeView<'a>>,
 }

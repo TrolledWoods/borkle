@@ -1278,12 +1278,6 @@ pub enum NodeKind {
         name: Ustr,
     },
 
-    /// Like a parenthesis, but for one child
-    /// [ .. args ]
-    ConditionalCompilation {
-        child: usize,
-    },
-
     /// [ of, ..args ]
     PolymorphicArgs,
 

@@ -172,7 +172,7 @@ fn worker<'a>(alloc: &'a mut Bump, program: &'a Program) -> (ThreadContext<'a>, 
                             locals,
                             ast,
                         ) {
-                            Ok(Ok((dependencies, locals, types, ast))) => {
+                            Ok(Ok((dependencies, locals, types, ast, additional_info))) => {
                                 let meta_data = match &ast.root().kind {
                                     NodeKind::Constant(_, Some(meta_data)) => {
                                         (&**meta_data).clone()
@@ -195,7 +195,7 @@ fn worker<'a>(alloc: &'a mut Bump, program: &'a Program) -> (ThreadContext<'a>, 
                                     program.set_type_of_member(member_id, type_, meta_data);
                                     program.queue_task(
                                         dependencies,
-                                        Task::EmitMember(member_id, locals, types, ast),
+                                        Task::EmitMember(member_id, locals, types, additional_info, ast),
                                     );
                                 } else {
                                     errors.error(ast.root().loc, format!("'{}' cannot be stored in a constant, because it contains types that the compiler cannot reason about properly, such as '&any', '[] any', or similar", type_));
@@ -215,7 +215,7 @@ fn worker<'a>(alloc: &'a mut Bump, program: &'a Program) -> (ThreadContext<'a>, 
                         }
                     }
                 }
-                Task::EmitMember(member_id, mut locals, mut types, ast) => {
+                Task::EmitMember(member_id, mut locals, mut types, additional_info, ast) => {
                     if !program.member_is_evaluated(member_id) {
                         profile::profile!("Task::EmitMember");
                         use crate::typer::NodeKind;
@@ -227,78 +227,27 @@ fn worker<'a>(alloc: &'a mut Bump, program: &'a Program) -> (ThreadContext<'a>, 
                             type_,
                         ));
 
-                        match &ast.root().kind {
-                            NodeKind::Constant(result, _) => {
-                                program.logger.log(format_args!(
-                                    "value(at emitting step, through shortcut) '{}': {}",
-                                    program.member_name(member_id),
-                                    crate::program::constant_to_str(type_, *result, 0),
-                                ));
+                        let (calling, routine) = crate::emit::emit(
+                            &mut thread_context,
+                            program,
+                            &mut locals,
+                            &mut types,
+                            &ast,
+                            &additional_info,
+                            ast.root_id(),
+                            AstVariantId::root(),
+                        );
 
-                                program.set_value_of_member(member_id, *result);
-
-                                // Flag the member as callable once all the function pointers inside
-                                // the type are also callable. FIXME: This doesn't work for function
-                                // pointers behind other pointers yet!
-                                let mut dependencies = DependencyList::new();
-                                for function_id in unsafe {
-                                    type_.get_function_ids(result.as_ptr())
-                                } {
-                                    dependencies
-                                        .add(ast.root().loc, DepKind::Callable(function_id));
-                                }
-
-                                program
-                                    .queue_task(dependencies, Task::FlagMemberCallable(member_id));
-                            }
-                            NodeKind::ResolvedGlobal(aliasing, _) => {
-                                let result = program.get_value_of_member(*aliasing);
-
-                                program.logger.log(format_args!(
-                                    "value(at emitting step, through shortcut) '{}': {}",
-                                    program.member_name(member_id),
-                                    crate::program::constant_to_str(type_, result, 0),
-                                ));
-
-                                program.set_value_of_member(member_id, result);
-
-                                // Flag the member as callable once all the function pointers inside
-                                // the type are also callable. FIXME: This doesn't work for function
-                                // pointers behind other pointers yet!
-                                let mut dependencies = DependencyList::new();
-                                for function_id in unsafe {
-                                    type_.get_function_ids(result.as_ptr())
-                                } {
-                                    dependencies
-                                        .add(ast.root().loc, DepKind::Callable(function_id));
-                                }
-
-                                program
-                                    .queue_task(dependencies, Task::FlagMemberCallable(member_id));
-                            }
-                            _ => {
-                                let (calling, routine) = crate::emit::emit(
-                                    &mut thread_context,
-                                    program,
-                                    &mut locals,
-                                    &mut types,
-                                    &ast,
-                                    ast.root_id(),
-                                    AstVariantId::root(),
-                                );
-
-                                let mut dependencies = DependencyList::new();
-                                for call in calling {
-                                    // FIXME: This should include the location of the call
-                                    dependencies
-                                        .add(ast.root().loc, DepKind::Callable(call));
-                                }
-                                program.queue_task(
-                                    dependencies,
-                                    Task::EvaluateMember(member_id, routine),
-                                );
-                            }
+                        let mut dependencies = DependencyList::new();
+                        for call in calling {
+                            // FIXME: This should include the location of the call
+                            dependencies
+                                .add(ast.root().loc, DepKind::Callable(call));
                         }
+                        program.queue_task(
+                            dependencies,
+                            Task::EvaluateMember(member_id, routine),
+                        );
                     }
                 }
                 Task::EvaluateMember(member_id, routine) => {
@@ -343,7 +292,7 @@ fn worker<'a>(alloc: &'a mut Bump, program: &'a Program) -> (ThreadContext<'a>, 
                         }
                     }
                 }
-                Task::EmitFunction(mut locals, mut types, ast, node_id, type_, function_id, ast_variant_id) => {
+                Task::EmitFunction(mut locals, mut types, additional_info, ast, node_id, type_, function_id, ast_variant_id) => {
                     program
                         .logger
                         .log(format_args!("emitting function '{:?}'", function_id));
@@ -356,6 +305,7 @@ fn worker<'a>(alloc: &'a mut Bump, program: &'a Program) -> (ThreadContext<'a>, 
                         &mut locals,
                         &mut types,
                         &ast,
+                        &additional_info,
                         node_id,
                         ast_variant_id,
                         type_,

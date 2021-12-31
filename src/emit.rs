@@ -8,6 +8,7 @@ use crate::ast::NodeId;
 use crate::program::{FunctionId, Program};
 use crate::thread_pool::ThreadContext;
 use crate::type_infer::{ValueId as TypeId, TypeSystem, Reason, Args, AstVariantId, self};
+use crate::typer::AdditionalInfo;
 use crate::types::{Type, TypeKind};
 
 mod context;
@@ -20,6 +21,7 @@ pub fn emit<'a>(
     locals: &mut LocalVariables,
     types: &mut TypeSystem,
     ast: &Ast,
+    additional_info: &AdditionalInfo,
     node: NodeId,
     variant_id: AstVariantId,
 ) -> (Vec<FunctionId>, UserDefinedRoutine) {
@@ -34,6 +36,7 @@ pub fn emit<'a>(
         calling: Vec::new(),
         last_location: None,
         variant_id,
+        additional_info,
 
         defers: Vec::new(),
     };
@@ -63,6 +66,7 @@ pub fn emit_function_declaration<'a>(
     locals: &mut LocalVariables,
     types: &mut TypeSystem,
     ast: &Ast,
+    additional_info: &AdditionalInfo,
     node_id: NodeId,
     variant_id: AstVariantId,
     type_: Type,
@@ -81,6 +85,7 @@ pub fn emit_function_declaration<'a>(
         defers: Vec::new(),
         calling: Vec::new(),
         last_location: None,
+        additional_info,
     };
 
     let function_type = ctx.types.get(TypeId::Node(ctx.variant_id, node_id));
@@ -190,7 +195,7 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, mut node: NodeView<'a>) -> Value {
         NodeKind::For {
             label,
         } => {
-            let [iterating, iteration_var, iterator, body, else_body] = node.children.as_array();
+            let [iterating, i_value_decl, v_value_decl, body, else_body] = node.children.as_array();
 
             let end_label = ctx.create_label();
             let to = ctx.registers.create(ctx.types, TypeId::Node(ctx.variant_id, node.id));
@@ -200,8 +205,8 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, mut node: NodeView<'a>) -> Value {
             let mut iterating_value = emit_node(ctx, iterating.clone());
 
             // Set up iterator values
-            let iteration_var_value = ctx.registers.create(ctx.types, TypeId::Node(ctx.variant_id, iteration_var.id));
-            ctx.emit_move_from_constant(iteration_var_value, &0_usize.to_le_bytes());
+            let i_value = ctx.registers.create(ctx.types, TypeId::Node(ctx.variant_id, i_value_decl.id));
+            ctx.emit_move_from_constant(i_value, &0_usize.to_le_bytes());
 
             let mut by_value = true;
 
@@ -290,19 +295,19 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, mut node: NodeView<'a>) -> Value {
             let else_body_label = ctx.create_label();
             ctx.emit_jump_if_zero(condition, else_body_label);
 
-            emit_declarative_lvalue(ctx, iteration_var, iteration_var_value, true);
+            emit_declarative_lvalue(ctx, i_value_decl, i_value, true);
 
             if by_value {
-                let temp = ctx.registers.create(ctx.types, TypeId::Node(ctx.variant_id, iterator.id));
+                let temp = ctx.registers.create(ctx.types, TypeId::Node(ctx.variant_id, v_value_decl.id));
                 ctx.emit_dereference(temp, current);
-                emit_declarative_lvalue(ctx, iterator, temp, true);
+                emit_declarative_lvalue(ctx, v_value_decl, temp, true);
             } else {
-                emit_declarative_lvalue(ctx, iterator, current, true);
+                emit_declarative_lvalue(ctx, v_value_decl, current, true);
             }
             emit_node(ctx, body);
             ctx.emit_increment(current);
 
-            ctx.emit_increment(iteration_var_value);
+            ctx.emit_increment(i_value);
 
             ctx.emit_jump(condition_label);
 
@@ -318,7 +323,7 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, mut node: NodeView<'a>) -> Value {
         NodeKind::While {
             label,
         } => {
-            let [iteration_var, condition, body, else_body] = node.children.as_array();
+            let [i_value_decl, condition, body, else_body] = node.children.as_array();
 
             let end_label = ctx.create_label();
             let else_body_label = ctx.create_label();
@@ -328,21 +333,21 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, mut node: NodeView<'a>) -> Value {
             label.value = Some(to);
             label.ir_labels = Some(vec![end_label]);
 
-            let iteration_var_value = ctx.registers.create(ctx.types, TypeId::Node(ctx.variant_id, iteration_var.id)); 
-            ctx.emit_move_from_constant(iteration_var_value, &0_usize.to_le_bytes());
+            let i_value = ctx.registers.create(ctx.types, TypeId::Node(ctx.variant_id, i_value_decl.id)); 
+            ctx.emit_move_from_constant(i_value, &0_usize.to_le_bytes());
 
             // Condition
             let condition_label = ctx.create_label();
             ctx.define_label(condition_label);
 
-            emit_declarative_lvalue(ctx, iteration_var, iteration_var_value, true);
+            emit_declarative_lvalue(ctx, i_value_decl, i_value, true);
 
             let condition = emit_node(ctx, condition);
             ctx.emit_jump_if_zero(condition, else_body_label);
 
             // Loop body
             emit_node(ctx, body);
-            ctx.emit_increment(iteration_var_value);
+            ctx.emit_increment(i_value);
             ctx.emit_jump(condition_label);
 
             // Else body
@@ -355,10 +360,6 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, mut node: NodeView<'a>) -> Value {
             ctx.define_label(end_label);
 
             to
-        }
-        NodeKind::ConditionalCompilation { child } => {
-            let child = node.children.into_iter().nth(*child).unwrap();
-            emit_node(ctx, child)
         }
         NodeKind::If {
             is_const,

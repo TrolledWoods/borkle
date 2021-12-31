@@ -5,6 +5,7 @@ use crate::program::constant::ConstantRef;
 use crate::program::{BuiltinFunction, Program};
 use crate::types::{BufferRepr, TypeKind};
 use crate::type_infer::{TypeSystem, ValueId as TypeId, AstVariantId};
+use crate::typer::AdditionalInfo;
 
 mod stack;
 
@@ -16,6 +17,7 @@ pub fn emit_and_run<'a>(
     locals: &mut crate::locals::LocalVariables,
     types: &mut TypeSystem,
     ast: &crate::typer::Ast,
+    additional_info: &AdditionalInfo,
     node: crate::ast::NodeId,
     variant_id: AstVariantId,
     call_stack: &mut Vec<Location>,
@@ -28,6 +30,7 @@ pub fn emit_and_run<'a>(
         locals,
         types,
         ast,
+        additional_info,
         node,
         variant_id,
     );

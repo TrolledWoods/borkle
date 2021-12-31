@@ -702,7 +702,7 @@ impl Program {
         let mut yield_data = (*yield_data).clone();
         yield_data.insert_poly_params(self, poly_args);
         crate::typer::solve(errors, thread_context, self, &mut yield_data);
-        let (dependency_list, mut locals, mut types, typed_ast) = match crate::typer::finish(errors, yield_data)? {
+        let (dependency_list, mut locals, mut types, typed_ast, additional_info) = match crate::typer::finish(errors, yield_data)? {
             Ok(v) => v,
             Err(_) => todo!("Not done!"),
         };
@@ -717,6 +717,7 @@ impl Program {
                     member_id,
                     locals,
                     types,
+                    additional_info,
                     typed_ast,
                 )
             );
@@ -728,7 +729,7 @@ impl Program {
         assert_ne!(wanted_dep, MemberDep::Value, "Depending on just the value shouldn't really happen in this place, because either you go full on callable or you depend on the type. If you need to depend on the value it monomorphises it by depending on the type and then calculates the type on the value individually.");
 
         // @HACK: Here we assume that stack frame id number 0 is the parent one.
-        let (_, routine) = crate::emit::emit(thread_context, self, &mut locals, &mut types, &typed_ast, typed_ast.root_id(), AstVariantId::root());
+        let (_, routine) = crate::emit::emit(thread_context, self, &mut locals, &mut types, &typed_ast, &additional_info, typed_ast.root_id(), AstVariantId::root());
         let mut stack = crate::interp::Stack::new(2048);
 
         let mut call_stack = Vec::new();
@@ -1238,12 +1239,13 @@ pub enum Task {
         ast: Ast,
         locals: crate::locals::LocalVariables,
     },
-    EmitMember(MemberId, crate::locals::LocalVariables, crate::type_infer::TypeSystem, crate::typer::Ast),
+    EmitMember(MemberId, crate::locals::LocalVariables, crate::type_infer::TypeSystem, crate::typer::AdditionalInfo, crate::typer::Ast),
     EvaluateMember(MemberId, crate::ir::UserDefinedRoutine),
     FlagMemberCallable(MemberId),
     EmitFunction(
         crate::locals::LocalVariables,
         crate::type_infer::TypeSystem,
+        crate::typer::AdditionalInfo,
         crate::typer::Ast,
         crate::ast::NodeId,
         Type,
@@ -1262,10 +1264,10 @@ impl fmt::Debug for Task {
             Task::Parse(_, buf) => write!(f, "parse({:?})", buf),
             Task::TypeMember { member_id, .. } => write!(f, "type_member({:?})", member_id),
             Task::TypePolyMember { member_id, .. } => write!(f, "type_poly_member({:?})", member_id),
-            Task::EmitMember(id, _, _, _) => write!(f, "emit_member({:?})", id),
+            Task::EmitMember(id, ..) => write!(f, "emit_member({:?})", id),
             Task::EvaluateMember(id, _) => write!(f, "evaluate_member({:?})", id),
             Task::FlagMemberCallable(id) => write!(f, "flag_member_callable({:?})", id),
-            Task::EmitFunction(_, _, _, _, _, id, _) => write!(f, "emit_function({:?})", id),
+            Task::EmitFunction(_, _, _, _, _, _, id, _) => write!(f, "emit_function({:?})", id),
         }
     }
 }
