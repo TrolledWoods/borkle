@@ -5,7 +5,7 @@ use crate::location::Location;
 use crate::execution_time::ExecutionTime;
 use crate::locals::LocalVariables;
 use crate::operators::{BinaryOp, UnaryOp};
-pub use crate::parser::{Node, NodeKind, Ast, NodeViewMut};
+pub use crate::parser::{LocalUsage, Node, NodeKind, Ast, NodeViewMut};
 use crate::ast::NodeId;
 use crate::program::{PolyOrMember, PolyMemberId, Program, Task, constant::ConstantRef, BuiltinFunction};
 use crate::thread_pool::ThreadContext;
@@ -184,8 +184,7 @@ pub fn solve<'a>(
         let mut progress = false;
         for value_set_id in ctx.infer.value_sets.iter_ids() {
             let value_set = ctx.infer.value_sets.get_mut(value_set_id);
-            if value_set_id == 0 // <- Temporary from old things, we can deal with this case now, so do that!
-            || value_set.has_errors
+            if value_set.has_errors
             || value_set.has_been_computed
             || value_set.uncomputed_values() > 0
             {
@@ -201,6 +200,9 @@ pub fn solve<'a>(
                     local.type_ = Some(ctx.infer.value_to_compiler_type(TypeId::Node(local.declared_at.unwrap())));
                 }
             }
+
+            validate_contracts(&mut ctx, &data.ast, &related_nodes, value_set_id);
+
             let value_set = ctx.infer.value_sets.get_mut(value_set_id);
             value_set.related_nodes = related_nodes;
             value_set.has_been_computed = true;
@@ -525,6 +527,36 @@ fn subset_was_completed(ctx: &mut Context<'_, '_>, ast: &mut Ast, waiting_on: Wa
             ctx.infer.value_sets.unlock(parent_set);
         }
         WaitingOnTypeInferrence::None => {},
+    }
+}
+
+fn validate_contracts(
+    ctx: &mut Context<'_, '_>,
+    ast: &Ast,
+    related_nodes: &[crate::ast::NodeId],
+    set: ValueSetId,
+) {
+    for &related_node in related_nodes {
+        let node = ast.get(related_node);
+        
+        match node.kind {
+            NodeKind::Local { local_id, usage: LocalUsage::DirectWrite } => {
+                if ctx.locals.get(local_id).read_only {
+                    ctx.errors.error(node.loc, "This variable is read-only, yet is assigned to.".to_string());
+                    ctx.infer.value_sets.get_mut(set).has_errors = true;
+                }
+            }
+            NodeKind::Local { local_id, usage: LocalUsage::WriteToMember } => {
+                if ctx.locals.get(local_id).read_only {
+                    let type_ = ctx.infer.get(TypeId::Node(related_node));
+                    if !matches!(type_.kind(), TypeKind::Reference) {
+                        ctx.errors.error(node.loc, "This variable is read-only, yet is assigned to.".to_string());
+                        ctx.infer.value_sets.get_mut(set).has_errors = true;
+                    }
+                }
+            }
+            _ => {}
+        }
     }
 }
 
@@ -898,7 +930,7 @@ fn build_constraints(
             ctx.infer
                 .set_field_name_equal(of_type_id, name, node_type_id, Reason::new(node_loc, ReasonKind::NamedField(name)));
         }
-        NodeKind::Local(local_id) => {
+        NodeKind::Local { local_id, .. } => {
             let local = ctx.locals.get(local_id);
             let local_type_id = TypeId::Node(local.declared_at.unwrap());
             ctx.infer
@@ -1302,16 +1334,19 @@ fn build_declarative_lvalue(
             let inner = build_declarative_lvalue(ctx, inner, set, true);
             ctx.infer.set_equal(node_type_id, inner, Reason::temp(node_loc));
         }
-        NodeKind::Local(local_id) => {
+        NodeKind::Local{ local_id, ref mut usage } => {
             if is_declaring {
                 let local = ctx.locals.get_mut(local_id);
                 local.declared_at = Some(node.id);
                 local.stack_frame_id = set;
+                // Usage doesn't need to be set, because this is a declaration, and therefore mutability of the
+                // variable doesn't matter yet.
             } else {
                 let local = ctx.locals.get(local_id);
                 let local_type_id = TypeId::Node(local.declared_at.unwrap());
                 ctx.infer
                     .set_equal(local_type_id, node_type_id, Reason::new(node_loc, ReasonKind::LocalVariableIs(local.name)));
+                *usage = LocalUsage::DirectWrite;
 
                 if local.stack_frame_id != set {
                     ctx.errors.error(node_loc, "Variable is defined in a different execution context, you cannot access it here, other than for its type".to_string());
@@ -1402,7 +1437,7 @@ fn build_declarative_lvalue(
 /// If this strategy doesn't work however, we fallback to read-only.
 fn build_lvalue(
     ctx: &mut Context<'_, '_>,
-    node: NodeViewMut<'_>,
+    mut node: NodeViewMut<'_>,
     set: ValueSetId,
     can_reference_temporaries: bool,
 ) -> type_infer::ValueId {
@@ -1416,11 +1451,17 @@ fn build_lvalue(
             ctx.infer
                 .set_field_name_equal(of_type_id, name, node_type_id, Reason::new(node_loc, ReasonKind::NamedField(name)));
         }
-        NodeKind::Local(local_id) => {
+        NodeKind::Local { local_id, ref mut usage } => {
             let local = ctx.locals.get(local_id);
+            
             let local_type_id = TypeId::Node(local.declared_at.unwrap());
             ctx.infer
                 .set_equal(local_type_id, node_type_id, Reason::new(node_loc, ReasonKind::LocalVariableIs(local.name)));
+            // @Hack: Here, we assume not referencing temporaries means we're in a mutable assignment.
+            // Maybe this assumption should be more clear from the argument name?
+            if !can_reference_temporaries {
+                *usage = LocalUsage::WriteToMember;
+            }
 
             if local.stack_frame_id != set {
                 ctx.errors.error(node_loc, "Variable is defined in a different execution context, you cannot access it here, other than for its type".to_string());

@@ -20,6 +20,7 @@ pub struct Local {
     /// set of things to execute. So when reading/writing to a value, you have to make sure that this id
     /// matches.
     pub stack_frame_id: crate::type_infer::ValueSetId,
+    pub read_only: bool,
     pub type_: Option<Type>,
     pub value: Option<Value>,
     pub uses: Vec<Location>,
@@ -33,11 +34,17 @@ impl Local {
             loc,
             type_: None,
             value: None,
+            read_only: false,
             declared_at: None,
             stack_frame_id: 123123,
             uses: Vec::new(),
             num_uses: 0,
         }
+    }
+
+    pub fn read_only(mut self) -> Self {
+        self.read_only = true;
+        self
     }
 }
 

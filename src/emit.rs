@@ -595,8 +595,8 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, mut node: NodeView<'a>) -> Value {
             ctx.emit_unary(*op, to, from);
             to
         }
-        NodeKind::Local(id) => {
-            ctx.locals.get(*id).value.unwrap()
+        NodeKind::Local { local_id, .. } => {
+            ctx.locals.get(*local_id).value.unwrap()
         }
         NodeKind::ConstAtEvaluation { .. } => {
             // TODO: Implement this, it's not going to work yet because emission cannot produce errors,
@@ -766,14 +766,14 @@ fn emit_declarative_lvalue<'a>(
             let pointer = emit_node(ctx, operand);
             ctx.emit_indirect_move(pointer, from);
         }
-        NodeKind::Local(id) => {
+        NodeKind::Local { local_id, .. } => {
             if is_declaring {
-                let local = ctx.locals.get_mut(*id);
+                let local = ctx.locals.get_mut(*local_id);
                 let local_value = ctx.registers.create_with_name(ctx.types, TypeId::Node(local.declared_at.unwrap()), Some(local.name));
                 local.value = Some(local_value);
                 ctx.emit_move(local_value, from);
             } else {
-                let to = ctx.locals.get(*id).value.unwrap();
+                let to = ctx.locals.get(*local_id).value.unwrap();
                 ctx.emit_move(to, from);
             }
         }
@@ -831,9 +831,9 @@ fn emit_lvalue<'a>(
             let [operand] = node.children.as_array();
             emit_node(ctx, operand)
         }
-        NodeKind::Local(id) => {
+        NodeKind::Local { local_id, .. } => {
             let to = ctx.registers.create(ctx.types, ref_type_id);
-            let from = ctx.locals.get(*id).value.unwrap();
+            let from = ctx.locals.get(*local_id).value.unwrap();
             ctx.emit_reference(to, from);
             to
         }
