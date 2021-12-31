@@ -11,7 +11,7 @@ pub fn get_reasons(base_value: ValueId, types: &TypeSystem, ast: &crate::parser:
     get_reasons_with_look_inside(base_value, base_value, types, ast)
 }
 
-pub fn get_reasons_with_look_inside(base_value: ValueId, look_inside: ValueId, types: &TypeSystem, ast: &crate::parser::Ast) -> Vec<ReasoningChain> {
+pub fn get_reasons_with_look_inside(base_value: ValueId, look_inside: ValueId, types: &TypeSystem, _ast: &crate::parser::Ast) -> Vec<ReasoningChain> {
     #[derive(Debug, Default)]
     struct Node {
         source: Option<(ValueId, Vec<usize>)>,
@@ -129,10 +129,7 @@ pub fn get_reasons_with_look_inside(base_value: ValueId, look_inside: ValueId, t
             // It's a base value, which means that we can draw a chain of reasoning from it.
             let node = Node {
                 source: None,
-                reason: match value_id {
-                    ValueId::Node(id) => Some(crate::typer::explain_given_type(ast, id)),
-                    _ => None,
-                },
+                reason: None,
                 distance: 0,
             };
 

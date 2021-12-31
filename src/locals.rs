@@ -21,7 +21,6 @@ pub struct Local {
     /// matches.
     pub stack_frame_id: crate::type_infer::ValueSetId,
     pub read_only: bool,
-    pub type_: Option<Type>,
     pub value: Option<Value>,
     pub uses: Vec<Location>,
     pub num_uses: usize,
@@ -32,7 +31,6 @@ impl Local {
         Self {
             name,
             loc,
-            type_: None,
             value: None,
             read_only: false,
             declared_at: None,

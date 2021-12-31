@@ -9,7 +9,7 @@ pub use crate::parser::{LocalUsage, Node, NodeKind, Ast, NodeViewMut};
 use crate::ast::NodeId;
 use crate::program::{PolyOrMember, PolyMemberId, Program, Task, constant::ConstantRef, BuiltinFunction};
 use crate::thread_pool::ThreadContext;
-use crate::type_infer::{self, ValueId as TypeId, Args, TypeSystem, ValueSetId, TypeKind, Reason, ReasonKind};
+use crate::type_infer::{self, AstVariantId, ValueId as TypeId, Args, TypeSystem, ValueSetId, TypeKind, Reason, ReasonKind};
 use crate::types::{self, IntTypeKind};
 use ustr::Ustr;
 
@@ -83,6 +83,7 @@ struct Context<'a, 'b> {
     poly_params: &'a mut Vec<PolyParam>,
     runs: ExecutionTime,
     needs_explaining: &'a mut Vec<(NodeId, type_infer::ValueId)>,
+    ast_variant_id: AstVariantId,
 }
 
 pub fn process_ast<'a>(
@@ -140,6 +141,7 @@ pub fn begin<'a>(
         infer: &mut infer,
         runs: ExecutionTime::RuntimeFunc,
         needs_explaining: &mut needs_explaining,
+        ast_variant_id: AstVariantId::root(),
     };
 
     // Build the type relationships between nodes.
@@ -176,6 +178,7 @@ pub fn solve<'a>(
         // This is only used in build_constraints, what it's set to doesn't matter
         runs: ExecutionTime::Never,
         needs_explaining: &mut data.needs_explaining,
+        ast_variant_id: AstVariantId::root(),
     };
 
     loop {
@@ -194,12 +197,6 @@ pub fn solve<'a>(
             debug_assert_eq!(value_set.uncomputed_values(), 0, "The number of uncomputed values cannot be less than zero");
 
             let related_nodes = std::mem::take(&mut value_set.related_nodes);
-            for local in ctx.locals.iter_mut() {
-                if local.stack_frame_id == value_set_id {
-                    debug_assert!(local.type_.is_none());
-                    local.type_ = Some(ctx.infer.value_to_compiler_type(TypeId::Node(local.declared_at.unwrap())));
-                }
-            }
 
             validate_contracts(&mut ctx, &data.ast, &related_nodes, value_set_id);
 
@@ -246,14 +243,7 @@ pub fn finish<'a>(
 
     if are_incomplete_sets | from.infer.output_errors(errors, &from.ast) {
         from.infer.output_incompleteness_errors(errors, &from.ast);
-        from.infer.flag_all_values_as_complete();
         return Err(());
-    }
-
-    for local in from.locals.iter_mut() {
-        if local.type_.is_none() {
-            local.type_ = Some(from.infer.value_to_compiler_type(TypeId::Node(local.declared_at.unwrap())));
-        }
     }
 
     let emit_deps = from.infer.value_sets.get_mut(from.root_set_id).emit_deps.take().unwrap();
@@ -273,7 +263,7 @@ fn subset_was_completed(ctx: &mut Context<'_, '_>, ast: &mut Ast, waiting_on: Wa
                 ctx.infer,
                 ast,
                 condition,
-                set,
+                AstVariantId::root(),
                 &mut vec![loc],
             ) {
                 Ok(constant_ref) => {
@@ -304,11 +294,12 @@ fn subset_was_completed(ctx: &mut Context<'_, '_>, ast: &mut Ast, waiting_on: Wa
                 infer: ctx.infer,
                 needs_explaining: ctx.needs_explaining,
                 runs,
+                ast_variant_id: ctx.ast_variant_id,
             };
 
             let child_type = build_constraints(&mut sub_ctx, ast.get_mut(emitting), parent_set);
             ctx.infer.value_sets.get_mut(parent_set).emit_deps = Some(emit_deps);
-            ctx.infer.set_equal(TypeId::Node(node_id), child_type, Reason::temp_zero());
+            ctx.infer.set_equal(TypeId::Node(ctx.ast_variant_id, node_id), child_type, Reason::temp_zero());
 
             ast.get_mut(node_id).kind = NodeKind::ConditionalCompilation { child: if result { 1 } else { 2 } };
 
@@ -351,7 +342,7 @@ fn subset_was_completed(ctx: &mut Context<'_, '_>, ast: &mut Ast, waiting_on: Wa
             if let Ok(member_id) = ctx.program.monomorphise_poly_member(ctx.errors, ctx.thread_context, poly_member_id, &fixed_up_params, wanted_dep) {
                 let (type_, meta_data) = ctx.program.get_member_meta_data(member_id);
                 let compiler_type = ctx.infer.add_compiler_type(ctx.program, type_, parent_set);
-                ctx.infer.set_equal(TypeId::Node(node_id), compiler_type, Reason::new(node_loc, ReasonKind::IsOfType));
+                ctx.infer.set_equal(TypeId::Node(ctx.ast_variant_id, node_id), compiler_type, Reason::new(node_loc, ReasonKind::IsOfType));
                 ast.get_mut(node_id).kind = NodeKind::ResolvedGlobal(member_id, meta_data.clone());
 
                 match when_needed {
@@ -383,12 +374,12 @@ fn subset_was_completed(ctx: &mut Context<'_, '_>, ast: &mut Ast, waiting_on: Wa
                 ctx.infer,
                 ast,
                 computation,
-                set,
+                AstVariantId::root(),
                 &mut vec![len_loc],
             ) {
                 Ok(constant_ref) => {
                     let computation_node = ast.get(computation);
-                    let finished_value = ctx.infer.add_value(TypeId::Node(computation), constant_ref, set);
+                    let finished_value = ctx.infer.add_value(TypeId::Node(ctx.ast_variant_id, computation), constant_ref, set);
 
                     ctx.infer.set_equal(finished_value, value_id, Reason::new(computation_node.loc, ReasonKind::IsOfType));
                 }
@@ -430,7 +421,7 @@ fn subset_was_completed(ctx: &mut Context<'_, '_>, ast: &mut Ast, waiting_on: Wa
                             node_id,
                             type_,
                             function_id,
-                            set,
+                            AstVariantId::root(),
                         ),
                     );
                 }
@@ -442,10 +433,10 @@ fn subset_was_completed(ctx: &mut Context<'_, '_>, ast: &mut Ast, waiting_on: Wa
                         ctx.infer,
                         ast,
                         node_id,
+                        AstVariantId::root(),
                         type_,
                         node_loc,
                         function_id,
-                        set,
                     );
                 }
             }
@@ -548,7 +539,7 @@ fn validate_contracts(
             }
             NodeKind::Local { local_id, usage: LocalUsage::WriteToMember } => {
                 if ctx.locals.get(local_id).read_only {
-                    let type_ = ctx.infer.get(TypeId::Node(related_node));
+                    let type_ = ctx.infer.get(TypeId::Node(ctx.ast_variant_id, related_node));
                     if !matches!(type_.kind(), TypeKind::Reference) {
                         ctx.errors.error(node.loc, "This variable is read-only, yet is assigned to.".to_string());
                         ctx.infer.value_sets.get_mut(set).has_errors = true;
@@ -566,7 +557,7 @@ fn build_constraints(
     set: ValueSetId,
 ) -> type_infer::ValueId {
     let node_loc = node.loc;
-    let node_type_id = TypeId::Node(node.id);
+    let node_type_id = TypeId::Node(ctx.ast_variant_id, node.id);
 
     ctx.infer.set_value_set(node_type_id, set);
     ctx.infer.value_sets.add_node_to_set(set, node.id);
@@ -643,9 +634,9 @@ fn build_constraints(
                 todo!("Handling of the case where you pass polymorphic args to something that shouldn't have it");
             };
 
-            ctx.infer.set_value_set(TypeId::Node(on.id), set);
+            ctx.infer.set_value_set(TypeId::Node(ctx.ast_variant_id, on.id), set);
             ctx.infer.value_sets.add_node_to_set(set, on.id);
-            ctx.infer.set_equal(TypeId::Node(on.id), node_type_id, Reason::temp(node_loc));
+            ctx.infer.set_equal(TypeId::Node(ctx.ast_variant_id, on.id), node_type_id, Reason::temp(node_loc));
 
             let id = ctx.program.get_member_id(scope, name).expect("The dependency system should have made sure that this is defined");
 
@@ -932,7 +923,7 @@ fn build_constraints(
         }
         NodeKind::Local { local_id, .. } => {
             let local = ctx.locals.get(local_id);
-            let local_type_id = TypeId::Node(local.declared_at.unwrap());
+            let local_type_id = TypeId::Node(ctx.ast_variant_id, local.declared_at.unwrap());
             ctx.infer
                 .set_equal(local_type_id, node_type_id, Reason::new(node_loc, ReasonKind::LocalVariableIs(local.name)));
 
@@ -1006,6 +997,7 @@ fn build_constraints(
                 infer: ctx.infer,
                 needs_explaining: ctx.needs_explaining,
                 runs: ctx.runs.combine(ExecutionTime::RuntimeFunc),
+                ast_variant_id: ctx.ast_variant_id,
             };
 
             let sub_set = sub_ctx.infer.value_sets.add(WaitingOnTypeInferrence::None);
@@ -1201,7 +1193,7 @@ fn build_type(
     set: ValueSetId,
 ) -> type_infer::ValueId {
     let node_loc = node.loc;
-    let node_type_id = TypeId::Node(node.id);
+    let node_type_id = TypeId::Node(ctx.ast_variant_id, node.id);
 
     ctx.infer.set_value_set(node_type_id, set);
     ctx.infer.value_sets.add_node_to_set(set, node.id);
@@ -1307,7 +1299,7 @@ fn build_declarative_lvalue(
     is_declaring: bool,
 ) -> type_infer::ValueId {
     let node_loc = node.loc;
-    let node_type_id = TypeId::Node(node.id);
+    let node_type_id = TypeId::Node(ctx.ast_variant_id, node.id);
 
     ctx.infer.set_value_set(node_type_id, set);
     ctx.infer.value_sets.add_node_to_set(set, node.id);
@@ -1343,7 +1335,7 @@ fn build_declarative_lvalue(
                 // variable doesn't matter yet.
             } else {
                 let local = ctx.locals.get(local_id);
-                let local_type_id = TypeId::Node(local.declared_at.unwrap());
+                let local_type_id = TypeId::Node(ctx.ast_variant_id, local.declared_at.unwrap());
                 ctx.infer
                     .set_equal(local_type_id, node_type_id, Reason::new(node_loc, ReasonKind::LocalVariableIs(local.name)));
                 *usage = LocalUsage::DirectWrite;
@@ -1442,7 +1434,7 @@ fn build_lvalue(
     can_reference_temporaries: bool,
 ) -> type_infer::ValueId {
     let node_loc = node.loc;
-    let node_type_id = TypeId::Node(node.id);
+    let node_type_id = TypeId::Node(ctx.ast_variant_id, node.id);
 
     match node.kind {
         NodeKind::Member { name } => {
@@ -1454,7 +1446,7 @@ fn build_lvalue(
         NodeKind::Local { local_id, ref mut usage } => {
             let local = ctx.locals.get(local_id);
             
-            let local_type_id = TypeId::Node(local.declared_at.unwrap());
+            let local_type_id = TypeId::Node(ctx.ast_variant_id, local.declared_at.unwrap());
             ctx.infer
                 .set_equal(local_type_id, node_type_id, Reason::new(node_loc, ReasonKind::LocalVariableIs(local.name)));
             // @Hack: Here, we assume not referencing temporaries means we're in a mutable assignment.
@@ -1528,7 +1520,7 @@ fn build_inferrable_constant_value(
 ) -> (type_infer::ValueId, type_infer::ValueId) {
     let node_loc = node.loc;
     let node_id = node.id;
-    let node_type_id = TypeId::Node(node.id);
+    let node_type_id = TypeId::Node(ctx.ast_variant_id, node.id);
 
     let value_id = match node.kind {
         NodeKind::PolymorphicArgument(index) => {
@@ -1558,6 +1550,7 @@ fn build_inferrable_constant_value(
                 infer: ctx.infer,
                 runs: ctx.runs.combine(ExecutionTime::Typing),
                 needs_explaining: ctx.needs_explaining,
+                ast_variant_id: ctx.ast_variant_id,
             };
             let sub_set = sub_ctx.infer.value_sets.add(WaitingOnTypeInferrence::None);
 
@@ -1584,15 +1577,6 @@ fn build_inferrable_constant_value(
     ctx.infer.value_sets.add_node_to_set(set, node_id);
 
     (node_type_id, value_id)
-}
-
-pub fn explain_given_type(ast: &Ast, node_id: NodeId) -> Reason {
-    let node_loc = ast.get(node_id).loc;
-    match ast.get(node_id).kind {
-        NodeKind::LiteralType(_) => Reason::new(node_loc, ReasonKind::LiteralType),
-        NodeKind::Literal(Literal::Int(_)) => Reason::new(node_loc, ReasonKind::IntLiteral),
-        _ => Reason::temp(node_loc),
-    }
 }
 
 #[derive(Clone)]

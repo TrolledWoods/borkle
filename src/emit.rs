@@ -7,7 +7,7 @@ use crate::parser::{Ast, NodeKind, NodeView};
 use crate::ast::NodeId;
 use crate::program::{FunctionId, Program};
 use crate::thread_pool::ThreadContext;
-use crate::type_infer::{ValueId as TypeId, TypeSystem, Reason, Args, self};
+use crate::type_infer::{ValueId as TypeId, TypeSystem, Reason, Args, AstVariantId, self};
 use crate::types::{Type, TypeKind};
 
 mod context;
@@ -21,8 +21,7 @@ pub fn emit<'a>(
     types: &mut TypeSystem,
     ast: &Ast,
     node: NodeId,
-    #[warn(unused)]
-    stack_frame_id: crate::type_infer::ValueSetId,
+    variant_id: AstVariantId,
 ) -> (Vec<FunctionId>, UserDefinedRoutine) {
     let mut ctx = Context {
         thread_context,
@@ -34,6 +33,7 @@ pub fn emit<'a>(
         label_locations: Vec::new(),
         calling: Vec::new(),
         last_location: None,
+        variant_id,
 
         defers: Vec::new(),
     };
@@ -64,11 +64,10 @@ pub fn emit_function_declaration<'a>(
     types: &mut TypeSystem,
     ast: &Ast,
     node_id: NodeId,
+    variant_id: AstVariantId,
     type_: Type,
     loc: Location,
     function_id: FunctionId,
-    #[warn(unused)]
-    stack_frame_id: crate::type_infer::ValueSetId,
 ) {
     let mut ctx = Context {
         thread_context,
@@ -77,13 +76,14 @@ pub fn emit_function_declaration<'a>(
         locals,
         types,
         program,
+        variant_id,
         label_locations: Vec::new(),
         defers: Vec::new(),
         calling: Vec::new(),
         last_location: None,
     };
 
-    let function_type = ctx.types.get(TypeId::Node(node_id));
+    let function_type = ctx.types.get(TypeId::Node(ctx.variant_id, node_id));
     let args = function_type.args();
 
     debug_assert_eq!(function_type.kind(), &type_infer::TypeKind::Function);
@@ -191,19 +191,19 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, mut node: NodeView<'a>) -> Value {
             let [iterating, iteration_var, iterator, body, else_body] = node.children.as_array();
 
             let end_label = ctx.create_label();
-            let to = ctx.registers.create(ctx.types, TypeId::Node(node.id));
+            let to = ctx.registers.create(ctx.types, TypeId::Node(ctx.variant_id, node.id));
             ctx.locals.get_label_mut(*label).value = Some(to);
             ctx.locals.get_label_mut(*label).ir_labels = Some(vec![end_label]);
 
             let mut iterating_value = emit_node(ctx, iterating.clone());
 
             // Set up iterator values
-            let iteration_var_value = ctx.registers.create(ctx.types, TypeId::Node(iteration_var.id));
+            let iteration_var_value = ctx.registers.create(ctx.types, TypeId::Node(ctx.variant_id, iteration_var.id));
             ctx.emit_move_from_constant(iteration_var_value, &0_usize.to_le_bytes());
 
             let mut by_value = true;
 
-            let mut iterator_type_id = TypeId::Node(iterating.id);
+            let mut iterator_type_id = TypeId::Node(ctx.variant_id, iterating.id);
             if let type_infer::TypeKind::Reference = ctx.types.get(iterator_type_id).kind() {
                 iterator_type_id = ctx.types.get(iterator_type_id).args()[0];
                 by_value = false;
@@ -291,7 +291,7 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, mut node: NodeView<'a>) -> Value {
             emit_declarative_lvalue(ctx, iteration_var, iteration_var_value, true);
 
             if by_value {
-                let temp = ctx.registers.create(ctx.types, TypeId::Node(iterator.id));
+                let temp = ctx.registers.create(ctx.types, TypeId::Node(ctx.variant_id, iterator.id));
                 ctx.emit_dereference(temp, current);
                 emit_declarative_lvalue(ctx, iterator, temp, true);
             } else {
@@ -321,12 +321,12 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, mut node: NodeView<'a>) -> Value {
             let end_label = ctx.create_label();
             let else_body_label = ctx.create_label();
 
-            let to = ctx.registers.create(ctx.types, TypeId::Node(node.id));
+            let to = ctx.registers.create(ctx.types, TypeId::Node(ctx.variant_id, node.id));
             let label = ctx.locals.get_label_mut(*label);
             label.value = Some(to);
             label.ir_labels = Some(vec![end_label]);
 
-            let iteration_var_value = ctx.registers.create(ctx.types, TypeId::Node(iteration_var.id)); 
+            let iteration_var_value = ctx.registers.create(ctx.types, TypeId::Node(ctx.variant_id, iteration_var.id)); 
             ctx.emit_move_from_constant(iteration_var_value, &0_usize.to_le_bytes());
 
             // Condition
@@ -372,7 +372,7 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, mut node: NodeView<'a>) -> Value {
 
             ctx.emit_jump_if_zero(condition, start_of_false_body);
 
-            let to = ctx.registers.create(ctx.types, TypeId::Node(node.id));
+            let to = ctx.registers.create(ctx.types, TypeId::Node(ctx.variant_id, node.id));
 
             // True body
             let true_body = emit_node(ctx, true_body);
@@ -391,30 +391,30 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, mut node: NodeView<'a>) -> Value {
         NodeKind::Literal(Literal::Int(num)) => {
             let bytes = num.to_le_bytes();
 
-            let buffer = ctx.program.insert_buffer(ctx.types.value_to_compiler_type(TypeId::Node(node.id)), bytes.as_ptr());
+            let buffer = ctx.program.insert_buffer(ctx.types.value_to_compiler_type(TypeId::Node(ctx.variant_id, node.id)), bytes.as_ptr());
 
-            let to = ctx.registers.create(ctx.types, TypeId::Node(node.id));
+            let to = ctx.registers.create(ctx.types, TypeId::Node(ctx.variant_id, node.id));
             ctx.emit_global(to, buffer);
 
             to
         }
         NodeKind::Zeroed => {
-            let to = ctx.registers.create(ctx.types, TypeId::Node(node.id));
+            let to = ctx.registers.create(ctx.types, TypeId::Node(ctx.variant_id, node.id));
             ctx.emit_set_to_zero(to);
             to
         }
         NodeKind::Uninit => {
             // We don't need an instruction to initialize the memory, because it's uninit!
-            ctx.registers.create(ctx.types, TypeId::Node(node.id))
+            ctx.registers.create(ctx.types, TypeId::Node(ctx.variant_id, node.id))
         }
         NodeKind::Cast => {
             let [value] = node.children.as_array();
             let from = emit_node(ctx, value.clone());
-            let to = ctx.registers.create(ctx.types, TypeId::Node(node.id));
+            let to = ctx.registers.create(ctx.types, TypeId::Node(ctx.variant_id, node.id));
 
             // Get the types of the values
-            let node_type = ctx.types.get(TypeId::Node(node.id));
-            let value_type = ctx.types.get(TypeId::Node(value.id));
+            let node_type = ctx.types.get(TypeId::Node(ctx.variant_id, node.id));
+            let value_type = ctx.types.get(TypeId::Node(ctx.variant_id, value.id));
 
             match (node_type.kind, value_type.kind) {
                 (
@@ -483,27 +483,27 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, mut node: NodeView<'a>) -> Value {
         NodeKind::BitCast => {
             let [value] = node.children.as_array();
             let from = emit_node(ctx, value);
-            let to = ctx.registers.create(ctx.types, TypeId::Node(node.id));
+            let to = ctx.registers.create(ctx.types, TypeId::Node(ctx.variant_id, node.id));
             ctx.emit_move(to, from);
             to
         }
         NodeKind::Constant(bytes, _) => {
-            if let type_infer::TypeKind::Function { .. } = ctx.types.get(TypeId::Node(node.id)).kind() {
+            if let type_infer::TypeKind::Function { .. } = ctx.types.get(TypeId::Node(ctx.variant_id, node.id)).kind() {
                 let function_id = unsafe { *(bytes.as_ptr() as *const FunctionId) };
                 if !ctx.calling.contains(&function_id) {
                     ctx.calling.push(function_id);
                 }
             }
 
-            let to = ctx.registers.create(ctx.types, TypeId::Node(node.id));
+            let to = ctx.registers.create(ctx.types, TypeId::Node(ctx.variant_id, node.id));
             ctx.emit_global(to, *bytes);
 
             to
         }
         NodeKind::Member { name } => {
             let [of] = node.children.as_array();
-            let mut of_type_id = TypeId::Node(of.id);
-            let to = ctx.registers.create(ctx.types, TypeId::Node(node.id));
+            let mut of_type_id = TypeId::Node(ctx.variant_id, of.id);
+            let to = ctx.registers.create(ctx.types, TypeId::Node(ctx.variant_id, node.id));
             let mut of = emit_node(ctx, of);
             if let Some(type_infer::Type { kind: type_infer::TypeKind::Reference, args }) = ctx.types.get(of_type_id).kind {
                 of_type_id = args.as_ref().unwrap()[0];
@@ -540,7 +540,7 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, mut node: NodeView<'a>) -> Value {
         }
         NodeKind::Binary { op } => {
             let [left, right] = node.children.as_array();
-            let to = ctx.registers.create(ctx.types, TypeId::Node(node.id));
+            let to = ctx.registers.create(ctx.types, TypeId::Node(ctx.variant_id, node.id));
 
             let a = emit_node(ctx, left);
             let b = emit_node(ctx, right);
@@ -550,8 +550,8 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, mut node: NodeView<'a>) -> Value {
             to
         }
         NodeKind::Tuple => {
-            let to = ctx.registers.create(ctx.types, TypeId::Node(node.id));
-            let base_type = ctx.types.value_to_compiler_type(TypeId::Node(node.id));
+            let to = ctx.registers.create(ctx.types, TypeId::Node(ctx.variant_id, node.id));
+            let base_type = ctx.types.value_to_compiler_type(TypeId::Node(ctx.variant_id, node.id));
 
             for (i, child) in node.children.into_iter().enumerate() {
                 let child_value = emit_node(ctx, child);
@@ -563,8 +563,8 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, mut node: NodeView<'a>) -> Value {
             to
         }
         NodeKind::ArrayLiteral => {
-            let to = ctx.registers.create(ctx.types, TypeId::Node(node.id));
-            let base_type = ctx.types.value_to_compiler_type(TypeId::Node(node.id));
+            let to = ctx.registers.create(ctx.types, TypeId::Node(ctx.variant_id, node.id));
+            let base_type = ctx.types.value_to_compiler_type(TypeId::Node(ctx.variant_id, node.id));
 
             for (i, child) in node.children.into_iter().enumerate() {
                 let child_value = emit_node(ctx, child);
@@ -583,14 +583,14 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, mut node: NodeView<'a>) -> Value {
             op: UnaryOp::Dereference,
         } => {
             let [operand] = node.children.as_array();
-            let to = ctx.registers.create(ctx.types, TypeId::Node(node.id));
+            let to = ctx.registers.create(ctx.types, TypeId::Node(ctx.variant_id, node.id));
             let from = emit_node(ctx, operand);
             ctx.emit_dereference(to, from);
             to
         }
         NodeKind::Unary { op } => {
             let [operand] = node.children.as_array();
-            let to = ctx.registers.create(ctx.types, TypeId::Node(node.id));
+            let to = ctx.registers.create(ctx.types, TypeId::Node(ctx.variant_id, node.id));
             let from = emit_node(ctx, operand);
             ctx.emit_unary(*op, to, from);
             to
@@ -615,7 +615,7 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, mut node: NodeView<'a>) -> Value {
         NodeKind::Block { label } => {
             let num_defers_at_start = ctx.defers.len();
 
-            let to = ctx.registers.create(ctx.types, TypeId::Node(node.id));
+            let to = ctx.registers.create(ctx.types, TypeId::Node(ctx.variant_id, node.id));
 
             if let Some(label) = *label {
                 let ir_labels = (0..=ctx.locals.get_label(label).num_defers)
@@ -659,14 +659,14 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, mut node: NodeView<'a>) -> Value {
         NodeKind::ResolvedGlobal(id, _) => {
             let (ptr, _) = ctx.program.get_member_value(*id);
 
-            if let type_infer::TypeKind::Function = ctx.types.get(TypeId::Node(node.id)).kind() {
+            if let type_infer::TypeKind::Function = ctx.types.get(TypeId::Node(ctx.variant_id, node.id)).kind() {
                 let function_id = unsafe { *(ptr.as_ptr() as *const FunctionId) };
                 if !ctx.calling.contains(&function_id) {
                     ctx.calling.push(function_id);
                 }
             }
 
-            let to = ctx.registers.create(ctx.types, TypeId::Node(node.id));
+            let to = ctx.registers.create(ctx.types, TypeId::Node(ctx.variant_id, node.id));
             ctx.emit_global(to, ptr);
             to
         }
@@ -674,7 +674,7 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, mut node: NodeView<'a>) -> Value {
             let mut children = node.children.into_iter();
             let calling_node = children.next().unwrap();
 
-            let to = ctx.registers.create_min_align(ctx.types.value_to_compiler_type(TypeId::Node(node.id)), 8);
+            let to = ctx.registers.create_min_align(ctx.types.value_to_compiler_type(TypeId::Node(ctx.variant_id, node.id)), 8);
             let calling = emit_node(ctx, calling_node.clone());
 
             let mut args = vec![ctx.registers.zst(); node.children.len() - 1];
@@ -682,7 +682,7 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, mut node: NodeView<'a>) -> Value {
                 args[i] = emit_node(ctx, node);
             }
 
-            match ctx.types.get(TypeId::Node(calling_node.id)).kind() {
+            match ctx.types.get(TypeId::Node(ctx.variant_id, calling_node.id)).kind() {
                 type_infer::TypeKind::Function => {
                     ctx.emit_call(to, calling, args, calling_node.loc);
                 }
@@ -729,11 +729,11 @@ fn emit_declarative_lvalue<'a>(
             emit_declarative_lvalue(ctx, value, from, true);
         }
         NodeKind::Tuple => {
-            let base_type = ctx.types.value_to_compiler_type(TypeId::Node(node.id));
+            let base_type = ctx.types.value_to_compiler_type(TypeId::Node(ctx.variant_id, node.id));
 
             let mut temp = Vec::with_capacity(node.children.len());
             for (i, child) in node.children.into_iter().enumerate() {
-                let to = ctx.registers.create(ctx.types, TypeId::Node(child.id));
+                let to = ctx.registers.create(ctx.types, TypeId::Node(ctx.variant_id, child.id));
                 let (name, offset, _) = base_type.0.members[i];
                 ctx.emit_member(to, from, Member { offset, name });
                 temp.push(to);
@@ -744,11 +744,11 @@ fn emit_declarative_lvalue<'a>(
             }
         }
         NodeKind::ArrayLiteral => {
-            let base_type = ctx.types.value_to_compiler_type(TypeId::Node(node.id));
+            let base_type = ctx.types.value_to_compiler_type(TypeId::Node(ctx.variant_id, node.id));
 
             let mut temp = Vec::with_capacity(node.children.len());
             for (i, child) in node.children.into_iter().enumerate() {
-                let to = ctx.registers.create(ctx.types, TypeId::Node(child.id));
+                let to = ctx.registers.create(ctx.types, TypeId::Node(ctx.variant_id, child.id));
                 let (name, offset, _) = base_type.0.members[i];
                 ctx.emit_member(to, from, Member { offset, name });
                 temp.push(to);
@@ -769,7 +769,7 @@ fn emit_declarative_lvalue<'a>(
         NodeKind::Local { local_id, .. } => {
             if is_declaring {
                 let local = ctx.locals.get_mut(*local_id);
-                let local_value = ctx.registers.create_with_name(ctx.types, TypeId::Node(local.declared_at.unwrap()), Some(local.name));
+                let local_value = ctx.registers.create_with_name(ctx.types, TypeId::Node(ctx.variant_id, local.declared_at.unwrap()), Some(local.name));
                 local.value = Some(local_value);
                 ctx.emit_move(local_value, from);
             } else {
@@ -804,19 +804,19 @@ fn emit_lvalue<'a>(
     // @TODO: Creating all these types suck, maybe we should remove the damn `Global` thing from registers,
     // and instead let them just be pointers to values? These pointers wouldn't even be considered pointers from
     // the language, but just registers that need to point to things.
-    let ref_type_id = ctx.types.add_type(type_infer::TypeKind::Reference, Args([(TypeId::Node(node.id), Reason::temp_zero())]), ());
+    let ref_type_id = ctx.types.add_type(type_infer::TypeKind::Reference, Args([(TypeId::Node(ctx.variant_id, node.id), Reason::temp_zero())]), ());
 
     match &node.kind {
         NodeKind::Member { name } => {
             let [of] = node.children.as_array();
 
             // If `of` is a reference, we need to do stuff.
-            let (base_type, parent_value) = if let Some(type_infer::Type { kind: type_infer::TypeKind::Reference, args }) = ctx.types.get(TypeId::Node(of.id)).kind {
+            let (base_type, parent_value) = if let Some(type_infer::Type { kind: type_infer::TypeKind::Reference, args }) = ctx.types.get(TypeId::Node(ctx.variant_id, of.id)).kind {
                 let arg = args.as_ref().unwrap()[0];
                 (ctx.types.value_to_compiler_type(arg), emit_node(ctx, of))
             } else {
                 let parent_value = emit_lvalue(ctx, can_reference_temporaries, of.clone());
-                (ctx.types.value_to_compiler_type(TypeId::Node(of.id)), parent_value)
+                (ctx.types.value_to_compiler_type(TypeId::Node(ctx.variant_id, of.id)), parent_value)
             };
 
             let member = base_type.member(*name).expect("This should have already been made sure to exist in the typer");

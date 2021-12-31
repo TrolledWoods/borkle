@@ -423,10 +423,23 @@ fn insert_active_constraint(
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct AstVariantId(u32);
+
+impl AstVariantId {
+    pub fn root() -> Self {
+        AstVariantId(0)
+    }
+
+    pub fn invalid() -> Self {
+        AstVariantId(u32::MAX)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ValueId {
     None,
     Dynamic(u32),
-    Node(AstNodeId),
+    Node(AstVariantId, AstNodeId),
 }
 
 impl Default for ValueId {
@@ -716,20 +729,33 @@ fn add_value(structures: &mut Structures, values: &mut Values, kind: Option<Type
     id
 }
 
+#[derive(Clone, Default)]
+struct AstValues {
+    parent: Option<AstVariantId>,
+    base_id: u32,
+    nodes: Box<[ValueWrapper]>,
+}
+
 #[derive(Clone)]
 pub struct Values {
     values: Vec<ValueWrapper>,
-    ast_values: Box<[ValueWrapper]>,
+    ast_values: Vec<AstValues>,
 }
 
 impl Values {
     fn new(ast_size: usize) -> Self {
         Self {
             values: Vec::with_capacity(32),
-            ast_values: vec![ValueWrapper::default(); ast_size].into_boxed_slice(),
+            ast_values: vec![
+                AstValues {
+                    parent: None,
+                    base_id: 0,
+                    nodes: vec![ValueWrapper::default(); ast_size].into_boxed_slice(),
+                },
+            ],
         }
     }
-
+    
     fn structure_id_of_value(&self, value_id: ValueId) -> Option<u32> {
         self.get(value_id).structure_id
     }
@@ -738,7 +764,14 @@ impl Values {
         match id {
             ValueId::None => unreachable!("Tried reading from a ValueId::None"),
             ValueId::Dynamic(id) => &self.values[id as usize],
-            ValueId::Node(id) => &self.ast_values[usize::from(id)],
+            ValueId::Node(variant_id, id) => {
+                let mut variant = &self.ast_values[variant_id.0 as usize];
+                while variant.base_id > id.0 || variant.base_id + variant.nodes.len() as u32 <= id.0 {
+                    let parent_id = variant.parent.expect("The node id seems to be out of bounds");
+                    variant = &self.ast_values[parent_id.0 as usize];
+                }
+                &variant.nodes[usize::from(id)]
+            }
         }
     }
 
@@ -746,18 +779,21 @@ impl Values {
         match id {
             ValueId::None => unreachable!("Tried reading from a ValueId::None"),
             ValueId::Dynamic(id) => &mut self.values[id as usize],
-            ValueId::Node(id) => &mut self.ast_values[usize::from(id)],
+            ValueId::Node(mut variant_id, id) => {
+                let mut variant = &self.ast_values[variant_id.0 as usize];
+                while variant.base_id > id.0 || variant.base_id + variant.nodes.len() as u32 <= id.0 {
+                    variant_id = variant.parent.expect("The node id seems to be out of bounds");
+                    variant = &self.ast_values[variant_id.0 as usize];
+                }
+                &mut self.ast_values[variant_id.0 as usize].nodes[usize::from(id)]
+            }
         }
-    }
-
-    fn iter_mut(&mut self) -> impl Iterator<Item = &mut Value> {
-        self.values.iter_mut().chain(&mut self.ast_values[..]).map(|v| &mut v.value)
     }
 }
 
 fn get_loc_of_value(ast: &crate::parser::Ast, value: ValueId) -> Option<Location> {
     match value {
-        ValueId::Node(id) => Some(ast.get(id).loc),
+        ValueId::Node(_, id) => Some(ast.get(id).loc),
         _ => None,
     }
 }
@@ -889,16 +925,11 @@ impl TypeSystem {
         get_value_mut(&mut self.structures, &mut self.values, id)
     }
 
-    /// Only to be used when generating incompleteness-errors
-    pub fn flag_all_values_as_complete(&mut self) {
-        for value in self.values.iter_mut() {
-            value.value_sets.complete(&mut self.value_sets);
-        }
-    }
-
     pub fn output_incompleteness_errors(&self, errors: &mut ErrorCtx, ast: &crate::parser::Ast) {
         for id in ast.root().iter_all_ids() {
-            let value = get_value(&self.structures, &self.values, ValueId::Node(id));
+            // @Correctness: This won't generate all incompleteness errors, and will have some duds!
+            // We need to fix this for real later on
+            let value = get_value(&self.structures, &self.values, ValueId::Node(AstVariantId::root(), id));
 
             if value.layout.map_or(0, |v| v.align) == 0 {
                 errors.error(ast.get(id).loc, format!("Unknown type"));

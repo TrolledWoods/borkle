@@ -13,6 +13,7 @@ log_print = []
 
 [profile.release]
 debug = true
+incremental = true
 
 [dependencies]
 profile = { path = "profile/" }

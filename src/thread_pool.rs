@@ -1,7 +1,7 @@
 use crate::dependencies::{DepKind, DependencyList, MemberDep};
 use crate::errors::ErrorCtx;
 use crate::location::Location;
-use crate::type_infer::ValueId as TypeId;
+use crate::type_infer::{AstVariantId, ValueId as TypeId};
 use crate::program::{MemberMetaData, Program, ScopeId, Task};
 use bumpalo::Bump;
 // use crossbeam::queue::SegQueue;
@@ -183,7 +183,7 @@ fn worker<'a>(alloc: &'a mut Bump, program: &'a Program) -> (ThreadContext<'a>, 
                                     _ => MemberMetaData::None,
                                 };
 
-                                let type_ = types.value_to_compiler_type(TypeId::Node(ast.root().id));
+                                let type_ = types.value_to_compiler_type(TypeId::Node(AstVariantId::root(), ast.root().id));
 
                                 if type_.can_be_stored_in_constant() {
                                     program.logger.log(format_args!(
@@ -220,7 +220,7 @@ fn worker<'a>(alloc: &'a mut Bump, program: &'a Program) -> (ThreadContext<'a>, 
                         profile::profile!("Task::EmitMember");
                         use crate::typer::NodeKind;
 
-                        let type_ = types.value_to_compiler_type(TypeId::Node(ast.root_id()));
+                        let type_ = types.value_to_compiler_type(TypeId::Node(AstVariantId::root(), ast.root_id()));
                         program.logger.log(format_args!(
                             "emitting member '{}' {:?}",
                             program.member_name(member_id),
@@ -284,8 +284,7 @@ fn worker<'a>(alloc: &'a mut Bump, program: &'a Program) -> (ThreadContext<'a>, 
                                     &mut types,
                                     &ast,
                                     ast.root_id(),
-                                    // @HACK: Here we assume that stack frame id number 0 is the parent one.
-                                    0,
+                                    AstVariantId::root(),
                                 );
 
                                 let mut dependencies = DependencyList::new();
@@ -344,7 +343,7 @@ fn worker<'a>(alloc: &'a mut Bump, program: &'a Program) -> (ThreadContext<'a>, 
                         }
                     }
                 }
-                Task::EmitFunction(mut locals, mut types, ast, node_id, type_, function_id, stack_frame_id) => {
+                Task::EmitFunction(mut locals, mut types, ast, node_id, type_, function_id, ast_variant_id) => {
                     program
                         .logger
                         .log(format_args!("emitting function '{:?}'", function_id));
@@ -358,10 +357,10 @@ fn worker<'a>(alloc: &'a mut Bump, program: &'a Program) -> (ThreadContext<'a>, 
                         &mut types,
                         &ast,
                         node_id,
+                        ast_variant_id,
                         type_,
                         loc,
                         function_id,
-                        stack_frame_id,
                     );
                 }
             }

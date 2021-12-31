@@ -5,7 +5,7 @@ use crate::operators::{BinaryOp, UnaryOp};
 use crate::parser::NodeView;
 use crate::program::{FunctionId, Program, constant::ConstantRef};
 use crate::thread_pool::ThreadContext;
-use crate::type_infer::TypeSystem;
+use crate::type_infer::{TypeSystem, AstVariantId};
 
 pub struct Context<'a, 'b> {
     pub thread_context: &'a mut ThreadContext<'b>,
@@ -17,6 +17,7 @@ pub struct Context<'a, 'b> {
     pub label_locations: Vec<usize>,
     pub calling: Vec<FunctionId>,
     pub last_location: Option<Location>,
+    pub variant_id: AstVariantId,
 
     pub defers: Vec<NodeView<'a>>,
 }

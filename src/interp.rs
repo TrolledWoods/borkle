@@ -4,7 +4,7 @@ use crate::operators::UnaryOp;
 use crate::program::constant::ConstantRef;
 use crate::program::{BuiltinFunction, Program};
 use crate::types::{BufferRepr, TypeKind};
-use crate::type_infer::{TypeSystem, ValueId as TypeId};
+use crate::type_infer::{TypeSystem, ValueId as TypeId, AstVariantId};
 
 mod stack;
 
@@ -17,7 +17,7 @@ pub fn emit_and_run<'a>(
     types: &mut TypeSystem,
     ast: &crate::typer::Ast,
     node: crate::ast::NodeId,
-    stack_frame_id: crate::type_infer::ValueSetId,
+    variant_id: AstVariantId,
     call_stack: &mut Vec<Location>,
 ) -> Result<ConstantRef, Box<[Location]>> {
     let mut stack = Stack::new(2048);
@@ -29,10 +29,10 @@ pub fn emit_and_run<'a>(
         types,
         ast,
         node,
-        stack_frame_id,
+        variant_id,
     );
     let result = interp(program, &mut stack, &routine, call_stack)?;
-    Ok(program.insert_buffer(types.value_to_compiler_type(TypeId::Node(node)), result.as_ptr()))
+    Ok(program.insert_buffer(types.value_to_compiler_type(TypeId::Node(variant_id, node)), result.as_ptr()))
 }
 
 pub fn interp<'a>(
