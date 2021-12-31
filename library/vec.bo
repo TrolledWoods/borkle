@@ -67,3 +67,9 @@ const vec_push.(T) = fn(vec: &typeof Vec.(T), element: T) {
     *((*vec).ptr + (*vec).len) = element;
     (*vec).len = (*vec).len + 1;
 };
+
+const vec_push_buf.(T) = fn(vec: &typeof Vec.(T), buf: [] T) {
+    vec_reserve(vec, (*vec).len + buf.len);
+    copy_nonoverlapping((*vec).ptr + (*vec).len, buf.ptr, buf.len);
+    (*vec).len = (*vec).len + buf.len;
+};

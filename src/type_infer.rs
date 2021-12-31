@@ -866,7 +866,6 @@ impl TypeSystem {
         other: &TypeSystem,
         other_id: ValueId,
         already_converted: &mut Vec<(u32, ValueId)>,
-        set: ValueSetId,
     ) -> ValueId {
         // Static values are the same in both sets
         if other_id.is_static_value() {
@@ -884,7 +883,7 @@ impl TypeSystem {
         }
 
         // We're going to need a new value
-        let value_id = self.add_unknown_type_with_set(set);
+        let value_id = self.add_unknown_type();
         if let Some(value_structure_id) = value_structure_id {
             already_converted.push((value_structure_id, value_id));
         }
@@ -894,14 +893,14 @@ impl TypeSystem {
             Some(Type { kind, args: Some(ref args) }) => {
                 let new_args = args.iter()
                     .map(|&v| (
-                        self.map_value_from_other_typesystem_to_this(other, v, already_converted, set),
+                        self.map_value_from_other_typesystem_to_this(other, v, already_converted),
                         Reason::temp_zero(),
                     ))
                     .collect::<Vec<_>>();
-                self.set_type(value_id, kind.clone(), Args(new_args), set);
+                self.set_type(value_id, kind.clone(), Args(new_args), ());
             }
             Some(Type { kind, args: None }) => {
-                self.set_type(value_id, kind.clone(), (), set);
+                self.set_type(value_id, kind.clone(), (), ());
             }
             None => {},
         }
@@ -914,11 +913,10 @@ impl TypeSystem {
         other: &TypeSystem,
         // The first one is the id of the this typesystem, the second one is the id in the other
         to_convert: impl IntoIterator<Item = (ValueId, ValueId, Reason)>,
-        set: ValueSetId,
     ) {
         let mut already_converted = Vec::new();
         for (this_id, other_id, reason) in to_convert {
-            let new_id = self.map_value_from_other_typesystem_to_this(other, other_id, &mut already_converted, set);
+            let new_id = self.map_value_from_other_typesystem_to_this(other, other_id, &mut already_converted);
             self.set_equal(new_id, this_id, reason);
         }
     }

@@ -272,12 +272,11 @@ pub fn finish<'a>(
 
 fn subset_was_completed(ctx: &mut Context<'_, '_>, ast: &mut Ast, waiting_on: WaitingOnTypeInferrence, set: ValueSetId) {
     match waiting_on {
-        WaitingOnTypeInferrence::ConstFor { node_id, ast_variant_id, parent_set, runs } => {
+        WaitingOnTypeInferrence::ConstFor { node_id, ast_variant_id, parent_set, runs, iterator_type } => {
             let node = ast.get_mut(node_id);
             let [iterator, _i_value, mut inner, _else_body] = node.children.into_array();
 
-            let iterator_type_id = TypeId::Node(ast_variant_id, iterator.id);
-            let iterator_type = ctx.infer.get(iterator_type_id);
+            let iterator_type = ctx.infer.get(iterator_type);
             if !matches!(iterator_type.kind(), TypeKind::Tuple) {
                 ctx.errors.error(iterator.loc, "Constant for loops can only iterate over tuples for now".to_string());
                 return;
@@ -716,9 +715,6 @@ fn build_constraints(
                     ctx.infer.add_subtree_from_other_typesystem(
                         &other_yield_data.infer, 
                         param_reasons.into_iter(),
-                        // This should technically not need a set, because nothing depends on this, it's just some
-                        // scaffolding to allow the things that people depend on to be inferred.
-                        sub_set,
                     );
 
                     ctx.infer.value_sets.lock(set);
@@ -794,9 +790,6 @@ fn build_constraints(
                     ctx.infer.add_subtree_from_other_typesystem(
                         &other_yield_data.infer, 
                         param_reasons.into_iter(),
-                        // This should technically not need a set, because nothing depends on this, it's just some
-                        // scaffolding to allow the things that people depend on to be inferred.
-                        sub_set,
                     );
 
                     ctx.infer.value_sets.lock(set);
@@ -877,15 +870,20 @@ fn build_constraints(
             let usize_id = ctx.infer.add_int(IntTypeKind::Usize, set);
             ctx.infer.set_equal(iteration_var_id, usize_id, Reason::temp(node_loc));
 
+            let iterator_type = build_constraints(ctx, iterating, set);
+
+            let check_type = ctx.infer.add_unknown_type();
             let sub_set = ctx.infer.value_sets.add(WaitingOnTypeInferrence::ConstFor {
                 node_id: node.id,
                 ast_variant_id: ctx.ast_variant_id,
+                iterator_type: check_type,
                 runs: ctx.runs,
                 parent_set: set,
             });
+            ctx.infer.set_value_set(check_type, sub_set);
+            ctx.infer.set_equal(check_type, iterator_type, Reason::new(node_loc, ReasonKind::Passed));
 
             ctx.infer.value_sets.lock(set);
-            build_constraints(ctx, iterating, sub_set);
 
             let label_type_infer_id = ctx.locals.get_label(label).type_infer_value_id;
 
@@ -1654,6 +1652,7 @@ pub enum WaitingOnTypeInferrence {
         node_id: NodeId,
         ast_variant_id: AstVariantId,
         runs: ExecutionTime,
+        iterator_type: TypeId,
         parent_set: ValueSetId,
     },
     TypeAsValue {
