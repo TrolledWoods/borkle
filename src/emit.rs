@@ -709,7 +709,7 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, mut node: NodeView<'a>) -> Value {
             ctx.emit_move_from_constant(to, &size.to_le_bytes());
             to
         }
-        NodeKind::TypeOf => {
+        NodeKind::TypeAsValue => {
             let [inner] = node.children.as_array();
             let inner_type = TypeId::Node(ctx.variant_id, inner.id);
             let compiler_type = ctx.types.value_to_compiler_type(inner_type);
