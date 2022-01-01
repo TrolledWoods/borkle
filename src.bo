@@ -1,14 +1,9 @@
+library "vec.bo";
+
 #entry fn() {
-    let values & [a, b, c] = [1 : u32, 2, 3];
-
-    print("a,b is %, %\n", (a,b));
-    print("b,c is %, %\n", (b,c));
-    print("c,a is %, %\n", (c,a));
-
-    for values {
-        print("%: %\n", (i, v));
-    };
+    print("Hello, world!\n");
 };
 
 // TODO:
 // - Make [ptr + usize -> _] also infer to [ptr + usize -> ptr] (maybe similar for other operators too?)
+// - "This is imported twice" error should show where it was imported (even if implicit)

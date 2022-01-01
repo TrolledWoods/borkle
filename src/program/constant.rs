@@ -40,7 +40,7 @@ pub struct ConstantRef {
     ptr: NonNull<u8>,
 }
 
-// This is safe, because 'ConstantRef' points to immutable data
+// This is "safe"(in borkle you could edit them anyway(!!!)), because 'ConstantRef' points to immutable data
 unsafe impl Sync for ConstantRef {}
 unsafe impl Send for ConstantRef {}
 

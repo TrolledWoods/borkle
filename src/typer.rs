@@ -6,8 +6,8 @@ use crate::execution_time::ExecutionTime;
 use crate::locals::LocalVariables;
 use crate::operators::{BinaryOp, UnaryOp};
 pub use crate::parser::{LocalUsage, Node, NodeKind, Ast, NodeViewMut};
-use crate::ast::NodeId;
-use crate::program::{PolyOrMember, PolyMemberId, Program, Task, constant::ConstantRef, BuiltinFunction, MemberId, MemberMetaData, FunctionId};
+use crate::ast::{NodeId, GenericChildIterator};
+use crate::program::{PolyOrMember, PolyMemberId, Program, Task, constant::ConstantRef, BuiltinFunction, MemberId, MemberMetaData, FunctionId, ScopeId};
 use crate::thread_pool::ThreadContext;
 use crate::type_infer::{self, AstVariantId, ValueId as TypeId, Args, TypeSystem, ValueSetId, TypeKind, Reason, ReasonKind};
 use crate::types::{self, IntTypeKind};
@@ -679,159 +679,11 @@ fn build_constraints(
             ctx.infer.value_sets.add_node_to_set(set, ctx.ast_variant_id, on.id);
             ctx.infer.set_equal(TypeId::Node(ctx.ast_variant_id, on.id), node_type_id, Reason::temp(node_loc));
 
-            let id = ctx.program.get_member_id(scope, name).expect("The dependency system should have made sure that this is defined");
-
-            match id {
-                PolyOrMember::Poly(id) => {
-                    let num_args = ctx.program.get_num_poly_args(id);
-                    let other_yield_data = ctx.program.get_polymember_yielddata(id);
-
-                    let mut param_values = Vec::with_capacity(num_args);
-                    let mut param_reasons = Vec::with_capacity(num_args);
-                    let sub_set = ctx.infer.value_sets.add(WaitingOnTypeInferrence::None);
-
-                    if num_args != children.len() {
-                        ctx.errors.error(node_loc, format!("Passed {} arguments to polymorphic value, but the polymorphic value needs {} values", children.len(), num_args));
-                        // @Cleanup: This should probably just be a function on TypeSystem
-                        ctx.infer.value_sets.get_mut(set).has_errors |= true;
-                        return node_type_id;
-                    }
-
-                    for (i, (param, other_poly_arg)) in children.zip(&other_yield_data.poly_params).enumerate() {
-                        let param_loc = param.loc;
-                        if other_poly_arg.is_type() {
-                            let type_id = build_type(ctx, param, sub_set);
-                            param_values.push(type_id);
-                            param_reasons.push((type_id, other_poly_arg.value_id, Reason::new(param_loc, ReasonKind::PolyParam(i))));
-                        } else {
-                            let (_, param_value_id) = build_inferrable_constant_value(ctx, param, sub_set);
-                            param_values.push(param_value_id);
-                            param_reasons.push((param_value_id, other_poly_arg.value_id, Reason::new(param_loc, ReasonKind::PolyParam(i))));
-                        }
-                    }
-
-                    param_reasons.push((node_type_id, other_yield_data.root_value_id, Reason::new(node_loc, ReasonKind::PolyMember(id))));
-
-                    ctx.infer.add_subtree_from_other_typesystem(
-                        &other_yield_data.infer, 
-                        param_reasons.into_iter(),
-                    );
-
-                    ctx.infer.value_sets.lock(set);
-
-                    ctx.infer.set_waiting_on_value_set(sub_set, WaitingOnTypeInferrence::MonomorphiseMember {
-                        node_id: node.id,
-                        poly_member_id: id,
-                        when_needed: ctx.runs,
-                        params: param_values,
-                        parent_set: set,
-                        ast_variant_id: ctx.ast_variant_id,
-                    });
-                }
-                PolyOrMember::Member(id) => {
-                    if children.len() > 0 {
-                        // This is an error, since it's not polymorphic
-                        ctx.errors.error(node_loc, "Passed polymorphic parameters even though this value isn't polymorphic".to_string());
-                        // @Cleanup: This should probably just be a function on TypeSystem
-                        ctx.infer.value_sets.get_mut(set).has_errors |= true;
-                        return node_type_id;
-                    }
-
-                    let (type_, meta_data) = ctx.program.get_member_meta_data(id);
-
-                    let type_id = ctx.infer.add_compiler_type(
-                        ctx.program,
-                        type_,
-                        set,
-                    );
-
-                    ctx.infer.set_equal(node_type_id, type_id, Reason::new(node_loc, ReasonKind::IsOfType));
-
-                    match ctx.runs {
-                        // This will never be emitted anyway so it doesn't matter if the value isn't accessible.
-                        ExecutionTime::Never => {},
-                        ExecutionTime::RuntimeFunc => {
-                            ctx.emit_deps.add(node_loc, DepKind::Member(id, MemberDep::Value));
-                        }
-                        ExecutionTime::Emission => {
-                            ctx.emit_deps.add(node_loc, DepKind::Member(id, MemberDep::ValueAndCallableIfFunction));
-                        }
-                        ExecutionTime::Typing => {
-                            // The parser should have already made sure the value is accessible. We will run this node
-                            // through the emitter anyway though, so we don't have to make it into a constant or something.
-                        }
-                    }
-
-                    ctx.additional_info.insert((ctx.ast_variant_id, node.id), AdditionalInfoKind::Monomorphised(id, meta_data.clone()));
-                }
-            }
+            type_global(ctx, node.id, node.node, scope, name, Some(children), set);
         }
         // @Cleanup: We could unify these two nodes probably
         NodeKind::Global { scope, name } => {
-            let id = ctx.program.get_member_id(scope, name).expect("The dependency system should have made sure that this is defined");
-
-            match id {
-                PolyOrMember::Poly(id) => {
-                    let num_args = ctx.program.get_num_poly_args(id);
-                    let other_yield_data = ctx.program.get_polymember_yielddata(id);
-
-                    let mut param_values = Vec::with_capacity(num_args);
-                    let mut param_reasons = Vec::with_capacity(num_args);
-                    let sub_set = ctx.infer.value_sets.add(WaitingOnTypeInferrence::None);
-
-                    for (i, other_poly_arg) in other_yield_data.poly_params.iter().enumerate() {
-                        let param_value_id = ctx.infer.add_unknown_type_with_set(sub_set);
-                        param_values.push(param_value_id);
-                        param_reasons.push((param_value_id, other_poly_arg.value_id, Reason::new(node_loc, ReasonKind::InferredPolyParam(i))));
-                    }
-
-                    param_reasons.push((node_type_id, other_yield_data.root_value_id, Reason::new(node_loc, ReasonKind::PolyMember(id))));
-
-                    ctx.infer.add_subtree_from_other_typesystem(
-                        &other_yield_data.infer, 
-                        param_reasons.into_iter(),
-                    );
-
-                    ctx.infer.value_sets.lock(set);
-
-                    ctx.infer.set_waiting_on_value_set(sub_set, WaitingOnTypeInferrence::MonomorphiseMember {
-                        node_id: node.id,
-                        poly_member_id: id,
-                        when_needed: ctx.runs,
-                        params: param_values,
-                        parent_set: set,
-                        ast_variant_id: ctx.ast_variant_id,
-                    });
-                }
-                PolyOrMember::Member(id) => {
-                    let (type_, meta_data) = ctx.program.get_member_meta_data(id);
-
-                    let type_id = ctx.infer.add_compiler_type(
-                        ctx.program,
-                        type_,
-                        set,
-                    );
-
-                    ctx.infer.set_equal(node_type_id, type_id, Reason::new(node_loc, ReasonKind::IsOfType));
-
-                    match ctx.runs {
-                        // This will never be emitted anyway so it doesn't matter if the value isn't accessible.
-                        ExecutionTime::Never => {},
-                        ExecutionTime::RuntimeFunc => {
-                            ctx.emit_deps.add(node_loc, DepKind::Member(id, MemberDep::Value));
-                        }
-                        ExecutionTime::Emission => {
-                            ctx.emit_deps.add(node_loc, DepKind::Member(id, MemberDep::ValueAndCallableIfFunction));
-                        }
-                        ExecutionTime::Typing => {
-                            // The parser should have already made sure the value is accessible. We will run this node
-                            // through the emitter anyway though, so we don't have to make it into a constant or something.
-                        }
-                    }
-
-                    ctx.additional_info.insert((ctx.ast_variant_id, node.id), AdditionalInfoKind::Monomorphised(id, meta_data));
-                }
-            }
+            type_global(ctx, node.id, node.node, scope, name, None, set);
         }
         NodeKind::While {
             label,
@@ -1635,6 +1487,114 @@ fn build_inferrable_constant_value(
     ctx.infer.value_sets.add_node_to_set(set, ctx.ast_variant_id, node_id);
 
     (node_type_id, value_id)
+}
+
+fn type_global<'a>(
+    ctx: &mut Context<'_, '_>,
+    node_id: NodeId,
+    node: &Node,
+    scope: ScopeId,
+    name: Ustr,
+    children: Option<GenericChildIterator<'a, &'a mut [Node]>>,
+    set: ValueSetId,
+) -> TypeId {
+    let id = ctx.program.get_member_id(scope, name).expect("The dependency system should have made sure that this is defined");
+    let node_type_id = TypeId::Node(ctx.ast_variant_id, node_id);
+
+    match id {
+        PolyOrMember::Poly(id) => {
+            let num_args = ctx.program.get_num_poly_args(id);
+            let other_yield_data = ctx.program.get_polymember_yielddata(id);
+
+            let mut param_values = Vec::with_capacity(num_args);
+            let mut param_reasons = Vec::with_capacity(num_args);
+            let sub_set = ctx.infer.value_sets.add(WaitingOnTypeInferrence::None);
+
+            if let Some(children) = children {
+                if num_args != children.len() {
+                    ctx.errors.error(node.loc, format!("Passed {} arguments to polymorphic value, but the polymorphic value needs {} values", children.len(), num_args));
+                    // @Cleanup: This should probably just be a function on TypeSystem
+                    ctx.infer.value_sets.get_mut(set).has_errors |= true;
+                    return node_type_id;
+                }
+
+                for (i, (param, other_poly_arg)) in children.zip(&other_yield_data.poly_params).enumerate() {
+                    let param_loc = param.loc;
+                    if other_poly_arg.is_type() {
+                        let type_id = build_type(ctx, param, sub_set);
+                        param_values.push(type_id);
+                        param_reasons.push((type_id, other_poly_arg.value_id, Reason::new(param_loc, ReasonKind::PolyParam(i))));
+                    } else {
+                        let (_, param_value_id) = build_inferrable_constant_value(ctx, param, sub_set);
+                        param_values.push(param_value_id);
+                        param_reasons.push((param_value_id, other_poly_arg.value_id, Reason::new(param_loc, ReasonKind::PolyParam(i))));
+                    }
+                }
+            } else {
+                for (i, other_poly_arg) in other_yield_data.poly_params.iter().enumerate() {
+                    let type_id = ctx.infer.add_unknown_type_with_set(sub_set);
+                    param_values.push(type_id);
+                    param_reasons.push((type_id, other_poly_arg.value_id, Reason::new(node.loc, ReasonKind::PolyParam(i))));
+                }
+            }
+
+            param_reasons.push((node_type_id, other_yield_data.root_value_id, Reason::new(node.loc, ReasonKind::PolyMember(id))));
+
+            ctx.infer.add_subtree_from_other_typesystem(
+                &other_yield_data.infer, 
+                param_reasons.into_iter(),
+            );
+
+            ctx.infer.value_sets.lock(set);
+
+            ctx.infer.set_waiting_on_value_set(sub_set, WaitingOnTypeInferrence::MonomorphiseMember {
+                node_id: node_id,
+                poly_member_id: id,
+                when_needed: ctx.runs,
+                params: param_values,
+                parent_set: set,
+                ast_variant_id: ctx.ast_variant_id,
+            });
+        }
+        PolyOrMember::Member(id) => {
+            if children.map_or(0, |v| v.len()) > 0 {
+                // This is an error, since it's not polymorphic
+                ctx.errors.error(node.loc, "Passed polymorphic parameters even though this value isn't polymorphic".to_string());
+                // @Cleanup: This should probably just be a function on TypeSystem
+                ctx.infer.value_sets.get_mut(set).has_errors |= true;
+                return node_type_id;
+            }
+
+            let (type_, meta_data) = ctx.program.get_member_meta_data(id);
+
+            let type_id = ctx.infer.add_compiler_type(
+                ctx.program,
+                type_,
+                set,
+            );
+
+            ctx.infer.set_equal(node_type_id, type_id, Reason::new(node.loc, ReasonKind::IsOfType));
+
+            match ctx.runs {
+                // This will never be emitted anyway so it doesn't matter if the value isn't accessible.
+                ExecutionTime::Never => {},
+                ExecutionTime::RuntimeFunc => {
+                    ctx.emit_deps.add(node.loc, DepKind::Member(id, MemberDep::Value));
+                }
+                ExecutionTime::Emission => {
+                    ctx.emit_deps.add(node.loc, DepKind::Member(id, MemberDep::ValueAndCallableIfFunction));
+                }
+                ExecutionTime::Typing => {
+                    // The parser should have already made sure the value is accessible. We will run this node
+                    // through the emitter anyway though, so we don't have to make it into a constant or something.
+                }
+            }
+
+            ctx.additional_info.insert((ctx.ast_variant_id, node_id), AdditionalInfoKind::Monomorphised(id, meta_data.clone()));
+        }
+    }
+
+    node_type_id
 }
 
 #[derive(Clone)]
