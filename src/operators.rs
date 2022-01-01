@@ -96,6 +96,7 @@ operator!(UnaryOp {
     Not = ("!", 0),
     Reference = ("&", 0),
     Dereference = ("*", 0),
+    Member = (".", 0),
 });
 
 operator!(BinaryOp {

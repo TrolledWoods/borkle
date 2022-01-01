@@ -19,6 +19,9 @@ pub type AdditionalInfo = HashMap<(AstVariantId, NodeId), AdditionalInfoKind>;
 
 #[derive(Clone)]
 pub enum FunctionArgUsage {
+    ValueOfAssign {
+        function_arg: usize,
+    },
     Value {
         function_arg: usize,
     },
@@ -290,7 +293,9 @@ pub fn finish<'a>(
         }
     }
 
-    if are_incomplete_sets | from.infer.output_errors(errors, &from.ast) {
+    if from.infer.output_errors(errors, &from.ast) {
+        return Err(());
+    } else if are_incomplete_sets {
         from.infer.output_incompleteness_errors(errors, &from.ast);
         return Err(());
     }
@@ -921,8 +926,23 @@ fn build_constraints(
 
                 let mut arg_defined = vec![ArgDefinedAs::None; arguments.len()];
                 let mut function_arg_usage = Vec::with_capacity(children.len());
-                let mut index = 0;
-                for arg in children.clone() {
+                let mut anonymous_index = 0;
+                for mut arg in children.clone() {
+                    let name = match arg.kind {
+                        NodeKind::Binary { op: BinaryOp::Assign, .. } => {
+                            let [left, right] = arg.children.into_array();
+
+                            if let NodeKind::AnonymousMember { name } = left.kind {
+                                arg = right;
+                                Some(name)
+                            } else {
+                                None
+                            }
+                        }
+                        _ => None,
+                    };
+
+                    let index = name.map(|name| arguments.iter().position(|v| v.name.map(|v| v.0) == Some(name))).flatten().unwrap_or(anonymous_index);
                     let arg_id = build_constraints(ctx, arg, set);
 
                     let Some(arg_info) = arguments.get(index) else {
@@ -931,38 +951,48 @@ fn build_constraints(
                     };
 
                     let arg_defined_as = &mut arg_defined[index];
-                    if let Some(var_args_loc) = arg_info.var_args {
-                        match *arg_defined_as {
-                            ArgDefinedAs::None => {
-                                *arg_defined_as = ArgDefinedAs::VarArgs(arg.loc, vec![(arg_id, Reason::temp(arg.loc))]);
-                                function_arg_usage.push(FunctionArgUsage::TupleElement { function_arg: index, field: 0 });
-                            }
-                            ArgDefinedAs::Literal(prev_loc, _) => {
-                                ctx.errors.info(var_args_loc, "Defined as a var_arg here".to_string());
-                                ctx.errors.info(prev_loc, "Assigned literally here".to_string());
-                                ctx.errors.error(arg.loc, "Cannot pass something both as a var_arg and as a literal value at once".to_string());
-                                ctx.infer.value_sets.get_mut(set).has_errors |= true;
-                                return node_type_id;
-                            }
-                            ArgDefinedAs::VarArgs(_, ref mut usages) => {
-                                function_arg_usage.push(FunctionArgUsage::TupleElement { function_arg: index, field: usages.len() });
-                                usages.push((arg_id, Reason::temp(arg.loc)));
-                            }
-                        }
-                    } else {
-                        match *arg_defined_as {
-                            ArgDefinedAs::None => {
-                                *arg_defined_as = ArgDefinedAs::Literal(arg.loc, arg_id);
-                                function_arg_usage.push(FunctionArgUsage::Value { function_arg: index });
-                            }
-                            ArgDefinedAs::Literal(prev_loc, _) | ArgDefinedAs::VarArgs(prev_loc, _) => {
-                                ctx.errors.info(prev_loc, "Previously defined here".to_string());
-                                ctx.errors.error(arg.loc, "Argument defined twice".to_string());
-                                ctx.infer.value_sets.get_mut(set).has_errors |= true;
-                                return node_type_id;
+                    match *arg_info {
+                        FunctionArgumentInfo { var_args: Some(var_args_loc), .. } if name.is_none() => {
+                            match *arg_defined_as {
+                                ArgDefinedAs::None => {
+                                    *arg_defined_as = ArgDefinedAs::VarArgs(arg.loc, vec![(arg_id, Reason::temp(arg.loc))]);
+                                    function_arg_usage.push(FunctionArgUsage::TupleElement { function_arg: index, field: 0 });
+                                }
+                                ArgDefinedAs::Literal(prev_loc, _) => {
+                                    ctx.errors.info(var_args_loc, "Defined as a var_arg here".to_string());
+                                    ctx.errors.info(prev_loc, "Assigned literally here".to_string());
+                                    ctx.errors.error(arg.loc, "Cannot pass something both as a var_arg and as a literal value at once".to_string());
+                                    ctx.infer.value_sets.get_mut(set).has_errors |= true;
+                                    return node_type_id;
+                                }
+                                ArgDefinedAs::VarArgs(_, ref mut usages) => {
+                                    function_arg_usage.push(FunctionArgUsage::TupleElement { function_arg: index, field: usages.len() });
+                                    usages.push((arg_id, Reason::temp(arg.loc)));
+                                }
                             }
                         }
-                        index += 1;
+                        _ => {
+                            match *arg_defined_as {
+                                ArgDefinedAs::None => {
+                                    *arg_defined_as = ArgDefinedAs::Literal(arg.loc, arg_id);
+                                    if name.is_some() {
+                                        function_arg_usage.push(FunctionArgUsage::ValueOfAssign { function_arg: index });
+                                    } else {
+                                        function_arg_usage.push(FunctionArgUsage::Value { function_arg: index });
+                                    }
+                                }
+                                ArgDefinedAs::Literal(prev_loc, _) | ArgDefinedAs::VarArgs(prev_loc, _) => {
+                                    ctx.errors.info(prev_loc, "Previously defined here".to_string());
+                                    ctx.errors.error(arg.loc, "Argument defined twice".to_string());
+                                    ctx.infer.value_sets.get_mut(set).has_errors |= true;
+                                    return node_type_id;
+                                }
+                            }
+
+                            if name.is_none() {
+                                anonymous_index += 1;
+                            }
+                        }
                     }
                 }
 

@@ -369,7 +369,7 @@ pub fn routine_to_c(program: &Program, output: &mut String, routine: &Routine, a
                         let op_name = match op {
                             UnaryOp::Negate => "-",
                             UnaryOp::Not => "!",
-                            UnaryOp::Dereference | UnaryOp::Reference => {
+                            UnaryOp::Dereference | UnaryOp::Reference | UnaryOp::Member => {
                                 unreachable!()
                             }
                         };

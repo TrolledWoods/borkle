@@ -744,13 +744,21 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, mut node: NodeView<'a>) -> Value {
             if let Some(AdditionalInfoKind::FunctionCall(args)) = ctx.additional_info.get(&(ctx.variant_id, node.id)) {
                 debug_assert_eq!(args.len(), children.len());
                 for (arg, node) in args.iter().zip(children) {
-                    let given = emit_node(ctx, node);
-
                     match *arg {
+                        FunctionArgUsage::ValueOfAssign { function_arg } => {
+                            let [_, right] = node.children.into_array();
+                            let given = emit_node(ctx, right);
+
+                            ctx.emit_move(output_args[function_arg], given);
+                        }
                         FunctionArgUsage::Value { function_arg } => {
+                            let given = emit_node(ctx, node);
+
                             ctx.emit_move(output_args[function_arg], given);
                         }
                         FunctionArgUsage::TupleElement { function_arg, field } => {
+                            let given = emit_node(ctx, node);
+
                             let calling_type = ctx.types.get(TypeId::Node(ctx.variant_id, calling_node.id));
                             let arg_type_id = calling_type.args()[function_arg + 1];
                             let (name, offset, _) = ctx.types.value_to_compiler_type(arg_type_id).0.members[field];

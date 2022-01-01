@@ -528,6 +528,9 @@ fn value(
         if op == UnaryOp::Reference {
             value(global, imperative, slot.add())?;
             Ok(slot.finish(Node::new(loc, NodeKind::Reference)))
+        } else if op == UnaryOp::Member {
+            let (_, name) = global.tokens.expect_identifier(global.errors)?;
+            Ok(slot.finish(Node::new(loc, NodeKind::AnonymousMember { name })))
         } else {
             value(global, imperative, slot.add())?;
             Ok(slot.finish(Node::new(loc, NodeKind::Unary { op })))
@@ -1329,6 +1332,8 @@ pub enum NodeKind {
         is_const: Option<Location>,
     },
 
+    AnonymousMember { name: Ustr },
+    /// [ of ]
     Member {
         name: Ustr,
     },

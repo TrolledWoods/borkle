@@ -228,7 +228,7 @@ fn interp_internal(program: &Program, stack: &mut StackFrame<'_>, routine: &User
                         }
                     }
                 }
-                UnaryOp::Reference | UnaryOp::Dereference => {
+                UnaryOp::Reference | UnaryOp::Dereference | UnaryOp::Member => {
                     unreachable!("This operator is supposed to be a special case");
                 }
             },
