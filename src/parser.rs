@@ -1074,10 +1074,22 @@ fn function_declaration(
 
     imperative.push_scope_boundary();
 
+    let mut argument_infos = Vec::new();
     loop {
         if global.tokens.try_consume(&TokenKind::Close(Bracket::Round)) {
             break;
         }
+
+        let mut argument_info = FunctionArgumentInfo::default();
+        parse_tags(
+            global,
+            "function argument",
+            &mut [
+                ("var_args".into(), &mut argument_info.var_args)
+            ],
+        )?;
+
+        argument_infos.push(argument_info);
 
         let old = imperative.in_declarative_lvalue;
         imperative.in_declarative_lvalue = true;
@@ -1107,7 +1119,9 @@ fn function_declaration(
 
     Ok(slot.finish(Node::new(
         loc,
-        NodeKind::FunctionDeclaration,
+        NodeKind::FunctionDeclaration {
+            argument_infos,
+        },
     )))
 }
 
@@ -1254,6 +1268,11 @@ fn offset_path(path: &Path, addition: &str) -> PathBuf {
     path
 }
 
+#[derive(Default, Debug, Clone)]
+pub struct FunctionArgumentInfo {
+    pub var_args: Option<Location>,
+}
+
 #[derive(Clone)]
 pub struct Node {
     pub loc: Location,
@@ -1315,7 +1334,9 @@ pub enum NodeKind {
     },
 
     /// [ .. arg, returns, body ]  (at least 2 children)
-    FunctionDeclaration,
+    FunctionDeclaration {
+        argument_infos: Vec<FunctionArgumentInfo>,
+    },
 
     /// [ inner ]
     TypeOf,

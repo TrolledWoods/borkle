@@ -7,7 +7,7 @@ use crate::locals::LocalVariables;
 use crate::operators::{BinaryOp, UnaryOp};
 pub use crate::parser::{LocalUsage, Node, NodeKind, Ast, NodeViewMut};
 use crate::ast::{NodeId, GenericChildIterator};
-use crate::program::{PolyOrMember, PolyMemberId, Program, Task, constant::ConstantRef, BuiltinFunction, MemberId, MemberMetaData, FunctionId, ScopeId, FunctionMetaData};
+use crate::program::{PolyOrMember, PolyMemberId, Program, Task, constant::ConstantRef, BuiltinFunction, MemberId, MemberMetaData, FunctionId, ScopeId, FunctionMetaData, FunctionArgumentInfo};
 use crate::thread_pool::ThreadContext;
 use crate::type_infer::{self, AstVariantId, ValueId as TypeId, Args, TypeSystem, ValueSetId, TypeKind, Reason, ReasonKind};
 use crate::types::{self, IntTypeKind};
@@ -901,7 +901,7 @@ fn build_constraints(
             ctx.infer
                 .set_equal(operand_type_id, temp, Reason::new(node_loc, ReasonKind::Passed));
         }
-        NodeKind::FunctionDeclaration => {
+        NodeKind::FunctionDeclaration { .. } => {
             build_function_declaration(ctx, node, set, None);
         }
         NodeKind::FunctionCall => {
@@ -1044,8 +1044,10 @@ fn build_function_declaration(
     ctx: &mut Context<'_, '_>,
     mut node: NodeViewMut<'_>,
     set: ValueSetId,
-    _meta_data: Option<&mut FunctionMetaData>,
+    mut wants_meta_data: Option<&mut FunctionMetaData>,
 ) {
+    let NodeKind::FunctionDeclaration { argument_infos } = &node.node.kind else { unreachable!() };
+
     let node_type_id = TypeId::Node(ctx.ast_variant_id, node.id);
 
     let mut emit_deps = DependencyList::new();
@@ -1066,16 +1068,26 @@ fn build_function_declaration(
 
     let sub_set = sub_ctx.infer.value_sets.add(WaitingOnTypeInferrence::None);
 
-    // The parent value set has to wait for this function declaration to be emitted until
-    // it can continue, so we lock it to make sure it doesn't get emitted before then.
     sub_ctx.infer.value_sets.lock(set);
 
     let mut children = node.children.iter();
     let num_children = children.len();
+
+    if let Some(meta_data) = wants_meta_data.as_mut() {
+        meta_data.arguments = Vec::with_capacity(num_children - 2);
+    }
+
     let mut function_type_ids = Vec::with_capacity(num_children - 2);
-    for argument in children.by_ref().take(num_children - 2) {
+    for (argument_info, argument) in argument_infos.iter().zip(children.by_ref().take(num_children - 2)) {
         let decl_id = build_declarative_lvalue(&mut sub_ctx, argument, sub_set, true);
         function_type_ids.push((decl_id, Reason::temp(node.node.loc)));
+
+        if let Some(meta_data) = wants_meta_data.as_mut() {
+            meta_data.arguments.push(FunctionArgumentInfo {
+                name: None,
+                var_args: argument_info.var_args,
+            });
+        }
     }
 
     let returns = children.next().unwrap();

@@ -1170,8 +1170,17 @@ pub enum MemberMetaData {
     Function(FunctionMetaData),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Default, Debug, Clone)]
 pub struct FunctionMetaData {
+    pub arguments: Vec<FunctionArgumentInfo>,
+}
+
+#[derive(Debug, Clone)]
+pub struct FunctionArgumentInfo {
+    // It's not always possible to extract a name if you have
+    // pattern matches.
+    pub name: Option<(Ustr, Location)>,
+    pub var_args: Option<Location>,
 }
 
 pub enum DependableOption<T> {
