@@ -5,7 +5,7 @@ use crate::location::Location;
 use crate::execution_time::ExecutionTime;
 use crate::locals::LocalVariables;
 use crate::operators::{BinaryOp, UnaryOp};
-pub use crate::parser::{LocalUsage, Node, NodeKind, Ast, NodeViewMut};
+pub use crate::parser::{LocalUsage, Node, NodeKind, Ast, NodeView};
 use crate::ast::{NodeId, GenericChildIterator};
 use crate::program::{PolyOrMember, PolyMemberId, Program, Task, constant::ConstantRef, BuiltinFunction, MemberId, MemberMetaData, FunctionId, ScopeId, FunctionMetaData, FunctionArgumentInfo};
 use crate::thread_pool::ThreadContext;
@@ -18,7 +18,19 @@ use ustr::Ustr;
 pub type AdditionalInfo = HashMap<(AstVariantId, NodeId), AdditionalInfoKind>;
 
 #[derive(Clone)]
+pub enum FunctionArgUsage {
+    Value {
+        function_arg: usize,
+    },
+    TupleElement {
+        function_arg: usize,
+        field: usize,
+    },
+}
+
+#[derive(Clone)]
 pub enum AdditionalInfoKind {
+    FunctionCall(Vec<FunctionArgUsage>),
     Function(FunctionId),
     ConstIfResult(bool),
     ConstForAstVariants(Vec<AstVariantId>),
@@ -118,7 +130,7 @@ pub fn begin<'a>(
     thread_context: &mut ThreadContext<'a>,
     program: &'a Program,
     mut locals: LocalVariables,
-    mut ast: Ast,
+    ast: Ast,
     poly_params: Vec<(Location, Ustr)>,
 ) -> (YieldData, MemberMetaData) {
     let mut emit_deps = DependencyList::new();
@@ -164,7 +176,7 @@ pub fn begin<'a>(
     // Build the type relationships between nodes.
     let root_set_id = ctx.infer.value_sets.add(WaitingOnTypeInferrence::None);
 
-    let node = ast.root_mut();
+    let node = ast.root();
     let (root_value_id, meta_data) = match node.kind {
         NodeKind::FunctionDeclaration { .. } => {
             let node_type_id = TypeId::Node(ctx.ast_variant_id, node.id);
@@ -237,8 +249,6 @@ pub fn solve<'a>(
 
             let related_nodes = std::mem::take(&mut value_set.related_nodes);
 
-            validate_contracts(&mut ctx, &data.ast, &related_nodes, value_set_id);
-
             let value_set = ctx.infer.value_sets.get_mut(value_set_id);
             value_set.related_nodes = related_nodes;
             value_set.has_been_computed = true;
@@ -293,7 +303,7 @@ pub fn finish<'a>(
 fn subset_was_completed(ctx: &mut Context<'_, '_>, ast: &mut Ast, waiting_on: WaitingOnTypeInferrence, set: ValueSetId) {
     match waiting_on {
         WaitingOnTypeInferrence::ConstFor { node_id, ast_variant_id, parent_set, runs, iterator_type } => {
-            let node = ast.get_mut(node_id);
+            let node = ast.get(node_id);
             let [iterator, _i_value, mut inner, _else_body] = node.children.into_array();
 
             let iterator_type = ctx.infer.get(iterator_type);
@@ -383,7 +393,7 @@ fn subset_was_completed(ctx: &mut Context<'_, '_>, ast: &mut Ast, waiting_on: Wa
                 additional_info: ctx.additional_info,
             };
 
-            let child_type = build_constraints(&mut sub_ctx, ast.get_mut(emitting), parent_set);
+            let child_type = build_constraints(&mut sub_ctx, ast.get(emitting), parent_set);
             ctx.infer.value_sets.get_mut(parent_set).emit_deps = Some(emit_deps);
             ctx.infer.set_equal(TypeId::Node(ast_variant_id, node_id), child_type, Reason::temp_zero());
 
@@ -537,7 +547,7 @@ fn subset_was_completed(ctx: &mut Context<'_, '_>, ast: &mut Ast, waiting_on: Wa
             parent_set,
             ast_variant_id,
         } => {
-            let node = ast.get_mut(node_id);
+            let node = ast.get(node_id);
             let node_loc = node.loc;
 
             let type_ = ctx.infer.value_to_compiler_type(type_);
@@ -587,39 +597,9 @@ fn subset_was_completed(ctx: &mut Context<'_, '_>, ast: &mut Ast, waiting_on: Wa
     }
 }
 
-fn validate_contracts(
-    ctx: &mut Context<'_, '_>,
-    ast: &Ast,
-    related_nodes: &[(AstVariantId, NodeId)],
-    set: ValueSetId,
-) {
-    for &(_, related_node) in related_nodes {
-        let node = ast.get(related_node);
-        
-        match node.kind {
-            NodeKind::Local { local_id, usage: LocalUsage::DirectWrite } => {
-                if ctx.locals.get(local_id).read_only {
-                    ctx.errors.error(node.loc, "This variable is read-only, yet is assigned to.".to_string());
-                    ctx.infer.value_sets.get_mut(set).has_errors = true;
-                }
-            }
-            NodeKind::Local { local_id, usage: LocalUsage::WriteToMember } => {
-                if ctx.locals.get(local_id).read_only {
-                    let type_ = ctx.infer.get(TypeId::Node(ctx.ast_variant_id, related_node));
-                    if !matches!(type_.kind(), TypeKind::Reference) {
-                        ctx.errors.error(node.loc, "This variable is read-only, yet is assigned to.".to_string());
-                        ctx.infer.value_sets.get_mut(set).has_errors = true;
-                    }
-                }
-            }
-            _ => {}
-        }
-    }
-}
-
 fn build_constraints(
     ctx: &mut Context<'_, '_>,
-    mut node: NodeViewMut<'_>,
+    node: NodeView<'_>,
     set: ValueSetId,
 ) -> type_infer::ValueId {
     let node_loc = node.loc;
@@ -700,11 +680,11 @@ fn build_constraints(
             ctx.infer.value_sets.add_node_to_set(set, ctx.ast_variant_id, on.id);
             ctx.infer.set_equal(TypeId::Node(ctx.ast_variant_id, on.id), node_type_id, Reason::temp(node_loc));
 
-            type_global(ctx, node.id, node.node, scope, name, Some(children), set);
+            build_global(ctx, node.id, node.node, scope, name, Some(children), set);
         }
         // @Cleanup: We could unify these two nodes probably
         NodeKind::Global { scope, name } => {
-            type_global(ctx, node.id, node.node, scope, name, None, set);
+            build_global(ctx, node.id, node.node, scope, name, None, set);
         }
         NodeKind::While {
             label,
@@ -830,7 +810,7 @@ fn build_constraints(
         NodeKind::ArrayLiteral => {
             let inner_type = ctx.infer.add_unknown_type_with_set(set);
 
-            for arg in node.children.iter() {
+            for arg in node.children.into_iter() {
                 let arg_type_id = build_constraints(ctx, arg, set);
                 ctx.infer.set_equal(arg_type_id, inner_type, Reason::new(node_loc, ReasonKind::Passed));
             }
@@ -927,27 +907,110 @@ fn build_constraints(
         NodeKind::FunctionCall => {
             let mut children = node.children.into_iter();
             let calling = children.next().unwrap();
-            let calling_type_id = build_constraints(ctx, calling, set);
 
-            // A little bit hacky, but since we are invariant to the return type
-            // (variance is always applied before merges of types essentially, and this is the creation of a type),
-            // we can get away with this.
-            let return_type = node_type_id;
+            let calling_type_id = TypeId::Node(ctx.ast_variant_id, calling.id);
+            let meta_data = build_with_metadata(ctx, calling, set);
 
-            let mut typer_args = Vec::with_capacity(children.len());
-            typer_args.push((return_type, Reason::new(node_loc, ReasonKind::FunctionCallReturn)));
+            if let Some(MemberMetaData::Function(FunctionMetaData { arguments })) = meta_data.as_deref() {
+                #[derive(Clone)]
+                enum ArgDefinedAs {
+                    None,
+                    Literal(Location, TypeId),
+                    VarArgs(Location, Vec<(TypeId, Reason)>),
+                }
 
-            for arg in children {
-                let function_arg_type_id = ctx.infer.add_unknown_type();
-                let arg_type_id = build_constraints(ctx, arg, set);
-                ctx.infer.set_equal(function_arg_type_id, arg_type_id, Reason::new(node_loc, ReasonKind::Passed));
-                typer_args.push((function_arg_type_id, Reason::new(node_loc, ReasonKind::FunctionCallArgument)));
+                let mut arg_defined = vec![ArgDefinedAs::None; arguments.len()];
+                let mut function_arg_usage = Vec::with_capacity(children.len());
+                let mut index = 0;
+                for arg in children.clone() {
+                    let arg_id = build_constraints(ctx, arg, set);
+
+                    let Some(arg_info) = arguments.get(index) else {
+                        ctx.errors.error(arg.loc, "Too many arguments passed to function".to_string());
+                        break;
+                    };
+
+                    let arg_defined_as = &mut arg_defined[index];
+                    if let Some(var_args_loc) = arg_info.var_args {
+                        match *arg_defined_as {
+                            ArgDefinedAs::None => {
+                                *arg_defined_as = ArgDefinedAs::VarArgs(arg.loc, vec![(arg_id, Reason::temp(arg.loc))]);
+                                function_arg_usage.push(FunctionArgUsage::TupleElement { function_arg: index, field: 0 });
+                            }
+                            ArgDefinedAs::Literal(prev_loc, _) => {
+                                ctx.errors.info(var_args_loc, "Defined as a var_arg here".to_string());
+                                ctx.errors.info(prev_loc, "Assigned literally here".to_string());
+                                ctx.errors.error(arg.loc, "Cannot pass something both as a var_arg and as a literal value at once".to_string());
+                                ctx.infer.value_sets.get_mut(set).has_errors |= true;
+                                return node_type_id;
+                            }
+                            ArgDefinedAs::VarArgs(_, ref mut usages) => {
+                                function_arg_usage.push(FunctionArgUsage::TupleElement { function_arg: index, field: usages.len() });
+                                usages.push((arg_id, Reason::temp(arg.loc)));
+                            }
+                        }
+                    } else {
+                        match *arg_defined_as {
+                            ArgDefinedAs::None => {
+                                *arg_defined_as = ArgDefinedAs::Literal(arg.loc, arg_id);
+                                function_arg_usage.push(FunctionArgUsage::Value { function_arg: index });
+                            }
+                            ArgDefinedAs::Literal(prev_loc, _) | ArgDefinedAs::VarArgs(prev_loc, _) => {
+                                ctx.errors.info(prev_loc, "Previously defined here".to_string());
+                                ctx.errors.error(arg.loc, "Argument defined twice".to_string());
+                                ctx.infer.value_sets.get_mut(set).has_errors |= true;
+                                return node_type_id;
+                            }
+                        }
+                        index += 1;
+                    }
+                }
+
+                let mut typer_args = Vec::with_capacity(children.len());
+                typer_args.push((node_type_id, Reason::new(node_loc, ReasonKind::FunctionCallReturn)));
+
+                for (i, (defined, defined_arg)) in arg_defined.into_iter().zip(arguments).enumerate() {
+                    match defined {
+                        ArgDefinedAs::None => {
+                            if defined_arg.var_args.is_some() {
+                                let tuple_type = ctx.infer.add_type(TypeKind::Tuple, Args([]), set);
+                                typer_args.push((tuple_type, Reason::temp(node_loc)));
+                            } else {
+                                ctx.errors.error(node_loc, format!("Argument `{}` not defined", i));
+                                return node_type_id;
+                            }
+                        }
+                        ArgDefinedAs::Literal(node_loc, type_id) => {
+                            typer_args.push((type_id, Reason::temp(node_loc)));
+                        }
+                        ArgDefinedAs::VarArgs(node_loc, type_id) => {
+                            let tuple_type = ctx.infer.add_type(TypeKind::Tuple, Args(type_id), set);
+                            typer_args.push((tuple_type, Reason::temp(node_loc)));
+                        }
+                    }
+                }
+
+                // Specify that the caller has to be a function type
+                let type_id = ctx.infer.add_type(TypeKind::Function, Args(typer_args), set);
+                ctx.additional_info.insert((ctx.ast_variant_id, node.id), AdditionalInfoKind::FunctionCall(function_arg_usage));
+                ctx.infer
+                    .set_equal(calling_type_id, type_id, Reason::new(node_loc, ReasonKind::FunctionCall));
+            } else {
+                let mut typer_args = Vec::with_capacity(children.len());
+                typer_args.push((node_type_id, Reason::new(node_loc, ReasonKind::FunctionCallReturn)));
+
+                for arg in children {
+                    let function_arg_type_id = ctx.infer.add_unknown_type();
+                    let arg_type_id = build_constraints(ctx, arg, set);
+                    ctx.infer.set_equal(function_arg_type_id, arg_type_id, Reason::new(node_loc, ReasonKind::Passed));
+                    typer_args.push((function_arg_type_id, Reason::new(node_loc, ReasonKind::FunctionCallArgument)));
+                }
+
+                // Specify that the caller has to be a function type
+                let type_id = ctx.infer.add_type(TypeKind::Function, Args(typer_args), set);
+                ctx.infer
+                    .set_equal(calling_type_id, type_id, Reason::new(node_loc, ReasonKind::FunctionCall));
             }
-
-            // Specify that the caller has to be a function type
-            let type_id = ctx.infer.add_type(TypeKind::Function, Args(typer_args), set);
-            ctx.infer
-                .set_equal(calling_type_id, type_id, Reason::new(node_loc, ReasonKind::FunctionCall));
         }
         NodeKind::Binary {
             op: BinaryOp::Assign,
@@ -1060,7 +1123,7 @@ fn build_constraints(
     node_type_id
 }
 
-fn extract_name(ctx: &Context<'_, '_>, node: NodeViewMut<'_>) -> Option<(Ustr, Location)> {
+fn extract_name(ctx: &Context<'_, '_>, node: NodeView<'_>) -> Option<(Ustr, Location)> {
     match node.kind {
         NodeKind::Local { local_id, .. } => {
             Some((ctx.locals.get(local_id).name, node.loc))
@@ -1075,7 +1138,7 @@ fn extract_name(ctx: &Context<'_, '_>, node: NodeViewMut<'_>) -> Option<(Ustr, L
 
 fn build_function_declaration(
     ctx: &mut Context<'_, '_>,
-    mut node: NodeViewMut<'_>,
+    node: NodeView<'_>,
     set: ValueSetId,
     mut wants_meta_data: Option<&mut FunctionMetaData>,
 ) {
@@ -1103,7 +1166,7 @@ fn build_function_declaration(
 
     sub_ctx.infer.value_sets.lock(set);
 
-    let mut children = node.children.iter();
+    let mut children = node.children.into_iter();
     let num_children = children.len();
 
     if let Some(meta_data) = wants_meta_data.as_mut() {
@@ -1117,9 +1180,14 @@ fn build_function_declaration(
 
         if let Some(meta_data) = wants_meta_data.as_mut() {
             meta_data.arguments.push(FunctionArgumentInfo {
-                name: None,
+                name: extract_name(&sub_ctx, argument),
                 var_args: argument_info.var_args,
             });
+        } else {
+            if let Some(loc) = argument_info.var_args {
+                sub_ctx.errors.error(loc, format!("Cannot define var_args in this function, because it isn't bound to a constant (thus the var_args are lost)"));
+                sub_ctx.infer.value_sets.get_mut(set).has_errors |= true;
+            }
         }
     }
 
@@ -1154,7 +1222,7 @@ fn build_function_declaration(
 
 fn build_type(
     ctx: &mut Context<'_, '_>,
-    node: NodeViewMut<'_>,
+    node: NodeView<'_>,
     set: ValueSetId,
 ) -> type_infer::ValueId {
     let node_loc = node.loc;
@@ -1259,7 +1327,7 @@ fn build_type(
 
 fn build_declarative_lvalue(
     ctx: &mut Context<'_, '_>,
-    mut node: NodeViewMut<'_>,
+    node: NodeView<'_>,
     set: ValueSetId,
     is_declaring: bool,
 ) -> type_infer::ValueId {
@@ -1291,7 +1359,7 @@ fn build_declarative_lvalue(
             let inner = build_declarative_lvalue(ctx, inner, set, true);
             ctx.infer.set_equal(node_type_id, inner, Reason::temp(node_loc));
         }
-        NodeKind::Local{ local_id, ref mut usage } => {
+        NodeKind::Local{ local_id } => {
             if is_declaring {
                 let local = ctx.locals.get_mut(local_id);
                 local.declared_at = Some(node.id);
@@ -1303,8 +1371,6 @@ fn build_declarative_lvalue(
                 let local_type_id = TypeId::Node(ctx.ast_variant_id, local.declared_at.unwrap());
                 ctx.infer
                     .set_equal(local_type_id, node_type_id, Reason::new(node_loc, ReasonKind::LocalVariableIs(local.name)));
-                *usage = LocalUsage::DirectWrite;
-
                 if local.stack_frame_id != set {
                     ctx.errors.error(node_loc, "Variable is defined in a different execution context, you cannot access it here, other than for its type".to_string());
                     ctx.infer.value_sets.get_mut(set).has_errors = true;
@@ -1328,7 +1394,7 @@ fn build_declarative_lvalue(
         NodeKind::ArrayLiteral => {
             let inner_type = ctx.infer.add_unknown_type_with_set(set);
 
-            for arg in node.children.iter() {
+            for arg in node.children.into_iter() {
                 let arg_type_id = build_declarative_lvalue(ctx, arg, set, is_declaring);
                 ctx.infer.set_equal(arg_type_id, inner_type, Reason::new(node_loc, ReasonKind::Passed));
             }
@@ -1394,7 +1460,7 @@ fn build_declarative_lvalue(
 /// If this strategy doesn't work however, we fallback to read-only.
 fn build_lvalue(
     ctx: &mut Context<'_, '_>,
-    mut node: NodeViewMut<'_>,
+    node: NodeView<'_>,
     set: ValueSetId,
     can_reference_temporaries: bool,
 ) -> type_infer::ValueId {
@@ -1408,17 +1474,12 @@ fn build_lvalue(
             ctx.infer
                 .set_field_name_equal(of_type_id, name, node_type_id, Reason::new(node_loc, ReasonKind::NamedField(name)));
         }
-        NodeKind::Local { local_id, ref mut usage } => {
+        NodeKind::Local { local_id } => {
             let local = ctx.locals.get(local_id);
             
             let local_type_id = TypeId::Node(ctx.ast_variant_id, local.declared_at.unwrap());
             ctx.infer
                 .set_equal(local_type_id, node_type_id, Reason::new(node_loc, ReasonKind::LocalVariableIs(local.name)));
-            // @Hack: Here, we assume not referencing temporaries means we're in a mutable assignment.
-            // Maybe this assumption should be more clear from the argument name?
-            if !can_reference_temporaries {
-                *usage = LocalUsage::WriteToMember;
-            }
 
             if local.stack_frame_id != set {
                 ctx.errors.error(node_loc, "Variable is defined in a different execution context, you cannot access it here, other than for its type".to_string());
@@ -1480,7 +1541,7 @@ fn build_lvalue(
 // The first return is the type of the constant, the second return is the value id of that constant, where the constant will later be stored.
 fn build_inferrable_constant_value(
     ctx: &mut Context<'_, '_>,
-    node: NodeViewMut<'_>,
+    node: NodeView<'_>,
     set: ValueSetId,
 ) -> (type_infer::ValueId, type_infer::ValueId) {
     let node_loc = node.loc;
@@ -1546,17 +1607,52 @@ fn build_inferrable_constant_value(
     (node_type_id, value_id)
 }
 
-fn type_global<'a>(
+fn build_with_metadata(
+    ctx: &mut Context<'_, '_>,
+    node: NodeView<'_>,
+    set: ValueSetId,
+) -> Option<Arc<MemberMetaData>> {
+    match node.kind {
+        NodeKind::PolymorphicArgs => {
+            let node_loc = node.loc;
+            let node_type_id = TypeId::Node(ctx.ast_variant_id, node.id);
+
+            let mut children = node.children.into_iter();
+            let on = children.next().unwrap();
+            let &NodeKind::Global { scope, name } = &on.kind else {
+                todo!("Handling of the case where you pass polymorphic args to something that shouldn't have it");
+            };
+
+            ctx.infer.set_value_set(TypeId::Node(ctx.ast_variant_id, on.id), set);
+            ctx.infer.value_sets.add_node_to_set(set, ctx.ast_variant_id, on.id);
+            ctx.infer.set_equal(TypeId::Node(ctx.ast_variant_id, on.id), node_type_id, Reason::temp(node_loc));
+
+            Some(build_global(ctx, node.id, node.node, scope, name, Some(children), set))
+        }
+        // @Cleanup: We could unify these two nodes probably
+        NodeKind::Global { scope, name } => {
+            Some(build_global(ctx, node.id, node.node, scope, name, None, set))
+        }
+        _ => {
+            build_constraints(ctx, node, set);
+            None
+        }
+    }
+}
+
+fn build_global<'a>(
     ctx: &mut Context<'_, '_>,
     node_id: NodeId,
     node: &Node,
     scope: ScopeId,
     name: Ustr,
-    children: Option<GenericChildIterator<'a, &'a mut [Node]>>,
+    children: Option<GenericChildIterator<'a, &'a [Node]>>,
     set: ValueSetId,
-) -> TypeId {
+) -> Arc<MemberMetaData> {
     let id = ctx.program.get_member_id(scope, name).expect("The dependency system should have made sure that this is defined");
     let node_type_id = TypeId::Node(ctx.ast_variant_id, node_id);
+
+    let meta_data = ctx.program.get_member_meta_data(id);
 
     match id {
         PolyOrMember::Poly(id) => {
@@ -1572,7 +1668,7 @@ fn type_global<'a>(
                     ctx.errors.error(node.loc, format!("Passed {} arguments to polymorphic value, but the polymorphic value needs {} values", children.len(), num_args));
                     // @Cleanup: This should probably just be a function on TypeSystem
                     ctx.infer.value_sets.get_mut(set).has_errors |= true;
-                    return node_type_id;
+                    return meta_data;
                 }
 
                 for (i, (param, other_poly_arg)) in children.zip(&other_yield_data.poly_params).enumerate() {
@@ -1619,7 +1715,7 @@ fn type_global<'a>(
                 ctx.errors.error(node.loc, "Passed polymorphic parameters even though this value isn't polymorphic".to_string());
                 // @Cleanup: This should probably just be a function on TypeSystem
                 ctx.infer.value_sets.get_mut(set).has_errors |= true;
-                return node_type_id;
+                return meta_data;
             }
 
             let type_ = ctx.program.get_member_type(id);
@@ -1651,7 +1747,7 @@ fn type_global<'a>(
         }
     }
 
-    node_type_id
+    meta_data
 }
 
 #[derive(Clone)]

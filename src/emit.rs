@@ -8,7 +8,7 @@ use crate::ast::NodeId;
 use crate::program::{FunctionId, Program};
 use crate::thread_pool::ThreadContext;
 use crate::type_infer::{ValueId as TypeId, TypeSystem, Reason, Args, AstVariantId, self};
-use crate::typer::{AdditionalInfo, AdditionalInfoKind};
+use crate::typer::{AdditionalInfo, AdditionalInfoKind, FunctionArgUsage};
 use crate::types::{Type, TypeKind, IntTypeKind};
 
 mod context;
@@ -736,18 +736,37 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, mut node: NodeView<'a>) -> Value {
 
             let to = ctx.registers.create_min_align(ctx.types.value_to_compiler_type(TypeId::Node(ctx.variant_id, node.id)), 8);
             let calling = emit_node(ctx, calling_node.clone());
+            let calling_type = ctx.types.get(TypeId::Node(ctx.variant_id, calling_node.id));
+            let output_args = calling_type.args().iter().skip(1).map(|&v| {
+                ctx.registers.create(ctx.types, v)
+            }).collect::<Vec<_>>();
 
-            let mut args = vec![ctx.registers.zst(); node.children.len() - 1];
-            for (i, node) in children.into_iter().enumerate() {
-                args[i] = emit_node(ctx, node);
-            }
+            if let Some(AdditionalInfoKind::FunctionCall(args)) = ctx.additional_info.get(&(ctx.variant_id, node.id)) {
+                debug_assert_eq!(args.len(), children.len());
+                for (arg, node) in args.iter().zip(children) {
+                    let given = emit_node(ctx, node);
 
-            match ctx.types.get(TypeId::Node(ctx.variant_id, calling_node.id)).kind() {
-                type_infer::TypeKind::Function => {
-                    ctx.emit_call(to, calling, args, calling_node.loc);
+                    match *arg {
+                        FunctionArgUsage::Value { function_arg } => {
+                            ctx.emit_move(output_args[function_arg], given);
+                        }
+                        FunctionArgUsage::TupleElement { function_arg, field } => {
+                            let calling_type = ctx.types.get(TypeId::Node(ctx.variant_id, calling_node.id));
+                            let arg_type_id = calling_type.args()[function_arg + 1];
+                            let (name, offset, _) = ctx.types.value_to_compiler_type(arg_type_id).0.members[field];
+                            ctx.emit_move_to_member_of_value(output_args[function_arg], given, Member { offset, name });
+                        }
+                    }
                 }
-                _ => todo!("The emitter doesn't know how to emit this type of call"),
+            } else {
+                for (to, node) in output_args.iter().zip(children) {
+                    let given = emit_node(ctx, node);
+                    ctx.emit_move(*to, given);
+                }
             }
+
+            ctx.emit_call(to, calling, output_args, calling_node.loc);
+
             to
         }
         NodeKind::TypeBound { .. } => {

@@ -322,6 +322,7 @@ impl<'a, D: TreeGrowable> AstSlot<'a, D> {
     }
 }
 
+#[derive(Clone)]
 pub struct GenericChildIterator<'a, Zipped: TreeZippable> {
     munching: &'a [StructuralInfo],
     zipped: Zipped,
@@ -426,7 +427,7 @@ impl<'a, Zipped: TreeZippable> IntoIterator for GenericAstSlice<'a, Zipped> {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Copy)]
 pub struct GenericNodeView<'a, Zipped: TreeZippable> {
     pub id: NodeId,
     pub node: Zipped::Target,

@@ -41,7 +41,7 @@ const aoc_day3_part1 = fn() -> u64 {
         } else if v < total_count - v {
             b_rate = b_rate + 1;
         } else {
-            print("Warning! Both bit counts are the same\n", ());
+            print("Warning! Both bit counts are the same\n");
         };
     };
 

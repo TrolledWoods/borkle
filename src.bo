@@ -1,12 +1,8 @@
 import "tests/main.bo";
 library "vec.bo";
 
-const test_function = fn(#var_args: args : u32) {
-};
-
 #entry fn() {
-    print("Hello, world!\n", ());
-
+    print("Hello, world!\n");
 };
 
 // TODO:

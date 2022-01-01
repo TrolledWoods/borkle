@@ -570,13 +570,13 @@ fn value_without_unaries(
         TokenKind::Identifier(name) => {
             if imperative.in_declarative_lvalue {
                 let local_id = imperative.insert_local(Local::new(token.loc, name));
-                slot.finish(Node::new(token.loc, NodeKind::Local { local_id, usage: LocalUsage::Standard }))
+                slot.finish(Node::new(token.loc, NodeKind::Local { local_id }))
             } else {
                 if let Some(local_id) = imperative.get_local(name) {
                     let local = imperative.locals.get_mut(local_id);
                     local.num_uses += 1;
                     local.uses.push(token.loc);
-                    slot.finish(Node::new(token.loc, NodeKind::Local { local_id, usage: LocalUsage::Standard }))
+                    slot.finish(Node::new(token.loc, NodeKind::Local { local_id }))
                 } else if let Some(index) = imperative
                     .poly_args
                     .iter()
@@ -731,11 +731,11 @@ fn value_without_unaries(
             expression(global, imperative, slot.add())?;
 
             let iteration_var = imperative.insert_local(Local::new(token.loc, "i".into()).read_only());
-            slot.add().finish(Node::new(loc, NodeKind::Local { local_id: iteration_var, usage: LocalUsage::Standard }));
+            slot.add().finish(Node::new(loc, NodeKind::Local { local_id: iteration_var }));
 
             let mut for_inner = slot.add();
             let iterator = imperative.insert_local(iterator_local.read_only());
-            for_inner.add().finish(Node::new(loc, NodeKind::Local { local_id: iterator, usage: LocalUsage::Standard }));
+            for_inner.add().finish(Node::new(loc, NodeKind::Local { local_id: iterator }));
 
             expression(global, imperative, for_inner.add())?;
 
@@ -766,7 +766,7 @@ fn value_without_unaries(
             let label = parse_default_label(global, imperative)?;
 
             let iteration_var = imperative.insert_local(Local::new(token.loc, "i".into()).read_only());
-            slot.add().finish(Node::new(loc, NodeKind::Local { local_id: iteration_var, usage: LocalUsage::Standard }));
+            slot.add().finish(Node::new(loc, NodeKind::Local { local_id: iteration_var }));
 
             expression(global, imperative, slot.add())?;
             expression(global, imperative, slot.add())?;
@@ -1412,7 +1412,6 @@ pub enum NodeKind {
     Declare,
     Local {
         local_id: LocalId,
-        usage: LocalUsage,
     },
 }
 

@@ -143,8 +143,9 @@ fn worker<'a>(alloc: &'a mut Bump, program: &'a Program) -> (ThreadContext<'a>, 
                     program.set_yield_data_of_poly_member(member_id, yield_data);
 
                     program.logger.log(format_args!(
-                        "typed poly member {}",
+                        "typed poly member {} {:?}",
                         program.poly_member_name(member_id),
+                        meta_data,
                     ));
                     program.flag_poly_member_type(member_id, meta_data);
 
