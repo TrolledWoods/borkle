@@ -23,7 +23,7 @@ pub enum AdditionalInfoKind {
     ConstIfResult(bool),
     ConstForAstVariants(Vec<AstVariantId>),
     Constant(ConstantRef),
-    Monomorphised(MemberId, Arc<MemberMetaData>),
+    Monomorphised(MemberId),
 }
 
 #[derive(Clone)]
@@ -400,11 +400,12 @@ fn subset_was_completed(ctx: &mut Context<'_, '_>, ast: &mut Ast, waiting_on: Wa
             ctx.infer.value_sets.unlock(parent_set);
 
             if let Ok(member_id) = ctx.program.monomorphise_poly_member(ctx.errors, ctx.thread_context, poly_member_id, &fixed_up_params, wanted_dep) {
-                let (type_, meta_data) = ctx.program.get_member_meta_data(member_id);
+                let type_ = ctx.program.get_member_type(member_id);
+
                 let compiler_type = ctx.infer.add_compiler_type(ctx.program, type_, parent_set);
                 ctx.infer.set_equal(TypeId::Node(ast_variant_id, node_id), compiler_type, Reason::new(node_loc, ReasonKind::IsOfType));
 
-                ctx.additional_info.insert((ast_variant_id, node_id), AdditionalInfoKind::Monomorphised(member_id, meta_data.clone()));
+                ctx.additional_info.insert((ast_variant_id, node_id), AdditionalInfoKind::Monomorphised(member_id));
 
                 match when_needed {
                     // This will never be emitted anyway so it doesn't matter if the value isn't accessible.
@@ -1565,7 +1566,7 @@ fn type_global<'a>(
                 return node_type_id;
             }
 
-            let (type_, meta_data) = ctx.program.get_member_meta_data(id);
+            let type_ = ctx.program.get_member_type(id);
 
             let type_id = ctx.infer.add_compiler_type(
                 ctx.program,
@@ -1590,7 +1591,7 @@ fn type_global<'a>(
                 }
             }
 
-            ctx.additional_info.insert((ctx.ast_variant_id, node_id), AdditionalInfoKind::Monomorphised(id, meta_data.clone()));
+            ctx.additional_info.insert((ctx.ast_variant_id, node_id), AdditionalInfoKind::Monomorphised(id));
         }
     }
 

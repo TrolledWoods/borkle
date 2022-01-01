@@ -329,12 +329,18 @@ impl Program {
         members[id].type_.unwrap().0
     }
 
-    /// Locks
-    /// * ``members`` read
-    pub fn get_member_meta_data(&self, id: MemberId) -> (Type, Arc<MemberMetaData>) {
+    pub fn get_member_meta_data(&self, id: PolyOrMember) -> Arc<MemberMetaData> {
         profile::profile!("program::get_member_meta_data");
-        let members = self.members.read();
-        members[id].type_.unwrap().clone()
+        match id {
+            PolyOrMember::Member(id) => {
+                let members = self.members.read();
+                members[id].type_.unwrap().1.clone()
+            }
+            PolyOrMember::Poly(id) => {
+                let members = self.poly_members.read();
+                members[id].type_.unwrap().clone()
+            }
+        }
     }
 
     /// Locks
@@ -1161,9 +1167,11 @@ impl Member {
 #[derive(Debug, Clone)]
 pub enum MemberMetaData {
     None,
-    Function {
-        arg_names: Vec<Ustr>,
-    },
+    Function(FunctionMetaData),
+}
+
+#[derive(Debug, Clone)]
+pub struct FunctionMetaData {
 }
 
 pub enum DependableOption<T> {

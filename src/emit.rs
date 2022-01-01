@@ -797,7 +797,7 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, mut node: NodeView<'a>) -> Value {
             }
         }
         NodeKind::PolymorphicArgs { .. } | NodeKind::Global { .. } => {
-            let &AdditionalInfoKind::Monomorphised(id, _) = &ctx.additional_info[&(ctx.variant_id, node.id)] else { panic!() };
+            let &AdditionalInfoKind::Monomorphised(id) = &ctx.additional_info[&(ctx.variant_id, node.id)] else { panic!() };
 
             let (ptr, _) = ctx.program.get_member_value(id);
 
