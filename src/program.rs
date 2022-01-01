@@ -448,11 +448,11 @@ impl Program {
         })
     }
 
-    pub fn flag_poly_member_type(&self, id: PolyMemberId) {
+    pub fn flag_poly_member_type(&self, id: PolyMemberId, meta_data: MemberMetaData) {
         profile::profile!("program::flag_poly_member_type");
         let mut poly_members = self.poly_members.write();
         let old =
-            std::mem::replace(&mut poly_members[id].type_, DependableOption::Some(Arc::new(MemberMetaData::None)));
+            std::mem::replace(&mut poly_members[id].type_, DependableOption::Some(Arc::new(meta_data)));
         drop(poly_members);
 
         if let DependableOption::None(dependencies) = old {

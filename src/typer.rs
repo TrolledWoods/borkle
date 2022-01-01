@@ -107,10 +107,10 @@ pub fn process_ast<'a>(
     program: &'a Program,
     locals: LocalVariables,
     ast: Ast,
-) -> Result<Result<(DependencyList, LocalVariables, TypeSystem, Ast, AdditionalInfo), (DependencyList, YieldData)>, ()> {
-    let mut yield_data = begin(errors, thread_context, program, locals, ast, Vec::new());
+) -> Result<(Result<(DependencyList, LocalVariables, TypeSystem, Ast, AdditionalInfo), (DependencyList, YieldData)>, MemberMetaData), ()> {
+    let (mut yield_data, meta_data) = begin(errors, thread_context, program, locals, ast, Vec::new());
     solve(errors, thread_context, program, &mut yield_data);
-    finish(errors, yield_data)
+    finish(errors, yield_data).map(|v| (v, meta_data))
 }
 
 pub fn begin<'a>(
@@ -120,7 +120,7 @@ pub fn begin<'a>(
     mut locals: LocalVariables,
     mut ast: Ast,
     poly_params: Vec<(Location, Ustr)>,
-) -> YieldData {
+) -> (YieldData, MemberMetaData) {
     let mut emit_deps = DependencyList::new();
     let mut infer = TypeSystem::new(program, ast.structure.len());
 
@@ -163,19 +163,39 @@ pub fn begin<'a>(
 
     // Build the type relationships between nodes.
     let root_set_id = ctx.infer.value_sets.add(WaitingOnTypeInferrence::None);
-    let root_value_id = build_constraints(&mut ctx, ast.root_mut(), root_set_id);
+
+    let node = ast.root_mut();
+    let (root_value_id, meta_data) = match node.kind {
+        NodeKind::FunctionDeclaration { .. } => {
+            let node_type_id = TypeId::Node(ctx.ast_variant_id, node.id);
+            ctx.infer.set_value_set(node_type_id, root_set_id);
+            ctx.infer.value_sets.add_node_to_set(root_set_id, ctx.ast_variant_id, node.id);
+            let mut meta_data = FunctionMetaData::default();
+            build_function_declaration(&mut ctx, node, root_set_id, Some(&mut meta_data));
+
+            (node_type_id, MemberMetaData::Function(meta_data))
+        }
+        _ => (
+            build_constraints(&mut ctx, node, root_set_id),
+            MemberMetaData::None,
+        )
+    };
+
     infer.value_sets.get_mut(root_set_id).emit_deps = Some(emit_deps);
 
-    YieldData {
-        root_set_id,
-        root_value_id,
-        ast,
-        locals,
-        infer,
-        poly_params,
-        needs_explaining,
-        additional_info,
-    }
+    (
+        YieldData {
+            root_set_id,
+            root_value_id,
+            ast,
+            locals,
+            infer,
+            poly_params,
+            needs_explaining,
+            additional_info,
+        },
+        meta_data,
+    )
 }
 
 pub fn solve<'a>(
@@ -1038,6 +1058,19 @@ fn build_constraints(
     }
 
     node_type_id
+}
+
+fn extract_name(ctx: &Context<'_, '_>, node: NodeViewMut<'_>) -> Option<(Ustr, Location)> {
+    match node.kind {
+        NodeKind::Local { local_id, .. } => {
+            Some((ctx.locals.get(local_id).name, node.loc))
+        }
+        NodeKind::TypeBound => {
+            let [value, _] = node.children.into_array();
+            extract_name(ctx, value)
+        }
+        _ => None,
+    }
 }
 
 fn build_function_declaration(

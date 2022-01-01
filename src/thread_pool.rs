@@ -137,7 +137,7 @@ fn worker<'a>(alloc: &'a mut Bump, program: &'a Program) -> (ThreadContext<'a>, 
                 Task::TypePolyMember { member_id, ast, locals, mut dependencies, poly_args } => {
                     profile::profile!("Task::TypePolyMember");
 
-                    let mut yield_data = crate::typer::begin(&mut errors, &mut thread_context, program, locals, ast, poly_args);
+                    let (mut yield_data, meta_data) = crate::typer::begin(&mut errors, &mut thread_context, program, locals, ast, poly_args);
                     crate::typer::solve(&mut errors, &mut thread_context, program, &mut yield_data);
 
                     program.set_yield_data_of_poly_member(member_id, yield_data);
@@ -146,7 +146,7 @@ fn worker<'a>(alloc: &'a mut Bump, program: &'a Program) -> (ThreadContext<'a>, 
                         "typed poly member {}",
                         program.poly_member_name(member_id),
                     ));
-                    program.flag_poly_member_type(member_id);
+                    program.flag_poly_member_type(member_id, meta_data);
 
                     // TODO: We should read the deps from the typer instead, it should know what the deps are after `begin`.
                     dependencies.set_minimum_member_dep(MemberDep::ValueAndCallableIfFunction);
@@ -172,24 +172,15 @@ fn worker<'a>(alloc: &'a mut Bump, program: &'a Program) -> (ThreadContext<'a>, 
                             locals,
                             ast,
                         ) {
-                            Ok(Ok((dependencies, locals, types, ast, additional_info))) => {
-                                let meta_data = match &ast.root().kind {
-                                    NodeKind::Constant(_, Some(meta_data)) => {
-                                        (&**meta_data).clone()
-                                    }
-                                    NodeKind::ResolvedGlobal(_, meta_data) => {
-                                        (&**meta_data).clone()
-                                    }
-                                    _ => MemberMetaData::None,
-                                };
-
+                            Ok((Ok((dependencies, locals, types, ast, additional_info)), meta_data)) => {
                                 let type_ = types.value_to_compiler_type(TypeId::Node(AstVariantId::root(), ast.root().id));
 
                                 if type_.can_be_stored_in_constant() {
                                     program.logger.log(format_args!(
-                                        "type '{}' {:?}",
+                                        "type '{}' {:?} {:?}",
                                         program.member_name(member_id),
                                         type_,
+                                        meta_data,
                                     ));
 
                                     program.set_type_of_member(member_id, type_, meta_data);
@@ -201,7 +192,7 @@ fn worker<'a>(alloc: &'a mut Bump, program: &'a Program) -> (ThreadContext<'a>, 
                                     errors.error(ast.root().loc, format!("'{}' cannot be stored in a constant, because it contains types that the compiler cannot reason about properly, such as '&any', '[] any', or similar", type_));
                                 }
                             }
-                            Ok(Err(_)) => {
+                            Ok((Err(_), _)) => {
                                 todo!("Continue typing member");
                                 /*program.queue_task(
                                     dependencies,
