@@ -442,44 +442,43 @@ impl Program {
         })
     }
 
-    pub fn flag_poly_member(&self, id: PolyMemberId, kind: MemberDep) {
-        profile::profile!("program::flag_poly_member");
-        match kind {
-            MemberDep::Type => {
-                let mut poly_members = self.poly_members.write();
-                let old =
-                    std::mem::replace(&mut poly_members[id].type_, DependableOption::Some(()));
-                drop(poly_members);
+    pub fn flag_poly_member_type(&self, id: PolyMemberId) {
+        profile::profile!("program::flag_poly_member_type");
+        let mut poly_members = self.poly_members.write();
+        let old =
+            std::mem::replace(&mut poly_members[id].type_, DependableOption::Some(Arc::new(MemberMetaData::None)));
+        drop(poly_members);
 
-                if let DependableOption::None(dependencies) = old {
-                    for (_, dependency) in dependencies.into_inner() {
-                        self.resolve_dependency(dependency);
-                    }
-                }
+        if let DependableOption::None(dependencies) = old {
+            for (_, dependency) in dependencies.into_inner() {
+                self.resolve_dependency(dependency);
             }
-            MemberDep::Value => {
-                let mut poly_members = self.poly_members.write();
-                let old =
-                    std::mem::replace(&mut poly_members[id].value, DependableOption::Some(()));
-                drop(poly_members);
+        }
+    }
 
-                if let DependableOption::None(dependencies) = old {
-                    for (_, dependency) in dependencies.into_inner() {
-                        self.resolve_dependency(dependency);
-                    }
-                }
+    pub fn flag_poly_member_value(&self, id: PolyMemberId) {
+        profile::profile!("program::flag_poly_member_value");
+        let mut poly_members = self.poly_members.write();
+        let old =
+            std::mem::replace(&mut poly_members[id].value, DependableOption::Some(()));
+        drop(poly_members);
+
+        if let DependableOption::None(dependencies) = old {
+            for (_, dependency) in dependencies.into_inner() {
+                self.resolve_dependency(dependency);
             }
-            MemberDep::ValueAndCallableIfFunction => {
-                let mut poly_members = self.poly_members.write();
-                let old =
-                    std::mem::replace(&mut poly_members[id].callable, DependableOption::Some(()));
-                drop(poly_members);
+        }
+    }
 
-                if let DependableOption::None(dependencies) = old {
-                    for (_, dependency) in dependencies.into_inner() {
-                        self.resolve_dependency(dependency);
-                    }
-                }
+    pub fn flag_poly_member_value_and_callable_if_function(&self, id: PolyMemberId) {
+        let mut poly_members = self.poly_members.write();
+        let old =
+            std::mem::replace(&mut poly_members[id].callable, DependableOption::Some(()));
+        drop(poly_members);
+
+        if let DependableOption::None(dependencies) = old {
+            for (_, dependency) in dependencies.into_inner() {
+                self.resolve_dependency(dependency);
             }
         }
     }
@@ -1071,7 +1070,7 @@ struct PolyMember {
     // do express the ability to calculate these things. Basically, if you monomorphise this
     // polymember into a normal member, these represent what parts of that member you can then
     // calculate.
-    type_: DependableOption<()>,
+    type_: DependableOption<Arc<MemberMetaData>>,
     value: DependableOption<()>,
     callable: DependableOption<()>,
 
@@ -1164,7 +1163,6 @@ pub enum MemberMetaData {
     None,
     Function {
         arg_names: Vec<Ustr>,
-        default_values: Vec<ConstantRef>,
     },
 }
 

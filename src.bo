@@ -1,7 +1,8 @@
+import "tests/main.bo";
 library "vec.bo";
 
 #entry fn() {
-    print("Hello, world!\n");
+    print("Hello, world!\n", ());
 };
 
 // TODO:

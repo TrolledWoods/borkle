@@ -126,8 +126,8 @@ fn worker<'a>(alloc: &'a mut Bump, program: &'a Program) -> (ThreadContext<'a>, 
                         "flagged poly member is value and callable '{}'",
                         program.poly_member_name(poly_member),
                     ));
-                    program.flag_poly_member(poly_member, MemberDep::Value);
-                    program.flag_poly_member(poly_member, MemberDep::ValueAndCallableIfFunction);
+                    program.flag_poly_member_value(poly_member);
+                    program.flag_poly_member_value_and_callable_if_function(poly_member);
                 }
 
                 Task::Parse(meta_data, file) => {
@@ -146,7 +146,7 @@ fn worker<'a>(alloc: &'a mut Bump, program: &'a Program) -> (ThreadContext<'a>, 
                         "typed poly member {}",
                         program.poly_member_name(member_id),
                     ));
-                    program.flag_poly_member(member_id, MemberDep::Type);
+                    program.flag_poly_member_type(member_id);
 
                     // TODO: We should read the deps from the typer instead, it should know what the deps are after `begin`.
                     dependencies.set_minimum_member_dep(MemberDep::ValueAndCallableIfFunction);
