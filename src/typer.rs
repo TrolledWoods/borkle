@@ -7,7 +7,7 @@ use crate::locals::LocalVariables;
 use crate::operators::{BinaryOp, UnaryOp};
 pub use crate::parser::{LocalUsage, Node, NodeKind, Ast, NodeViewMut};
 use crate::ast::{NodeId, GenericChildIterator};
-use crate::program::{PolyOrMember, PolyMemberId, Program, Task, constant::ConstantRef, BuiltinFunction, MemberId, MemberMetaData, FunctionId, ScopeId};
+use crate::program::{PolyOrMember, PolyMemberId, Program, Task, constant::ConstantRef, BuiltinFunction, MemberId, MemberMetaData, FunctionId, ScopeId, FunctionMetaData};
 use crate::thread_pool::ThreadContext;
 use crate::type_infer::{self, AstVariantId, ValueId as TypeId, Args, TypeSystem, ValueSetId, TypeKind, Reason, ReasonKind};
 use crate::types::{self, IntTypeKind};
@@ -902,63 +902,7 @@ fn build_constraints(
                 .set_equal(operand_type_id, temp, Reason::new(node_loc, ReasonKind::Passed));
         }
         NodeKind::FunctionDeclaration => {
-            let mut emit_deps = DependencyList::new();
-
-            let mut sub_ctx = Context {
-                thread_context: ctx.thread_context,
-                errors: ctx.errors,
-                program: ctx.program,
-                locals: ctx.locals,
-                emit_deps: &mut emit_deps,
-                poly_params: ctx.poly_params,
-                infer: ctx.infer,
-                needs_explaining: ctx.needs_explaining,
-                runs: ctx.runs.combine(ExecutionTime::RuntimeFunc),
-                ast_variant_id: ctx.ast_variant_id,
-                additional_info: ctx.additional_info,
-            };
-
-            let sub_set = sub_ctx.infer.value_sets.add(WaitingOnTypeInferrence::None);
-
-            // The parent value set has to wait for this function declaration to be emitted until
-            // it can continue, so we lock it to make sure it doesn't get emitted before then.
-            sub_ctx.infer.value_sets.lock(set);
-
-            let mut children = node.children.iter();
-            let num_children = children.len();
-            let mut function_type_ids = Vec::with_capacity(num_children - 2);
-            for argument in children.by_ref().take(num_children - 2) {
-                let decl_id = build_declarative_lvalue(&mut sub_ctx, argument, sub_set, true);
-                function_type_ids.push((decl_id, Reason::temp(node_loc)));
-            }
-
-            let returns = children.next().unwrap();
-            let returns_type_reason = Reason::new(returns.loc, ReasonKind::FunctionDeclReturnType);
-            let returns_loc = returns.loc;
-            let returns_type_id = build_type(&mut sub_ctx, returns, sub_set);
-            function_type_ids.insert(0, (returns_type_id, returns_type_reason));
-
-            let body = children.next().unwrap();
-            let body_id = body.id;
-            let body_type_id = build_constraints(&mut sub_ctx, body, sub_set);
-
-            ctx.infer
-                .set_equal(body_type_id, returns_type_id, Reason::new(returns_loc, ReasonKind::FunctionDeclReturned));
-
-            let infer_type_id = ctx.infer.add_type(TypeKind::Function, Args(function_type_ids), sub_set);
-            ctx.infer
-                .set_equal(infer_type_id, node_type_id, Reason::new(node_loc, ReasonKind::FunctionDecl));
-
-            ctx.infer.set_waiting_on_value_set(sub_set, WaitingOnTypeInferrence::FunctionDeclaration {
-                node_id: node.id,
-                body: body_id,
-                function_type: infer_type_id,
-                parent_set: set,
-                time: ctx.runs,
-                ast_variant_id: ctx.ast_variant_id,
-            });
-            let old_set = ctx.infer.value_sets.get_mut(sub_set).emit_deps.replace(emit_deps);
-            debug_assert!(old_set.is_none());
+            build_function_declaration(ctx, node, set, None);
         }
         NodeKind::FunctionCall => {
             let mut children = node.children.into_iter();
@@ -1094,6 +1038,73 @@ fn build_constraints(
     }
 
     node_type_id
+}
+
+fn build_function_declaration(
+    ctx: &mut Context<'_, '_>,
+    mut node: NodeViewMut<'_>,
+    set: ValueSetId,
+    _meta_data: Option<&mut FunctionMetaData>,
+) {
+    let node_type_id = TypeId::Node(ctx.ast_variant_id, node.id);
+
+    let mut emit_deps = DependencyList::new();
+
+    let mut sub_ctx = Context {
+        thread_context: ctx.thread_context,
+        errors: ctx.errors,
+        program: ctx.program,
+        locals: ctx.locals,
+        emit_deps: &mut emit_deps,
+        poly_params: ctx.poly_params,
+        infer: ctx.infer,
+        needs_explaining: ctx.needs_explaining,
+        runs: ctx.runs.combine(ExecutionTime::RuntimeFunc),
+        ast_variant_id: ctx.ast_variant_id,
+        additional_info: ctx.additional_info,
+    };
+
+    let sub_set = sub_ctx.infer.value_sets.add(WaitingOnTypeInferrence::None);
+
+    // The parent value set has to wait for this function declaration to be emitted until
+    // it can continue, so we lock it to make sure it doesn't get emitted before then.
+    sub_ctx.infer.value_sets.lock(set);
+
+    let mut children = node.children.iter();
+    let num_children = children.len();
+    let mut function_type_ids = Vec::with_capacity(num_children - 2);
+    for argument in children.by_ref().take(num_children - 2) {
+        let decl_id = build_declarative_lvalue(&mut sub_ctx, argument, sub_set, true);
+        function_type_ids.push((decl_id, Reason::temp(node.node.loc)));
+    }
+
+    let returns = children.next().unwrap();
+    let returns_type_reason = Reason::new(returns.loc, ReasonKind::FunctionDeclReturnType);
+    let returns_loc = returns.loc;
+    let returns_type_id = build_type(&mut sub_ctx, returns, sub_set);
+    function_type_ids.insert(0, (returns_type_id, returns_type_reason));
+
+    let body = children.next().unwrap();
+    let body_id = body.id;
+    let body_type_id = build_constraints(&mut sub_ctx, body, sub_set);
+
+    ctx.infer
+        .set_equal(body_type_id, returns_type_id, Reason::new(returns_loc, ReasonKind::FunctionDeclReturned));
+
+    let infer_type_id = ctx.infer.add_type(TypeKind::Function, Args(function_type_ids), sub_set);
+    ctx.infer
+        .set_equal(infer_type_id, node_type_id, Reason::new(node.node.loc, ReasonKind::FunctionDecl));
+
+    ctx.infer.set_waiting_on_value_set(sub_set, WaitingOnTypeInferrence::FunctionDeclaration {
+        node_id: node.id,
+        body: body_id,
+        function_type: infer_type_id,
+        parent_set: set,
+        time: ctx.runs,
+        ast_variant_id: ctx.ast_variant_id,
+    });
+    let old_set = ctx.infer.value_sets.get_mut(sub_set).emit_deps.replace(emit_deps);
+    debug_assert!(old_set.is_none());
 }
 
 fn build_type(

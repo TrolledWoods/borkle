@@ -3,6 +3,7 @@ library "vec.bo";
 
 #entry fn() {
     print("Hello, world!\n", ());
+
 };
 
 // TODO:
