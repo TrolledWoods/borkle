@@ -855,6 +855,16 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, mut node: NodeView<'a>) -> Value {
             ctx.emit_global(to, constant_ref);
             to
         }
+        NodeKind::Is => {
+            let to = ctx.registers.create(ctx.types, node_type_id);
+           
+            let &AdditionalInfoKind::IsExpression(comparison_id) = &ctx.additional_info[&(ctx.variant_id, node.id)] else { panic!() };
+            let value = ctx.types.get_comparison_result(comparison_id);
+            let compiler_type = ctx.types.value_to_compiler_type(node_type_id);
+            let constant_ref = ctx.program.insert_buffer(compiler_type, &(value as u8) as *const u8);
+            ctx.emit_global(to, constant_ref);
+            to
+        }
         c => unreachable!("This node should not reach emission: {:?}", c),
     }
 }

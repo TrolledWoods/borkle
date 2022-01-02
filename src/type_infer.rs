@@ -110,39 +110,42 @@ pub struct Unknown;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TypeKind {
-    // bool, int size
+    /// bool, int size
     Int,
-    // No arguments, the size of an integer, hidden type that the user cannot access
+    /// No arguments, the size of an integer, hidden type that the user cannot access
     IntSize,
 
     Bool,
     Empty,
     Type,
 
-    // return, (arg0, arg1, arg2, ...)
+    /// return, (arg0, arg1, arg2, ...)
     Function,
-    // element: type, length: int
+    /// element: type, length: int
     Array,
-    // type
+    /// type
     Reference,
-    // type
+    /// type
     Buffer,
-    // (type, type, type, type), in the same order as the strings.
+    /// (type, type, type, type), in the same order as the strings.
     Struct(Box<[Ustr]>),
-    // (type, type, type, ..)
+    /// (type, type, type, ..)
     Tuple,
 
-    // no fields
+    /// no fields
     ConstantValue(ConstantRef),
-    // type, constant_ref(has to be a ConstantValue)
-    // * layout is the layout of the type of the constant, even though a constant having a layout doesn't make sense
+    /// type, constant_ref(has to be a ConstantValue)
+    /// * layout is the layout of the type of the constant, even though a constant having a layout doesn't make sense
     Constant,
+
+    /// A type left unspecified in a type comparison.
+    CompareUnspecified,
 }
 
 impl TypeKind {
     fn get_needed_children_for_layout<'a>(&self, children: &'a [ValueId]) -> &'a [ValueId] {
         match self {
-            TypeKind::Type | TypeKind::IntSize | TypeKind::Bool | TypeKind::Empty | TypeKind::Function | TypeKind::Reference | TypeKind::Buffer | TypeKind::ConstantValue(_) => &[],
+            TypeKind::Type | TypeKind::IntSize | TypeKind::Bool | TypeKind::Empty | TypeKind::Function | TypeKind::Reference | TypeKind::Buffer | TypeKind::ConstantValue(_) | TypeKind::CompareUnspecified => &[],
             TypeKind::Int => &children[1..2],
             TypeKind::Array => children,
             TypeKind::Struct(_) => children,
@@ -157,6 +160,7 @@ impl TypeKind {
 
 fn compute_type_layout(kind: &TypeKind, structures: &Structures, values: &Values, children: &[ValueId]) -> Layout {
     match kind {
+        TypeKind::CompareUnspecified => Layout { size: 1, align: 0 },
         TypeKind::Int => {
             let size = extract_constant_from_value(structures, values, children[1]).unwrap();
             // @Correctness: We want to make sure that the type actually is a u8 here
@@ -210,6 +214,7 @@ pub struct Type {
 }
 
 type ConstraintId = usize;
+pub type ComparisonId = usize;
 
 #[derive(Debug, Clone, Copy)]
 struct Constraint {
@@ -227,6 +232,11 @@ enum Relation {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 enum ConstraintKind {
+    /// Doesn't add type inferrence information, but rather,
+    Compare {
+        values: [ValueId; 2],
+        comparison: ComparisonId,
+    },
     Relation {
         kind: Relation,
         values: [ValueId; 2],
@@ -255,6 +265,7 @@ impl Constraint {
         match &self.kind {
             ConstraintKind::Relation { values, .. } => &*values,
             ConstraintKind::Equal { values, .. }
+            | ConstraintKind::Compare { values, .. }
             | ConstraintKind::EqualsField { values, .. }
             | ConstraintKind::EqualNamedField { values, .. } => &*values,
             ConstraintKind::BinaryOp { values, .. } => &*values,
@@ -644,6 +655,11 @@ fn compute_size(structures: &mut Structures, values: &mut Values, computable_siz
     let structure = &mut structures.structure[id as usize];
     structure.layout = layout;
 
+    // @Hack! Maybe?
+    if layout.align == 0 {
+        return;
+    }
+
     // Because we've computed the layout, we can complete all the value sets.
     let mut value_id = structure.first_value;
     loop {
@@ -811,7 +827,15 @@ fn get_loc_of_value(ast: &crate::parser::Ast, value: ValueId) -> Option<Location
 }
 
 #[derive(Clone)]
+struct Comparison {
+    left_to_do: u32,
+    value: Option<bool>,
+    value_set: ValueSetId,
+}
+
+#[derive(Clone)]
 pub struct TypeSystem {
+    comparisons: Vec<Comparison>,
     structures: Structures,
     pub values: Values,
 
@@ -832,6 +856,7 @@ impl TypeSystem {
         let bool_type = crate::types::Type::new(crate::types::TypeKind::Bool);
 
         let mut this = Self {
+            comparisons: Vec::new(),
             structures: Structures::default(),
             values: Values::new(ast_size),
             value_sets: ValueSets::default(),
@@ -858,6 +883,54 @@ impl TypeSystem {
         this.add_int(IntTypeKind::Usize, ());
 
         this
+    }
+
+    fn resolve_comparison(&mut self, comparison: ComparisonId, result: bool) {
+        let comparison = &mut self.comparisons[comparison];
+        if comparison.value.is_some() { return; }
+
+        debug_assert!(comparison.left_to_do > 0);
+        comparison.left_to_do -= 1;
+
+        if result == false {
+            comparison.value = Some(false);
+            self.value_sets.unlock(comparison.value_set);
+            return;
+        }
+
+        if comparison.left_to_do == 0 {
+            comparison.value = Some(true);
+            self.value_sets.unlock(comparison.value_set);
+        }
+    }
+
+    pub fn get_comparison_result(&self, id: ComparisonId) -> bool {
+        self.comparisons[id].value.unwrap()
+    }
+
+    pub fn add_comparison(&mut self, value_set: ValueSetId, from: ValueId, to: ValueId) -> ComparisonId {
+        let id = self.comparisons.len();
+        self.comparisons.push(Comparison {
+            left_to_do: 1,
+            value: None,
+            value_set,
+        });
+
+        self.value_sets.lock(value_set);
+
+        insert_active_constraint(
+            &mut self.constraints,
+            &mut self.available_constraints,
+            &mut self.queued_constraints,
+            Constraint {
+                kind: ConstraintKind::Compare { values: [from, to], comparison: id, },
+                applied: false,
+                // We don't need reasoning for comparisons.... At least for now
+                reason: Reason::temp_zero(),
+            },
+        );
+
+        id
     }
 
     // @TODO: We should deal with recursive types later on.
@@ -1025,6 +1098,7 @@ impl TypeSystem {
         };
 
         match *type_kind {
+            TypeKind::CompareUnspecified => unreachable!("CompareUnspecified should never be converted to a compiler type"),
             TypeKind::Type => types::Type::new(types::TypeKind::Type),
             TypeKind::Constant | TypeKind::ConstantValue(_) => unreachable!("Constants aren't concrete types, cannot use them as node types"),
             TypeKind::IntSize => unreachable!("Int sizes are a hidden type for now, the user shouldn't be able to access them"),
@@ -1291,6 +1365,7 @@ impl TypeSystem {
             return "...".to_string();
         }
         match &self.get(value).kind {
+            Some(Type { kind: TypeKind::CompareUnspecified, .. }) => "_(intentionally unspecified)".to_string(),
             Some(Type { kind: TypeKind::Type, .. }) => "type".to_string(),
             Some(Type { kind: TypeKind::Bool, .. }) => "bool".to_string(),
             Some(Type { kind: TypeKind::Empty, .. }) => "Empty".to_string(),
@@ -1400,6 +1475,9 @@ impl TypeSystem {
 
     fn constraint_to_string(&self, constraint: &Constraint) -> String {
         match constraint.kind {
+            ConstraintKind::Compare { values: [a, b], .. } => {
+                format!("{} is {}?", self.value_to_str(a, 0), self.value_to_str(b, 0))
+            }
             ConstraintKind::Relation { kind, values: [a, b] } => {
                 format!("{} == {:?} {}", self.value_to_str(a, 0), kind, self.value_to_str(b, 0))
             }
@@ -1817,6 +1895,53 @@ impl TypeSystem {
                         self.constraints[constraint_id].applied |= true;
                     }
                 }
+            }
+            ConstraintKind::Compare {
+                values: [a_id, b_id],
+                comparison,
+            } => {
+                let a_value = get_value(&self.structures, &self.values, a_id);
+                let b_value = get_value(&self.structures, &self.values, b_id);
+
+                let (Some(a_type), Some(b_type)) = (a_value.kind, b_value.kind) else { return };
+
+                if let TypeKind::CompareUnspecified = b_type.kind {
+                    self.constraints[constraint_id].applied = true;
+                    self.resolve_comparison(comparison, true);
+                    return;
+                }
+
+                if a_type.kind != b_type.kind {
+                    self.constraints[constraint_id].applied = true;
+                    self.resolve_comparison(comparison, false);
+                    return;
+                }
+
+                let (Some(a_args), Some(b_args)) = (&a_type.args, &b_type.args) else { return };
+
+                if a_args.len() != b_args.len() {
+                    self.constraints[constraint_id].applied = true;
+                    self.resolve_comparison(comparison, false);
+                    return;
+                }
+
+                for (&a_arg, &b_arg) in a_args.iter().zip(b_args.iter()) {
+                    self.comparisons[comparison].left_to_do += 1;
+                    insert_active_constraint(
+                        &mut self.constraints,
+                        &mut self.available_constraints,
+                        &mut self.queued_constraints,
+                        Constraint {
+                            kind: ConstraintKind::Compare { values: [a_arg, b_arg], comparison, },
+                            applied: false,
+                            // We don't need reasoning for comparisons.... At least for now
+                            reason: Reason::temp_zero(),
+                        },
+                    );
+                }
+
+                self.constraints[constraint_id].applied = true;
+                self.resolve_comparison(comparison, true);
             }
             ConstraintKind::Equal {
                 values: [a_id, b_id],

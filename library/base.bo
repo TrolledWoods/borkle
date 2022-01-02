@@ -304,19 +304,21 @@ const write_u64 = fn(to: typeof Writer.(u8), num: u64, base: u64) -> usize { 'fu
     written
 };
 
-const write_fmt_no_padding.(T) = fn(to: typeof Writer.(u8), val: typeof Format.(T)) -> usize {
-    if #const: type T == type &u8 || type T == type &u16 || type T == type &u32 || type T == type &u64 || type T == type &usize {
-        let base = if val.base == 0 { 10 } else { val.base };
-        write_u64(to, cast *val.value, cast base)
-    } else if #const: type T == u8 || type T == u16 || type T == u32 || type T == u64 || type T == usize {
-        let base = if val.base == 0 { 10 } else { val.base };
-        write_u64(to, cast val.value, cast base)
-    } else if #const: type T == type typeof Vec.(u8) || type T == type typeof &Vec.(u8) {
-        write_buf(to, vec_as_buffer(&val.value))
-    } else if #const: type T == type [] u8 || type T == type &[] u8 {
-        write_buf(to, val.value)
+const write_fmt_no_padding.(T) = fn(to: typeof Writer.(u8), fmt_val: typeof Format.(T)) -> usize {
+    let value = if #const: T is &_ {
+        *fmt_val.value
     } else {
-        // Cannot format this type of value
+        fmt_val.value
+    };
+
+    if #const: typeof value is u8 || typeof value is u16 || typeof value is u32 || typeof value is u64 {
+        let base = if fmt_val.base == 0 { 10 } else { fmt_val.base };
+        write_u64(to, cast value, cast base)
+    } else if #const: typeof value is typeof Vec.(u8) {
+        write_buf(to, vec_as_buffer(&value))
+    } else if #const: typeof value is [] u8 {
+        write_buf(to, value)
+    } else {
         assert(false);
         0
     }

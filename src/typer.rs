@@ -35,6 +35,7 @@ pub enum FunctionArgUsage {
 pub enum AdditionalInfoKind {
     FunctionCall(Vec<FunctionArgUsage>),
     Function(FunctionId),
+    IsExpression(type_infer::ComparisonId),
     ConstIfResult(bool),
     ConstForAstVariants(Vec<AstVariantId>),
     Constant(ConstantRef),
@@ -114,6 +115,7 @@ struct Context<'a, 'b> {
     needs_explaining: &'a mut Vec<(NodeId, type_infer::ValueId)>,
     ast_variant_id: AstVariantId,
     additional_info: &'a mut AdditionalInfo,
+    inside_type_comparison: bool,
 }
 
 pub fn process_ast<'a>(
@@ -174,6 +176,7 @@ pub fn begin<'a>(
         needs_explaining: &mut needs_explaining,
         ast_variant_id: AstVariantId::root(),
         additional_info: &mut additional_info,
+        inside_type_comparison: false,
     };
 
     // Build the type relationships between nodes.
@@ -233,6 +236,7 @@ pub fn solve<'a>(
         needs_explaining: &mut data.needs_explaining,
         ast_variant_id: AstVariantId::root(),
         additional_info: &mut data.additional_info,
+        inside_type_comparison: false,
     };
 
     loop {
@@ -332,6 +336,7 @@ fn subset_was_completed(ctx: &mut Context<'_, '_>, ast: &mut Ast, waiting_on: Wa
                 runs,
                 ast_variant_id: AstVariantId::invalid(),
                 additional_info: ctx.additional_info,
+                inside_type_comparison: false,
             };
 
             let mut variant_ids = Vec::with_capacity(iterator_args.len());
@@ -396,6 +401,7 @@ fn subset_was_completed(ctx: &mut Context<'_, '_>, ast: &mut Ast, waiting_on: Wa
                 runs,
                 ast_variant_id: ast_variant_id,
                 additional_info: ctx.additional_info,
+                inside_type_comparison: false,
             };
 
             let child_type = build_constraints(&mut sub_ctx, ast.get(emitting), parent_set);
@@ -634,6 +640,23 @@ fn build_constraints(
                 parent_set: set,
                 ast_variant_id: ctx.ast_variant_id,
             });
+        }
+        NodeKind::Is => {
+            let [expr, type_] = node.children.into_array();
+
+            let got = build_type(ctx, expr, set);
+
+            let subset = ctx.infer.value_sets.add(WaitingOnTypeInferrence::None);
+            let old_inside_type_comparison = ctx.inside_type_comparison;
+            ctx.inside_type_comparison = true;
+            let wanted = build_type(ctx, type_, subset);
+            ctx.inside_type_comparison = old_inside_type_comparison;
+
+            let comparison_id = ctx.infer.add_comparison(set, got, wanted);
+
+            ctx.additional_info.insert((ctx.ast_variant_id, node.id), AdditionalInfoKind::IsExpression(comparison_id));
+
+            ctx.infer.set_type(node_type_id, TypeKind::Bool, Args([]), set);
         }
         NodeKind::Tuple => {
             let mut values = Vec::with_capacity(node.children.len());
@@ -1206,6 +1229,7 @@ fn build_function_declaration(
         runs: ctx.runs.combine(ExecutionTime::RuntimeFunc),
         ast_variant_id: ctx.ast_variant_id,
         additional_info: ctx.additional_info,
+        inside_type_comparison: false,
     };
 
     let sub_set = sub_ctx.infer.value_sets.add(WaitingOnTypeInferrence::None);
@@ -1278,7 +1302,11 @@ fn build_type(
     ctx.infer.value_sets.add_node_to_set(set, ctx.ast_variant_id, node.id);
 
     match node.kind {
-        NodeKind::ImplicitType => {},
+        NodeKind::ImplicitType => {
+            if ctx.inside_type_comparison {
+                ctx.infer.set_type(node_type_id, TypeKind::CompareUnspecified, Args([]), set);
+            }
+        },
         NodeKind::PolymorphicArgument(index) => {
             let poly_param = &mut ctx.poly_params[index];
             poly_param.used_as_type.get_or_insert(node_loc);
@@ -1360,9 +1388,12 @@ fn build_type(
         NodeKind::TypeOf => {
             let [inner] = node.children.into_array();
             let old = ctx.runs;
+            let old_inside_type_comparison = ctx.inside_type_comparison;
+            ctx.inside_type_comparison = false;
             ctx.runs = ctx.runs.combine(ExecutionTime::Never);
             let type_ = build_constraints(ctx, inner, set);
             ctx.runs = old;
+            ctx.inside_type_comparison = old_inside_type_comparison;
             ctx.infer.set_equal(node_type_id, type_, Reason::new(node_loc, ReasonKind::TypeOf));
         }
         _ => unreachable!("Node {:?} is not a valid type (at least not yet)", node.kind),
@@ -1606,9 +1637,14 @@ fn build_inferrable_constant_value(
             value_id
         }
         NodeKind::ImplicitType => {
-            // Nothing at all is known about it, _except_ that the type of this node is equal to the
-            // value.
-            ctx.infer.add_value(node_type_id, (), set)
+            if ctx.inside_type_comparison {
+                ctx.infer.set_type(node_type_id, TypeKind::CompareUnspecified, Args([]), set);
+                node_type_id
+            } else {
+                // Nothing at all is known about it, _except_ that the type of this node is equal to the
+                // value.
+                ctx.infer.add_value(node_type_id, (), set)
+            }
         }
         _ => {
             // We can't figure it out in a clever way, so just compile time execute the node as a constant.
@@ -1624,6 +1660,7 @@ fn build_inferrable_constant_value(
                 needs_explaining: ctx.needs_explaining,
                 ast_variant_id: ctx.ast_variant_id,
                 additional_info: ctx.additional_info,
+                inside_type_comparison: false,
             };
             let sub_set = sub_ctx.infer.value_sets.add(WaitingOnTypeInferrence::None);
 

@@ -555,6 +555,14 @@ fn value_without_unaries(
 
     let mut slot = muncher.add();
     match token.kind {
+        TokenKind::Keyword(Keyword::TypeOf) => {
+            // @TODO: We want to tell the parser about
+            // the fact that we don't actually need the values of anything
+            // in here, so that it doesn't fetch them unnecessarily
+            value(global, imperative, slot.add())?;
+
+            slot.finish(Node::new(loc, NodeKind::TypeOf))
+        }
         TokenKind::Keyword(Keyword::Underscore) => {
             slot.finish(Node::new(token.loc, NodeKind::ImplicitType))
         }
