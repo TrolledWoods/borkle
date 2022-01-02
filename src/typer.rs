@@ -934,7 +934,7 @@ fn build_constraints(
 
                             if let NodeKind::AnonymousMember { name } = left.kind {
                                 arg = right;
-                                Some(name)
+                                Some((left.loc, name))
                             } else {
                                 None
                             }
@@ -942,11 +942,27 @@ fn build_constraints(
                         _ => None,
                     };
 
-                    let index = name.map(|name| arguments.iter().position(|v| v.name.map(|v| v.0) == Some(name))).flatten().unwrap_or(anonymous_index);
+                    let index = match name {
+                        Some((name_loc, name)) => {
+                            match arguments.iter().position(|v| v.name.map(|v| v.0) == Some(name)) {
+                                Some(index) => index,
+                                None => {
+                                    ctx.errors.error(name_loc, format!("Invalid argument name, `{}`", name));
+                                    ctx.infer.value_sets.get_mut(set).has_errors |= true;
+                                    continue;
+                                }
+                            }
+                        }
+                        None => {
+                            anonymous_index
+                        }
+                    };
+
                     let arg_id = build_constraints(ctx, arg, set);
 
                     let Some(arg_info) = arguments.get(index) else {
                         ctx.errors.error(arg.loc, "Too many arguments passed to function".to_string());
+                        ctx.infer.value_sets.get_mut(set).has_errors |= true;
                         break;
                     };
 

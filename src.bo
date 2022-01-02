@@ -1,13 +1,7 @@
-// import "tests/main.bo";
-library "vec.bo";
+import "tests/main.bo";
 
 #entry fn() {
-
-    let x: u32 = 42;
-
-    print("x is %, %, %\n", x, x + 2, x + 4);
-    print("x is %, %, %\n", .args = (x + 6, x + 2, x + 4));
-
+    print("Hello, world!\n");
 };
 
 // TODO:

@@ -178,124 +178,7 @@ impl Explanation {
 }
 
 fn get_concise_explanation(errors: &mut ErrorCtx, ast: &Ast, chain: &[Reason]) -> Explanation {
-    let mut needs_break = false;
-
     let (explanation, rest) : (_, &[_]) = match chain {
-        //
-        // -- Function declaration --
-        //
-        [Reason { kind: ReasonKind::Declaration, forward: true, .. }, Reason { kind: ReasonKind::FunctionDecl, loc, .. }, rest @ ..] => {
-            needs_break = true;
-            (
-                Explanation::new(*loc, ExpressionKind::Used, "declared to a function"),
-                rest,
-            )
-        }
-        [Reason { kind: ReasonKind::FunctionDecl, loc, .. }, rest @ ..] => {
-            needs_break = true;
-            (
-                Explanation::new(*loc, ExpressionKind::Used, "a function"),
-                rest,
-            )
-        }
-        [Reason { kind: ReasonKind::FunctionDeclReturnType, .. }, Reason { kind: ReasonKind::FunctionDeclReturned, loc, .. }, rest @ ..] => (
-            Explanation::new(*loc, ExpressionKind::Used, "which returns"),
-            rest,
-        ),
-        [Reason { kind: ReasonKind::FunctionDeclReturnType, loc, .. }, rest @ ..] => (
-            Explanation::new(*loc, ExpressionKind::Used, "where the return type is"),
-            rest,
-        ),
-        [Reason { kind: ReasonKind::FunctionDeclArgumentDeclaration(_), loc, .. }, rest @ ..] => (
-            Explanation::new(*loc, ExpressionKind::Used, ", which is an argument of"),
-            rest,
-        ),
-        [Reason { kind: ReasonKind::FunctionDeclReturned, loc, forward, .. }, rest @ ..] => (
-            Explanation::new(*loc, ExpressionKind::Used, if *forward {
-                "inferred from what is returned, which is"
-            } else {
-                "inferred from what is returned, which is"
-            }),
-            rest,
-        ),
-
-        // A declaration should only appear after a usage of a local variable.
-        [Reason { kind: ReasonKind::Declaration, loc, forward: true, .. }, Reason { kind: ReasonKind::TypeBound, .. }, rest @ ..] => (
-            Explanation::new(*loc, ExpressionKind::Used, "declared as"),
-            rest,
-        ),
-        [Reason { kind: ReasonKind::Declaration, loc, forward: true, .. }, rest @ ..] => (
-            Explanation::new(*loc, ExpressionKind::Used, "declared to"),
-            rest,
-        ),
-        [Reason { kind: ReasonKind::Assigned, loc, forward: true, .. }, Reason { kind: ReasonKind::TypeBound, .. }, rest @ ..] => (
-            Explanation::new(*loc, ExpressionKind::Used, "assigned as"),
-            rest,
-        ),
-        [Reason { kind: ReasonKind::Assigned, forward: true, loc, .. }, rest @ ..] => (
-            Explanation::new(*loc, ExpressionKind::Used, "assigned to"),
-            rest,
-        ),
-        [Reason { kind: ReasonKind::Declaration | ReasonKind::Assigned, loc, forward: false, .. }, Reason { kind: ReasonKind::LocalVariableIs(name), .. }, Reason { kind: ReasonKind::LocalVariableIs(_), .. }, rest @ ..] => (
-            Explanation::new(*loc, ExpressionKind::Used, format!(", which we assign to `{}`, which is", name)),
-            rest,
-        ),
-        [Reason { kind: ReasonKind::Declaration | ReasonKind::Assigned, loc, forward: false, .. }, rest @ ..] => (
-            Explanation::new(*loc, ExpressionKind::Used, "a value which we put into"),
-            rest,
-        ),
-        [Reason { kind: ReasonKind::LocalVariableIs(name), loc, forward, .. }, Reason { kind: ReasonKind::LocalVariableIs(_), .. }, rest @ ..] => (
-            Explanation::new(*loc, ExpressionKind::Used, if *forward { format!("`{}`", name) } else { format!("`{}`, which is", name) }),
-            rest,
-        ),
-        [Reason { kind: ReasonKind::LocalVariableIs(name), loc, forward, .. }, rest @ ..] => (
-            Explanation::new(*loc, ExpressionKind::Used, if *forward { format!("`{}`", name) } else { format!("`{}`, which is", name) }),
-            rest,
-        ),
-
-        [Reason { kind: ReasonKind::TypeOf, loc, forward, .. }, rest @ ..] => (
-            Explanation::new(*loc, ExpressionKind::Used, if *forward { "the type of" } else { ", the type of which" }),
-            rest,
-        ),
-        [Reason { kind: ReasonKind::NamedField(name), loc, forward, .. }, rest @ ..] => (
-            Explanation::new(*loc, ExpressionKind::Used, if !*forward { format!("the field `{}` of", name) } else { format!("a value, that has a field `{}`, that is", name) }),
-            rest,
-        ),
-        [Reason { kind: ReasonKind::Dereference, loc, .. }, rest @ ..] => (
-            Explanation::new(*loc, ExpressionKind::Used, "the value behind"),
-            rest,
-        ),
-        [Reason { kind: ReasonKind::TypeBound, loc, forward, .. }, rest @ ..] => (
-            Explanation::new(*loc, ExpressionKind::Used, if *forward { "a value bound as" } else { "use this type to bind" }),
-            rest,
-        ),
-        [Reason { kind: ReasonKind::IntLiteral, loc, .. }] => (
-            Explanation::new(*loc, ExpressionKind::Used, "an int literal"),
-            &[],
-        ),
-        [Reason { kind: ReasonKind::LiteralType, loc, .. }] => (
-            Explanation::new(*loc, ExpressionKind::Used, "the type"),
-            &[],
-        ),
-
-        //
-        // -- Function call --
-        //
-        [Reason { kind: ReasonKind::FunctionCallReturn, .. }, Reason { kind: ReasonKind::FunctionCall, loc, .. }, rest @ ..] => {
-            (
-                Explanation::new(*loc, ExpressionKind::Used, "a call to"),
-                rest,
-            )
-        }
-        [Reason { kind: ReasonKind::FunctionCall, .. }, Reason { kind: ReasonKind::FunctionCallArgument, loc, .. }, rest @ ..] => (
-            Explanation::new(*loc, ExpressionKind::Used, "called with"),
-            rest,
-        ),
-        [Reason { kind: ReasonKind::FunctionCallArgument, loc, .. }, Reason { kind: ReasonKind::FunctionCall, .. }, rest @ ..] => (
-            Explanation::new(*loc, ExpressionKind::Used, ", an argument of a call to"),
-            rest,
-        ),
-
         [base, rest @ ..] => (
             Explanation::new(base.loc, ExpressionKind::Used, format!("<{:?}>", base.kind)),
             rest,
@@ -310,20 +193,11 @@ fn get_concise_explanation(errors: &mut ErrorCtx, ast: &Ast, chain: &[Reason]) -
         explanation
     } else {
         let inner = get_concise_explanation(errors, ast, rest);
-        if !needs_break && inner.message.len() < 100 && inner.loc.line == explanation.loc.line {
-            Explanation {
-                message: explanation.message + " " + &inner.message,
-                loc: inner.loc,
-                next: inner.next,
-                kind: explanation.kind,
-            }
-        } else  {
-            Explanation {
-                message: explanation.message + "..",
-                loc: explanation.loc,
-                next: Some(Box::new(inner)),
-                kind: explanation.kind,
-            }
+        Explanation {
+            message: explanation.message + "..",
+            loc: explanation.loc,
+            next: Some(Box::new(inner)),
+            kind: explanation.kind,
         }
     }
 } 

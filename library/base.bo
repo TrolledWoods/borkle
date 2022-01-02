@@ -263,11 +263,11 @@ const stdout_writer = fn() -> typeof Writer.(u8) {
     writer
 };
 
-const write_buf.(T) = fn(to: &typeof Writer.(T), buf: [] T) -> usize {
+const write_buf.(T) = fn(to: typeof Writer.(T), buf: [] T) -> usize {
     to.write_buf(to.state, buf)
 };
 
-const write_single.(T) = fn(to: &typeof Writer.(T), value: T) -> usize {
+const write_single.(T) = fn(to: typeof Writer.(T), value: T) -> usize {
     to.write_single(to.state, value)
 };
 
@@ -285,7 +285,7 @@ const Format.(T) = #0 : {
 
 const write_u64 = fn(to: typeof Writer.(u8), num: u64, base: u64) -> usize { 'func
     if num == 0 {
-        break 'func write_single(&to, DIGIT0);
+        break 'func write_single(to, DIGIT0);
     };
 
     let factor = 1;
@@ -298,7 +298,7 @@ const write_u64 = fn(to: typeof Writer.(u8), num: u64, base: u64) -> usize { 'fu
         let digit = num / factor;
         num = num - digit * factor;
 
-        written = written + write_single(&to, DIGIT0 + (cast digit : u8));
+        written = written + write_single(to, DIGIT0 + (cast digit : u8));
     };
 
     written
@@ -312,9 +312,9 @@ const write_fmt_no_padding.(T) = fn(to: typeof Writer.(u8), val: typeof Format.(
         let base = if val.base == 0 { 10 } else { val.base };
         write_u64(to, cast val.value, cast base)
     } else if #const: type T == type typeof Vec.(u8) || type T == type typeof &Vec.(u8) {
-        write_buf(&to, vec_as_buffer(&val.value))
+        write_buf(to, vec_as_buffer(&val.value))
     } else if #const: type T == type [] u8 || type T == type &[] u8 {
-        write_buf(&to, val.value)
+        write_buf(to, val.value)
     } else {
         // Cannot format this type of value
         assert(false);
@@ -334,7 +334,7 @@ const write_fmt.(T) = fn(to: typeof Writer.(u8), val: typeof Format.(T)) -> usiz
                 (val.pad - count) / 2
             };
             while i < padding {
-                written = written + write_single(&to, val.pad_char);
+                written = written + write_single(to, val.pad_char);
             };
         };
     };
@@ -345,7 +345,7 @@ const write_fmt.(T) = fn(to: typeof Writer.(u8), val: typeof Format.(T)) -> usiz
         let remaining = val.pad - written;
         let pad_char = if val.pad_char == 0  SPACE else val.pad_char;
         while i < remaining {
-            written = written + write_single(&to, pad_char);
+            written = written + write_single(to, pad_char);
         };
     };
 
@@ -388,11 +388,11 @@ const write.(Args) = fn(writer: typeof Writer.(u8), format_str: [] u8, #var_args
     let sub_str = #0;
     for #const: args {
         assert(splits.next(&splits.state, &sub_str));
-        written = written + write_buf(&writer, sub_str);
+        written = written + write_buf(writer, sub_str);
         written = written + write_fmt(writer, fmt(v));
     };
 
-    if splits.next(&splits.state, &sub_str)  written = written + write_buf(&writer, sub_str);
+    if splits.next(&splits.state, &sub_str)  written = written + write_buf(writer, sub_str);
 
     written
 };
