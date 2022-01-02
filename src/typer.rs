@@ -1302,6 +1302,14 @@ fn build_type(
     ctx.infer.value_sets.add_node_to_set(set, ctx.ast_variant_id, node.id);
 
     match node.kind {
+        NodeKind::IntType => {
+            if ctx.inside_type_comparison {
+                let inner = ctx.infer.add_type(TypeKind::CompareUnspecified, Args([]), set);
+                ctx.infer.set_type(node_type_id, TypeKind::Int, Args([(inner, Reason::temp_zero()), (inner, Reason::temp_zero())]), set);
+            } else {
+                ctx.infer.set_type(node_type_id, TypeKind::Int, (), set);
+            }
+        }
         NodeKind::ImplicitType => {
             if ctx.inside_type_comparison {
                 ctx.infer.set_type(node_type_id, TypeKind::CompareUnspecified, Args([]), set);

@@ -319,6 +319,10 @@ fn type_(
     let token = global.tokens.expect_peek(global.errors)?;
     let loc = token.loc;
     match token.kind {
+        TokenKind::Keyword(Keyword::Int) => {
+            global.tokens.next();
+            Ok(slot.finish(Node::new(loc, NodeKind::IntType)))
+        }
         TokenKind::Keyword(Keyword::TypeOf) => {
             global.tokens.next();
 
@@ -1372,6 +1376,8 @@ pub enum NodeKind {
     StructType {
         fields: Vec<Ustr>,
     },
+    /// no children
+    IntType,
     /// [ len, member ]
     ArrayType,
     /// [ args .. ]

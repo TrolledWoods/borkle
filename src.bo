@@ -1,7 +1,13 @@
 import "tests/main.bo";
 
 #entry fn() {
-    print("Hello, world!\n");
+    for #const: thing in (42 : u32, 99 : u8, "hello", 14 : i32) {
+        if typeof thing is int {
+            print("It's an integer! %\n", thing);
+        } else {
+            print("It's a string! %\n", thing);
+        };
+    };
 };
 
 // TODO:

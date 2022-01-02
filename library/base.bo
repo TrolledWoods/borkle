@@ -311,7 +311,7 @@ const write_fmt_no_padding.(T) = fn(to: typeof Writer.(u8), fmt_val: typeof Form
         fmt_val.value
     };
 
-    if #const: typeof value is u8 || typeof value is u16 || typeof value is u32 || typeof value is u64 {
+    if #const: typeof value is int {
         let base = if fmt_val.base == 0 { 10 } else { fmt_val.base };
         write_u64(to, cast value, cast base)
     } else if #const: typeof value is typeof Vec.(u8) {
@@ -355,12 +355,8 @@ const write_fmt.(T) = fn(to: typeof Writer.(u8), val: typeof Format.(T)) -> usiz
 };
 
 const fmt.(T) = fn(val: T) -> typeof Format {
-    if #const:
-    type T == type typeof Format.(u8)
-    || type T == type typeof Format.(u16)
-    || type T == type typeof Format.(u32)
-    || type T == type typeof Format.(u64)
-    || type T == type typeof Format.(type [] u8) {
+    // @TODO: Once we have actual type aliases, `is` should just work with them.
+    if #const: T is { value: _; pad: usize; pad_char: u8; pad_dir: u8; base: u8; } {
         val
     } else {
         let thing = #0;

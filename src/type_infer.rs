@@ -408,8 +408,10 @@ fn insert_active_constraint(
     constraint: Constraint,
 ) {
     // @Performance: We can do a faster lookup using available_constraints
-    if let Some(_) = constraints.iter().position(|v| v.kind == constraint.kind) {
-        return;
+    if !matches!(constraint.kind, ConstraintKind::Compare { .. }) {
+        if let Some(_) = constraints.iter().position(|v| v.kind == constraint.kind) {
+            return;
+        }
     }
 
     // We probably want to find a dead constraint to slot things into? Should we have a list of dead constraints that are available, or is that getting too overkill?
@@ -887,19 +889,16 @@ impl TypeSystem {
 
     fn resolve_comparison(&mut self, comparison: ComparisonId, result: bool) {
         let comparison = &mut self.comparisons[comparison];
-        if comparison.value.is_some() { return; }
 
         debug_assert!(comparison.left_to_do > 0);
         comparison.left_to_do -= 1;
 
         if result == false {
             comparison.value = Some(false);
-            self.value_sets.unlock(comparison.value_set);
-            return;
         }
 
         if comparison.left_to_do == 0 {
-            comparison.value = Some(true);
+            comparison.value.get_or_insert(result);
             self.value_sets.unlock(comparison.value_set);
         }
     }
