@@ -299,6 +299,9 @@ fn expression_rec(
         if op == BinaryOp::TypeBound {
             type_(global, imperative, muncher.add())?;
             muncher.munch(2, Node::new(loc, NodeKind::TypeBound));
+        } else if op == BinaryOp::Is {
+            type_(global, imperative, muncher.add())?;
+            muncher.munch(2, Node::new(loc, NodeKind::Is));
         } else {
             expression_rec(global, imperative, muncher.add(), op.precedence())?;
             muncher.munch(2, Node::new(loc, NodeKind::Binary { op }));
@@ -1407,6 +1410,8 @@ pub enum NodeKind {
     Uninit,
     Zeroed,
 
+    /// [ value, wanted_type ]
+    Is,
     /// [ value, bound ]
     TypeBound,
     /// [ inner ]

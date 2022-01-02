@@ -124,6 +124,8 @@ operator!(BinaryOp {
     BitAnd = ("&", 7),
     BitOr = ("|", 7),
 
+    Is = ("is", 3),
+
     Assign = ("=", 1),
 });
 

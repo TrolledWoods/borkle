@@ -1,6 +1,15 @@
 import "tests/main.bo";
 
 #entry fn() {
+    let x = 2 : u32;
+    let y = 4 : u16;
+
+    x = y;
+
+    if x is u32 {
+        
+    };
+
     print("Hello, world!\n");
 };
 

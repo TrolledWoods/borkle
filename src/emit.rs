@@ -281,7 +281,8 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, mut node: NodeView<'a>) -> Value {
                     let last_element = ctx.registers.create(ctx.types, element_ptr_type);
                     ctx.emit_bitcast(first_element, ptr_to_array);
 
-                    let len_reg = ctx.registers.create(ctx.types, type_infer::static_values::USIZE);
+                    let usize_type = ctx.types.add_int(IntTypeKind::Usize, ());
+                    let len_reg = ctx.registers.create(ctx.types, usize_type);
                     ctx.emit_global(len_reg, length);
                     ctx.emit_binary(BinaryOp::Add, last_element, first_element, len_reg);
 
@@ -310,9 +311,10 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, mut node: NodeView<'a>) -> Value {
                         },
                     );
 
+                    let usize_type = ctx.types.add_int(IntTypeKind::Usize, ());
                     let len = ctx
                         .registers
-                        .create(ctx.types, type_infer::static_values::USIZE);
+                        .create(ctx.types, usize_type);
                     ctx.emit_member(
                         len,
                         iterating_value,
@@ -329,7 +331,8 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, mut node: NodeView<'a>) -> Value {
                 _ => unreachable!(),
             };
 
-            let condition = ctx.registers.create(ctx.types, type_infer::static_values::BOOL);
+            let bool_type = ctx.types.add_type(type_infer::TypeKind::Bool, Args([]), ());
+            let condition = ctx.registers.create(ctx.types, bool_type);
 
             let condition_label = ctx.create_label();
             ctx.define_label(condition_label);
@@ -497,11 +500,13 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, mut node: NodeView<'a>) -> Value {
                 ) => {
                     match ctx.types.get(from_args[0]).kind {
                         Some(type_infer::Type { kind: type_infer::TypeKind::Array, args: Some(array_args) }) => {
+                            let buf_args_0 = buf_args[0];
+
                             let length = ctx.types.extract_constant_temp(array_args[1]).unwrap();
-                            let len_reg = ctx.registers.create(ctx.types, type_infer::static_values::USIZE);
+                            let usize_type = ctx.types.add_int(IntTypeKind::Usize, ());
+                            let len_reg = ctx.registers.create(ctx.types, usize_type);
 
                             // @HACK: Yuck!!!
-                            let buf_args_0 = buf_args[0];
                             let temp_ptr_type = ctx.types.add_type(type_infer::TypeKind::Reference, type_infer::Args([(buf_args_0, Reason::temp_zero())]), ());
                             let temp_ptr = ctx.registers.create(ctx.types, temp_ptr_type);
 

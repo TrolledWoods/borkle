@@ -2,7 +2,7 @@ use crate::dependencies::{DepKind, DependencyList, MemberDep};
 use crate::errors::ErrorCtx;
 use crate::location::Location;
 use crate::type_infer::{AstVariantId, ValueId as TypeId};
-use crate::program::{MemberMetaData, Program, ScopeId, Task};
+use crate::program::{Program, ScopeId, Task};
 use bumpalo::Bump;
 // use crossbeam::queue::SegQueue;
 use parking_lot::Mutex;
@@ -164,7 +164,6 @@ fn worker<'a>(alloc: &'a mut Bump, program: &'a Program) -> (ThreadContext<'a>, 
                     // If it's a polymorphic thing this task could have been scheduled twice, so we have to do this check.
                     if !program.member_is_typed(member_id) {
                         profile::profile!("Task::TypeMember");
-                        use crate::parser::NodeKind;
 
                         match crate::typer::process_ast(
                             &mut errors,
@@ -210,7 +209,6 @@ fn worker<'a>(alloc: &'a mut Bump, program: &'a Program) -> (ThreadContext<'a>, 
                 Task::EmitMember(member_id, mut locals, mut types, additional_info, ast) => {
                     if !program.member_is_evaluated(member_id) {
                         profile::profile!("Task::EmitMember");
-                        use crate::typer::NodeKind;
 
                         let type_ = types.value_to_compiler_type(TypeId::Node(AstVariantId::root(), ast.root_id()));
                         program.logger.log(format_args!(

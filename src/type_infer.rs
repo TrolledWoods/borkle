@@ -19,7 +19,7 @@ pub use value_sets::{ValueSets, ValueSetId, ValueSetHandles, ValueSet};
 
 const DEBUG: bool = false;
 
-pub mod static_values {
+mod static_values {
     //! Static value header, e.g. value indices we know what their values are statically, for very common types,
     //! like integers and so on.
     use super::ValueId;

@@ -1,4 +1,4 @@
-use super::lexer::{Token, TokenKind};
+use super::lexer::{Token, TokenKind, Keyword};
 use crate::errors::ErrorCtx;
 use crate::location::Location;
 use crate::operators::{BinaryOp, Operator, UnaryOp};
@@ -62,28 +62,38 @@ impl TokenStream {
         precedence: usize,
     ) -> Option<(Location, BinaryOp)> {
         let token = self.peek_mut()?;
-        if let TokenKind::Operator(ref mut string) = token.kind {
-            if let Some((op, suffix)) = BinaryOp::from_prefix(string) {
-                if op.is_right_to_left() {
-                    if op.precedence() < precedence {
-                        return None;
+        match token.kind {
+            TokenKind::Operator(ref mut string) => {
+                if let Some((op, suffix)) = BinaryOp::from_prefix(string) {
+                    if op.is_right_to_left() {
+                        if op.precedence() < precedence {
+                            return None;
+                        }
+                    } else {
+                        if op.precedence() <= precedence {
+                            return None;
+                        }
                     }
-                } else {
-                    if op.precedence() <= precedence {
-                        return None;
-                    }
-                }
 
-                let loc = token.loc;
-                if suffix.is_empty() {
-                    self.next();
+                    let loc = token.loc;
+                    if suffix.is_empty() {
+                        self.next();
+                    } else {
+                        *string = suffix.into();
+                    }
+                    Some((loc, op))
                 } else {
-                    *string = suffix.into();
+                    None
                 }
-                return Some((loc, op));
             }
+            TokenKind::Keyword(Keyword::Is) => {
+                let loc = token.loc;
+                self.next();
+
+                Some((loc, BinaryOp::Is))
+            }
+            _ => None,
         }
-        None
     }
 
     pub fn try_consume_operator_with_metadata<T: Operator>(
