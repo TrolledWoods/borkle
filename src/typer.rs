@@ -1646,8 +1646,7 @@ fn build_inferrable_constant_value(
         }
         NodeKind::ImplicitType => {
             if ctx.inside_type_comparison {
-                ctx.infer.set_type(node_type_id, TypeKind::CompareUnspecified, Args([]), set);
-                node_type_id
+                ctx.infer.add_type(TypeKind::CompareUnspecified, Args([]), set)
             } else {
                 // Nothing at all is known about it, _except_ that the type of this node is equal to the
                 // value.

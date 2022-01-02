@@ -1,11 +1,15 @@
 import "tests/main.bo";
 
 #entry fn() {
-    for #const: thing in (42 : u32, 99 : u8, "hello", 14 : i32) {
-        if typeof thing is int {
+    for #const: thing in (42 : u32, [1, 2, 3 : u8], 99 : u8, "hello", 14 : i32) {
+        if #const: typeof thing is [_] _ {
+            print("It's an array!\n");
+        } else if #const: typeof thing is [] _ || typeof thing is &[] _ {
+            print("It's a buffer, len %!\n", thing.len);
+        } else if #const: typeof thing is int {
             print("It's an integer! %\n", thing);
         } else {
-            print("It's a string! %\n", thing);
+            print("We don't know\n");
         };
     };
 };
