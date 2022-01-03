@@ -1,7 +1,7 @@
 import "tests/main.bo";
 
 #entry fn() {
-    print("%\n", 0 : u64);
+    print("The number is % :)\n", 0 : u64);
 };
 
 // TODO:

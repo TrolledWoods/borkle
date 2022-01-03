@@ -124,37 +124,8 @@ pub fn emit_function_declaration<'a>(
         result,
     });
 
-    if ctx.program.arguments.release {
-        if let TypeKind::Function { args, returns } = type_.kind() {
-            crate::c_backend::function_declaration(
-                &mut ctx.thread_context.c_headers,
-                crate::c_backend::c_format_function(function_id),
-                args,
-                *returns,
-            );
-
-            ctx.thread_context.c_headers.push_str(";\n");
-
-            crate::c_backend::function_declaration(
-                &mut ctx.thread_context.c_declarations,
-                crate::c_backend::c_format_function(function_id),
-                args,
-                *returns,
-            );
-            ctx.thread_context.c_declarations.push_str(" {\n");
-
-            crate::c_backend::routine_to_c(
-                ctx.program,
-                &mut ctx.thread_context.c_declarations,
-                &routine,
-                args,
-                *returns,
-            );
-            ctx.thread_context.c_declarations.push_str("}\n");
-        } else {
-            unreachable!("A function type node has to have a function type kind!!!!!!");
-        }
-    }
+    let TypeKind::Function { args, returns } = type_.kind() else { unreachable!() };
+    ctx.thread_context.emitters.emit_routine(ctx.program, function_id, &routine, args, *returns);
 
     ctx
         .program

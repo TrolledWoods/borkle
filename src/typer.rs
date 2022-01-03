@@ -571,35 +571,8 @@ fn subset_was_completed(ctx: &mut Context<'_, '_>, ast: &mut Ast, waiting_on: Wa
 
             let types::TypeKind::Function { args, returns } = type_.kind() else { unreachable!("Defined as a function before, the type inferrence system is busted if this is reached") };
 
-            // FIXME: This is duplicated in emit, could there be a nice way to deduplicate them?
-            if ctx.program.arguments.release {
-                crate::c_backend::function_declaration(
-                    &mut ctx.thread_context.c_headers,
-                    crate::c_backend::c_format_function(function_id),
-                    args,
-                    *returns,
-                );
-
-                ctx.thread_context.c_headers.push_str(";\n");
-
-                crate::c_backend::function_declaration(
-                    &mut ctx.thread_context.c_declarations,
-                    crate::c_backend::c_format_function(function_id),
-                    args,
-                    *returns,
-                );
-                ctx.thread_context.c_declarations.push_str(" {\n");
-
-                let routine = ctx.program.get_routine(function_id).unwrap();
-                crate::c_backend::routine_to_c(
-                    ctx.program,
-                    &mut ctx.thread_context.c_declarations,
-                    &routine,
-                    args,
-                    *returns,
-                );
-                ctx.thread_context.c_declarations.push_str("}\n");
-            }
+            let routine = ctx.program.get_routine(function_id).unwrap();
+            ctx.thread_context.emitters.emit_routine(ctx.program, function_id, &routine, args, *returns);
 
             ctx.additional_info.insert((ast_variant_id, node_id), AdditionalInfoKind::Function(function_id));
             ctx.infer.value_sets.unlock(parent_set);

@@ -1,6 +1,7 @@
 use crate::command_line_arguments::Arguments;
 use crate::dependencies::{DepKind, DependencyList, MemberDep};
 use crate::errors::ErrorCtx;
+use crate::backend::Backends;
 use crate::id::{Id, IdVec};
 use crate::type_infer::ValueId as TypeId;
 use crate::ir::Routine;
@@ -11,7 +12,7 @@ use crate::thread_pool::{ThreadContext, WorkPile};
 use crate::type_infer::AstVariantId;
 use crate::types::{PointerInType, Type, TypeKind};
 use constant::{Constant, ConstantRef};
-use parking_lot::{Mutex, RwLock};
+use parking_lot::{Mutex, RwLock, MutexGuard};
 use std::alloc;
 use std::collections::HashSet;
 use std::fmt;
@@ -34,6 +35,7 @@ pub mod constant;
 /// pointer to ``insert_buffer`` while the type isn't a zst for example)!
 pub struct Program {
     pub arguments: Arguments,
+    pub backends: Backends,
     pub logger: Logger,
 
     members: RwLock<IdVec<MemberId, Member>>,
@@ -61,9 +63,10 @@ unsafe impl Send for Program {}
 unsafe impl Sync for Program {}
 
 impl Program {
-    pub fn new(logger: Logger, arguments: Arguments) -> Self {
+    pub fn new(logger: Logger, arguments: Arguments, backends: Backends) -> Self {
         Self {
             arguments,
+            backends,
             logger,
             members: default(),
             poly_members: default(),
@@ -82,8 +85,8 @@ impl Program {
         self.file_contents.get_mut()
     }
 
-    pub fn constant_data(&mut self) -> &mut Vec<Constant> {
-        self.constant_data.get_mut()
+    pub fn constant_data(&self) -> MutexGuard<'_, Vec<Constant>> {
+        self.constant_data.lock()
     }
 
     pub fn work(&self) -> &WorkPile {

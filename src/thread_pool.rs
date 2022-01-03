@@ -2,6 +2,7 @@ use crate::dependencies::{DepKind, DependencyList, MemberDep};
 use crate::errors::ErrorCtx;
 use crate::location::Location;
 use crate::type_infer::{AstVariantId, ValueId as TypeId};
+use crate::backend::{Backends, BackendEmitters};
 use crate::program::{Program, ScopeId, Task};
 use bumpalo::Bump;
 // use crossbeam::queue::SegQueue;
@@ -34,7 +35,7 @@ impl WorkPile {
 }
 
 /// Tries to evaluate everything in the program
-pub fn run(program: &mut Program, num_threads: usize) -> (String, ErrorCtx) {
+pub fn run(program: &mut Program, num_threads: usize) -> (Vec<BackendEmitters>, ErrorCtx) {
     let mut allocators: Vec<_> = std::iter::repeat_with(Bump::new)
         .take(num_threads)
         .collect();
@@ -54,38 +55,17 @@ pub fn run(program: &mut Program, num_threads: usize) -> (String, ErrorCtx) {
 
     let (thread_context, mut errors) = worker(allocators.next().unwrap(), borrow_program);
 
-    let mut c_headers = String::new();
-    if program.arguments.release {
-        c_headers.push_str(crate::c_backend::BOILER_PLATE);
-        crate::c_backend::declare_types(&mut c_headers);
-        c_headers.push_str(&thread_context.c_headers);
-    }
-
-    let ThreadContext {
-        mut c_declarations, ..
-    } = thread_context;
-
-    if program.arguments.release {
-        for thread in threads {
-            let (ctx, other_errors) = thread.join().unwrap();
-            c_headers.push_str(&ctx.c_headers);
-            c_declarations.push_str(&ctx.c_declarations);
-            errors.join(other_errors);
-        }
-
-        crate::c_backend::declare_constants(&mut c_headers, program);
-        crate::c_backend::instantiate_constants(&mut c_headers, program);
-        c_headers.push_str(&c_declarations);
-    } else {
-        for thread in threads {
-            let (_, other_errors) = thread.join().unwrap();
-            errors.join(other_errors);
-        }
+    let mut emitters = Vec::with_capacity(num_threads);
+    emitters.push(thread_context.emitters);
+    for thread in threads {
+        let (ctx, other_errors) = thread.join().unwrap();
+        emitters.push(ctx.emitters);
+        errors.join(other_errors);
     }
 
     program.check_for_completion(&mut errors);
 
-    (c_headers, errors)
+    (emitters, errors)
 }
 
 /// Data that is local to each thread. This is useful to have because
@@ -93,8 +73,7 @@ pub fn run(program: &mut Program, num_threads: usize) -> (String, ErrorCtx) {
 /// combine all the collective thread data at the end of the compilation.
 pub struct ThreadContext<'a> {
     pub alloc: &'a mut Bump,
-    pub c_headers: String,
-    pub c_declarations: String,
+    pub emitters: BackendEmitters,
 }
 
 fn worker<'a>(alloc: &'a mut Bump, program: &'a Program) -> (ThreadContext<'a>, ErrorCtx) {
@@ -105,8 +84,7 @@ fn worker<'a>(alloc: &'a mut Bump, program: &'a Program) -> (ThreadContext<'a>, 
 
     let mut thread_context = ThreadContext {
         alloc,
-        c_headers: String::new(),
-        c_declarations: String::new(),
+        emitters: program.backends.create_emitters(),
     };
 
     loop {

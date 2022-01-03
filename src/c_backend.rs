@@ -1,9 +1,77 @@
 use crate::ir::{Instr, Routine, Value};
 use crate::operators::{BinaryOp, UnaryOp};
-use crate::program::{BuiltinFunction, FunctionId, Program};
+use crate::program::{BuiltinFunction, FunctionId, Program, MemberId};
 use crate::types::{IntTypeKind, PointerInType, Type, TypeKind, TYPES};
+use std::path::Path;
 use std::fmt;
 use std::fmt::Write;
+
+#[derive(Default)]
+pub struct Emitter {
+    headers: String,
+    declarations: String,
+}
+
+impl Emitter {
+    pub fn emit_routine(
+        &mut self, 
+        program: &Program,
+        function_id: FunctionId,
+        routine: &Routine,
+        args: &[Type],
+        returns: Type,
+    ) {
+        function_declaration(
+            &mut self.headers,
+            c_format_function(function_id),
+            args,
+            returns,
+        );
+
+        self.headers.push_str(";\n");
+
+        function_declaration(
+            &mut self.declarations,
+            c_format_function(function_id),
+            args,
+            returns,
+        );
+        self.declarations.push_str(" {\n");
+
+        routine_to_c(
+            program,
+            &mut self.declarations,
+            &routine,
+            args,
+            returns,
+        );
+        self.declarations.push_str("}\n");
+    }
+}
+
+pub fn emit(program: &Program, file: &Path, emitters: Vec<Emitter>) {
+    // TODO: Would be nice to write directly to a file
+    let mut output = String::new();
+    output.push_str(BOILER_PLATE);
+    declare_types(&mut output);
+    declare_constants(&mut output, program);
+
+    for emitter in &emitters {
+        output.push_str(&emitter.headers);
+    }
+
+    instantiate_constants(&mut output, program);
+
+    for emitter in &emitters {
+        output.push_str(&emitter.declarations);
+    }
+
+    entry_point(&mut output, program.get_entry_point().unwrap());
+
+    if let Err(_) = std::fs::write(file, &output) {
+        println!("Failed to write c code to output file, {}", file.display());
+    }
+}
 
 pub fn function_declaration(
     output: &mut String,
@@ -62,7 +130,7 @@ fn c_format_value(value: &Value) -> impl fmt::Display + '_ {
     Formatter(move |f| write!(f, "reg_{}", value.0))
 }
 
-pub fn declare_constants(output: &mut String, program: &mut Program) {
+pub fn declare_constants(output: &mut String, program: &Program) {
     let constant_data = program.constant_data();
     for constant in constant_data
         .iter()
@@ -106,8 +174,9 @@ pub fn declare_constants(output: &mut String, program: &mut Program) {
     }
 }
 
-pub fn instantiate_constants(output: &mut String, program: &mut Program) {
-    for constant in program.constant_data() {
+pub fn instantiate_constants(output: &mut String, program: &Program) {
+    let constant_data = program.constant_data();
+    for constant in constant_data.iter() {
         let ptr = constant.ptr.as_ptr();
         if constant.type_.pointers().is_empty() {
             write!(

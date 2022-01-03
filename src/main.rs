@@ -3,6 +3,7 @@
 #![deny(rust_2018_idioms, mutable_borrow_reservation_conflict, unused_variables, unused_mut, unused_unsafe)]
 
 mod ast;
+mod backend;
 mod c_backend;
 mod command_line_arguments;
 mod dependencies;
@@ -39,7 +40,15 @@ fn main() {
             return;
         }
 
-        let mut program = program::Program::new(logger, options.clone());
+        let mut backends = Vec::new();
+        if options.output_c {
+            backends.push(backend::Backend::C {
+                path: options.c_path.clone(),
+                compile_output: options.compile_c,
+            });
+        }
+
+        let mut program = program::Program::new(logger, options.clone(), backend::Backends { backends });
         program.add_file(
             &options
                 .file
@@ -47,7 +56,7 @@ fn main() {
                 .expect("The main source file couldn't be canonicalized"),
         );
 
-        let (mut c_output, mut errors) = thread_pool::run(&mut program, options.num_threads);
+        let (backend_emitters, mut errors) = thread_pool::run(&mut program, options.num_threads);
 
         let files = program.file_contents();
         if !errors.print(files) {
@@ -55,83 +64,42 @@ fn main() {
             return;
         }
 
-        if !options.check {
-            let entry_point = match program.get_entry_point() {
-                Some(value) => value,
-                None => {
-                    println!("Expected '#entry' to denote an entry point, and for that entry point to be of type 'fn()'");
-                    return;
-                }
-            };
-
-            if options.release {
-                let mut c_file = options.output.clone();
-                c_file.push("output.c");
-
-                let mut exe_file = options.output.clone();
-                exe_file.push("output");
-                exe_file.set_extension(std::env::consts::EXE_EXTENSION);
-
-                c_backend::entry_point(&mut c_output, entry_point);
-                std::fs::write(&c_file, c_output).unwrap();
-
-                let mut command = std::process::Command::new(&options.c_compiler);
-                command.arg(&c_file);
-                command.arg("-o");
-                command.arg(&exe_file);
-                // command.arg("-O3");
-                command.arg("-g");
-                command.arg("-O0");
-                command.arg("-Wno-everything");
-
-                command.stdout(std::process::Stdio::inherit());
-                command.stderr(std::process::Stdio::inherit());
-
-                println!("Compilation command: {:?}", command);
-
-                match command.output() {
-                    Ok(output) => {
-                        use std::io::Write;
-                        std::io::stdout().write_all(&output.stdout).unwrap();
-                        std::io::stderr().write_all(&output.stderr).unwrap();
-                    }
-                    Err(err) => println!("Failed to run c compiler: {:?}", err),
-                }
-
-                let elapsed = time.elapsed();
-                println!("Finished in {:.4} seconds", elapsed.as_secs_f32());
-            } else {
-                let elapsed = time.elapsed();
-                println!(
-                    "Compilation finished in {:.4} seconds",
-                    elapsed.as_secs_f32()
-                );
-
-                let routine = program.get_routine(entry_point).unwrap();
-                if let ir::Routine::UserDefined(routine) = &*routine {
-                    let mut stack = interp::Stack::new(1 << 16);
-
-                    // @Improvement: We want to put the entry point in here.
-                    match interp::interp(&program, &mut stack, routine, &mut vec![]) {
-                        Ok(_) => {}
-                        Err(call_stack) => {
-                            errors.clear();
-                            for &caller in call_stack.iter().rev().skip(1) {
-                                errors.info(caller, "".to_string());
-                            }
-
-                            errors.error(*call_stack.last().unwrap(), "Assert failed!".to_string());
-                            let files = program.file_contents();
-                            errors.print(files);
-                        }
-                    }
-                } else {
-                    println!("ERROR: For now, the entry point cannot be a built in function");
-                }
+        let entry_point = match program.get_entry_point() {
+            Some(value) => value,
+            None => {
+                println!("Expected '#entry' to denote an entry point, and for that entry point to be of type 'fn()'");
+                return;
             }
-        } else {
-            let elapsed = time.elapsed();
-            println!("Finished in {:.4} seconds", elapsed.as_secs_f32());
+        };
+
+        let backends = std::mem::take(&mut program.backends);
+        backends.emit(&program, backend_emitters);
+
+        let elapsed = time.elapsed();
+        println!("Finished in {:.4} seconds", elapsed.as_secs_f32());
+
+        if options.run {
+            let routine = program.get_routine(entry_point).unwrap();
+            if let ir::Routine::UserDefined(routine) = &*routine {
+                let mut stack = interp::Stack::new(1 << 16);
+
+                // @Improvement: We want to put the entry point in here.
+                match interp::interp(&program, &mut stack, routine, &mut vec![]) {
+                    Ok(_) => {}
+                    Err(call_stack) => {
+                        errors.clear();
+                        for &caller in call_stack.iter().rev().skip(1) {
+                            errors.info(caller, "".to_string());
+                        }
+
+                        errors.error(*call_stack.last().unwrap(), "Assert failed!".to_string());
+                        let files = program.file_contents();
+                        errors.print(files);
+                    }
+                }
+            } else {
+                println!("ERROR: For now, the entry point cannot be a built in function");
+            }
         }
     }
 
