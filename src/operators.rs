@@ -3,6 +3,7 @@ use crate::types::{IntTypeKind, Type, TypeKind};
 pub trait Operator: Sized {
     fn from_prefix(string: &str) -> Option<(Self, &'_ str)>;
     fn precedence(&self) -> usize;
+    fn to_string(&self) -> &'static str;
 }
 
 macro_rules! operator {
@@ -28,6 +29,12 @@ macro_rules! operator {
             fn precedence(&self) -> usize {
                 match self {
                     $(Self::$operator_name => $precedence,)*
+                }
+            }
+
+            fn to_string(&self) -> &'static str {
+                match self {
+                    $(Self::$operator_name => $name,)*
                 }
             }
         }

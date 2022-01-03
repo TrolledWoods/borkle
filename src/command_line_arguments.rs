@@ -181,7 +181,7 @@ create_arguments!(
         ir_path: PathBuf = "target/output.bir";
             "The path where the ir file should be created",
 
-        outpout_ir: bool = false;
+        output_ir: bool = true;
             "If set to true, a file containing ir will be emitted",
 
         debug: bool = true;

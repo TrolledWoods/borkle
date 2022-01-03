@@ -4,6 +4,7 @@ use crate::ir::Routine;
 use crate::types::Type;
 
 // mod c;
+mod ir;
 
 #[derive(Default)]
 pub struct Backends {
@@ -15,6 +16,7 @@ impl Backends {
         let emitters = self.backends.iter().map(|v| {
             match v {
                 Backend::C { .. } => BackendEmitter::C, // (c::Emitter::default()),
+                Backend::Ir { .. } => BackendEmitter::Ir(ir::Emitter::default()),
             }
         }).collect();
 
@@ -23,7 +25,7 @@ impl Backends {
         }
     }
 
-    pub fn emit(self, _program: &Program, _emitters: Vec<BackendEmitters>) {
+    pub fn emit(self, program: &Program, mut emitters: Vec<BackendEmitters>) {
         for backend in self.backends.into_iter().rev() {
             match backend {
                 Backend::C { path: _, compile_output: _ } => {
@@ -62,6 +64,16 @@ impl Backends {
                         }
                     }*/
                 }
+                Backend::Ir { path } => {
+                    let ir_emitters = emitters.iter_mut()
+                        .map(|v| v.emitters.pop())
+                        .map(|v| match v {
+                            Some(BackendEmitter::Ir(emitter)) => emitter,
+                            _ => unreachable!(),
+                        })
+                        .collect();
+                    ir::emit(program, &path, ir_emitters);
+                }
             }
         }
     }
@@ -71,7 +83,10 @@ pub enum Backend {
     C {
         path: PathBuf,
         compile_output: bool,
-    }
+    },
+    Ir {
+        path: PathBuf,
+    },
 }
 
 pub struct BackendEmitters {
@@ -81,16 +96,19 @@ pub struct BackendEmitters {
 impl BackendEmitters {
     pub fn emit_routine(
         &mut self, 
-        _program: &Program,
-        _id: FunctionId,
-        _routine: &Routine,
-        _arg_types: &[Type],
-        _return_type: Type,
+        program: &Program,
+        id: FunctionId,
+        routine: &Routine,
+        arg_types: &[Type],
+        return_type: Type,
     ) {
         for emitter in &mut self.emitters { 
             match emitter {
                 BackendEmitter::C { .. } => {
                     // v.emit_routine(program, id, routine, arg_types, return_type);
+                }
+                BackendEmitter::Ir(v) => {
+                    v.emit_routine(program, id, routine, arg_types, return_type);
                 }
             }
         }
@@ -99,5 +117,6 @@ impl BackendEmitters {
 
 enum BackendEmitter {
     C, // (c::Emitter),
+    Ir(ir::Emitter),
 }
 

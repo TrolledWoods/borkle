@@ -3,6 +3,7 @@ use crate::operators::{BinaryOp, UnaryOp};
 use crate::location::Location;
 use crate::program::{constant::ConstantRef, BuiltinFunction};
 use crate::types::{to_align};
+use std::fmt::{self, Write};
 
 #[derive(Clone, Copy, Debug)]
 #[repr(u8)]
@@ -164,5 +165,17 @@ impl Value {
     pub const ZST: Self = Self(0);
 }
 
+impl fmt::Display for Value {
+    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(fmt, "r{}", self.0)
+    }
+}
+
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub struct LabelId(pub usize);
+
+impl fmt::Display for LabelId {
+    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(fmt, "L{}", self.0)
+    }
+}

@@ -1,6 +1,10 @@
-#no_base:
+// import "tests/main.bo";
+
+const THING = [32 : u32, 99, 12, 13, 184218];
 
 #entry fn() {
+    12 : u32;
+    THING;
 };
 
 // TODO:

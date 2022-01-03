@@ -48,6 +48,12 @@ fn main() {
             });
         }
 
+        if options.output_ir {
+            backends.push(backend::Backend::Ir {
+                path: options.ir_path.clone(),
+            });
+        }
+
         let mut program = program::Program::new(logger, options.clone(), backend::Backends { backends });
         program.add_file(
             &options
