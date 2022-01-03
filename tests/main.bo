@@ -20,7 +20,7 @@ const ok = fn(name: [] u8) {
     print("[OK] %\n", name);
 };
 
-{
+const test_basic = fn() {
     defer ok("TestBasic");
 
     let a = 99;
@@ -38,7 +38,7 @@ const ok = fn(name: [] u8) {
     assert(a >= 2);
 };
 
-{
+const test_blocks_and_breaks = fn() {
     defer ok("TestBlocksAndBreaks");
 
     let set_order = fn(order: &u32, wanted: u32) {

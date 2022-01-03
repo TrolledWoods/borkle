@@ -184,19 +184,18 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, mut node: NodeView<'a>) -> Value {
             ctx.emit_move_imm(i_value, 0_usize.to_le_bytes(), Layout::USIZE);
 
             let iterating_value = emit_node(ctx, iterating.clone());
-            let mut iterating_value_fields = StructLayout::new(iterating_value.0);
+            let mut iterating_value_fields = StructLayout::new(0);
             for &variant_id in variants.iter() {
                 emit_declarative_lvalue(ctx, i_value_decl.clone(), i_value, true);
 
                 let [v_value_decl, body] = inner.children.as_array();
 
-                let (temp_iterator_value, field_layout) = ctx.create_reg_and_layout(TypeId::Node(variant_id, v_value_decl.id));
+                let field_layout = *ctx.types.get(TypeId::Node(variant_id, v_value_decl.id)).layout.unwrap();
                 let field_offset = iterating_value_fields.next(field_layout);
-                ctx.emit_move(temp_iterator_value, get_member(iterating_value, field_offset), field_layout);
 
                 let old_variant_id = ctx.variant_id;
                 ctx.variant_id = variant_id;
-                emit_declarative_lvalue(ctx, v_value_decl, temp_iterator_value, true);
+                emit_declarative_lvalue(ctx, v_value_decl, get_member(iterating_value, field_offset), true);
                 emit_node(ctx, body);
                 ctx.variant_id = old_variant_id;
 
@@ -241,7 +240,7 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, mut node: NodeView<'a>) -> Value {
                     let iterator_type = ctx.types.get(iterator_type_id);
                     let iterator_args = iterator_type.args();
                     let element_type = iterator_args[0];
-                    let length = ctx.types.extract_constant_temp(iterator_args[1]).unwrap();
+                    let length = unsafe { *ctx.types.extract_constant_temp(iterator_args[1]).unwrap().as_ptr().cast::<usize>() };
 
                     let ptr_to_array = if by_value {
                         let array_ptr_type_id = ctx.types.add_type(type_infer::TypeKind::Reference, type_infer::Args([(iterator_type_id, Reason::temp_zero())]), ());
@@ -257,10 +256,7 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, mut node: NodeView<'a>) -> Value {
                     let first_element = ctx.create_reg_with_layout(Layout::PTR);
                     let last_element  = ctx.create_reg_with_layout(Layout::PTR);
                     ctx.emit_move(first_element, ptr_to_array, Layout::PTR);
-
-                    let len_reg = ctx.create_reg_with_layout(Layout::USIZE);
-                    ctx.emit_global(len_reg, length, Layout::USIZE);
-                    ctx.emit_binary(BinaryOp::Add, last_element, first_element, len_reg, NumberType::U64);
+                    ctx.emit_binary_imm_u64(BinaryOp::Add, last_element, first_element, (length * pointee_layout.size) as u64);
 
                     (first_element, last_element)
                 }
@@ -546,8 +542,9 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, mut node: NodeView<'a>) -> Value {
             if let type_infer::TypeKind::Reference = type_.kind() {
                 let pointee_id = type_.args()[0];
                 let pointee_layout = *ctx.types.get(pointee_id).layout.unwrap();
-                ctx.emit_binary_imm_u64(BinaryOp::Mult, b, b, pointee_layout.size as u64);
-                ctx.emit_binary(*op, to, a, b, NumberType::U64);
+                let b_copy = ctx.create_reg_with_layout(Layout::USIZE);
+                ctx.emit_binary_imm_u64(BinaryOp::Mult, b_copy, b, pointee_layout.size as u64);
+                ctx.emit_binary(*op, to, a, b_copy, NumberType::U64);
             } else {
                 let number_type = ctx.to_number_type(TypeId::Node(ctx.variant_id, left.id));
                 ctx.emit_binary(*op, to, a, b, number_type);

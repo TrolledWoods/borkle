@@ -17,7 +17,7 @@ impl Stack {
     }
 
     pub fn stack_frame<'a>(&'a mut self, registers: &'a StackAllocator) -> StackFrame<'a> {
-        if self.len < registers.head {
+        if self.len < registers.max {
             panic!("Stack overflow! (todo; show where in the code the compile time stack overflow happened)");
         }
         StackFrame {
@@ -83,6 +83,7 @@ pub struct StackFrame<'a> {
 impl<'a> StackFrame<'a> {
     pub fn into_value(self, value: Value) -> StackValueMut<'a> {
         let offset = value.0;
+        debug_assert!(offset < self.stack.len());
         StackValueMut {
             ptr: unsafe { self.stack.as_mut_ptr().add(offset) },
             _phantom: PhantomData,
@@ -91,6 +92,7 @@ impl<'a> StackFrame<'a> {
 
     pub fn get(&self, value: Value) -> StackValue<'_> {
         let offset = value.0;
+        debug_assert!(offset < self.stack.len());
         StackValue {
             ptr: unsafe { self.stack.as_ptr().add(offset) },
             _phantom: PhantomData,
@@ -99,6 +101,7 @@ impl<'a> StackFrame<'a> {
 
     pub fn get_mut(&mut self, value: Value) -> StackValueMut<'_> {
         let offset = value.0;
+        debug_assert!(offset < self.stack.len());
         StackValueMut {
             ptr: unsafe { self.stack.as_mut_ptr().add(offset) },
             _phantom: PhantomData,
@@ -111,8 +114,8 @@ impl<'a> StackFrame<'a> {
     /// frames still.
     #[allow(unused)]
     pub fn split<'b>(&'b mut self, registers: &'b StackAllocator) -> (StackFrame<'b>, StackFrame<'b>) {
-        let position = crate::types::to_align(self.registers.head, 16);
-        if self.stack.len() < position + registers.head {
+        let position = crate::types::to_align(self.registers.max, 16);
+        if self.stack.len() < position + registers.max {
             panic!("Stack overflow! (todo; show where in the code the compile time stack overflow happened)");
         }
         let (a, b) = self.stack.split_at_mut(position);

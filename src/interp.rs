@@ -22,7 +22,6 @@ pub fn emit_and_run<'a>(
     variant_id: AstVariantId,
     call_stack: &mut Vec<Location>,
 ) -> Result<ConstantRef, Box<[Location]>> {
-    let mut stack = Stack::new(2048);
     // FIXME: This does not take into account calling dependencies
     let (_, routine) = crate::emit::emit(
         thread_context,
@@ -34,6 +33,7 @@ pub fn emit_and_run<'a>(
         node,
         variant_id,
     );
+    let mut stack = Stack::new(2048);
     let result = interp(program, &mut stack, &routine, call_stack)?;
     Ok(program.insert_buffer(types.value_to_compiler_type(TypeId::Node(variant_id, node)), result.as_ptr()))
 }
@@ -56,13 +56,20 @@ fn interp_internal(program: &Program, stack: &mut StackFrame<'_>, routine: &User
     let mut instr_pointer = 0;
     while instr_pointer < routine.instr.len() {
         let instr = &routine.instr[instr_pointer];
-        // println!("Running {:?}", instr);
+        
+        // let mut out = String::new();
+        // crate::backend::ir::print_instr(&mut out, instr);
+        // print!("{}", out);
+
+        let mut pause_instr_ptr = false;
+
         match *instr {
             Instr::LabelDefinition(_) => {}
             Instr::DebugLocation { .. } => {}
             Instr::JumpIfZero { condition, to } => {
                 if unsafe { stack.get(condition).read::<u8>() } == 0 {
                     instr_pointer = routine.label_locations[to.0];
+                    pause_instr_ptr = true;
                 }
             }
             Instr::SetToZero { to_ptr, size } => {
@@ -73,6 +80,7 @@ fn interp_internal(program: &Program, stack: &mut StackFrame<'_>, routine: &User
             }
             Instr::Jump { to } => {
                 instr_pointer = routine.label_locations[to.0];
+                pause_instr_ptr = true;
             }
             Instr::Call {
                 to,
@@ -150,23 +158,27 @@ fn interp_internal(program: &Program, stack: &mut StackFrame<'_>, routine: &User
 
                         // Put the arguments on top of the new stack frame
                         for (&(old, old_layout), new) in args.iter().zip(&calling.stack.values) {
-                            unsafe {
-                                std::ptr::copy_nonoverlapping(
-                                    old_stack.get(old).as_ptr(),
-                                    new_stack.get_mut(new.value()).as_mut_ptr(),
-                                    old_layout.size,
-                                );
+                            if old_layout.size > 0 {
+                                unsafe {
+                                    std::ptr::copy_nonoverlapping(
+                                        old_stack.get(old).as_ptr(),
+                                        new_stack.get_mut(new.value()).as_mut_ptr(),
+                                        old_layout.size,
+                                    );
+                                }
                             }
                         }
 
                         interp_internal(program, &mut new_stack, calling, call_stack)?;
 
-                        unsafe {
-                            std::ptr::copy_nonoverlapping(
-                                new_stack.get(calling.result).as_ptr(),
-                                old_stack.get_mut(to.0).as_mut_ptr(),
-                                to.1.size,
-                            );
+                        if to.1.size > 0 {
+                            unsafe {
+                                std::ptr::copy_nonoverlapping(
+                                    new_stack.get(calling.result).as_ptr(),
+                                    old_stack.get_mut(to.0).as_mut_ptr(),
+                                    to.1.size,
+                                );
+                            }
                         }
                     }
                 }
@@ -179,9 +191,15 @@ fn interp_internal(program: &Program, stack: &mut StackFrame<'_>, routine: &User
                 let new_ptr = to.read::<usize>() + amount * scale;
                 to.write(new_ptr);
             },
-            Instr::BinaryImm { op, to, a, b, type_ } => unsafe { run_binary_op(op, stack.get_mut(to).as_mut_ptr(), stack.get(a).as_ptr(), &b as *const _ as *const _, type_) },
-            Instr::Binary { op, to, a, b, type_ } => unsafe { run_binary_op(op, stack.get_mut(to).as_mut_ptr(), stack.get(a).as_ptr(), stack.get(b).as_ptr(), type_) },
-            Instr::Unary { op, to, from, type_ } => unsafe { run_unary_op(op, stack.get_mut(to).as_mut_ptr(), stack.get(from).as_ptr(), type_) },
+            Instr::BinaryImm { op, to, a, b, type_ } => unsafe {
+                run_binary_op(op, stack.get_mut(to).as_mut_ptr(), stack.get(a).as_ptr(), &b as *const _ as *const _, type_);
+            },
+            Instr::Binary { op, to, a, b, type_ } => unsafe {
+                run_binary_op(op, stack.get_mut(to).as_mut_ptr(), stack.get(a).as_ptr(), stack.get(b).as_ptr(), type_);
+            },
+            Instr::Unary { op, to, from, type_ } => unsafe {
+                run_unary_op(op, stack.get_mut(to).as_mut_ptr(), stack.get(from).as_ptr(), type_);
+            },
             Instr::MoveImm { to, from, size } => unsafe {
                 let to: *mut u8 = stack.get_mut(to).as_mut_ptr();
                 std::ptr::copy_nonoverlapping(from.as_ptr(), to, size);
@@ -230,8 +248,12 @@ fn interp_internal(program: &Program, stack: &mut StackFrame<'_>, routine: &User
             },
         }
 
-        instr_pointer += 1;
+        if !pause_instr_ptr {
+            instr_pointer += 1;
+        }
     }
+
+    // println!("\tRET");
 
     Ok(())
 }

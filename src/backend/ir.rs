@@ -46,63 +46,67 @@ pub fn emit(program: &Program, file_path: &Path, emitters: Vec<Emitter>) {
 fn print_instr_list(out: &mut String, function_id: FunctionId, routine: &UserDefinedRoutine) {
     writeln!(out, "\nfn {}: ({})", routine.name, usize::from(function_id)).unwrap();
     for instr in &routine.instr {
-        match instr {
-            Instr::DebugLocation(_) => {},
-            Instr::Call { to, pointer, args, loc: _ } => {
-                write!(out, "\tcall {}, {}, (", to.0, pointer).unwrap();
+        print_instr(&mut *out, instr);
+    }
+}
 
-                for (i, &(arg, _)) in args.iter().enumerate() {
-                    if i > 0 { out.push_str(", "); }
-                    write!(out, "{}", arg).unwrap();
-                }
+pub fn print_instr(mut out: impl Write, instr: &Instr) {
+    match instr {
+        Instr::DebugLocation(_) => {},
+        Instr::Call { to, pointer, args, loc: _ } => {
+            write!(out, "\tcall {}, {}, (", to.0, pointer).unwrap();
 
-                writeln!(out, ")").unwrap();
+            for (i, &(arg, _)) in args.iter().enumerate() {
+                if i > 0 { write!(out, ", ").unwrap(); }
+                write!(out, "{}", arg).unwrap();
             }
-            Instr::SetToZero { to_ptr, size } => {
-                writeln!(out, "\tzero {} /{}", to_ptr, size).unwrap();
-            }
-            Instr::Binary { to, a, b, op, type_ } => {
-                writeln!(out, "\t{} = {} {} {} /{:?}", to, a, op.to_string(), b, type_).unwrap();
-            }
-            Instr::BinaryImm { to, a, b, op, type_ } => {
-                writeln!(out, "\t{} = {} {} {} /{:?}", to, a, op.to_string(), b, type_).unwrap();
-            }
-            Instr::IncrPtr { to, amount, scale } => {
-                writeln!(out, "\t{} += {} * {} /ptr", to, amount, scale).unwrap();
-            }
-            Instr::Unary { to, from, op, type_ } => {
-                writeln!(out, "\t{} = {} {} /{:?}", to, op.to_string(), from, type_).unwrap();
-            }
-            Instr::RefGlobal { to_ptr, global } => {
-                writeln!(out, "\tref_global {}, {:p}", to_ptr, global.as_ptr()).unwrap();
-            }
-            Instr::StackPtr { to, take_pointer_to } => {
-                writeln!(out, "\tref_stack {}, {}", to, take_pointer_to).unwrap();
-            }
-            Instr::Move { to, from, size } => {
-                writeln!(out, "\tmove {}, {} /{}", to, from, size).unwrap();
-            }
-            Instr::MoveImm { to, from, size } => {
-                writeln!(out, "\tmove {}, {:?} /{}", to, &from[..*size], size).unwrap();
-            }
-            Instr::Dereference { to, from_ptr, size } => {
-                writeln!(out, "\tderef {}, {} /{}", to, from_ptr, size).unwrap();
-            }
-            Instr::IndirectMove { to_ptr, from, size } => {
-                writeln!(out, "\tmove_indirect {}, {} /{}", to_ptr, from, size).unwrap();
-            }
-            Instr::ConvertNum { to, from, to_number, from_number } => {
-                writeln!(out, "\tconvert {}({:?}), {}({:?})", to, to_number, from, from_number).unwrap();
-            }
-            Instr::JumpIfZero { condition, to } => {
-                writeln!(out, "\tjez {}, {}", condition, to).unwrap();
-            }
-            Instr::Jump { to } => {
-                writeln!(out, "\tjmp {}", to).unwrap();
-            }
-            Instr::LabelDefinition(label) => {
-                writeln!(out, "{}:", label).unwrap();
-            }
+
+            writeln!(out, ")").unwrap();
+        }
+        Instr::SetToZero { to_ptr, size } => {
+            writeln!(out, "\tzero {} /{}", to_ptr, size).unwrap();
+        }
+        Instr::Binary { to, a, b, op, type_ } => {
+            writeln!(out, "\t{} = {} {} {} /{:?}", to, a, op.to_string(), b, type_).unwrap();
+        }
+        Instr::BinaryImm { to, a, b, op, type_ } => {
+            writeln!(out, "\t{} = {} {} {} /{:?}", to, a, op.to_string(), b, type_).unwrap();
+        }
+        Instr::IncrPtr { to, amount, scale } => {
+            writeln!(out, "\t{} += {} * {} /ptr", to, amount, scale).unwrap();
+        }
+        Instr::Unary { to, from, op, type_ } => {
+            writeln!(out, "\t{} = {} {} /{:?}", to, op.to_string(), from, type_).unwrap();
+        }
+        Instr::RefGlobal { to_ptr, global } => {
+            writeln!(out, "\tref_global {}, {:p}", to_ptr, global.as_ptr()).unwrap();
+        }
+        Instr::StackPtr { to, take_pointer_to } => {
+            writeln!(out, "\tref_stack {}, {}", to, take_pointer_to).unwrap();
+        }
+        Instr::Move { to, from, size } => {
+            writeln!(out, "\tmove {}, {} /{}", to, from, size).unwrap();
+        }
+        Instr::MoveImm { to, from, size } => {
+            writeln!(out, "\tmove {}, {:?} /{}", to, &from[..*size], size).unwrap();
+        }
+        Instr::Dereference { to, from_ptr, size } => {
+            writeln!(out, "\tderef {}, {} /{}", to, from_ptr, size).unwrap();
+        }
+        Instr::IndirectMove { to_ptr, from, size } => {
+            writeln!(out, "\tmove_indirect {}, {} /{}", to_ptr, from, size).unwrap();
+        }
+        Instr::ConvertNum { to, from, to_number, from_number } => {
+            writeln!(out, "\tconvert {}({:?}), {}({:?})", to, to_number, from, from_number).unwrap();
+        }
+        Instr::JumpIfZero { condition, to } => {
+            writeln!(out, "\tjez {}, {}", condition, to).unwrap();
+        }
+        Instr::Jump { to } => {
+            writeln!(out, "\tjmp {}", to).unwrap();
+        }
+        Instr::LabelDefinition(label) => {
+            writeln!(out, "{}:", label).unwrap();
         }
     }
 }

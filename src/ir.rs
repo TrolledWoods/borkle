@@ -124,6 +124,7 @@ pub struct UserDefinedRoutine {
 pub struct StackAllocator {
     pub values: Vec<StackValueInfo>,
     pub head: usize,
+    pub max: usize,
 }
 
 impl StackAllocator {
@@ -131,6 +132,7 @@ impl StackAllocator {
         Self {
             values: Vec::new(),
             head: 0,
+            max: 0,
         }
     }
 
@@ -145,6 +147,7 @@ impl StackAllocator {
         });
         let value = Value(self.head);
         self.head += size;
+        self.max = self.head.max(self.max);
         value
     }
 }

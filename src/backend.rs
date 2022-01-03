@@ -4,7 +4,7 @@ use crate::ir::Routine;
 use crate::types::Type;
 
 // mod c;
-mod ir;
+pub mod ir;
 
 #[derive(Default)]
 pub struct Backends {

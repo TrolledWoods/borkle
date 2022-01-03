@@ -1,10 +1,9 @@
-// import "tests/main.bo";
-
-const THING = [32 : u32, 99, 12, 13, 184218];
+import "tests/main.bo";
 
 #entry fn() {
-    12 : u32;
-    THING;
+    run_aoc_tests();
+    test_basic();
+    test_blocks_and_breaks();
 };
 
 // TODO:
