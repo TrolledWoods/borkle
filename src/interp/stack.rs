@@ -1,4 +1,4 @@
-use crate::ir::{Register, Registers, Value};
+use crate::ir::{StackAllocator, Value};
 use std::alloc::{alloc, dealloc, Layout};
 use std::marker::PhantomData;
 use std::ptr::NonNull;
@@ -16,8 +16,8 @@ impl Stack {
         Self { data, len }
     }
 
-    pub fn stack_frame<'a>(&'a mut self, registers: &'a Registers) -> StackFrame<'a> {
-        if self.len < registers.buffer_size() {
+    pub fn stack_frame<'a>(&'a mut self, registers: &'a StackAllocator) -> StackFrame<'a> {
+        if self.len < registers.head {
             panic!("Stack overflow! (todo; show where in the code the compile time stack overflow happened)");
         }
         StackFrame {
@@ -77,13 +77,12 @@ impl StackValueMut<'_> {
 
 pub struct StackFrame<'a> {
     stack: &'a mut [u8],
-    registers: &'a Registers,
+    registers: &'a StackAllocator,
 }
 
 impl<'a> StackFrame<'a> {
     pub fn into_value(self, value: Value) -> StackValueMut<'a> {
-        let reg = self.registers.get(value.0);
-        let offset = reg.offset();
+        let offset = value.0;
         StackValueMut {
             ptr: unsafe { self.stack.as_mut_ptr().add(offset) },
             _phantom: PhantomData,
@@ -91,22 +90,15 @@ impl<'a> StackFrame<'a> {
     }
 
     pub fn get(&self, value: Value) -> StackValue<'_> {
-        let reg = self.registers.get(value.0);
-        let offset = reg.offset();
+        let offset = value.0;
         StackValue {
             ptr: unsafe { self.stack.as_ptr().add(offset) },
             _phantom: PhantomData,
         }
     }
 
-    pub(crate) fn get_mut_from_reg(&mut self, reg: &Register) -> &mut [u8] {
-        let offset = reg.offset();
-        &mut self.stack[offset..offset + reg.size()]
-    }
-
     pub fn get_mut(&mut self, value: Value) -> StackValueMut<'_> {
-        let reg = self.registers.get(value.0);
-        let offset = reg.offset();
+        let offset = value.0;
         StackValueMut {
             ptr: unsafe { self.stack.as_mut_ptr().add(offset) },
             _phantom: PhantomData,
@@ -118,9 +110,9 @@ impl<'a> StackFrame<'a> {
     /// still be used(although it's much smaller) while the new stackframe can add more stack
     /// frames still.
     #[allow(unused)]
-    pub fn split<'b>(&'b mut self, registers: &'b Registers) -> (StackFrame<'b>, StackFrame<'b>) {
-        let position = crate::types::to_align(self.registers.buffer_size(), 16);
-        if self.stack.len() < position + registers.buffer_size() {
+    pub fn split<'b>(&'b mut self, registers: &'b StackAllocator) -> (StackFrame<'b>, StackFrame<'b>) {
+        let position = crate::types::to_align(self.registers.head, 16);
+        if self.stack.len() < position + registers.head {
             panic!("Stack overflow! (todo; show where in the code the compile time stack overflow happened)");
         }
         let (a, b) = self.stack.split_at_mut(position);

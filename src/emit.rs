@@ -1,18 +1,16 @@
-use crate::ir::{Member, Registers, Routine, UserDefinedRoutine, Value};
+use crate::ir::{Instr, LabelId, StackAllocator, Routine, UserDefinedRoutine, Value, NumberType};
+use crate::layout::StructLayout;
 use crate::location::Location;
 use crate::literal::Literal;
 use crate::locals::LocalVariables;
 use crate::operators::{BinaryOp, UnaryOp};
 use crate::parser::{Ast, NodeKind, NodeView};
 use crate::ast::NodeId;
-use crate::program::{FunctionId, Program};
+use crate::program::{FunctionId, Program, constant::ConstantRef};
 use crate::thread_pool::ThreadContext;
-use crate::type_infer::{ValueId as TypeId, TypeSystem, Reason, Args, AstVariantId, self};
+use crate::type_infer::{ValueId as TypeId, TypeSystem, Reason, Args, AstVariantId, self, Layout};
 use crate::typer::{AdditionalInfo, AdditionalInfoKind, FunctionArgUsage};
 use crate::types::{Type, TypeKind, IntTypeKind};
-
-mod context;
-use context::Context;
 
 /// Emit instructions for an Ast.
 pub fn emit<'a>(
@@ -28,7 +26,7 @@ pub fn emit<'a>(
     let mut ctx = Context {
         thread_context,
         instr: Vec::new(),
-        registers: Registers::new(),
+        registers: StackAllocator::new(),
         locals,
         types,
         program,
@@ -53,7 +51,7 @@ pub fn emit<'a>(
         UserDefinedRoutine {
             loc: ast.root().loc,
             instr: ctx.instr,
-            registers: ctx.registers,
+            stack: ctx.registers,
             result,
             label_locations: ctx.label_locations,
         },
@@ -76,7 +74,7 @@ pub fn emit_function_declaration<'a>(
     let mut ctx = Context {
         thread_context,
         instr: Vec::new(),
-        registers: Registers::new(),
+        registers: StackAllocator::new(),
         locals,
         types,
         program,
@@ -94,8 +92,9 @@ pub fn emit_function_declaration<'a>(
     debug_assert_eq!(function_type.kind(), &type_infer::TypeKind::Function);
 
     // Pretend there are actual values on the stack
-    let arg_values: Vec<_> = args.iter().skip(1).map(|&v| {
-        ctx.registers.create(ctx.types, v)
+    // @Performance
+    let arg_values: Vec<_> = args.to_vec().into_iter().skip(1).map(|v| {
+        ctx.create_reg(v)
     }).collect();
 
     let node = ast.get(node_id);
@@ -120,7 +119,7 @@ pub fn emit_function_declaration<'a>(
         loc,
         label_locations: ctx.label_locations,
         instr: ctx.instr,
-        registers: ctx.registers,
+        stack: ctx.registers,
         result,
     });
 
@@ -138,7 +137,7 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, mut node: NodeView<'a>) -> Value {
     let node_type_id = TypeId::Node(ctx.variant_id, node.id);
 
     match &node.kind {
-        NodeKind::Empty => ctx.registers.zst(),
+        NodeKind::Empty => Value::ZST,
         NodeKind::Break {
             label: label_id,
             num_defer_deduplications,
@@ -149,6 +148,8 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, mut node: NodeView<'a>) -> Value {
             let ir_label = label.ir_labels.as_ref().unwrap()[*num_defer_deduplications];
             let label_value = label.value.unwrap();
 
+            // @Temporary
+            let from_layout = *ctx.types.get(TypeId::Node(ctx.variant_id, value.id)).layout.unwrap();
             let from = emit_node(ctx, value);
 
             for defer_index in (ctx.locals.get_label(*label_id).defer_depth
@@ -158,10 +159,10 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, mut node: NodeView<'a>) -> Value {
                 emit_node(ctx, ctx.defers[defer_index].clone());
             }
 
-            ctx.emit_move(label_value, from);
+            ctx.emit_move(label_value, from, from_layout);
             ctx.emit_jump(ir_label);
 
-            ctx.registers.zst()
+            Value::ZST
         }
         NodeKind::For {
             is_const: Some(_),
@@ -173,23 +174,23 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, mut node: NodeView<'a>) -> Value {
 
             let end_label = ctx.create_label();
 
-            let to = ctx.registers.create(ctx.types, TypeId::Node(ctx.variant_id, node.id));
+            let (to, to_layout) = ctx.create_reg_and_layout(TypeId::Node(ctx.variant_id, node.id));
             ctx.locals.get_label_mut(*label).value = Some(to);
 
             // Set up iterator values
-            let i_value = ctx.registers.create(ctx.types, TypeId::Node(ctx.variant_id, i_value_decl.id));
-            ctx.emit_move_from_constant(i_value, &0_usize.to_le_bytes());
+            let i_value = ctx.create_reg(TypeId::Node(ctx.variant_id, i_value_decl.id));
+            ctx.emit_move_imm(i_value, 0_usize.to_le_bytes(), Layout::USIZE);
 
             let iterating_value = emit_node(ctx, iterating.clone());
-            let base_iterator_type = ctx.types.value_to_compiler_type(TypeId::Node(ctx.variant_id, iterating.id));
-            for (i, &variant_id) in variants.iter().enumerate() {
+            let mut iterating_value_fields = StructLayout::new(iterating_value.0);
+            for &variant_id in variants.iter() {
                 emit_declarative_lvalue(ctx, i_value_decl.clone(), i_value, true);
 
                 let [v_value_decl, body] = inner.children.as_array();
 
-                let temp_iterator_value = ctx.registers.create(ctx.types, TypeId::Node(variant_id, v_value_decl.id));
-                let (name, offset, _) = base_iterator_type.0.members[i];
-                ctx.emit_member(temp_iterator_value, iterating_value, Member { offset, name });
+                let (temp_iterator_value, field_layout) = ctx.create_reg_and_layout(TypeId::Node(variant_id, v_value_decl.id));
+                let field_offset = iterating_value_fields.next(field_layout);
+                ctx.emit_move(temp_iterator_value, get_member(iterating_value, field_offset), field_layout);
 
                 let old_variant_id = ctx.variant_id;
                 ctx.variant_id = variant_id;
@@ -197,11 +198,11 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, mut node: NodeView<'a>) -> Value {
                 emit_node(ctx, body);
                 ctx.variant_id = old_variant_id;
 
-                ctx.emit_increment(i_value);
+                ctx.emit_binary_imm_u64(BinaryOp::Add, i_value, i_value, 1);
             }
 
             let evaluate_to = emit_node(ctx, else_body);
-            ctx.emit_move(to, evaluate_to);
+            ctx.emit_move(to, evaluate_to, to_layout);
             ctx.define_label(end_label);
             evaluate_to
         }
@@ -213,15 +214,15 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, mut node: NodeView<'a>) -> Value {
             let [v_value_decl, body] = inner.children.as_array();
 
             let end_label = ctx.create_label();
-            let to = ctx.registers.create(ctx.types, TypeId::Node(ctx.variant_id, node.id));
+            let (to, to_layout) = ctx.create_reg_and_layout(TypeId::Node(ctx.variant_id, node.id));
             ctx.locals.get_label_mut(*label).value = Some(to);
             ctx.locals.get_label_mut(*label).ir_labels = Some(vec![end_label]);
 
             let mut iterating_value = emit_node(ctx, iterating.clone());
 
             // Set up iterator values
-            let i_value = ctx.registers.create(ctx.types, TypeId::Node(ctx.variant_id, i_value_decl.id));
-            ctx.emit_move_from_constant(i_value, &0_usize.to_le_bytes());
+            let i_value = ctx.create_reg(TypeId::Node(ctx.variant_id, i_value_decl.id));
+            ctx.emit_move_imm(i_value, 0_usize.to_le_bytes(), Layout::USIZE);
 
             let mut by_value = true;
 
@@ -230,6 +231,8 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, mut node: NodeView<'a>) -> Value {
                 iterator_type_id = ctx.types.get(iterator_type_id).args()[0];
                 by_value = false;
             }
+
+            let pointee_layout;
 
             let (current, end) = match ctx.types.get(iterator_type_id).kind() {
                 type_infer::TypeKind::Array => {
@@ -240,22 +243,22 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, mut node: NodeView<'a>) -> Value {
 
                     let ptr_to_array = if by_value {
                         let array_ptr_type_id = ctx.types.add_type(type_infer::TypeKind::Reference, type_infer::Args([(iterator_type_id, Reason::temp_zero())]), ());
-                        let temp = ctx.registers.create(ctx.types, array_ptr_type_id);
+                        let temp = ctx.create_reg(array_ptr_type_id);
                         ctx.emit_reference(temp, iterating_value);
                         temp
                     } else {
                         iterating_value
                     };
 
-                    let element_ptr_type = ctx.types.add_type(type_infer::TypeKind::Reference, type_infer::Args([(element_type, Reason::temp_zero())]), ());
-                    let first_element = ctx.registers.create(ctx.types, element_ptr_type);
-                    let last_element = ctx.registers.create(ctx.types, element_ptr_type);
-                    ctx.emit_bitcast(first_element, ptr_to_array);
+                    pointee_layout = *ctx.types.get(element_type).layout.unwrap();
 
-                    let usize_type = ctx.types.add_int(IntTypeKind::Usize, ());
-                    let len_reg = ctx.registers.create(ctx.types, usize_type);
-                    ctx.emit_global(len_reg, length);
-                    ctx.emit_binary(BinaryOp::Add, last_element, first_element, len_reg);
+                    let first_element = ctx.create_reg_with_layout(Layout::PTR);
+                    let last_element  = ctx.create_reg_with_layout(Layout::PTR);
+                    ctx.emit_move(first_element, ptr_to_array, Layout::PTR);
+
+                    let len_reg = ctx.create_reg_with_layout(Layout::USIZE);
+                    ctx.emit_global(len_reg, length, Layout::USIZE);
+                    ctx.emit_binary(BinaryOp::Add, last_element, first_element, len_reg, NumberType::U64);
 
                     (first_element, last_element)
                 }
@@ -263,52 +266,31 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, mut node: NodeView<'a>) -> Value {
                     let pointee = ctx.types.get(iterator_type_id).args()[0];
 
                     if !by_value {
-                        let new_iterating = ctx.registers.create(ctx.types, iterator_type_id);
-                        ctx.emit_dereference(new_iterating, iterating_value);
+                        let (new_iterating, layout) = ctx.create_reg_and_layout(iterator_type_id);
+                        ctx.emit_dereference(new_iterating, iterating_value, layout);
                         iterating_value = new_iterating;
                     }
 
-                    let iteration_type_id = ctx.types.add_type(type_infer::TypeKind::Reference, type_infer::Args([(pointee, type_infer::Reason::temp_zero())]), ());
+                    pointee_layout = *ctx.types.get(pointee).layout.unwrap();
 
-                    let current = ctx.registers.create(ctx.types, iteration_type_id);
-                    let end = ctx.registers.create(ctx.types, iteration_type_id);
+                    let current = ctx.create_reg_with_layout(Layout::PTR);
+                    let end     = ctx.create_reg_with_layout(Layout::PTR);
 
-                    ctx.emit_member(
-                        current,
-                        iterating_value,
-                        Member {
-                            offset: 0,
-                            name: "ptr".into(),
-                        },
-                    );
-
-                    let usize_type = ctx.types.add_int(IntTypeKind::Usize, ());
-                    let len = ctx
-                        .registers
-                        .create(ctx.types, usize_type);
-                    ctx.emit_member(
-                        len,
-                        iterating_value,
-                        Member {
-                            offset: 8,
-                            name: "len".into(),
-                        },
-                    );
-
-                    ctx.emit_binary(BinaryOp::Add, end, current, len);
+                    ctx.emit_move(current, get_member(iterating_value, 0), Layout::PTR);
+                    ctx.emit_move(end,     get_member(iterating_value, 0), Layout::PTR);
+                    ctx.emit_incr_ptr(end, get_member(iterating_value, 8), pointee_layout.size);
 
                     (current, end)
                 }
                 _ => unreachable!(),
             };
 
-            let bool_type = ctx.types.add_type(type_infer::TypeKind::Bool, Args([]), ());
-            let condition = ctx.registers.create(ctx.types, bool_type);
+            let condition = ctx.create_reg_with_layout(Layout::BOOL);
 
             let condition_label = ctx.create_label();
             ctx.define_label(condition_label);
 
-            ctx.emit_binary(BinaryOp::LessThan, condition, current, end);
+            ctx.emit_binary(BinaryOp::LessThan, condition, current, end, NumberType::U64);
 
             let else_body_label = ctx.create_label();
             ctx.emit_jump_if_zero(condition, else_body_label);
@@ -316,23 +298,23 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, mut node: NodeView<'a>) -> Value {
             emit_declarative_lvalue(ctx, i_value_decl, i_value, true);
 
             if by_value {
-                let temp = ctx.registers.create(ctx.types, TypeId::Node(ctx.variant_id, v_value_decl.id));
-                ctx.emit_dereference(temp, current);
+                let (temp, layout) = ctx.create_reg_and_layout(TypeId::Node(ctx.variant_id, v_value_decl.id));
+                ctx.emit_dereference(temp, current, layout);
                 emit_declarative_lvalue(ctx, v_value_decl, temp, true);
             } else {
                 emit_declarative_lvalue(ctx, v_value_decl, current, true);
             }
             emit_node(ctx, body);
-            ctx.emit_increment(current);
 
-            ctx.emit_increment(i_value);
+            ctx.emit_binary_imm_u64(BinaryOp::Add, current, current, pointee_layout.size as u64);
+            ctx.emit_binary_imm_u64(BinaryOp::Add, i_value, i_value, 1);
 
             ctx.emit_jump(condition_label);
 
             ctx.define_label(else_body_label);
 
             let else_body_from = emit_node(ctx, else_body);
-            ctx.emit_move(to, else_body_from);
+            ctx.emit_move(to, else_body_from, to_layout);
 
             ctx.define_label(end_label);
 
@@ -346,13 +328,13 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, mut node: NodeView<'a>) -> Value {
             let end_label = ctx.create_label();
             let else_body_label = ctx.create_label();
 
-            let to = ctx.registers.create(ctx.types, TypeId::Node(ctx.variant_id, node.id));
+            let (to, to_layout) = ctx.create_reg_and_layout(TypeId::Node(ctx.variant_id, node.id));
             let label = ctx.locals.get_label_mut(*label);
             label.value = Some(to);
             label.ir_labels = Some(vec![end_label]);
 
-            let i_value = ctx.registers.create(ctx.types, TypeId::Node(ctx.variant_id, i_value_decl.id)); 
-            ctx.emit_move_from_constant(i_value, &0_usize.to_le_bytes());
+            let i_value = ctx.create_reg(TypeId::Node(ctx.variant_id, i_value_decl.id)); 
+            ctx.emit_move_imm(i_value, 0_usize.to_le_bytes(), Layout::USIZE);
 
             // Condition
             let condition_label = ctx.create_label();
@@ -365,14 +347,14 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, mut node: NodeView<'a>) -> Value {
 
             // Loop body
             emit_node(ctx, body);
-            ctx.emit_increment(i_value);
+            ctx.emit_binary_imm_u64(BinaryOp::Add, i_value, i_value, 1);
             ctx.emit_jump(condition_label);
 
             // Else body
             ctx.define_label(else_body_label);
 
             let else_body_value = emit_node(ctx, else_body);
-            ctx.emit_move(to, else_body_value);
+            ctx.emit_move(to, else_body_value, to_layout);
 
             // End
             ctx.define_label(end_label);
@@ -391,17 +373,17 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, mut node: NodeView<'a>) -> Value {
 
             ctx.emit_jump_if_zero(condition, start_of_false_body);
 
-            let to = ctx.registers.create(ctx.types, TypeId::Node(ctx.variant_id, node.id));
+            let (to, to_layout) = ctx.create_reg_and_layout(TypeId::Node(ctx.variant_id, node.id));
 
             // True body
             let true_body = emit_node(ctx, true_body);
-            ctx.emit_move(to, true_body);
+            ctx.emit_move(to, true_body, to_layout);
             ctx.emit_jump(end_of_false_body);
 
             // False body
             ctx.define_label(start_of_false_body);
             let false_body = emit_node(ctx, false_body);
-            ctx.emit_move(to, false_body);
+            ctx.emit_move(to, false_body, to_layout);
 
             ctx.define_label(end_of_false_body);
 
@@ -418,59 +400,44 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, mut node: NodeView<'a>) -> Value {
                 } as *const _ as *const _,
             );
 
-            let to = ctx.registers.create(ctx.types, TypeId::Node(ctx.variant_id, node.id));
-            ctx.emit_global(to, ptr);
+            let (to, to_layout) = ctx.create_reg_and_layout(TypeId::Node(ctx.variant_id, node.id));
+            ctx.emit_global(to, ptr, to_layout);
             to
         }
         NodeKind::Literal(Literal::Int(num)) => {
-            let bytes = num.to_le_bytes();
-
-            let buffer = ctx.program.insert_buffer(ctx.types.value_to_compiler_type(TypeId::Node(ctx.variant_id, node.id)), bytes.as_ptr());
-
-            let to = ctx.registers.create(ctx.types, TypeId::Node(ctx.variant_id, node.id));
-            ctx.emit_global(to, buffer);
-
+            let (to, to_layout) = ctx.create_reg_and_layout(TypeId::Node(ctx.variant_id, node.id));
+            ctx.emit_move_imm(to, (*num as u64).to_le_bytes(), to_layout);
             to
         }
         &NodeKind::Literal(Literal::Float(num)) => {
-            let type_ = ctx.types.value_to_compiler_type(TypeId::Node(ctx.variant_id, node.id));
-            match type_.size() {
+            let (to, to_layout) = ctx.create_reg_and_layout(TypeId::Node(ctx.variant_id, node.id));
+            match to_layout.size {
                 4 => {
-                    let bytes = (num as f32).to_bits().to_le_bytes();
-
-                    let buffer = ctx.program.insert_buffer(type_, bytes.as_ptr());
-
-                    let to = ctx.registers.create(ctx.types, TypeId::Node(ctx.variant_id, node.id));
-                    ctx.emit_global(to, buffer);
-
-                    to
+                    let bytes = ((num as f32).to_bits() as u64).to_le_bytes();
+                    ctx.emit_move_imm(to, bytes, to_layout);
                 }
                 8 => {
                     let bytes = num.to_bits().to_le_bytes();
-
-                    let buffer = ctx.program.insert_buffer(type_, bytes.as_ptr());
-
-                    let to = ctx.registers.create(ctx.types, TypeId::Node(ctx.variant_id, node.id));
-                    ctx.emit_global(to, buffer);
-
-                    to
+                    ctx.emit_move_imm(to, bytes, to_layout);
                 }
                 _ => unreachable!(),
             }
+
+            to
         }
         NodeKind::Zeroed => {
-            let to = ctx.registers.create(ctx.types, TypeId::Node(ctx.variant_id, node.id));
-            ctx.emit_set_to_zero(to);
+            let (to, to_layout) = ctx.create_reg_and_layout(TypeId::Node(ctx.variant_id, node.id));
+            ctx.emit_set_to_zero(to, to_layout);
             to
         }
         NodeKind::Uninit => {
             // We don't need an instruction to initialize the memory, because it's uninit!
-            ctx.registers.create(ctx.types, TypeId::Node(ctx.variant_id, node.id))
+            ctx.create_reg(TypeId::Node(ctx.variant_id, node.id))
         }
         NodeKind::Cast => {
             let [value] = node.children.as_array();
             let from = emit_node(ctx, value.clone());
-            let to = ctx.registers.create(ctx.types, TypeId::Node(ctx.variant_id, node.id));
+            let to = ctx.create_reg(TypeId::Node(ctx.variant_id, node.id));
 
             // Get the types of the values
             let node_type = ctx.types.get(TypeId::Node(ctx.variant_id, node.id));
@@ -478,54 +445,24 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, mut node: NodeView<'a>) -> Value {
 
             match (node_type.kind, value_type.kind) {
                 (
-                    Some(type_infer::Type { kind: type_infer::TypeKind::Int, args: Some(to_args) }),
+                    Some(type_infer::Type { kind: type_infer::TypeKind::Int, args: Some(_) }),
                     Some(type_infer::Type { kind: type_infer::TypeKind::Int, args: Some(_) }),
                 ) => {
-                    let is_signed_to = 0 < unsafe { *ctx.types.extract_constant_temp(to_args[0]).unwrap().as_ptr().cast::<u8>() };
-                    let to_size = node_type.layout.unwrap().size;
-                    let from_size = value_type.layout.unwrap().size;
+                    let to_number = ctx.to_number_type(TypeId::Node(ctx.variant_id, node.id));
+                    let from_number = ctx.to_number_type(TypeId::Node(ctx.variant_id, value.id));
 
-                    if to_size <= from_size {
-                        ctx.emit_truncate_int(to, from, to_size as u8);
-                    } else {
-                        ctx.emit_extend_int(to, from, to_size as u8, from_size as u8, is_signed_to);
-                    }
+                    ctx.emit_convert_num(to, to_number, from, from_number);
                 }
                 (
-                    Some(type_infer::Type { kind: type_infer::TypeKind::Buffer, args: Some(buf_args) }),
+                    Some(type_infer::Type { kind: type_infer::TypeKind::Buffer, args: Some(_) }),
                     Some(type_infer::Type { kind: type_infer::TypeKind::Reference, args: Some(from_args) })
                 ) => {
                     match ctx.types.get(from_args[0]).kind {
                         Some(type_infer::Type { kind: type_infer::TypeKind::Array, args: Some(array_args) }) => {
-                            let buf_args_0 = buf_args[0];
-
                             let length = ctx.types.extract_constant_temp(array_args[1]).unwrap();
-                            let usize_type = ctx.types.add_int(IntTypeKind::Usize, ());
-                            let len_reg = ctx.registers.create(ctx.types, usize_type);
 
-                            // @HACK: Yuck!!!
-                            let temp_ptr_type = ctx.types.add_type(type_infer::TypeKind::Reference, type_infer::Args([(buf_args_0, Reason::temp_zero())]), ());
-                            let temp_ptr = ctx.registers.create(ctx.types, temp_ptr_type);
-
-                            ctx.emit_global(len_reg, length);
-                            ctx.emit_bitcast(temp_ptr, from);
-
-                            ctx.emit_move_to_member_of_value(
-                                to,
-                                temp_ptr,
-                                Member {
-                                    offset: 0,
-                                    name: "ptr".into(),
-                                },
-                            );
-                            ctx.emit_move_to_member_of_value(
-                                to,
-                                len_reg,
-                                Member {
-                                    offset: 8,
-                                    name: "len".into(),
-                                },
-                            );
+                            ctx.emit_move(get_member(to, 0), from, Layout::PTR);
+                            ctx.emit_global(get_member(to, 8), length, Layout::USIZE);
                         }
                         _ => unreachable!("Internal error: Invalid types for cast reached emission"),
                     }
@@ -534,8 +471,7 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, mut node: NodeView<'a>) -> Value {
                     Some(type_infer::Type { kind: type_infer::TypeKind::Reference, .. }),
                     Some(type_infer::Type { kind: type_infer::TypeKind::Reference, .. }),
                 ) => {
-                    // References are the same layout, we just do the same as with bitcast.
-                    ctx.emit_bitcast(to, from);
+                    ctx.emit_move(to, from, Layout::PTR);
                 }
                 _ => unreachable!("Internal error: Invalid types for cast reached emission"),
             }
@@ -544,10 +480,7 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, mut node: NodeView<'a>) -> Value {
         }
         NodeKind::BitCast => {
             let [value] = node.children.as_array();
-            let from = emit_node(ctx, value);
-            let to = ctx.registers.create(ctx.types, TypeId::Node(ctx.variant_id, node.id));
-            ctx.emit_move(to, from);
-            to
+            emit_node(ctx, value)
         }
         NodeKind::Constant(bytes, _) => {
             if let type_infer::TypeKind::Function { .. } = ctx.types.get(TypeId::Node(ctx.variant_id, node.id)).kind() {
@@ -557,36 +490,35 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, mut node: NodeView<'a>) -> Value {
                 }
             }
 
-            let to = ctx.registers.create(ctx.types, TypeId::Node(ctx.variant_id, node.id));
-            ctx.emit_global(to, *bytes);
+            let (to, to_layout) = ctx.create_reg_and_layout(TypeId::Node(ctx.variant_id, node.id));
+            ctx.emit_global(to, *bytes, to_layout);
 
             to
         }
         NodeKind::Member { name } => {
             let [of] = node.children.as_array();
+            let (to, to_layout) = ctx.create_reg_and_layout(TypeId::Node(ctx.variant_id, node.id));
+
             let mut of_type_id = TypeId::Node(ctx.variant_id, of.id);
-            let to = ctx.registers.create(ctx.types, TypeId::Node(ctx.variant_id, node.id));
             let mut of = emit_node(ctx, of);
             if let Some(type_infer::Type { kind: type_infer::TypeKind::Reference, args }) = ctx.types.get(of_type_id).kind {
                 of_type_id = args.as_ref().unwrap()[0];
-                let new_reg = ctx.registers.create(ctx.types, of_type_id);
-                ctx.emit_dereference(new_reg, of);
+                let (new_reg, layout) = ctx.create_reg_and_layout(of_type_id);
+                ctx.emit_dereference(new_reg, of, layout);
                 of = new_reg;
             }
 
-            let Some(member) = of.type_().member(*name) else {
-                unreachable!("Type {} doesn't have member {}, but it got through the typer", of.type_(), *name)
+            let of_type = ctx.types.value_to_compiler_type(of_type_id);
+            let Some(member) = of_type.member(*name) else {
+                unreachable!("Type {} doesn't have member {}, but it got through the typer", of_type, *name)
             };
 
             debug_assert_eq!(member.indirections, 1);
 
-            ctx.emit_member(
+            ctx.emit_move(
                 to,
-                of,
-                Member {
-                    offset: member.byte_offset,
-                    name: *name,
-                },
+                get_member(of, member.byte_offset),
+                to_layout,
             );
             to
         }
@@ -597,42 +529,54 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, mut node: NodeView<'a>) -> Value {
             let from = emit_node(ctx, from);
             emit_declarative_lvalue(ctx, to, from, false);
 
-            let empty_result = ctx.registers.zst();
+            let empty_result = Value::ZST;
             empty_result
         }
         NodeKind::Binary { op } => {
             let [left, right] = node.children.as_array();
-            let to = ctx.registers.create(ctx.types, TypeId::Node(ctx.variant_id, node.id));
+            let to = ctx.create_reg(TypeId::Node(ctx.variant_id, node.id));
 
             let a = emit_node(ctx, left);
             let b = emit_node(ctx, right);
 
-            ctx.emit_binary(*op, to, a, b);
+            let type_id = TypeId::Node(ctx.variant_id, left.id);
+            let type_ = ctx.types.get(type_id);
+            if let type_infer::TypeKind::Reference = type_.kind() {
+                let pointee_id = type_.args()[0];
+                let pointee_layout = *ctx.types.get(pointee_id).layout.unwrap();
+                ctx.emit_binary_imm_u64(BinaryOp::Mult, b, b, pointee_layout.size as u64);
+                ctx.emit_binary(*op, to, a, b, NumberType::U64);
+            } else {
+                let number_type = ctx.to_number_type(TypeId::Node(ctx.variant_id, left.id));
+                ctx.emit_binary(*op, to, a, b, number_type);
+            }
 
             to
         }
         NodeKind::Tuple => {
-            let to = ctx.registers.create(ctx.types, TypeId::Node(ctx.variant_id, node.id));
-            let base_type = ctx.types.value_to_compiler_type(TypeId::Node(ctx.variant_id, node.id));
+            let to = ctx.create_reg(node_type_id);
 
-            for (i, child) in node.children.into_iter().enumerate() {
+            let mut fields = StructLayout::new(0);
+            for child in node.children.into_iter() {
+                let child_layout = *ctx.types.get(TypeId::Node(ctx.variant_id, child.id)).layout.unwrap();
                 let child_value = emit_node(ctx, child);
 
-                let (name, offset, _) = base_type.0.members[i];
-                ctx.emit_move_to_member_of_value(to, child_value, Member { offset, name });
+                let offset = fields.next(child_layout);
+                ctx.emit_move(get_member(to, offset), child_value, child_layout);
             }
 
             to
         }
         NodeKind::ArrayLiteral => {
-            let to = ctx.registers.create(ctx.types, TypeId::Node(ctx.variant_id, node.id));
-            let base_type = ctx.types.value_to_compiler_type(TypeId::Node(ctx.variant_id, node.id));
+            let to = ctx.create_reg(node_type_id);
 
-            for (i, child) in node.children.into_iter().enumerate() {
+            let mut offset = 0;
+            for child in node.children.into_iter() {
+                let child_layout = *ctx.types.get(TypeId::Node(ctx.variant_id, child.id)).layout.unwrap();
                 let child_value = emit_node(ctx, child);
 
-                let (name, offset, _) = base_type.0.members[i];
-                ctx.emit_move_to_member_of_value(to, child_value, Member { offset, name });
+                ctx.emit_move(get_member(to, offset), child_value, child_layout);
+                offset += child_layout.size;
             }
 
             to
@@ -645,16 +589,17 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, mut node: NodeView<'a>) -> Value {
             op: UnaryOp::Dereference,
         } => {
             let [operand] = node.children.as_array();
-            let to = ctx.registers.create(ctx.types, TypeId::Node(ctx.variant_id, node.id));
+            let (to, layout) = ctx.create_reg_and_layout(TypeId::Node(ctx.variant_id, node.id));
             let from = emit_node(ctx, operand);
-            ctx.emit_dereference(to, from);
+            ctx.emit_dereference(to, from, layout);
             to
         }
         NodeKind::Unary { op } => {
             let [operand] = node.children.as_array();
-            let to = ctx.registers.create(ctx.types, TypeId::Node(ctx.variant_id, node.id));
+            let to = ctx.create_reg(TypeId::Node(ctx.variant_id, node.id));
             let from = emit_node(ctx, operand);
-            ctx.emit_unary(*op, to, from);
+            let number_type = ctx.to_number_type(TypeId::Node(ctx.variant_id, operand.id));
+            ctx.emit_unary(*op, to, from, number_type);
             to
         }
         NodeKind::Local { local_id, .. } => {
@@ -672,12 +617,12 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, mut node: NodeView<'a>) -> Value {
         NodeKind::Defer => {
             let [deferring] = node.children.as_array();
             ctx.defers.push(deferring);
-            ctx.registers.zst()
+            Value::ZST
         }
         NodeKind::Block { label } => {
             let num_defers_at_start = ctx.defers.len();
 
-            let to = ctx.registers.create(ctx.types, TypeId::Node(ctx.variant_id, node.id));
+            let (to, to_layout) = ctx.create_reg_and_layout(TypeId::Node(ctx.variant_id, node.id));
 
             if let Some(label) = *label {
                 let ir_labels = (0..=ctx.locals.get_label(label).num_defers)
@@ -688,7 +633,7 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, mut node: NodeView<'a>) -> Value {
                 label_ref.value = Some(to);
             }
 
-            let head = ctx.registers.get_head();
+            let head = ctx.registers.head;
 
             let mut children = node.children.into_iter();
             for content in children.by_ref().take(node.children.len() - 1) {
@@ -696,7 +641,7 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, mut node: NodeView<'a>) -> Value {
             }
 
             let from = emit_node(ctx, children.next().unwrap());
-            ctx.emit_move(to, from);
+            ctx.emit_move(to, from, to_layout);
 
             for (i, defer_index) in (num_defers_at_start..ctx.defers.len()).enumerate().rev() {
                 if let Some(label) = *label {
@@ -715,7 +660,7 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, mut node: NodeView<'a>) -> Value {
 
             ctx.defers.truncate(num_defers_at_start);
 
-            ctx.registers.set_head(head);
+            ctx.registers.head = head;
             to
         }
         NodeKind::ResolvedGlobal(id, _) => {
@@ -728,19 +673,20 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, mut node: NodeView<'a>) -> Value {
                 }
             }
 
-            let to = ctx.registers.create(ctx.types, TypeId::Node(ctx.variant_id, node.id));
-            ctx.emit_global(to, ptr);
+            let (to, to_layout) = ctx.create_reg_and_layout(TypeId::Node(ctx.variant_id, node.id));
+            ctx.emit_global(to, ptr, to_layout);
             to
         }
         NodeKind::FunctionCall => {
             let mut children = node.children.into_iter();
             let calling_node = children.next().unwrap();
 
-            let to = ctx.registers.create_min_align(ctx.types.value_to_compiler_type(TypeId::Node(ctx.variant_id, node.id)), 8);
+            let (to, to_layout) = ctx.create_reg_and_layout(TypeId::Node(ctx.variant_id, node.id));
             let calling = emit_node(ctx, calling_node.clone());
             let calling_type = ctx.types.get(TypeId::Node(ctx.variant_id, calling_node.id));
-            let output_args = calling_type.args().iter().skip(1).map(|&v| {
-                ctx.registers.create(ctx.types, v)
+            // @Performance
+            let output_args = calling_type.args().to_vec().into_iter().skip(1).map(|v| {
+                ctx.create_reg_and_layout(v)
             }).collect::<Vec<_>>();
 
             if let Some(AdditionalInfoKind::FunctionCall(args)) = ctx.additional_info.get(&(ctx.variant_id, node.id)) {
@@ -751,31 +697,36 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, mut node: NodeView<'a>) -> Value {
                             let [_, right] = node.children.into_array();
                             let given = emit_node(ctx, right);
 
-                            ctx.emit_move(output_args[function_arg], given);
+                            let (to, to_layout) = output_args[function_arg];
+                            ctx.emit_move(to, given, to_layout);
                         }
                         FunctionArgUsage::Value { function_arg } => {
                             let given = emit_node(ctx, node);
 
-                            ctx.emit_move(output_args[function_arg], given);
+                            let (to, to_layout) = output_args[function_arg];
+                            ctx.emit_move(to, given, to_layout);
                         }
                         FunctionArgUsage::TupleElement { function_arg, field } => {
                             let given = emit_node(ctx, node);
 
                             let calling_type = ctx.types.get(TypeId::Node(ctx.variant_id, calling_node.id));
                             let arg_type_id = calling_type.args()[function_arg + 1];
-                            let (name, offset, _) = ctx.types.value_to_compiler_type(arg_type_id).0.members[field];
-                            ctx.emit_move_to_member_of_value(output_args[function_arg], given, Member { offset, name });
+                            let (_, offset, arg_type_) = ctx.types.value_to_compiler_type(arg_type_id).0.members[field];
+                            let to_layout = Layout { size: arg_type_.size(), align: arg_type_.align() };
+
+                            let (to, _) = output_args[function_arg];
+                            ctx.emit_move(get_member(to, offset), given, to_layout);
                         }
                     }
                 }
             } else {
-                for (to, node) in output_args.iter().zip(children) {
+                for (&(to, to_layout), node) in output_args.iter().zip(children) {
                     let given = emit_node(ctx, node);
-                    ctx.emit_move(*to, given);
+                    ctx.emit_move(to, given, to_layout);
                 }
             }
 
-            ctx.emit_call(to, calling, output_args, calling_node.loc);
+            ctx.emit_call((to, to_layout), calling, output_args, calling_node.loc);
 
             to
         }
@@ -792,8 +743,8 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, mut node: NodeView<'a>) -> Value {
             let inner_type = TypeId::Node(ctx.variant_id, inner.id);
             let size = ctx.types.get(inner_type).layout.unwrap().size;
 
-            let to = ctx.registers.create(ctx.types, node_type_id);
-            ctx.emit_move_from_constant(to, &size.to_le_bytes());
+            let to = ctx.create_reg(node_type_id);
+            ctx.emit_move_imm(to, size.to_le_bytes(), Layout::USIZE);
             to
         }
         NodeKind::TypeAsValue => {
@@ -802,15 +753,15 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, mut node: NodeView<'a>) -> Value {
             let compiler_type = ctx.types.value_to_compiler_type(inner_type);
             let constant_ref = ctx.program.insert_buffer(Type::new(TypeKind::Type), &compiler_type as *const _ as *const u8);
 
-            let to = ctx.registers.create(ctx.types, node_type_id);
-            ctx.emit_global(to, constant_ref);
+            let (to, to_layout) = ctx.create_reg_and_layout(node_type_id);
+            ctx.emit_global(to, constant_ref, to_layout);
             to
         }
         NodeKind::PolymorphicArgument(_) => {
             let &AdditionalInfoKind::Constant(constant) = &ctx.additional_info[&(ctx.variant_id, node.id)] else { panic!() };
             let inner_type = TypeId::Node(ctx.variant_id, node.id);
-            let to = ctx.registers.create(ctx.types, inner_type);
-            ctx.emit_global(to, constant);
+            let (to, to_layout) = ctx.create_reg_and_layout(inner_type);
+            ctx.emit_global(to, constant, to_layout);
             to
         }
         NodeKind::If {
@@ -837,8 +788,8 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, mut node: NodeView<'a>) -> Value {
                 }
             }
 
-            let to = ctx.registers.create(ctx.types, TypeId::Node(ctx.variant_id, node.id));
-            ctx.emit_global(to, ptr);
+            let (to, to_layout) = ctx.create_reg_and_layout(TypeId::Node(ctx.variant_id, node.id));
+            ctx.emit_global(to, ptr, to_layout);
             to
         }
         NodeKind::BuiltinFunction(_) | NodeKind::FunctionDeclaration { .. } => {
@@ -848,18 +799,16 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, mut node: NodeView<'a>) -> Value {
             let compiler_type = ctx.types.value_to_compiler_type(inner_type);
             let constant_ref = ctx.program.insert_buffer(compiler_type, &id as *const _ as *const u8);
 
-            let to = ctx.registers.create(ctx.types, inner_type);
-            ctx.emit_global(to, constant_ref);
+            let (to, to_layout) = ctx.create_reg_and_layout(inner_type);
+            ctx.emit_global(to, constant_ref, to_layout);
             to
         }
         NodeKind::Is => {
-            let to = ctx.registers.create(ctx.types, node_type_id);
+            let to = ctx.create_reg(node_type_id);
            
             let &AdditionalInfoKind::IsExpression(comparison_id) = &ctx.additional_info[&(ctx.variant_id, node.id)] else { panic!() };
             let value = ctx.types.get_comparison_result(comparison_id);
-            let compiler_type = ctx.types.value_to_compiler_type(node_type_id);
-            let constant_ref = ctx.program.insert_buffer(compiler_type, &(value as u8) as *const u8);
-            ctx.emit_global(to, constant_ref);
+            ctx.emit_move_imm(to, (value as u64).to_le_bytes(), Layout::BOOL);
             to
         }
         c => unreachable!("This node should not reach emission: {:?}", c),
@@ -873,13 +822,15 @@ fn emit_declarative_lvalue<'a>(
     is_declaring: bool,
 ) {
     ctx.emit_debug(node.loc);
+    let node_type_id = TypeId::Node(ctx.variant_id, node.id);
 
     match &node.kind {
         NodeKind::Member { .. } => {
             debug_assert!(!is_declaring);
 
             let to = emit_lvalue(ctx, false, node);
-            ctx.emit_indirect_move(to, from);
+            let layout = *ctx.types.get(node_type_id).layout.unwrap();
+            ctx.emit_indirect_move(to, from, layout);
         }
         NodeKind::Binary { op: BinaryOp::BitAnd } => {
             let [left, right] = node.children.into_array();
@@ -893,13 +844,12 @@ fn emit_declarative_lvalue<'a>(
             emit_declarative_lvalue(ctx, value, from, true);
         }
         NodeKind::Tuple => {
-            let base_type = ctx.types.value_to_compiler_type(TypeId::Node(ctx.variant_id, node.id));
-
             let mut temp = Vec::with_capacity(node.children.len());
-            for (i, child) in node.children.into_iter().enumerate() {
-                let to = ctx.registers.create(ctx.types, TypeId::Node(ctx.variant_id, child.id));
-                let (name, offset, _) = base_type.0.members[i];
-                ctx.emit_member(to, from, Member { offset, name });
+            let mut child_layouting = StructLayout::new(0);
+            for child in node.children.into_iter() {
+                let (to, child_layout) = ctx.create_reg_and_layout(TypeId::Node(ctx.variant_id, child.id));
+                let offset = child_layouting.next(child_layout);
+                ctx.emit_move(to, get_member(from, offset), child_layout);
                 temp.push(to);
             }
 
@@ -908,13 +858,12 @@ fn emit_declarative_lvalue<'a>(
             }
         }
         NodeKind::ArrayLiteral => {
-            let base_type = ctx.types.value_to_compiler_type(TypeId::Node(ctx.variant_id, node.id));
-
             let mut temp = Vec::with_capacity(node.children.len());
-            for (i, child) in node.children.into_iter().enumerate() {
-                let to = ctx.registers.create(ctx.types, TypeId::Node(ctx.variant_id, child.id));
-                let (name, offset, _) = base_type.0.members[i];
-                ctx.emit_member(to, from, Member { offset, name });
+            let mut offset = 0;
+            for child in node.children.into_iter() {
+                let (to, child_layout) = ctx.create_reg_and_layout(TypeId::Node(ctx.variant_id, child.id));
+                ctx.emit_move(to, get_member(from, offset), child_layout);
+                offset += child_layout.size;
                 temp.push(to);
             }
 
@@ -928,17 +877,21 @@ fn emit_declarative_lvalue<'a>(
             debug_assert!(!is_declaring);
             let [operand] = node.children.as_array();
             let pointer = emit_node(ctx, operand);
-            ctx.emit_indirect_move(pointer, from);
+            let layout = *ctx.types.get(node_type_id).layout.unwrap();
+            ctx.emit_indirect_move(pointer, from, layout);
         }
         NodeKind::Local { local_id, .. } => {
             if is_declaring {
+                let local = ctx.locals.get(*local_id);
+                let type_id = TypeId::Node(ctx.variant_id, local.declared_at.unwrap());
+                let (local_value, local_value_layout) = ctx.create_reg_and_layout(type_id);
                 let local = ctx.locals.get_mut(*local_id);
-                let local_value = ctx.registers.create_with_name(ctx.types, TypeId::Node(ctx.variant_id, local.declared_at.unwrap()), Some(local.name));
                 local.value = Some(local_value);
-                ctx.emit_move(local_value, from);
+                ctx.emit_move(local_value, from, local_value_layout);
             } else {
                 let to = ctx.locals.get(*local_id).value.unwrap();
-                ctx.emit_move(to, from);
+                let layout = *ctx.types.get(node_type_id).layout.unwrap();
+                ctx.emit_move(to, from, layout);
             }
         }
         NodeKind::Parenthesis => {
@@ -985,8 +938,9 @@ fn emit_lvalue<'a>(
 
             let member = base_type.member(*name).expect("This should have already been made sure to exist in the typer");
 
-            let to = ctx.registers.create(ctx.types, ref_type_id);
-            ctx.emit_pointer_to_member_of_pointer(to, parent_value, Member { offset: member.byte_offset, name: *name });
+            let to = ctx.create_reg(ref_type_id);
+
+            ctx.emit_binary_imm_u64(BinaryOp::Add, to, parent_value, member.byte_offset as u64);
             to
         }
         NodeKind::Unary {
@@ -996,13 +950,13 @@ fn emit_lvalue<'a>(
             emit_node(ctx, operand)
         }
         NodeKind::Local { local_id, .. } => {
-            let to = ctx.registers.create(ctx.types, ref_type_id);
+            let to = ctx.create_reg(ref_type_id);
             let from = ctx.locals.get(*local_id).value.unwrap();
             ctx.emit_reference(to, from);
             to
         }
         NodeKind::ResolvedGlobal(id, _) => {
-            let to = ctx.registers.create(ctx.types, ref_type_id);
+            let to = ctx.create_reg(ref_type_id);
             let (from_ref, from_type) = ctx.program.get_member_value(*id);
             ctx.emit_ref_to_global(to, from_ref, from_type);
             to
@@ -1017,7 +971,7 @@ fn emit_lvalue<'a>(
         }
         kind => {
             if can_reference_temporaries {
-                let to = ctx.registers.create(ctx.types, ref_type_id);
+                let to = ctx.create_reg(ref_type_id);
                 let from = emit_node(ctx, node);
                 ctx.emit_reference(to, from);
                 to
@@ -1029,4 +983,214 @@ fn emit_lvalue<'a>(
             }
         }
     }
+}
+
+pub struct Context<'a, 'b> {
+    pub thread_context: &'a mut ThreadContext<'b>,
+    pub instr: Vec<Instr>,
+    pub registers: StackAllocator,
+    pub locals: &'a mut LocalVariables,
+    pub program: &'b Program,
+    pub types: &'a mut TypeSystem,
+    pub label_locations: Vec<usize>,
+    pub calling: Vec<FunctionId>,
+    pub last_location: Option<Location>,
+    pub variant_id: AstVariantId,
+    pub additional_info: &'a AdditionalInfo,
+
+    pub defers: Vec<NodeView<'a>>,
+}
+
+impl Context<'_, '_> {
+    pub fn emit_debug(&mut self, loc: Location) {
+        if self.program.arguments.debug {
+            if let Some(last_location) = self.last_location {
+                if last_location.file == loc.file && last_location.line == loc.line {
+                    return;
+                }
+            }
+
+            self.instr.push(Instr::DebugLocation(loc));
+        }
+    }
+
+    fn create_reg_and_layout(&mut self, type_id: TypeId) -> (Value, Layout) {
+        let layout = *self.types.get(type_id).layout.unwrap();
+
+        (
+            self.create_reg_with_layout(layout),
+            layout
+        )
+    }
+
+    fn create_reg(&mut self, type_id: TypeId) -> Value {
+        self.create_reg_and_layout(type_id).0
+    }
+
+    fn create_reg_with_layout(&mut self, layout: Layout) -> Value {
+        debug_assert!(layout.align > 0, "Incomplete layout");
+
+        if layout.size == 0 {
+            Value::ZST
+        } else {
+            self.registers.create(layout.align, layout.size)
+        }
+    }
+
+    fn create_label(&mut self) -> LabelId {
+        let id = LabelId(self.label_locations.len());
+        self.label_locations.push(0xffff_ffff);
+        id
+    }
+
+    fn define_label(&mut self, label_id: LabelId) {
+        self.label_locations[label_id.0] = self.instr.len();
+        self.instr.push(Instr::LabelDefinition(label_id));
+    }
+
+    fn emit_global(&mut self, to: Value, global: ConstantRef, layout: Layout) {
+        if layout.size != 0 {
+            let temp = self.create_reg_with_layout(Layout::PTR);
+            self.instr.push(Instr::RefGlobal { to_ptr: temp, global });
+            self.instr.push(Instr::Dereference { to, from_ptr: temp, size: layout.size });
+        }
+    }
+
+    fn emit_ref_to_global(&mut self, to_ptr: Value, global: ConstantRef, type_: crate::types::Type) {
+        if type_.size() != 0 {
+            println!("{}", crate::program::constant_to_str(type_, global, 0));
+            self.instr.push(Instr::RefGlobal { to_ptr, global });
+        }
+    }
+
+    fn emit_jump_if_zero(&mut self, condition: Value, to: LabelId) {
+        self.instr.push(Instr::JumpIfZero { condition, to });
+    }
+
+    fn emit_jump(&mut self, to: LabelId) {
+        self.instr.push(Instr::Jump { to });
+    }
+
+    fn emit_set_to_zero(&mut self, to_ptr: Value, layout: Layout) {
+        self.instr.push(Instr::SetToZero { to_ptr, size: layout.size });
+    }
+
+    fn emit_convert_num(&mut self, to: Value, to_number: NumberType, from: Value, from_number: NumberType) {
+        self.instr.push(Instr::ConvertNum { to, to_number, from, from_number });
+    }
+
+    fn emit_member(&mut self, to: Value, of: Value, member_offset: usize, size: usize) {
+        if size != 0 {
+            let member = Value(of.0 + member_offset);
+            self.instr.push(Instr::Move { to, from: member, size });
+        }
+    }
+
+    fn emit_reference(&mut self, to: Value, from: Value) {
+        self.instr.push(Instr::StackPtr { to, take_pointer_to: from });
+    }
+
+    fn emit_dereference(&mut self, to: Value, from_ptr: Value, layout: Layout) {
+        if layout.size != 0 {
+            self.instr.push(Instr::Dereference { to, from_ptr, size: layout.size });
+        }
+    }
+
+    fn emit_move_imm(&mut self, to: Value, from: [u8; 8], layout: Layout) {
+        if layout.size != 0 {
+            self.instr.push(Instr::MoveImm {
+                to,
+                from,
+                size: layout.size,
+            });
+        }
+    }
+
+    fn emit_move(&mut self, to: Value, from: Value, layout: Layout) {
+        if layout.size != 0 {
+            self.instr.push(Instr::Move {
+                to,
+                from,
+                size: layout.size,
+            });
+        }
+    }
+
+    fn emit_indirect_move(&mut self, to_ptr: Value, from: Value, layout: Layout) {
+        if layout.size != 0 {
+            self.instr.push(Instr::IndirectMove {
+                to_ptr,
+                from,
+                size: layout.size,
+            });
+        }
+    }
+
+    fn emit_call(&mut self, to: (Value, Layout), pointer: Value, args: Vec<(Value, Layout)>, loc: Location) {
+        self.instr.push(Instr::Call { to, pointer, args, loc });
+    }
+
+    fn emit_unary(&mut self, op: UnaryOp, to: Value, from: Value, type_: NumberType) {
+        self.instr.push(Instr::Unary { op, to, from, type_ });
+    }
+
+    fn emit_binary_imm_u64(&mut self, op: BinaryOp, to: Value, a: Value, b: u64) {
+        self.instr.push(Instr::BinaryImm { to, a, b, op, type_: NumberType::U64 });
+    }
+
+    fn emit_binary(&mut self, op: BinaryOp, to: Value, a: Value, b: Value, type_: NumberType) {
+        self.instr.push(Instr::Binary { to, a, b, op, type_ });
+    }
+
+    fn emit_incr_ptr(&mut self, to: Value, amount: Value, scale: usize) {
+        self.instr.push(Instr::IncrPtr { to, amount, scale });
+    }
+
+    fn to_number_type(&self, type_id: TypeId) -> NumberType {
+        let type_ = self.types.get(type_id);
+        match type_.kind() {
+            type_infer::TypeKind::Int => {
+                let signed = self.types.extract_constant_temp(type_.args()[0]).unwrap();
+                let size   = self.types.extract_constant_temp(type_.args()[1]).unwrap();
+
+                let signed_value = unsafe { *signed.as_ptr().cast::<u8>() > 0 };
+                let size_value = unsafe { *size.as_ptr().cast::<u8>() };
+
+                match (signed_value, size_value) {
+                    (true, 0) => NumberType::I64,
+                    (true, 1) => NumberType::I8,
+                    (true, 2) => NumberType::I16,
+                    (true, 4) => NumberType::I32,
+                    (true, 8) => NumberType::I64,
+                    (false, 0) => NumberType::U64,
+                    (false, 1) => NumberType::U8,
+                    (false, 2) => NumberType::U16,
+                    (false, 4) => NumberType::U32,
+                    (false, 8) => NumberType::U64,
+                    _ => unreachable!(),
+                }
+            }
+            type_infer::TypeKind::Float => {
+                let size = self.types.extract_constant_temp(type_.args()[0]).unwrap();
+                let size_value = unsafe { *size.as_ptr().cast::<u8>() };
+
+                match size_value {
+                    4 => NumberType::F32,
+                    8 => NumberType::F64,
+                    _ => unreachable!(),
+                }
+            }
+            type_infer::TypeKind::Reference => {
+                NumberType::U64
+            }
+            type_infer::TypeKind::Bool => {
+                NumberType::U8
+            }
+            c => unreachable!("{:?}", c),
+        }
+    }
+}
+
+fn get_member(value: Value, offset: usize) -> Value {
+    Value(value.0 + offset)
 }

@@ -2,7 +2,7 @@ use crate::dependencies::{DepKind, DependencyList, MemberDep};
 use crate::errors::ErrorCtx;
 use crate::location::Location;
 use crate::type_infer::{AstVariantId, ValueId as TypeId};
-use crate::backend::{Backends, BackendEmitters};
+use crate::backend::BackendEmitters;
 use crate::program::{Program, ScopeId, Task};
 use bumpalo::Bump;
 // use crossbeam::queue::SegQueue;

@@ -1,7 +1,6 @@
-import "tests/main.bo";
+#no_base:
 
 #entry fn() {
-    print("The number is % :)\n", 0 : u64);
 };
 
 // TODO:

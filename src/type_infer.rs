@@ -519,12 +519,19 @@ pub struct ValueWrapper {
     next_in_structure_group: ValueId,
 }
 
-#[derive(Default, Clone, Copy)]
+#[derive(Debug, Default, Clone, Copy)]
 pub struct Layout {
     pub size: usize,
     // An align of zero means that the size hasn't been calculated yet, and the number is how many children types
     // have to be known.
     pub align: usize,
+}
+
+impl Layout {
+    pub const PTR: Self = Self { size: 8, align: 8 };
+    pub const USIZE: Self = Self { size: 8, align: 8 };
+
+    pub const BOOL: Self = Self { size: 1, align: 1 };
 }
 
 #[derive(Clone, Default)]

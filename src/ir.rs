@@ -1,102 +1,97 @@
+use crate::layout::Layout;
 use crate::operators::{BinaryOp, UnaryOp};
 use crate::location::Location;
 use crate::program::{constant::ConstantRef, BuiltinFunction};
-use crate::types::{to_align, Type, TypeKind};
-use crate::type_infer::{TypeSystem, ValueId as TypeId};
-use ustr::Ustr;
-use std::fmt;
+use crate::types::{to_align};
+
+#[derive(Clone, Copy, Debug)]
+#[repr(u8)]
+pub enum NumberType {
+    U8,
+    U16,
+    U32,
+    U64,
+    I8,
+    I16,
+    I32,
+    I64,
+    F32,
+    F64,
+}
 
 #[derive(Clone, Debug)]
 #[allow(non_camel_case_types)]
 pub enum Instr {
     DebugLocation(Location),
-    // to = pointer(args)
     Call {
-        to: Value,
+        to: (Value, Layout),
         pointer: Value,
         // FIXME: We don't really want a vector here, we want a more efficient datastructure
-        args: Vec<Value>,
+        args: Vec<(Value, Layout)>,
         loc: Location,
     },
     SetToZero {
-        to: Value,
+        to_ptr: Value,
         size: usize,
     },
-    // value ++
-    Increment {
-        value: Value,
-    },
-    // to = a op b
     Binary {
-        op: BinaryOp,
         to: Value,
         a: Value,
         b: Value,
+        op: BinaryOp,
+        type_: NumberType,
     },
-    // to = op from
+    BinaryImm {
+        to: Value,
+        a: Value,
+        b: u64,
+        op: BinaryOp,
+        type_: NumberType,
+    },
+    IncrPtr {
+        to: Value,
+        amount: Value,
+        scale: usize,
+    },
     Unary {
-        op: UnaryOp,
         to: Value,
         from: Value,
+        op: UnaryOp,
+        type_: NumberType,
     },
     RefGlobal {
-        to: Value,
-        global: ConstantRef,
-        type_: Type,
-    },
-    Global {
-        to: Value,
+        to_ptr: Value,
         global: ConstantRef,
     },
-    // to = of.member
-    Member {
+    StackPtr {
         to: Value,
-        of: Value,
-        member: Member,
+        take_pointer_to: Value,
     },
-    // @Temp: This isn't a necessary instruction, but it's nice to have
-    // for hardcoded things that are emitted.
-    // to.member = of
-    MoveToMemberOfValue {
+    Move {
         to: Value,
-        of: Value,
-        member: Member,
+        from: Value,
+        size: usize,
     },
-    // to = &(*of).member
-    PointerToMemberOfPointer {
+    MoveImm {
         to: Value,
-        of: Value,
-        member: Member,
+        from: [u8; 8],
+        size: usize,
     },
-    // to = from
-    Move { to: Value, from: Value },
-    // *to = from
-    MoveToPointer { to: Value, from: Value },
-    // to = *from
+    IndirectMove {
+        to_ptr: Value,
+        from: Value,
+        size: usize,
+    },
     Dereference {
         to: Value,
-        from: Value,
+        from_ptr: Value,
+        size: usize,
     },
-    // to = &from
-    Reference {
+    ConvertNum {
         to: Value,
         from: Value,
-    },
-    TruncateInt {
-        to: Value,
-        from: Value,
-        to_size: u8,
-    },
-    ExtendInt {
-        to: Value,
-        from: Value,
-        from_size: u8,
-        to_size: u8,
-        sign_extend: bool,
-    },
-    BitCast {
-        to: Value,
-        from: Value,
+        to_number: NumberType,
+        from_number: NumberType,
     },
     // jump to 'to' if condition
     JumpIfZero {
@@ -110,17 +105,6 @@ pub enum Instr {
     LabelDefinition(LabelId),
 }
 
-#[derive(Debug, Clone, Copy)]
-pub struct Member {
-    pub offset: usize,
-    pub name: Ustr,
-}
-
-// Why is this safe? Well, because we do not have interior mutability anywhere, so the raw pointers
-// are okay.
-unsafe impl Send for Instr {}
-unsafe impl Sync for Instr {}
-
 pub enum Routine {
     Builtin(BuiltinFunction),
     UserDefined(UserDefinedRoutine),
@@ -130,118 +114,54 @@ pub struct UserDefinedRoutine {
     pub loc: Location,
     pub label_locations: Vec<usize>,
     pub instr: Vec<Instr>,
-    pub registers: Registers,
+    pub stack: StackAllocator,
     pub result: Value,
 }
 
-pub struct Registers {
-    pub(crate) locals: Vec<Register>,
-    // If you had a buffer with a bunch of locals inside,
-    // how big would that buffer have to be to fit all of them?
-    max_buffer_size: usize,
-    buffer_head: usize,
+pub struct StackAllocator {
+    pub values: Vec<StackValueInfo>,
+    pub head: usize,
 }
 
-impl Registers {
+impl StackAllocator {
     pub fn new() -> Self {
         Self {
-            locals: Vec::new(),
-            max_buffer_size: 0,
-            buffer_head: 0,
+            values: Vec::new(),
+            head: 0,
         }
     }
 
-    pub fn buffer_size(&self) -> usize {
-        self.max_buffer_size.max(self.buffer_head)
-    }
+    pub fn create(&mut self, align: usize, size: usize) -> Value {
+        debug_assert_ne!(size, 0);
+        debug_assert!(size >= align);
 
-    pub fn get_head(&self) -> usize {
-        self.buffer_head
-    }
-
-    pub fn set_head(&mut self, head: usize) {
-        assert!(head <= self.buffer_head);
-
-        self.max_buffer_size = self.max_buffer_size.max(self.buffer_head);
-        self.buffer_head = head;
-    }
-
-    pub fn create_with_name(&mut self, types: &TypeSystem, value: TypeId, name: Option<Ustr>) -> Value {
-        let type_ = types.value_to_compiler_type(value);
-        self.create_min_align_with_name(type_, 1, name)
-    }
-
-    pub fn create(&mut self, types: &TypeSystem, value: TypeId) -> Value {
-        let type_ = types.value_to_compiler_type(value);
-        self.create_min_align(type_, 1)
-    }
-
-    pub fn zst(&mut self) -> Value {
-        self.create_min_align(TypeKind::Empty, 1)
-    }
-
-    pub fn create_min_align(&mut self, type_: impl Into<Type>, min_align: usize) -> Value {
-        self.create_min_align_with_name(type_, min_align, None)
-    }
-
-    pub fn create_min_align_with_name(&mut self, type_: impl Into<Type>, min_align: usize, name: Option<Ustr>) -> Value {
-        let type_ = type_.into();
-        let mut align = type_.align();
-        if align < min_align {
-            align = min_align;
-        }
-        self.buffer_head = to_align(self.buffer_head, align);
-        let value = Value(self.locals.len(), type_);
-        self.locals.push(Register {
-            offset: self.buffer_head,
-            name,
-            type_,
+        self.head = to_align(self.head, align);
+        self.values.push(StackValueInfo {
+            location: self.head,
+            size,
         });
-        self.buffer_head += to_align(type_.size(), align);
+        let value = Value(self.head);
+        self.head += size;
         value
     }
-
-    pub(crate) fn get(&self, index: usize) -> &'_ Register {
-        &self.locals[index]
-    }
 }
 
-pub(crate) struct Register {
-    offset: usize,
-    pub name: Option<Ustr>,
-    pub(crate) type_: Type,
+pub struct StackValueInfo {
+    pub location: usize,
+    pub size: usize,
 }
 
-impl Register {
-    pub(crate) fn offset(&self) -> usize {
-        self.offset
-    }
-
-    pub(crate) fn size(&self) -> usize {
-        self.type_.size()
+impl StackValueInfo {
+    pub fn value(&self) -> Value {
+        Value(self.location)
     }
 }
 
 #[derive(Debug, Clone, Copy)]
-pub struct Value(pub usize, pub Type);
-
-impl fmt::Display for Value {
-    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(fmt, "{} {}", self.1, self.0)
-    }
-}
-
-unsafe impl Send for Value {}
-unsafe impl Sync for Value {}
+pub struct Value(pub usize);
 
 impl Value {
-    pub fn type_(&self) -> Type {
-        self.1
-    }
-
-    pub fn size(&self) -> usize {
-        self.type_().size()
-    }
+    pub const ZST: Self = Self(0);
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]

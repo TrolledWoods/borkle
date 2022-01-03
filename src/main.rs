@@ -2,9 +2,9 @@
 #![feature(generic_associated_types)]
 #![deny(rust_2018_idioms, mutable_borrow_reservation_conflict, unused_variables, unused_mut, unused_unsafe)]
 
+mod layout;
 mod ast;
 mod backend;
-mod c_backend;
 mod command_line_arguments;
 mod dependencies;
 mod execution_time;

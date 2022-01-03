@@ -1,9 +1,9 @@
 use std::path::PathBuf;
-use crate::program::{Program, MemberId, FunctionId};
+use crate::program::{Program, FunctionId};
 use crate::ir::Routine;
 use crate::types::Type;
-use crate::type_infer;
-use crate::c_backend;
+
+// mod c;
 
 #[derive(Default)]
 pub struct Backends {
@@ -14,7 +14,7 @@ impl Backends {
     pub fn create_emitters(&self) -> BackendEmitters {
         let emitters = self.backends.iter().map(|v| {
             match v {
-                Backend::C { .. } => BackendEmitter::C(c_backend::Emitter::default()),
+                Backend::C { .. } => BackendEmitter::C, // (c::Emitter::default()),
             }
         }).collect();
 
@@ -23,18 +23,19 @@ impl Backends {
         }
     }
 
-    pub fn emit(self, program: &Program, mut emitters: Vec<BackendEmitters>) {
+    pub fn emit(self, _program: &Program, _emitters: Vec<BackendEmitters>) {
         for backend in self.backends.into_iter().rev() {
             match backend {
-                Backend::C { path, compile_output } => {
-                    let c_emitters = emitters.iter_mut()
+                Backend::C { path: _, compile_output: _ } => {
+                    todo!()
+                    /*let c_emitters = emitters.iter_mut()
                         .map(|v| v.emitters.pop())
                         .map(|v| match v {
                             Some(BackendEmitter::C(emitter)) => emitter,
                             _ => unreachable!(),
                         })
                         .collect();
-                    c_backend::emit(program, &path, c_emitters);
+                    c::emit(program, &path, c_emitters);
 
                     if compile_output {
                         let mut command = std::process::Command::new(&program.arguments.c_compiler);
@@ -59,7 +60,7 @@ impl Backends {
                             }
                             Err(err) => println!("Failed to run c compiler: {:?}", err),
                         }
-                    }
+                    }*/
                 }
             }
         }
@@ -80,16 +81,16 @@ pub struct BackendEmitters {
 impl BackendEmitters {
     pub fn emit_routine(
         &mut self, 
-        program: &Program,
-        id: FunctionId,
-        routine: &Routine,
-        arg_types: &[Type],
-        return_type: Type,
+        _program: &Program,
+        _id: FunctionId,
+        _routine: &Routine,
+        _arg_types: &[Type],
+        _return_type: Type,
     ) {
         for emitter in &mut self.emitters { 
             match emitter {
-                BackendEmitter::C(v) => {
-                    v.emit_routine(program, id, routine, arg_types, return_type);
+                BackendEmitter::C { .. } => {
+                    // v.emit_routine(program, id, routine, arg_types, return_type);
                 }
             }
         }
@@ -97,6 +98,6 @@ impl BackendEmitters {
 }
 
 enum BackendEmitter {
-    C(c_backend::Emitter),
+    C, // (c::Emitter),
 }
 
