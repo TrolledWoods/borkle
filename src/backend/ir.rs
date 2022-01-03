@@ -20,8 +20,7 @@ impl Emitter {
         _returns: Type,
     ) {
         if let Routine::UserDefined(routine) = routine {
-            writeln!(&mut self.text, "\n\nfunction_{}:", usize::from(function_id)).unwrap();
-            print_instr_list(&mut self.text, routine);
+            print_instr_list(&mut self.text, function_id, routine);
         }
     }
 }
@@ -44,7 +43,8 @@ pub fn emit(program: &Program, file_path: &Path, emitters: Vec<Emitter>) {
     }
 }
 
-fn print_instr_list(out: &mut String, routine: &UserDefinedRoutine) {
+fn print_instr_list(out: &mut String, function_id: FunctionId, routine: &UserDefinedRoutine) {
+    writeln!(out, "\nfn {}: ({})", routine.name, usize::from(function_id)).unwrap();
     for instr in &routine.instr {
         match instr {
             Instr::DebugLocation(_) => {},

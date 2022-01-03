@@ -4,6 +4,7 @@ use crate::location::Location;
 use crate::program::{constant::ConstantRef, BuiltinFunction};
 use crate::types::{to_align};
 use std::fmt::{self, Write};
+use ustr::Ustr;
 
 #[derive(Clone, Copy, Debug)]
 #[repr(u8)]
@@ -113,6 +114,7 @@ pub enum Routine {
 
 pub struct UserDefinedRoutine {
     pub loc: Location,
+    pub name: Ustr,
     pub label_locations: Vec<usize>,
     pub instr: Vec<Instr>,
     pub stack: StackAllocator,

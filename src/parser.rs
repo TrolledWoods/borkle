@@ -27,14 +27,16 @@ type Muncher<'a> = ast::Muncher<'a, Vec<Node>>;
 
 #[derive(Debug, Clone)]
 pub struct Ast {
+    pub name: Ustr,
     pub structure: AstStructure,
     pub nodes: Vec<Node>,
 }
 
 impl Ast {
-    fn from_builder(builder: AstBuilder<Vec<Node>>) -> Self {
+    fn from_builder(name: Ustr, builder: AstBuilder<Vec<Node>>) -> Self {
         let (structure, nodes) = builder.finish();
         Self {
+            name,
             structure,
             nodes,
         }
@@ -126,7 +128,7 @@ pub fn process_string(
                 let mut imperative =
                     ImperativeContext::new(&mut dependencies, &mut locals, false, &[]);
                 expression(&mut context, &mut imperative, buffer.add())?;
-                let tree = Ast::from_builder(buffer);
+                let tree = Ast::from_builder("__entry__".into(), buffer);
 
                 context
                     .tokens
@@ -187,7 +189,7 @@ pub fn process_string(
                     &[],
                 );
                 expression(&mut context, &mut imperative, buffer.add())?;
-                let tree = Ast::from_builder(buffer);
+                let tree = Ast::from_builder("__anonymous__".into(), buffer);
 
                 let id = context
                     .program
@@ -229,7 +231,7 @@ fn constant(global: &mut DataContext<'_>) -> Result<(), ()> {
             &poly_args,
         );
         expression(global, &mut imperative, buffer.add())?;
-        let tree = Ast::from_builder(buffer);
+        let tree = Ast::from_builder(name, buffer);
 
         if poly_args.is_empty() {
             let id = global

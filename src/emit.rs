@@ -50,6 +50,7 @@ pub fn emit<'a>(
         ctx.calling,
         UserDefinedRoutine {
             loc: ast.root().loc,
+            name: ast.name,
             instr: ctx.instr,
             stack: ctx.registers,
             result,
@@ -117,6 +118,7 @@ pub fn emit_function_declaration<'a>(
 
     let routine = Routine::UserDefined(UserDefinedRoutine {
         loc,
+        name: ast.name,
         label_locations: ctx.label_locations,
         instr: ctx.instr,
         stack: ctx.registers,
