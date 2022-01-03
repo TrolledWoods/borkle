@@ -30,17 +30,17 @@ const vec_reserve.(T) = fn(vec: &typeof Vec.(T), requested: usize) {
             vec.capacity = buffer.len;
         } else {
             let old_buf = #uninit : [] T;
-            old_buf.ptr = (*vec).ptr;
-            old_buf.len = (*vec).capacity;
+            old_buf.ptr = vec.ptr;
+            old_buf.len = vec.capacity;
 
-            let new_capacity = (*vec).capacity;
+            let new_capacity = vec.capacity;
             while new_capacity < requested {
                 new_capacity = new_capacity * 2;
             };
 
             let new = alloc(new_capacity);
-            (*vec).ptr = new.ptr;
-            (*vec).capacity = new.len;
+            vec.ptr = new.ptr;
+            vec.capacity = new.len;
 
             copy_nonoverlapping(new.ptr, old_buf.ptr, (*vec).len);
 

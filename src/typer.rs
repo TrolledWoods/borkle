@@ -801,6 +801,9 @@ fn build_constraints(
 
             ctx.infer.set_equal(node_type_id, label_type_infer_id, Reason::new(node_loc, ReasonKind::Passed));
         }
+        NodeKind::Literal(Literal::Float(_)) => {
+            ctx.infer.set_type(node_type_id, TypeKind::Float, (), set);
+        }
         NodeKind::Literal(Literal::Int(_)) => {
             ctx.infer.set_type(node_type_id, TypeKind::Int, (), set);
         }
@@ -1174,6 +1177,13 @@ fn build_constraints(
             ctx.infer.set_type(node_type_id, TypeKind::Type, Args([]), set);
             ctx.runs = old_runs;
         }
+        NodeKind::Unary { op: _ } => {
+            // @TODO: Make sure the types are valid for the operator
+            let [operand] = node.children.into_array();
+            let operand_id = build_constraints(ctx, operand, set);
+
+            ctx.infer.set_equal(operand_id, node_type_id, Reason::temp(node_loc));
+        }
         NodeKind::TypeBound => {
             let [value, bound] = node.children.into_array();
             let value_type_id = build_constraints(ctx, value, set);
@@ -1308,6 +1318,14 @@ fn build_type(
                 ctx.infer.set_type(node_type_id, TypeKind::Int, Args([(inner, Reason::temp_zero()), (inner, Reason::temp_zero())]), set);
             } else {
                 ctx.infer.set_type(node_type_id, TypeKind::Int, (), set);
+            }
+        }
+        NodeKind::FloatType => {
+            if ctx.inside_type_comparison {
+                let inner = ctx.infer.add_type(TypeKind::CompareUnspecified, Args([]), set);
+                ctx.infer.set_type(node_type_id, TypeKind::Float, Args([(inner, Reason::temp_zero())]), set);
+            } else {
+                ctx.infer.set_type(node_type_id, TypeKind::Float, (), set);
             }
         }
         NodeKind::ImplicitType => {

@@ -112,6 +112,8 @@ pub struct Unknown;
 pub enum TypeKind {
     /// bool, int size
     Int,
+    /// int size
+    Float,
     /// No arguments, the size of an integer, hidden type that the user cannot access
     IntSize,
 
@@ -146,6 +148,7 @@ impl TypeKind {
     fn get_needed_children_for_layout<'a>(&self, children: &'a [ValueId]) -> &'a [ValueId] {
         match self {
             TypeKind::Type | TypeKind::IntSize | TypeKind::Bool | TypeKind::Empty | TypeKind::Function | TypeKind::Reference | TypeKind::Buffer | TypeKind::ConstantValue(_) | TypeKind::CompareUnspecified => &[],
+            TypeKind::Float => &children[0..1],
             TypeKind::Int => &children[1..2],
             TypeKind::Array => children,
             TypeKind::Struct(_) => children,
@@ -161,6 +164,12 @@ impl TypeKind {
 fn compute_type_layout(kind: &TypeKind, structures: &Structures, values: &Values, children: &[ValueId]) -> Layout {
     match kind {
         TypeKind::CompareUnspecified => Layout { size: 1, align: 0 },
+        TypeKind::Float => {
+            let size = extract_constant_from_value(structures, values, children[0]).unwrap();
+            let size_value = unsafe { *size.as_ptr().cast::<u8>() };
+            let size_bytes = size_value as usize;
+            Layout { size: size_bytes, align: size_bytes }
+        }
         TypeKind::Int => {
             let size = extract_constant_from_value(structures, values, children[1]).unwrap();
             // @Correctness: We want to make sure that the type actually is a u8 here
@@ -1101,6 +1110,22 @@ impl TypeSystem {
             TypeKind::Type => types::Type::new(types::TypeKind::Type),
             TypeKind::Constant | TypeKind::ConstantValue(_) => unreachable!("Constants aren't concrete types, cannot use them as node types"),
             TypeKind::IntSize => unreachable!("Int sizes are a hidden type for now, the user shouldn't be able to access them"),
+            TypeKind::Float => {
+                let [size] = &**type_args else {
+                    unreachable!("Invalid float size")
+                };
+
+                let size_value = self.extract_constant_temp(*size).expect("Size wasn't a value");
+                let size_value = unsafe { *size_value.as_ptr().cast::<u8>() };
+
+                let type_kind = match size_value {
+                    4 => types::TypeKind::F32,
+                    8 => types::TypeKind::F64,
+                    _ => unreachable!("Invalid float size"),
+                };
+
+                types::Type::new(type_kind)
+            }
             TypeKind::Int => {
                 let [signed, size] = &**type_args else {
                     unreachable!("Invalid int size and sign")
@@ -1386,6 +1411,25 @@ impl TypeSystem {
                 _ => unreachable!("A constant type node should always only have two arguments"),
             },
             Some(Type { kind, args: None, .. }) => format!("{:?}", kind),
+            Some(Type { kind: TypeKind::Float, args: Some(c) }) => match &**c {
+                [size] => {
+                    if let Some(size) = self.extract_constant_temp(*size) {
+                        let size = unsafe { *size.as_ptr().cast::<u8>() };
+
+                        match size {
+                            4 => "f32",
+                            8 => "f64",
+                            _ => "<float with invalid size>",
+                        }.to_string()
+                    } else {
+                        format!(
+                            "Float({})",
+                            self.value_to_str(*size, rec + 1),
+                        )
+                    }
+                },
+                _ => unreachable!("A float type has no children"),
+            }
             Some(Type { kind: TypeKind::Int, args: Some(c) }) => match &**c {
                 [signed, size] => {
                     if let (Some(sign), Some(size)) = (self.extract_constant_temp(*signed), self.extract_constant_temp(*size)) {
@@ -1413,7 +1457,7 @@ impl TypeSystem {
                         )
                     }
                 },
-                _ => unreachable!("A function pointer type has to have at least a return type"),
+                _ => unreachable!("An int type has no children"),
             }
             Some(Type { kind: TypeKind::Function, args: Some(c) }) => match &**c {
                 [return_, args @ ..] => format!(
@@ -1434,7 +1478,7 @@ impl TypeSystem {
                     })
                     .collect::<Vec<_>>()
                     .join(", ");
-                format!("{{ {} }}", list)
+                format!("({})", list)
             }
             Some(Type { kind: TypeKind::Struct(names), args: Some(c), .. }) => {
                 let list = names
@@ -1665,6 +1709,13 @@ impl TypeSystem {
                         self.set_equal(a_id, result_id, constraint.reason);
                     }
                     (
+                        BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mult | BinaryOp::Div | BinaryOp::Modulo,
+                        (Some(TypeKind::Float), Some(TypeKind::Float), _),
+                    ) => {
+                        self.set_equal(a_id, b_id, constraint.reason);
+                        self.set_equal(a_id, result_id, constraint.reason);
+                    }
+                    (
                         BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mult | BinaryOp::Div | BinaryOp::BitAnd | BinaryOp::BitOr,
                         (Some(TypeKind::Reference), Some(TypeKind::Int), Some(TypeKind::Reference)),
                     ) => {
@@ -1685,7 +1736,7 @@ impl TypeSystem {
                     }
                     (
                         BinaryOp::Equals | BinaryOp::NotEquals | BinaryOp::LargerThanEquals | BinaryOp::LargerThan | BinaryOp::LessThanEquals | BinaryOp::LessThan,
-                        (Some(TypeKind::Int), Some(TypeKind::Int), _) | (Some(TypeKind::Reference), Some(TypeKind::Reference), _) | (Some(TypeKind::Bool), Some(TypeKind::Bool), _)
+                        (Some(TypeKind::Int), Some(TypeKind::Int), _) | (Some(TypeKind::Reference), Some(TypeKind::Reference), _) | (Some(TypeKind::Bool), Some(TypeKind::Bool), _) | (Some(TypeKind::Float), Some(TypeKind::Float), _)
                     ) => {
                         let id = self.add_type(TypeKind::Bool, Args([]), ());
 
@@ -2059,6 +2110,12 @@ impl TypeSystem {
             types::TypeKind::Type => {
                 self.set_type(id, TypeKind::Type, Args([]), set.clone())
             }
+            types::TypeKind::F64 => {
+                self.set_type(id, TypeKind::Float, Args([(static_values::EIGHT, Reason::temp_zero())]), set.clone())
+            }
+            types::TypeKind::F32 => {
+                self.set_type(id, TypeKind::Float, Args([(static_values::FOUR, Reason::temp_zero())]), set.clone())
+            }
             types::TypeKind::Int(int_type_kind) => {
                 self.set_int(id, int_type_kind, set.clone());
                 id
@@ -2115,7 +2172,6 @@ impl TypeSystem {
         self.set_compiler_type(program, id, type_, set)
     }
 
-    #[track_caller]
     pub fn set_type(&mut self, value_id: ValueId, kind: TypeKind, args: impl IntoValueArgs, set: impl IntoValueSet) -> ValueId {
         let args = args
             .into_value_args()

@@ -1378,6 +1378,8 @@ pub enum NodeKind {
     },
     /// no children
     IntType,
+    /// no children
+    FloatType,
     /// [ len, member ]
     ArrayType,
     /// [ args .. ]

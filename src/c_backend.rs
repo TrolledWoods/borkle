@@ -624,6 +624,8 @@ fn name_of_type(mut out: impl Write, type_: Type, rec: u32) -> fmt::Result {
             IntTypeKind::U64   => out.write_str("u64")?,
             IntTypeKind::Usize => out.write_str("usize")?,
         },
+        TypeKind::F32 => out.write_str("f32")?,
+        TypeKind::F64 => out.write_str("f64")?,
         TypeKind::Bool => out.write_str("bool")?,
 
         // Non-trivial types
@@ -794,6 +796,8 @@ pub const BOILER_PLATE: &str = r#"
 #include <string.h>
 #include <stdlib.h>
 
+typedef float    f32;
+typedef double   f64;
 typedef uint8_t  bool;
 typedef int8_t   i8;
 typedef int16_t  i16;

@@ -461,6 +461,32 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, mut node: NodeView<'a>) -> Value {
 
             to
         }
+        &NodeKind::Literal(Literal::Float(num)) => {
+            let type_ = ctx.types.value_to_compiler_type(TypeId::Node(ctx.variant_id, node.id));
+            match type_.size() {
+                4 => {
+                    let bytes = (num as f32).to_bits().to_le_bytes();
+
+                    let buffer = ctx.program.insert_buffer(type_, bytes.as_ptr());
+
+                    let to = ctx.registers.create(ctx.types, TypeId::Node(ctx.variant_id, node.id));
+                    ctx.emit_global(to, buffer);
+
+                    to
+                }
+                8 => {
+                    let bytes = num.to_bits().to_le_bytes();
+
+                    let buffer = ctx.program.insert_buffer(type_, bytes.as_ptr());
+
+                    let to = ctx.registers.create(ctx.types, TypeId::Node(ctx.variant_id, node.id));
+                    ctx.emit_global(to, buffer);
+
+                    to
+                }
+                _ => unreachable!(),
+            }
+        }
         NodeKind::Zeroed => {
             let to = ctx.registers.create(ctx.types, TypeId::Node(ctx.variant_id, node.id));
             ctx.emit_set_to_zero(to);

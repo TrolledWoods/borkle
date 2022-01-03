@@ -15,6 +15,15 @@ const assert = i_assert;
 const array_ptr   .(N, T) = fn(array: &[N] T) ->   &T    cast array;
 const array_to_buf.(N, T) = fn(array: &[N] T) -> [] T    cast array;
 
+const get_char = fn() -> u8 {
+    let out = 0;
+    let buf = #0;
+    buf.ptr = &out;
+    buf.len = 1;
+    i_stdin_read(buf);
+    out
+};
+
 const get_line = fn() -> typeof Vec.(u8) {
     vec_from_iter(take_while(stdin(), fn(v) *v != NEW_LINE))
 };
@@ -31,6 +40,12 @@ const copy.(T) = fn(to: &T, from: &T, size: usize) {
 
 const copy_nonoverlapping.(T) = fn(to: &T, from: &T, size: usize) {
     i_copy_nonoverlapping(cast from, cast to, size * sizeof T);
+};
+
+const alloc_copy.(T) = fn(original: [] T) -> [] T {
+    let buf = alloc(original.len);
+    copy_nonoverlapping(buf.ptr, original.ptr, original.len);
+    buf
 };
 
 const alloc.(T) = fn(count: usize) -> [] T {
@@ -122,6 +137,12 @@ const advance_by = fn(string: &[] u8, by: usize) {
     string.len = string.len - by;
 };
 
+const advance_rev = fn(string: &[] u8) {
+    if string.len > 0 {
+        string.len = string.len - 1;
+    };
+};
+
 const advance = fn(string: &[] u8) {
     if string.len > 0 {
         string.ptr = string.ptr + 1;
@@ -186,10 +207,22 @@ const take_word = fn(string: &[] u8) -> [] u8 {
     buf
 };
 
+const trim_whitespace = fn(string: &[] u8) {
+    take_whitespace(string);
+    take_rev_whitespace(string);
+};
+
 const take_whitespace = fn(string: &[] u8) {
     while string.len > 0 {
         if not(is_whitespace(*string.ptr)) break;
         advance(string);
+    };
+};
+
+const take_rev_whitespace = fn(string: &[] u8) {
+    while string.len > 0 {
+        if !is_whitespace(*(string.ptr + (string.len - 1))) break;
+        advance_rev(string);
     };
 };
 
@@ -311,7 +344,7 @@ const write_fmt_no_padding.(T) = fn(to: typeof Writer.(u8), fmt_val: typeof Form
         fmt_val.value
     };
 
-    if #const: typeof value is int {
+    if #const: typeof value is Int {
         let base = if fmt_val.base == 0 { 10 } else { fmt_val.base };
         write_u64(to, cast value, cast base)
     } else if #const: typeof value is typeof Vec.(u8) {
