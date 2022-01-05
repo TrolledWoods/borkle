@@ -54,6 +54,12 @@ fn main() {
             });
         }
 
+        if options.output_x64 {
+            backends.push(backend::Backend::X64 {
+                path: options.x64_path.clone(),
+            });
+        }
+
         let mut program = program::Program::new(logger, options.clone(), backend::Backends { backends });
         program.add_file(
             &options

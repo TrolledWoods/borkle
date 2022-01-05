@@ -5,6 +5,7 @@ use crate::types::Type;
 
 // mod c;
 pub mod ir;
+mod x64;
 
 #[derive(Default)]
 pub struct Backends {
@@ -16,7 +17,8 @@ impl Backends {
         let emitters = self.backends.iter().map(|v| {
             match v {
                 Backend::C { .. } => BackendEmitter::C, // (c::Emitter::default()),
-                Backend::Ir { .. } => BackendEmitter::Ir(ir::Emitter::default()),
+                Backend::Ir { .. } => BackendEmitter::Ir(Default::default()),
+                Backend::X64 { .. } => BackendEmitter::X64(Default::default()),
             }
         }).collect();
 
@@ -74,6 +76,16 @@ impl Backends {
                         .collect();
                     ir::emit(program, &path, ir_emitters);
                 }
+                Backend::X64 { path } => {
+                    let ir_emitters = emitters.iter_mut()
+                        .map(|v| v.emitters.pop())
+                        .map(|v| match v {
+                            Some(BackendEmitter::X64(emitter)) => emitter,
+                            _ => unreachable!(),
+                        })
+                        .collect();
+                    x64::emit(program, &path, ir_emitters);
+                }
             }
         }
     }
@@ -85,6 +97,9 @@ pub enum Backend {
         compile_output: bool,
     },
     Ir {
+        path: PathBuf,
+    },
+    X64 {
         path: PathBuf,
     },
 }
@@ -110,6 +125,9 @@ impl BackendEmitters {
                 BackendEmitter::Ir(v) => {
                     v.emit_routine(program, id, routine, arg_types, return_type);
                 }
+                BackendEmitter::X64(v) => {
+                    v.emit_routine(program, id, routine, arg_types, return_type);
+                }
             }
         }
     }
@@ -117,6 +135,7 @@ impl BackendEmitters {
 
 enum BackendEmitter {
     C, // (c::Emitter),
+    X64(x64::Emitter),
     Ir(ir::Emitter),
 }
 

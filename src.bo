@@ -1,9 +1,9 @@
-import "tests/main.bo";
+#no_base:
+
+const value = 0 : u32;
 
 #entry fn() {
-    run_aoc_tests();
-    test_basic();
-    test_blocks_and_breaks();
+    
 };
 
 // TODO:

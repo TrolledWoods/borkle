@@ -178,10 +178,14 @@ create_arguments!(
         exe_path: PathBuf = "target/output.exe";
             "The path of the executable",
 
+        x64_path: PathBuf = "target/output.asm";
+            "The path where the x64 file should be created",
+        output_x64: bool = true;
+            "If set to true, a file containing x64 will be emitted",
+
         ir_path: PathBuf = "target/output.bir";
             "The path where the ir file should be created",
-
-        output_ir: bool = true;
+        output_ir: bool = false;
             "If set to true, a file containing ir will be emitted",
 
         debug: bool = true;

@@ -61,15 +61,12 @@ fn interp_internal(program: &Program, stack: &mut StackFrame<'_>, routine: &User
         // crate::backend::ir::print_instr(&mut out, instr);
         // print!("{}", out);
 
-        let mut pause_instr_ptr = false;
-
         match *instr {
             Instr::LabelDefinition(_) => {}
             Instr::DebugLocation { .. } => {}
             Instr::JumpIfZero { condition, to } => {
                 if unsafe { stack.get(condition).read::<u8>() } == 0 {
                     instr_pointer = routine.label_locations[to.0];
-                    pause_instr_ptr = true;
                 }
             }
             Instr::SetToZero { to_ptr, size } => {
@@ -80,7 +77,6 @@ fn interp_internal(program: &Program, stack: &mut StackFrame<'_>, routine: &User
             }
             Instr::Jump { to } => {
                 instr_pointer = routine.label_locations[to.0];
-                pause_instr_ptr = true;
             }
             Instr::Call {
                 to,
@@ -248,9 +244,7 @@ fn interp_internal(program: &Program, stack: &mut StackFrame<'_>, routine: &User
             },
         }
 
-        if !pause_instr_ptr {
-            instr_pointer += 1;
-        }
+        instr_pointer += 1;
     }
 
     // println!("\tRET");
