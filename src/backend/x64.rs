@@ -11,6 +11,8 @@ use std::cmp::{Ord, Ordering};
 
 #[derive(Default)]
 pub struct Emitter {
+    extern_defs: String,
+    data_section: String,
     text: String,
 }
 
@@ -27,6 +29,11 @@ impl Emitter {
             Routine::UserDefined(routine) => {
                 emit_routine(&mut self.text, function_id, routine).unwrap();
             }
+            Routine::Extern(symbol_name) => {
+                writeln!(&mut self.extern_defs, "\textern {}", symbol_name).unwrap();
+                writeln!(&mut self.text, "\n{}:", function_symbol(function_id)).unwrap();
+                writeln!(&mut self.text, "\tjmp {}", symbol_name).unwrap();
+            }
             _ => {}
         }
     }
@@ -37,9 +44,15 @@ pub fn emit(program: &Program, file_path: &Path, emitters: Vec<Emitter>) {
 
     let entry = program.get_entry_point().unwrap();
     writeln!(&mut out, "global {}", function_symbol(entry)).unwrap();
+    for emitter in &emitters {
+        write!(&mut out, "{}", emitter.extern_defs).unwrap();
+    }
 
     writeln!(&mut out, "section .data").unwrap();
     emit_constants(&mut out, program);
+    for emitter in &emitters {
+        write!(&mut out, "{}", emitter.data_section).unwrap();
+    }
 
     writeln!(&mut out, "\n\nsection .text").unwrap();
 
@@ -166,7 +179,7 @@ fn split_into_powers_of_two(mut value: usize) -> impl Iterator<Item = SizeSplit>
     std::iter::from_fn(move || {
         if value == 0 {
             None
-        } else if value.is_power_of_two() {
+        } else if value <= 8 && value.is_power_of_two() {
             let size = SizeSplit {
                 offset,
                 size: value,
@@ -174,7 +187,7 @@ fn split_into_powers_of_two(mut value: usize) -> impl Iterator<Item = SizeSplit>
             value = 0;
             Some(size)
         } else {
-            let current = if value > 8 {
+            let current = if value >= 8 {
                 8
             } else {
                 value.next_power_of_two() / 2
@@ -230,7 +243,7 @@ fn emit_routine(
                     writeln!(
                         out,
                         "\tmov {}, [rsp+{}]",
-                        ["rcx", "rdx", "r8", "r9"][i],
+                        [Register::Rcx, Register::Rdx, Register::R8, Register::R9][i].name(arg_layout.size),
                         arg.0 + extra_stack_space,
                     )?;
                 }
@@ -307,7 +320,7 @@ fn emit_routine(
                 writeln!(out, "\tmov rax, [rsp+{}]", to_ptr.0)?;
 
                 for split in split_into_powers_of_two(size) {
-                    let reg_name = Register::Rcx.name(size);
+                    let reg_name = Register::Rcx.name(split.size);
                     writeln!(out, "\tmov {}, {} [rsp+{}]", reg_name, name_of_size(split.size), from.0 + split.offset)?;
                     writeln!(out, "\tmov {} [rax+{}], {}", name_of_size(split.size), split.offset, reg_name)?;
                 }
@@ -316,7 +329,7 @@ fn emit_routine(
                 writeln!(out, "\tmov rax, [rsp+{}]", from_ptr.0)?;
 
                 for split in split_into_powers_of_two(size) {
-                    let reg_name = Register::Rcx.name(size);
+                    let reg_name = Register::Rcx.name(split.size);
                     writeln!(out, "\tmov {}, {} [rax+{}]", reg_name, name_of_size(split.size), split.offset)?;
                     writeln!(out, "\tmov {} [rsp+{}], {}", name_of_size(split.size), to.0 + split.offset, reg_name)?;
                 }

@@ -1133,13 +1133,27 @@ fn function_declaration(
         slot.add().finish(Node::new(loc, NodeKind::ImplicitType));
     }
 
-    expression(global, imperative, slot.add())?;
+    let is_extern = if global.tokens.try_consume(&TokenKind::Keyword(Keyword::Extern)) {
+        let Token { kind: TokenKind::Literal(Literal::String(message)), .. } = global.tokens.expect_next(global.errors)? else {
+            global.error(loc, "Expected string literal after `extern`".to_string());
+            return Err(());
+        };
+        
+        Some(message.into())
+    } else {
+        None
+    };
+
+    if is_extern.is_none() {
+        expression(global, imperative, slot.add())?;
+    }
 
     imperative.pop_scope_boundary();
 
     Ok(slot.finish(Node::new(
         loc,
         NodeKind::FunctionDeclaration {
+            is_extern,
             argument_infos,
         },
     )))
@@ -1357,6 +1371,7 @@ pub enum NodeKind {
 
     /// [ .. arg, returns, body ]  (at least 2 children)
     FunctionDeclaration {
+        is_extern: Option<Ustr>,
         argument_infos: Vec<FunctionArgumentInfo>,
     },
 

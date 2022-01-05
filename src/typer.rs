@@ -1,4 +1,5 @@
 use crate::dependencies::{DepKind, DependencyList, MemberDep};
+use crate::ir::Routine;
 use crate::errors::ErrorCtx;
 use crate::literal::Literal;
 use crate::location::Location;
@@ -499,7 +500,7 @@ fn subset_was_completed(ctx: &mut Context<'_, '_>, ast: &mut Ast, waiting_on: Wa
         }
         WaitingOnTypeInferrence::FunctionDeclaration {
             node_id,
-            body: _,
+            is_extern,
             function_type,
             parent_set,
             time,
@@ -511,40 +512,50 @@ fn subset_was_completed(ctx: &mut Context<'_, '_>, ast: &mut Ast, waiting_on: Wa
             let type_ = ctx.infer.value_to_compiler_type(function_type);
             let emit_deps = ctx.infer.value_sets.get_mut(set).emit_deps.take().unwrap();
 
-            match time {
-                ExecutionTime::Never => return,
-                ExecutionTime::RuntimeFunc | ExecutionTime::Emission => {
-                    let dependant_deps = ctx.infer.value_sets.get_mut(parent_set).emit_deps.as_mut().unwrap();
-                    dependant_deps.add(node_loc, DepKind::Callable(function_id));
+            if let Some(symbol_name) = is_extern {
+                ctx.program.add_external_symbol(symbol_name);
 
-                    ctx.program.queue_task(
-                        emit_deps,
-                        Task::EmitFunction(
-                            ctx.locals.clone(),
-                            ctx.infer.clone(),
-                            ctx.additional_info.clone(),
-                            ast.clone(),
+                let routine = Routine::Extern(symbol_name);
+
+                let types::TypeKind::Function { args, returns } = type_.kind() else { unreachable!() };
+                ctx.thread_context.emitters.emit_routine(ctx.program, function_id, &routine, args, *returns);
+                ctx.program.set_routine_of_function(function_id, Vec::new(), routine);
+            } else {
+                match time {
+                    ExecutionTime::Never => return,
+                    ExecutionTime::RuntimeFunc | ExecutionTime::Emission => {
+                        let dependant_deps = ctx.infer.value_sets.get_mut(parent_set).emit_deps.as_mut().unwrap();
+                        dependant_deps.add(node_loc, DepKind::Callable(function_id));
+
+                        ctx.program.queue_task(
+                            emit_deps,
+                            Task::EmitFunction(
+                                ctx.locals.clone(),
+                                ctx.infer.clone(),
+                                ctx.additional_info.clone(),
+                                ast.clone(),
+                                node_id,
+                                type_,
+                                function_id,
+                                AstVariantId::root(),
+                            ),
+                        );
+                    }
+                    ExecutionTime::Typing => {
+                        crate::emit::emit_function_declaration(
+                            ctx.thread_context,
+                            ctx.program,
+                            ctx.locals,
+                            ctx.infer,
+                            ast,
+                            ctx.additional_info,
                             node_id,
-                            type_,
-                            function_id,
                             AstVariantId::root(),
-                        ),
-                    );
-                }
-                ExecutionTime::Typing => {
-                    crate::emit::emit_function_declaration(
-                        ctx.thread_context,
-                        ctx.program,
-                        ctx.locals,
-                        ctx.infer,
-                        ast,
-                        ctx.additional_info,
-                        node_id,
-                        AstVariantId::root(),
-                        type_,
-                        node_loc,
-                        function_id,
-                    );
+                            type_,
+                            node_loc,
+                            function_id,
+                        );
+                    }
                 }
             }
 
@@ -1194,7 +1205,7 @@ fn build_function_declaration(
     set: ValueSetId,
     mut wants_meta_data: Option<&mut FunctionMetaData>,
 ) {
-    let NodeKind::FunctionDeclaration { argument_infos } = &node.node.kind else { unreachable!() };
+    let NodeKind::FunctionDeclaration { is_extern, argument_infos } = &node.node.kind else { unreachable!() };
 
     let node_type_id = TypeId::Node(ctx.ast_variant_id, node.id);
 
@@ -1222,12 +1233,15 @@ fn build_function_declaration(
     let mut children = node.children.into_iter();
     let num_children = children.len();
 
+    // @Cleanup: This isn't that nice
+    let num_args = num_children - if is_extern.is_some() { 1 } else { 2 };
+
     if let Some(meta_data) = wants_meta_data.as_mut() {
-        meta_data.arguments = Vec::with_capacity(num_children - 2);
+        meta_data.arguments = Vec::with_capacity(num_args);
     }
 
-    let mut function_type_ids = Vec::with_capacity(num_children - 2);
-    for (argument_info, argument) in argument_infos.iter().zip(children.by_ref().take(num_children - 2)) {
+    let mut function_type_ids = Vec::with_capacity(num_args);
+    for (argument_info, argument) in argument_infos.iter().zip(children.by_ref().take(num_args)) {
         let decl_id = build_declarative_lvalue(&mut sub_ctx, argument, sub_set, true);
         function_type_ids.push((decl_id, Reason::temp(node.node.loc)));
 
@@ -1250,12 +1264,13 @@ fn build_function_declaration(
     let returns_type_id = build_type(&mut sub_ctx, returns, sub_set);
     function_type_ids.insert(0, (returns_type_id, returns_type_reason));
 
-    let body = children.next().unwrap();
-    let body_id = body.id;
-    let body_type_id = build_constraints(&mut sub_ctx, body, sub_set);
+    if is_extern.is_none() {
+        let body = children.next().unwrap();
+        let body_type_id = build_constraints(&mut sub_ctx, body, sub_set);
 
-    ctx.infer
-        .set_equal(body_type_id, returns_type_id, Reason::new(returns_loc, ReasonKind::FunctionDeclReturned));
+        ctx.infer
+            .set_equal(body_type_id, returns_type_id, Reason::new(returns_loc, ReasonKind::FunctionDeclReturned));
+    };
 
     let infer_type_id = ctx.infer.add_type(TypeKind::Function, Args(function_type_ids), sub_set);
     ctx.infer
@@ -1263,12 +1278,13 @@ fn build_function_declaration(
 
     ctx.infer.set_waiting_on_value_set(sub_set, WaitingOnTypeInferrence::FunctionDeclaration {
         node_id: node.id,
-        body: body_id,
+        is_extern: *is_extern,
         function_type: infer_type_id,
         parent_set: set,
         time: ctx.runs,
         ast_variant_id: ctx.ast_variant_id,
     });
+
     let old_set = ctx.infer.value_sets.get_mut(sub_set).emit_deps.replace(emit_deps);
     debug_assert!(old_set.is_none());
 }
@@ -1865,7 +1881,7 @@ pub enum WaitingOnTypeInferrence {
     },
     FunctionDeclaration {
         node_id: NodeId,
-        body: NodeId,
+        is_extern: Option<Ustr>,
         function_type: TypeId,
         /// This is because function declaration create a constant in the
         /// parent set, and we have to make sure that the parent set isn't

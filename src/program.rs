@@ -19,7 +19,7 @@ use std::fmt;
 use std::path::{Path, PathBuf};
 use std::ptr::NonNull;
 use std::sync::Arc;
-use ustr::{Ustr, UstrMap};
+use ustr::{Ustr, UstrMap, UstrSet};
 
 pub mod constant;
 
@@ -42,6 +42,7 @@ pub struct Program {
     poly_members: RwLock<IdVec<PolyMemberId, PolyMember>>,
     scopes: RwLock<IdVec<ScopeId, Scope>>,
 
+    external_symbols: Mutex<UstrSet>,
     constant_data: Mutex<Vec<Constant>>,
 
     functions: RwLock<IdVec<FunctionId, Function>>,
@@ -70,6 +71,7 @@ impl Program {
             logger,
             members: default(),
             poly_members: default(),
+            external_symbols: default(),
             scopes: default(),
             non_ready_tasks: default(),
             file_contents: default(),
@@ -83,6 +85,14 @@ impl Program {
 
     pub fn file_contents(&mut self) -> &mut UstrMap<Arc<String>> {
         self.file_contents.get_mut()
+    }
+
+    pub fn add_external_symbol(&self, symbol_name: Ustr) {
+        self.external_symbols.lock().insert(symbol_name);
+    }
+
+    pub fn external_symbols(&self) -> MutexGuard<'_, UstrSet> {
+        self.external_symbols.lock()
     }
 
     pub fn constant_data(&self) -> MutexGuard<'_, Vec<Constant>> {

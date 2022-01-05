@@ -129,6 +129,7 @@ pub enum Instr {
 pub enum Routine {
     Builtin(BuiltinFunction),
     UserDefined(UserDefinedRoutine),
+    Extern(Ustr),
 }
 
 pub struct UserDefinedRoutine {

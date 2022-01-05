@@ -91,6 +91,9 @@ fn interp_internal(program: &Program, stack: &mut StackFrame<'_>, routine: &User
                     .expect("Invalid function pointer. There are two reasons this could happen; you bit_casted some number into a function pointer, or there is a bug in the compilers dependency system.");
 
                 match &*calling {
+                    Routine::Extern(_) => {
+                        return Err(std::mem::take(call_stack).into_boxed_slice());
+                    }
                     Routine::Builtin(BuiltinFunction::Assert) => unsafe {
                         let condition = stack.get(args[0].0).read::<u8>();
                         if condition == 0 {

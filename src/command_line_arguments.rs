@@ -150,7 +150,7 @@ create_arguments!(
         file: PathBuf = "src.bo";
             "The file to compile",
 
-        run: bool = true;
+        run: bool = false;
             "If this is set, the compiler will run the entry point using the interpreter.",
 
         output: PathBuf = "target/";

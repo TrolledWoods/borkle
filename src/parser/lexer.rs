@@ -70,6 +70,7 @@ pub enum Keyword {
     BuiltinFunction,
     TypeOf,
     SizeOf,
+    Extern,
 }
 
 pub fn process_string(errors: &mut ErrorCtx, file: Ustr, string: &str) -> Result<TokenStream, ()> {
@@ -161,6 +162,7 @@ pub fn process_string(errors: &mut ErrorCtx, file: Ustr, string: &str) -> Result
                     "sizeof" => TokenKind::Keyword(Keyword::SizeOf),
                     "import" => TokenKind::Keyword(Keyword::Import),
                     "library" => TokenKind::Keyword(Keyword::Library),
+                    "extern" => TokenKind::Keyword(Keyword::Extern),
                     "_" => TokenKind::Keyword(Keyword::Underscore),
 
                     "f32" => TokenKind::Type(Type::new(TypeKind::F32)),
