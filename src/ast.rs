@@ -381,10 +381,6 @@ impl<'a, Zipped: TreeZippable> GenericAstSlice<'a, Zipped> {
         (self.base_id, self.nodes.len())
     }
 
-    pub fn iter<'b>(&'b mut self) -> GenericChildIterator<'a, Zipped::Reborrowed<'b>> {
-        self.borrow().into_iter()
-    }
-
     pub fn into_array<const N: usize>(self) -> [GenericNodeView<'a, Zipped>; N] {
         use std::mem::MaybeUninit;
 

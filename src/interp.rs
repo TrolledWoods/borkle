@@ -3,7 +3,7 @@ use crate::location::Location;
 use crate::operators::{BinaryOp, UnaryOp};
 use crate::program::constant::ConstantRef;
 use crate::program::{BuiltinFunction, Program};
-use crate::types::{BufferRepr, TypeKind};
+use crate::types::BufferRepr;
 use crate::type_infer::{TypeSystem, ValueId as TypeId, AstVariantId};
 use crate::typer::AdditionalInfo;
 

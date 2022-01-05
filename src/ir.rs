@@ -3,7 +3,7 @@ use crate::operators::{BinaryOp, UnaryOp};
 use crate::location::Location;
 use crate::program::{constant::ConstantRef, BuiltinFunction};
 use crate::types::{to_align};
-use std::fmt::{self, Write};
+use std::fmt;
 use ustr::Ustr;
 
 #[derive(Clone, Copy, Debug)]
@@ -19,6 +19,25 @@ pub enum NumberType {
     I64,
     F32,
     F64,
+}
+
+impl NumberType {
+    pub fn signed(&self) -> bool {
+        matches!(self, Self::I8 | Self::I16 | Self::I32 | Self::I64)
+    }
+
+    pub fn size(&self) -> usize {
+        match self {
+            Self::U8 | Self::I8 => 1,
+            Self::U16 | Self::I16 => 2,
+            Self::U32 | Self::I32 | Self::F32 => 4,
+            Self::U64 | Self::I64 | Self::F64 => 8,
+        }
+    }
+    
+    pub fn is_float(&self) -> bool {
+        matches!(self, Self::F32 | Self::F64)
+    }
 }
 
 #[derive(Clone, Debug)]

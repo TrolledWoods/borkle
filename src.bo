@@ -1,11 +1,6 @@
-#no_base:
-
-const value = fn() {};
-
 #entry fn() {
-    let x = 32 : u64;
-
-    let y = [1, 2, 3 : u8];
+    for [1, 2, 3 : u16] {
+    };
 };
 
 // TODO:

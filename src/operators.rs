@@ -1,5 +1,3 @@
-use crate::types::{IntTypeKind, Type, TypeKind};
-
 pub trait Operator: Sized {
     fn from_prefix(string: &str) -> Option<(Self, &'_ str)>;
     fn precedence(&self) -> usize;

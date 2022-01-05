@@ -1,13 +1,13 @@
-use crate::ir::{Instr, UserDefinedRoutine, Routine};
-use crate::layout::{align_to, Layout};
+use crate::ir::{Instr, UserDefinedRoutine, Routine, LabelId, NumberType, Value};
+use crate::layout::align_to;
 use crate::program::{Program, FunctionId};
 use crate::types::PointerInType;
 use crate::types::Type;
-use crate::operators::Operator;
-use ustr::Ustr;
+use crate::operators::{BinaryOp, UnaryOp};
 use std::path::Path;
 use std::fmt::{self, Write};
 use super::{Formatter, function_symbol, global_symbol};
+use std::cmp::{Ord, Ordering};
 
 #[derive(Default)]
 pub struct Emitter {
@@ -23,8 +23,11 @@ impl Emitter {
         _args: &[Type],
         _returns: Type,
     ) {
-        if let Routine::UserDefined(routine) = routine {
-            emit_routine(&mut self.text, function_id, routine).unwrap();
+        match routine {
+            Routine::UserDefined(routine) => {
+                emit_routine(&mut self.text, function_id, routine).unwrap();
+            }
+            _ => {}
         }
     }
 }
@@ -154,6 +157,10 @@ struct SizeSplit {
     size: usize,
 }
 
+fn label_name(function: FunctionId, label: LabelId) -> impl fmt::Display {
+    Formatter(move |f| write!(f, "label_{}_{}", usize::from(function), label.0))
+}
+
 fn split_into_powers_of_two(mut value: usize) -> impl Iterator<Item = SizeSplit> {
     let mut offset = 0;
     std::iter::from_fn(move || {
@@ -250,12 +257,211 @@ fn emit_routine(
                     writeln!(out, "\tmov {} [rsp+{}], {}", name_of_size(split.size), to.0 + split.offset, reg_name)?;
                 }
             }
-            _ => writeln!(out, "\t; -- Unhandled")?,
+            Instr::StackPtr { to, take_pointer_to } => {
+                let reg_name = Register::Rax.name(8);
+                writeln!(out, "\tlea {}, [rsp+{}]", reg_name, take_pointer_to.0)?;
+                writeln!(out, "\tmov [rsp+{}], {}", to.0, reg_name)?;
+            }
+            Instr::IncrPtr { to, amount, scale } => {
+                let reg_src = Register::Rax.name(8);
+                let reg_amount = Register::Rcx.name(8);
+                writeln!(out, "\tmov {}, [rsp+{}]", reg_src, to.0)?;
+                writeln!(out, "\tmov {}, [rsp+{}]", reg_amount, amount.0)?;
+                writeln!(out, "\tlea {}, [{}+{}*{}]", reg_src, reg_src, reg_amount, scale)?;
+                writeln!(out, "\tmov [rsp+{}], {}", to.0, reg_src)?;
+            }
+            Instr::LabelDefinition(label_id) => {
+                writeln!(out, "{}:", label_name(function_id, label_id))?;
+            }
+            Instr::Unary { to, from, op, type_ } => {
+                assert!(!type_.is_float(), "Float operations not handled yet in x64 backend");
+
+                let size = type_.size();
+                emit_unary(out, op, type_, to, RegImmAddr::Stack(from, size), size)?;
+            }
+            Instr::Binary { to, a, b, op, type_ } => {
+                assert!(!type_.is_float(), "Float operations not handled yet in x64 backend");
+
+                let size = type_.size();
+                emit_binary(out, op, type_, to, a, RegImmAddr::Stack(b, size), size)?;
+            }
+            Instr::BinaryImm { to, a, b, op, type_ } => {
+                assert!(!type_.is_float(), "Float operations not handled yet in x64 backend");
+
+                let size = type_.size();
+                emit_binary(out, op, type_, to, a, RegImmAddr::Imm(b, size), size)?;
+            }
+            Instr::JumpIfZero { condition, to } => {
+                writeln!(out, "\tmov al, BYTE [rsp+{}]", condition.0)?;
+                writeln!(out, "\tcmp al, 0")?;
+                writeln!(out, "\tje  {}", label_name(function_id, to))?;
+            }
+            Instr::Jump { to } => {
+                writeln!(out, "\tjmp  {}", label_name(function_id, to))?;
+            }
+            Instr::RefGlobal { to_ptr, global } => {
+                writeln!(out, "\tmov rax, {}", global_symbol(global.as_ptr() as usize))?;
+                writeln!(out, "\tmov [rsp+{}], rax", to_ptr.0)?;
+            }
+            Instr::IndirectMove { to_ptr, from, size } => {
+                writeln!(out, "\tmov rax, [rsp+{}]", to_ptr.0)?;
+
+                for split in split_into_powers_of_two(size) {
+                    let reg_name = Register::Rcx.name(size);
+                    writeln!(out, "\tmov {}, {} [rsp+{}]", reg_name, name_of_size(split.size), from.0 + split.offset)?;
+                    writeln!(out, "\tmov {} [rax+{}], {}", name_of_size(split.size), split.offset, reg_name)?;
+                }
+            }
+            Instr::Dereference { to, from_ptr, size } => {
+                writeln!(out, "\tmov rax, [rsp+{}]", from_ptr.0)?;
+
+                for split in split_into_powers_of_two(size) {
+                    let reg_name = Register::Rcx.name(size);
+                    writeln!(out, "\tmov {}, {} [rax+{}]", reg_name, name_of_size(split.size), split.offset)?;
+                    writeln!(out, "\tmov {} [rsp+{}], {}", name_of_size(split.size), to.0 + split.offset, reg_name)?;
+                }
+            }
+            Instr::SetToZero { to_ptr, size } => {
+                writeln!(out, "\tmov rax, [rsp+{}]", to_ptr.0)?;
+
+                for split in split_into_powers_of_two(size) {
+                    writeln!(out, "\tmov {} [rax+{}], 0", name_of_size(split.size), split.offset)?;
+                }
+            }
+            Instr::ConvertNum { to, from, to_number, from_number } => {
+                assert!(!to_number.is_float());
+                assert!(!from_number.is_float());
+
+                match to_number.size().cmp(&from_number.size()) {
+                    Ordering::Greater => {
+                        let needs_sign_extend = to_number.signed() && from_number.signed();
+
+                        let to_reg   = Register::Rax.name(to_number.size());
+                        let from_reg = Register::Rcx.name(from_number.size());
+                        writeln!(out, "\tmov {}, [rsp+{}]", from_reg, from.0)?;
+                        if needs_sign_extend {
+                            writeln!(out, "\tmovsx {}, {}", to_reg, from_reg)?;
+                        } else {
+                            // @HACK: Because moving to eax fills the higher bits with zero, this
+                            // is fine.
+                            let to_reg_temp = Register::Rax.name(to_number.size().max(4));
+                            writeln!(out, "\tmovzx {}, {}", to_reg_temp, from_reg)?;
+                        }
+
+                        writeln!(out, "\tmov [rsp+{}], {}", to.0, to_reg)?;
+                    }
+                    Ordering::Equal => {
+                        let reg_name = Register::Rax.name(to_number.size());
+                        writeln!(out, "\tmov {}, [rsp+{}]", reg_name, from.0)?;
+                        writeln!(out, "\tmov [rsp+{}], {}", to.0, reg_name)?;
+                    }
+                    Ordering::Less => {
+                        let reg_name = Register::Rax.name(to_number.size());
+                        writeln!(out, "\tmov {}, [rsp+{}]", reg_name, from.0)?;
+                        writeln!(out, "\tmov [rsp+{}], {}", to.0, reg_name)?;
+                    }
+                }
+            }
         }
     }
 
     writeln!(out, "\tadd rsp, {}", stack_ptr_offset)?;
     writeln!(out, "\tret")?;
+
+    Ok(())
+}
+
+#[derive(Clone, Copy)]
+enum RegImmAddr {
+    Reg(Register, usize),
+    Stack(Value, usize),
+    Imm(u64, usize),
+}
+
+impl fmt::Display for RegImmAddr {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match *self {
+            Self::Reg(reg, size) => write!(f, "{}", reg.name(size)),
+            Self::Stack(val, size) => write!(f, "{} [rsp+{}]", name_of_size(size), val.0),
+            Self::Imm(val, size) => write!(f, "{} {}", name_of_size(size), val),
+        }
+    }
+}
+
+fn emit_unary(out: &mut String, op: UnaryOp, _type_: NumberType, to: Value, a: RegImmAddr, size: usize) -> fmt::Result {
+    let reg_out = Register::Rax.name(size);
+    writeln!(out, "\tmov {}, {}", reg_out, a)?;
+    
+    match op {
+        UnaryOp::Not => {
+            writeln!(out, "\tnot {}", reg_out)?;
+        }
+        UnaryOp::Negate => {
+            writeln!(out, "\tneg {}", reg_out)?;
+        }
+        _ => writeln!(out, "\t; Unhandled unary operator {:?}", op)?,
+    }
+
+    writeln!(out, "\tmov [rsp+{}], {}", to.0, reg_out)?;
+
+    Ok(())
+}
+
+fn emit_binary(out: &mut String, op: BinaryOp, type_: NumberType, to: Value, a: Value, right: RegImmAddr, size: usize) -> fmt::Result {
+    let reg_a = Register::Rax.name(size);
+    writeln!(out, "\tmov {}, [rsp+{}]", reg_a, a.0)?;
+
+    match op {
+        BinaryOp::Add => {
+            writeln!(out, "\tadd {}, {}", reg_a, right)?;
+            writeln!(out, "\tmov [rsp+{}], {}", to.0, reg_a)?;
+        }
+        BinaryOp::Sub => {
+            writeln!(out, "\tsub {}, {}", reg_a, right)?;
+            writeln!(out, "\tmov [rsp+{}], {}", to.0, reg_a)?;
+        }
+        BinaryOp::Mult => {
+            if type_.signed() {
+                writeln!(out, "\timul {}, {}", reg_a, right)?;
+            } else {
+                writeln!(out, "\tmul {}, {}", reg_a, right)?;
+            }
+            writeln!(out, "\tmov [rsp+{}], {}", to.0, reg_a)?;
+        }
+        BinaryOp::Div => {
+            if type_.signed() {
+                writeln!(out, "\tidiv {}, {}", reg_a, right)?;
+            } else {
+                writeln!(out, "\tdiv {}, {}", reg_a, right)?;
+            }
+            writeln!(out, "\tmov [rsp+{}], {}", to.0, reg_a)?;
+        }
+        BinaryOp::Equals => {
+            writeln!(out, "\tcmp {}, {}", reg_a, right)?;
+            writeln!(out, "\tsete BYTE [rsp+{}]", to.0)?;
+        }
+        BinaryOp::NotEquals => {
+            writeln!(out, "\tcmp {}, {}", reg_a, right)?;
+            writeln!(out, "\tsetne BYTE [rsp+{}]", to.0)?;
+        }
+        BinaryOp::LargerThan => {
+            writeln!(out, "\tcmp {}, {}", reg_a, right)?;
+            writeln!(out, "\tsetg BYTE [rsp+{}]", to.0)?;
+        }
+        BinaryOp::LargerThanEquals => {
+            writeln!(out, "\tcmp {}, {}", reg_a, right)?;
+            writeln!(out, "\tsetge BYTE [rsp+{}]", to.0)?;
+        }
+        BinaryOp::LessThan => {
+            writeln!(out, "\tcmp {}, {}", reg_a, right)?;
+            writeln!(out, "\tsetl BYTE [rsp+{}]", to.0)?;
+        }
+        BinaryOp::LessThanEquals => {
+            writeln!(out, "\tcmp {}, {}", reg_a, right)?;
+            writeln!(out, "\tsetle BYTE [rsp+{}]", to.0)?;
+        }
+        _ => writeln!(out, "\t; Unhandled binary operator {:?}", op)?,
+    }
 
     Ok(())
 }
