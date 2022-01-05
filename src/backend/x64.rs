@@ -12,7 +12,6 @@ use std::cmp::{Ord, Ordering};
 #[derive(Default)]
 pub struct Emitter {
     extern_defs: String,
-    data_section: String,
     text: String,
 }
 
@@ -30,9 +29,7 @@ impl Emitter {
                 emit_routine(&mut self.text, function_id, routine).unwrap();
             }
             Routine::Extern(symbol_name) => {
-                writeln!(&mut self.extern_defs, "\textern {}", symbol_name).unwrap();
-                writeln!(&mut self.text, "\n{}:", function_symbol(function_id)).unwrap();
-                writeln!(&mut self.text, "\tjmp {}", symbol_name).unwrap();
+                writeln!(&mut self.extern_defs, "extern {}", symbol_name).unwrap();
             }
             _ => {}
         }
@@ -48,13 +45,10 @@ pub fn emit(program: &Program, file_path: &Path, emitters: Vec<Emitter>) {
         write!(&mut out, "{}", emitter.extern_defs).unwrap();
     }
 
-    writeln!(&mut out, "section .data").unwrap();
+    writeln!(&mut out, "\nsection .data").unwrap();
     emit_constants(&mut out, program);
-    for emitter in &emitters {
-        write!(&mut out, "{}", emitter.data_section).unwrap();
-    }
 
-    writeln!(&mut out, "\n\nsection .text").unwrap();
+    writeln!(&mut out, "\nsection .text").unwrap();
 
     for emitter in &emitters {
         write!(&mut out, "{}", emitter.text).unwrap();
@@ -78,7 +72,17 @@ pub fn emit_constants(out: &mut String, program: &Program) {
                 Some(&(offset, pointer_kind)) if *offset == i => {
                     let ptr_num = unsafe { *ptr.add(i).cast::<usize>() };
                     if let PointerInType::Function { .. } = pointer_kind {
-                        write!(out, "{}", function_symbol(ptr_num.into())).unwrap();
+                        let function_id = ptr_num.into();
+                        let routine = program.get_routine(function_id).unwrap();
+
+                        match &*routine {
+                            Routine::Extern(symbol_name) => {
+                                write!(out, "{}", symbol_name).unwrap();
+                            }
+                            _ => {
+                                write!(out, "{}", function_symbol(ptr_num.into())).unwrap();
+                            }
+                        }
                     } else if ptr_num == 0 {
                         out.push('0');
                     } else {

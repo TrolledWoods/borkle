@@ -1,9 +1,11 @@
 #no_base:
 
-const message_box = fn(_: i32, title: &u8, message: &u8, _: i32) -> i32  extern "MessageBoxA";
+const message_box = fn(_: i32, message: &u8, title: &u8, _: i32) -> i32  extern "MessageBoxA";
 
 #entry fn() {
-    message_box(0, "Test Title\0".ptr, "Test Message\0".ptr, 0);
+    for message in ["One\0", "Two\0", "Three\0"] {
+        message_box(0, message.ptr, "Test Title\0".ptr, 0);
+    };
 };
 
 // TODO:
