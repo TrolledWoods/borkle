@@ -1,9 +1,11 @@
 #no_base:
 
-const value = 0 : u32;
+const value = fn() {};
 
 #entry fn() {
-    
+    let x = 32 : u64;
+
+    let y = [1, 2, 3 : u8];
 };
 
 // TODO:

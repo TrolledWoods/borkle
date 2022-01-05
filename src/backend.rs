@@ -2,6 +2,7 @@ use std::path::PathBuf;
 use crate::program::{Program, FunctionId};
 use crate::ir::Routine;
 use crate::types::Type;
+use std::fmt;
 
 // mod c;
 pub mod ir;
@@ -139,3 +140,24 @@ enum BackendEmitter {
     Ir(ir::Emitter),
 }
 
+struct Formatter<F>(F)
+where
+    F: for<'a> Fn(&mut fmt::Formatter<'a>) -> fmt::Result;
+
+impl<F> fmt::Display for Formatter<F>
+where
+    F: for<'a> Fn(&mut fmt::Formatter<'a>) -> fmt::Result,
+{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        (self.0)(f)
+    }
+}
+
+pub fn function_symbol(function: FunctionId) -> impl fmt::Display {
+    let num: usize = function.into();
+    Formatter(move |f| write!(f, "function_{}", num))
+}
+
+pub fn global_symbol(global: usize) -> impl fmt::Display {
+    Formatter(move |f| write!(f, "global_{}", global))
+}
