@@ -1,4 +1,4 @@
-use crate::ir::{Instr, UserDefinedRoutine, Routine, LabelId, NumberType, Value};
+use crate::ir::{Instr, UserDefinedRoutine, Routine, LabelId, PrimitiveType, Value};
 use crate::layout::align_to;
 use crate::program::{Program, FunctionId};
 use crate::types::PointerInType;
@@ -239,22 +239,41 @@ fn emit_routine(
                 let extra_stack_space = 32;
 
                 writeln!(out, "\tsub rsp, {}", extra_stack_space)?;
+                
 
-                for (i, (arg, arg_layout)) in args.iter().enumerate() {
-                    assert!(i < 4, "We don't support passing function arguments on the stack yet...");
+                let mut arguments_passed = 0;
+
+                // @TODO: Check if it's a float too.
+                /*if to_layout.size > 8 {
+                    // We need to pass a pointer to the return value as the first argument
+                    writeln!(
+                        out,
+                        "\tmov {}, [rsp+{}]",
+                        Register::Rcx.name(to_layout.size),
+                        arg.0 + extra_stack_space,
+                    )?;
+                    arguments_passed += 1;
+                }*/
+
+                for (arg, arg_layout) in args.iter() {
+                    assert!(arguments_passed < 4, "We don't support passing function arguments on the stack yet...");
                     assert!(arg_layout.size <= 8, "Cannot pass large things yet");
 
                     writeln!(
                         out,
                         "\tmov {}, [rsp+{}]",
-                        [Register::Rcx, Register::Rdx, Register::R8, Register::R9][i].name(arg_layout.size),
+                        [Register::Rcx, Register::Rdx, Register::R8, Register::R9][arguments_passed].name(arg_layout.size),
                         arg.0 + extra_stack_space,
                     )?;
+
+                    arguments_passed += 1;
                 }
 
                 writeln!(out, "\tcall [rsp+{}]", pointer.0 + extra_stack_space)?;
 
-                writeln!(out, "\tmov {} [rsp+{}], {}", name_of_size(to_layout.size), to.0 + extra_stack_space, Register::Rax.name(to_layout.size))?;
+                if to_layout.size > 0 {
+                    writeln!(out, "\tmov {} [rsp+{}], {}", name_of_size(to_layout.size), to.0 + extra_stack_space, Register::Rax.name(to_layout.size))?;
+                }
 
                 writeln!(out, "\tadd rsp, {}", extra_stack_space)?;
             }
@@ -405,7 +424,7 @@ impl fmt::Display for RegImmAddr {
     }
 }
 
-fn emit_unary(out: &mut String, op: UnaryOp, _type_: NumberType, to: Value, a: RegImmAddr, size: usize) -> fmt::Result {
+fn emit_unary(out: &mut String, op: UnaryOp, _type_: PrimitiveType, to: Value, a: RegImmAddr, size: usize) -> fmt::Result {
     let reg_out = Register::Rax.name(size);
     writeln!(out, "\tmov {}, {}", reg_out, a)?;
     
@@ -424,7 +443,7 @@ fn emit_unary(out: &mut String, op: UnaryOp, _type_: NumberType, to: Value, a: R
     Ok(())
 }
 
-fn emit_binary(out: &mut String, op: BinaryOp, type_: NumberType, to: Value, a: Value, right: RegImmAddr, size: usize) -> fmt::Result {
+fn emit_binary(out: &mut String, op: BinaryOp, type_: PrimitiveType, to: Value, a: Value, right: RegImmAddr, size: usize) -> fmt::Result {
     let reg_a = Register::Rax.name(size);
     writeln!(out, "\tmov {}, [rsp+{}]", reg_a, a.0)?;
 

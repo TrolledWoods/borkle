@@ -1,4 +1,4 @@
-use crate::ir::{Instr, LabelId, StackAllocator, Routine, UserDefinedRoutine, Value, NumberType};
+use crate::ir::{Instr, LabelId, StackAllocator, Routine, UserDefinedRoutine, Value, PrimitiveType};
 use crate::layout::StructLayout;
 use crate::location::Location;
 use crate::literal::Literal;
@@ -288,7 +288,7 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, mut node: NodeView<'a>) -> Value {
             let condition_label = ctx.create_label();
             ctx.define_label(condition_label);
 
-            ctx.emit_binary(BinaryOp::LessThan, condition, current, end, NumberType::U64);
+            ctx.emit_binary(BinaryOp::LessThan, condition, current, end, PrimitiveType::U64);
 
             let else_body_label = ctx.create_label();
             ctx.emit_jump_if_zero(condition, else_body_label);
@@ -544,7 +544,7 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, mut node: NodeView<'a>) -> Value {
                 let pointee_layout = *ctx.types.get(pointee_id).layout.unwrap();
                 let b_copy = ctx.create_reg_with_layout(Layout::USIZE);
                 ctx.emit_binary_imm_u64(BinaryOp::Mult, b_copy, b, pointee_layout.size as u64);
-                ctx.emit_binary(*op, to, a, b_copy, NumberType::U64);
+                ctx.emit_binary(*op, to, a, b_copy, PrimitiveType::U64);
             } else {
                 let number_type = ctx.to_number_type(TypeId::Node(ctx.variant_id, left.id));
                 ctx.emit_binary(*op, to, a, b, number_type);
@@ -1074,7 +1074,7 @@ impl Context<'_, '_> {
         self.instr.push(Instr::SetToZero { to_ptr, size: layout.size });
     }
 
-    fn emit_convert_num(&mut self, to: Value, to_number: NumberType, from: Value, from_number: NumberType) {
+    fn emit_convert_num(&mut self, to: Value, to_number: PrimitiveType, from: Value, from_number: PrimitiveType) {
         self.instr.push(Instr::ConvertNum { to, to_number, from, from_number });
     }
 
@@ -1129,15 +1129,15 @@ impl Context<'_, '_> {
         self.instr.push(Instr::Call { to, pointer, args, loc });
     }
 
-    fn emit_unary(&mut self, op: UnaryOp, to: Value, from: Value, type_: NumberType) {
+    fn emit_unary(&mut self, op: UnaryOp, to: Value, from: Value, type_: PrimitiveType) {
         self.instr.push(Instr::Unary { op, to, from, type_ });
     }
 
     fn emit_binary_imm_u64(&mut self, op: BinaryOp, to: Value, a: Value, b: u64) {
-        self.instr.push(Instr::BinaryImm { to, a, b, op, type_: NumberType::U64 });
+        self.instr.push(Instr::BinaryImm { to, a, b, op, type_: PrimitiveType::U64 });
     }
 
-    fn emit_binary(&mut self, op: BinaryOp, to: Value, a: Value, b: Value, type_: NumberType) {
+    fn emit_binary(&mut self, op: BinaryOp, to: Value, a: Value, b: Value, type_: PrimitiveType) {
         self.instr.push(Instr::Binary { to, a, b, op, type_ });
     }
 
@@ -1145,7 +1145,7 @@ impl Context<'_, '_> {
         self.instr.push(Instr::IncrPtr { to, amount, scale });
     }
 
-    fn to_number_type(&self, type_id: TypeId) -> NumberType {
+    fn to_number_type(&self, type_id: TypeId) -> PrimitiveType {
         let type_ = self.types.get(type_id);
         match type_.kind() {
             type_infer::TypeKind::Int => {
@@ -1156,16 +1156,16 @@ impl Context<'_, '_> {
                 let size_value = unsafe { *size.as_ptr().cast::<u8>() };
 
                 match (signed_value, size_value) {
-                    (true, 0) => NumberType::I64,
-                    (true, 1) => NumberType::I8,
-                    (true, 2) => NumberType::I16,
-                    (true, 4) => NumberType::I32,
-                    (true, 8) => NumberType::I64,
-                    (false, 0) => NumberType::U64,
-                    (false, 1) => NumberType::U8,
-                    (false, 2) => NumberType::U16,
-                    (false, 4) => NumberType::U32,
-                    (false, 8) => NumberType::U64,
+                    (true, 0) => PrimitiveType::I64,
+                    (true, 1) => PrimitiveType::I8,
+                    (true, 2) => PrimitiveType::I16,
+                    (true, 4) => PrimitiveType::I32,
+                    (true, 8) => PrimitiveType::I64,
+                    (false, 0) => PrimitiveType::U64,
+                    (false, 1) => PrimitiveType::U8,
+                    (false, 2) => PrimitiveType::U16,
+                    (false, 4) => PrimitiveType::U32,
+                    (false, 8) => PrimitiveType::U64,
                     _ => unreachable!(),
                 }
             }
@@ -1174,16 +1174,16 @@ impl Context<'_, '_> {
                 let size_value = unsafe { *size.as_ptr().cast::<u8>() };
 
                 match size_value {
-                    4 => NumberType::F32,
-                    8 => NumberType::F64,
+                    4 => PrimitiveType::F32,
+                    8 => PrimitiveType::F64,
                     _ => unreachable!(),
                 }
             }
             type_infer::TypeKind::Reference => {
-                NumberType::U64
+                PrimitiveType::U64
             }
             type_infer::TypeKind::Bool => {
-                NumberType::U8
+                PrimitiveType::Bool
             }
             c => unreachable!("{:?}", c),
         }

@@ -8,7 +8,8 @@ use ustr::Ustr;
 
 #[derive(Clone, Copy, Debug)]
 #[repr(u8)]
-pub enum NumberType {
+pub enum PrimitiveType {
+    Bool,
     U8,
     U16,
     U32,
@@ -21,14 +22,14 @@ pub enum NumberType {
     F64,
 }
 
-impl NumberType {
+impl PrimitiveType {
     pub fn signed(&self) -> bool {
         matches!(self, Self::I8 | Self::I16 | Self::I32 | Self::I64)
     }
 
     pub fn size(&self) -> usize {
         match self {
-            Self::U8 | Self::I8 => 1,
+            Self::Bool | Self::U8 | Self::I8 => 1,
             Self::U16 | Self::I16 => 2,
             Self::U32 | Self::I32 | Self::F32 => 4,
             Self::U64 | Self::I64 | Self::F64 => 8,
@@ -60,14 +61,14 @@ pub enum Instr {
         a: Value,
         b: Value,
         op: BinaryOp,
-        type_: NumberType,
+        type_: PrimitiveType,
     },
     BinaryImm {
         to: Value,
         a: Value,
         b: u64,
         op: BinaryOp,
-        type_: NumberType,
+        type_: PrimitiveType,
     },
     IncrPtr {
         to: Value,
@@ -78,7 +79,7 @@ pub enum Instr {
         to: Value,
         from: Value,
         op: UnaryOp,
-        type_: NumberType,
+        type_: PrimitiveType,
     },
     RefGlobal {
         to_ptr: Value,
@@ -111,8 +112,8 @@ pub enum Instr {
     ConvertNum {
         to: Value,
         from: Value,
-        to_number: NumberType,
-        from_number: NumberType,
+        to_number: PrimitiveType,
+        from_number: PrimitiveType,
     },
     // jump to 'to' if condition
     JumpIfZero {
