@@ -239,7 +239,6 @@ fn emit_routine(
                 let extra_stack_space = 32;
 
                 writeln!(out, "\tsub rsp, {}", extra_stack_space)?;
-                
 
                 let mut arguments_passed = 0;
 
@@ -257,12 +256,12 @@ fn emit_routine(
 
                 for (arg, arg_layout) in args.iter() {
                     assert!(arguments_passed < 4, "We don't support passing function arguments on the stack yet...");
-                    assert!(arg_layout.size <= 8, "Cannot pass large things yet");
+                    assert!(arg_layout.size() <= 8, "Cannot pass large things yet");
 
                     writeln!(
                         out,
                         "\tmov {}, [rsp+{}]",
-                        [Register::Rcx, Register::Rdx, Register::R8, Register::R9][arguments_passed].name(arg_layout.size),
+                        [Register::Rcx, Register::Rdx, Register::R8, Register::R9][arguments_passed].name(arg_layout.size()),
                         arg.0 + extra_stack_space,
                     )?;
 
@@ -271,8 +270,8 @@ fn emit_routine(
 
                 writeln!(out, "\tcall [rsp+{}]", pointer.0 + extra_stack_space)?;
 
-                if to_layout.size > 0 {
-                    writeln!(out, "\tmov {} [rsp+{}], {}", name_of_size(to_layout.size), to.0 + extra_stack_space, Register::Rax.name(to_layout.size))?;
+                if to_layout.size() > 0 {
+                    writeln!(out, "\tmov {} [rsp+{}], {}", name_of_size(to_layout.size()), to.0 + extra_stack_space, Register::Rax.name(to_layout.size()))?;
                 }
 
                 writeln!(out, "\tadd rsp, {}", extra_stack_space)?;

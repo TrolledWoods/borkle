@@ -156,13 +156,13 @@ fn interp_internal(program: &Program, stack: &mut StackFrame<'_>, routine: &User
                         let (mut old_stack, mut new_stack) = stack.split(&calling.stack);
 
                         // Put the arguments on top of the new stack frame
-                        for (&(old, old_layout), new) in args.iter().zip(&calling.stack.values) {
-                            if old_layout.size > 0 {
+                        for (&(old, field_layout), new) in args.iter().zip(&calling.stack.values) {
+                            if field_layout.size() > 0 {
                                 unsafe {
                                     std::ptr::copy_nonoverlapping(
                                         old_stack.get(old).as_ptr(),
                                         new_stack.get_mut(new.value()).as_mut_ptr(),
-                                        old_layout.size,
+                                        field_layout.size(),
                                     );
                                 }
                             }
@@ -170,12 +170,12 @@ fn interp_internal(program: &Program, stack: &mut StackFrame<'_>, routine: &User
 
                         interp_internal(program, &mut new_stack, calling, call_stack)?;
 
-                        if to.1.size > 0 {
+                        if to.1.size() > 0 {
                             unsafe {
                                 std::ptr::copy_nonoverlapping(
                                     new_stack.get(calling.result).as_ptr(),
                                     old_stack.get_mut(to.0).as_mut_ptr(),
-                                    to.1.size,
+                                    to.1.size(),
                                 );
                             }
                         }

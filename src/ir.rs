@@ -41,15 +41,31 @@ impl PrimitiveType {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
+pub struct TypedLayout {
+    pub primitive: Option<PrimitiveType>,
+    pub layout: Layout,
+}
+
+impl TypedLayout {
+    pub fn size(&self) -> usize {
+        self.layout.size
+    }
+
+    pub fn align(&self) -> usize {
+        self.layout.align
+    }
+}
+
 #[derive(Clone, Debug)]
 #[allow(non_camel_case_types)]
 pub enum Instr {
     DebugLocation(Location),
     Call {
-        to: (Value, Layout),
+        to: (Value, TypedLayout),
         pointer: Value,
         // FIXME: We don't really want a vector here, we want a more efficient datastructure
-        args: Vec<(Value, Layout)>,
+        args: Vec<(Value, TypedLayout)>,
         loc: Location,
     },
     SetToZero {
