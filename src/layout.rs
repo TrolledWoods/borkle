@@ -8,18 +8,41 @@ pub fn align_to(value: usize, align: usize) -> usize {
 
 #[derive(Clone, Copy)]
 pub struct StructLayout {
-    position: usize,
+    pub position: usize,
+    align: usize,
 }
 
 impl StructLayout {
     pub fn new(position: usize) -> Self {
-        Self { position }
+        Self {
+            position,
+            align: 1,
+        }
+    }
+
+    pub fn new_with_align(position: usize, align: usize) -> Self {
+        Self {
+            position,
+            align,
+        }
+    }
+
+    pub fn size(&self) -> usize {
+        align_to(self.position, self.align)
+    }
+
+    pub fn layout(&self) -> Layout {
+        Layout {
+            size: align_to(self.position, self.align),
+            align: self.align,
+        }
     }
 
     pub fn next(&mut self, field_layout: Layout) -> usize {
         self.position = align_to(self.position, field_layout.align);
         let field_pos = self.position;
         self.position += field_layout.size;
+        self.align = self.align.max(field_layout.align);
         field_pos
     }
 }

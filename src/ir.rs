@@ -155,7 +155,9 @@ pub struct UserDefinedRoutine {
     pub label_locations: Vec<usize>,
     pub instr: Vec<Instr>,
     pub stack: StackAllocator,
+    pub args: Vec<(Value, TypedLayout)>,
     pub result: Value,
+    pub result_layout: TypedLayout,
 }
 
 pub struct StackAllocator {

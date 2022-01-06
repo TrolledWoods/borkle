@@ -529,6 +529,7 @@ pub struct Layout {
 
 impl Layout {
     pub const PTR: Self = Self { size: 8, align: 8 };
+    pub const U64: Self = Self { size: 8, align: 8 };
     pub const USIZE: Self = Self { size: 8, align: 8 };
 
     pub const BOOL: Self = Self { size: 1, align: 1 };

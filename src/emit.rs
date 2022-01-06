@@ -39,7 +39,9 @@ pub fn emit<'a>(
         defers: Vec::new(),
     };
 
+    let body_id = TypeId::Node(ctx.variant_id, node);
     let result = emit_node(&mut ctx, ast.get(node));
+    let result_layout = ctx.to_typed_layout(body_id);
 
     /*println!("The instructions are: ");
     for instr in &ctx.instr {
@@ -54,6 +56,8 @@ pub fn emit<'a>(
             instr: ctx.instr,
             stack: ctx.registers,
             result,
+            args: Vec::new(),
+            result_layout,
             label_locations: ctx.label_locations,
         },
     )
@@ -94,13 +98,13 @@ pub fn emit_function_declaration<'a>(
 
     // Pretend there are actual values on the stack
     // @Performance
-    let arg_values: Vec<_> = args.to_vec().into_iter().skip(1).map(|v| {
-        ctx.create_reg(v)
+    let args: Vec<_> = args.to_vec().into_iter().skip(1).map(|v| {
+        ctx.create_reg_and_typed_layout(v)
     }).collect();
 
     let node = ast.get(node_id);
     let mut children = node.children.into_iter();
-    for passed_as in arg_values.into_iter() {
+    for &(passed_as, _) in args.iter() {
         let child = children.next().unwrap();
         emit_declarative_lvalue(&mut ctx, child, passed_as, true);
     }
@@ -109,7 +113,10 @@ pub fn emit_function_declaration<'a>(
     // and the body are left. We don't need the return type, as that is only for the typer,
     // so we skip that one.
 
-    let result = emit_node(&mut ctx, children.nth(1).unwrap());
+    let body = children.nth(1).unwrap();
+    let body_id = TypeId::Node(ctx.variant_id, body.id);
+    let result = emit_node(&mut ctx, body);
+    let result_layout = ctx.to_typed_layout(body_id);
 
     /*println!("The instructions are: ");
     for instr in &ctx.instr {
@@ -122,7 +129,9 @@ pub fn emit_function_declaration<'a>(
         label_locations: ctx.label_locations,
         instr: ctx.instr,
         stack: ctx.registers,
+        args,
         result,
+        result_layout,
     });
 
     let TypeKind::Function { args, returns } = type_.kind() else { unreachable!() };
@@ -1158,6 +1167,16 @@ impl Context<'_, '_> {
 
     fn emit_incr_ptr(&mut self, to: Value, amount: Value, scale: usize) {
         self.instr.push(Instr::IncrPtr { to, amount, scale });
+    }
+
+    fn to_typed_layout(&self, type_id: TypeId) -> TypedLayout {
+        let layout = *self.types.get(type_id).layout.unwrap();
+        let primitive = self.to_number_type(type_id);
+
+        TypedLayout {
+            layout,
+            primitive,
+        }
     }
 
     fn to_number_type(&self, type_id: TypeId) -> Option<PrimitiveType> {
