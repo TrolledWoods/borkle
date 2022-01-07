@@ -17,9 +17,21 @@ const write_things.(Args) = fn(#var_args: messages: Args) -> [] u8 {
 };
 
 #entry fn() {
+
+    let temp = fn(v: &u8) {};
+
+    let x = 0 : u8;
+    temp(#0);
+
+    if x == 99  {
+        message_box(0, "Worked!\0".ptr, "Worked!\0".ptr, 0);
+    };
+
+
+
     let return_string = write_things(["A\0", "B\0"], ["Cdifjijdf\0", "difjodifjoahsudhuirv\0"], ["JLKdjlkfsdf\0", "oiedsfijoasdfijo\0", "Ignored\0"]);
 
-    message_box(0, return_string.ptr, #0, 0);
+    message_box(0, return_string.ptr, return_string.ptr, 0);
 
 
     // inner_func(&0, 0, ["Hi\0", "Hi2\0", "Hi3\0"]);

@@ -535,7 +535,7 @@ fn emit_routine(
                 }
             }
             Instr::SetToZero { to_ptr, size } => {
-                writeln!(out, "\tmov rax, [rsp+{}]", to_ptr.0)?;
+                writeln!(out, "\tlea rax, [rsp+{}]", to_ptr.0)?;
 
                 for split in split_into_powers_of_two(size) {
                     writeln!(out, "\tmov {} [rax+{}], 0", name_of_size(split.size), split.offset)?;
