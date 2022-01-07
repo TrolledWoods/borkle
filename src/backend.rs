@@ -86,6 +86,52 @@ impl Backends {
                         })
                         .collect();
                     x64::emit(program, &path, ir_emitters);
+
+                    let entry_point = program.get_entry_point().unwrap();
+
+                    let mut command = std::process::Command::new("nasm");
+                    command.arg(&path);
+                    command.arg("-fwin64");
+                    command.stdout(std::process::Stdio::inherit());
+                    command.stderr(std::process::Stdio::inherit());
+
+                    println!("nasm command: {:?}", command);
+
+                    match command.output() {
+                        Ok(output) => {
+                            use std::io::Write;
+                            std::io::stdout().write_all(&output.stdout).unwrap();
+                            std::io::stderr().write_all(&output.stderr).unwrap();
+                        }
+                        Err(err) => println!("Failed to run nasm: {:?}", err),
+                    }
+
+                    let mut path = path.to_path_buf();
+                    path.set_extension("obj");
+
+                    // @Improvement: Use vswhere instead, right now just run `cargo run` in the Native Tools
+                    // command prompt.
+                    let mut command = std::process::Command::new("cl");
+                    command.arg(&path);
+                    command.arg("/Fetarget\\output.exe");
+                    command.arg("/link");
+                    command.arg("OneCore.lib");
+                    command.arg("/subsystem:windows");
+                    command.arg(format!("/entry:function_{}", usize::from(entry_point)));
+
+                    command.stdout(std::process::Stdio::inherit());
+                    command.stderr(std::process::Stdio::inherit());
+
+                    println!("cl command: {:?}", command);
+
+                    match command.output() {
+                        Ok(output) => {
+                            use std::io::Write;
+                            std::io::stdout().write_all(&output.stdout).unwrap();
+                            std::io::stderr().write_all(&output.stderr).unwrap();
+                        }
+                        Err(err) => println!("Failed to link: {:?}", err),
+                    }
                 }
             }
         }

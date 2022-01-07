@@ -1,19 +1,26 @@
 #no_base:
 
+const write_console = fn(buffer: &u8, console_handle: &u8, num_chars: u16, written: &u16, _: &u8) -> i32  extern "WriteConsoleA";
+
+
+
+
+
 const message_box = fn(_: i32, message: &u8, title: &u8, _: i32) -> i32  extern "MessageBoxA";
 
-const inner_func = fn(_: &u8, _: i64, message: [3] [] u8) {
-    for message {
-        message_box(0, "From inner function!\0".ptr, v.ptr, 0);
+const write_things.(Args) = fn(#var_args: messages: Args) -> [] u8 {
+    for #const: messages {
+        message_box(0, v._1.ptr, v._0.ptr, 0);
     };
+
+    "This string is returned\0"
 };
 
 #entry fn() {
-    for ["Hi\0", "Hi2\0", "Hi3\0"] {
-        message_box(0, "From outer function!\0".ptr, v.ptr, 0);
-    };
+    let return_string = write_things(["A\0", "B\0"], ["Cdifjijdf\0", "difjodifjoahsudhuirv\0"], ["JLKdjlkfsdf\0", "oiedsfijoasdfijo\0", "Ignored\0"]);
 
-    inner_func(#0, 2, ["Hi\0", "Hi2\0", "Hi3\0"]);
+    message_box(0, return_string.ptr, #0, 0);
+
 
     // inner_func(&0, 0, ["Hi\0", "Hi2\0", "Hi3\0"]);
 };

@@ -230,7 +230,12 @@ fn emit_routine(
     let mut args_read = 0;
 
     if routine.result_layout.size() > 0 && (routine.result_layout.size() > 8 || !routine.result_layout.size().is_power_of_two()) {
-        arg_pos.next(Layout::PTR);
+        let stack_pos = arg_pos.next(Layout::PTR);
+        writeln!(
+            out,
+            "\tmov [rsp+{}], rcx",
+            stack_pos,
+        )?;
         args_read += 1;
     }
 
@@ -364,13 +369,13 @@ fn emit_routine(
                     // We need to pass a pointer to the return value as the first argument
                     writeln!(
                         out,
-                        "\tmov {}, [rsp+{}]",
-                        Register::Rcx.name(to_layout.size()),
+                        "\nlea {}, [rsp+{}]",
+                        Register::Rcx.name(8),
                         to.0 + stack_offset,
                     )?;
 
                     arguments_passed += 1;
-                    arg_pos.next(to_layout.layout);
+                    arg_pos.next(Layout::PTR);
                 }
 
                 for &(arg, arg_layout) in args.iter() {
@@ -573,7 +578,24 @@ fn emit_routine(
         }
     }
 
+    if routine.result_layout.size() > 0 {
+        if routine.result_layout.size() > 8 || !routine.result_layout.size().is_power_of_two() {
+            let to_ptr = stack_ptr_offset + 8;
+            let from = routine.result;
+            writeln!(out, "\tmov rax, [rsp+{}]", to_ptr)?;
+
+            for split in split_into_powers_of_two(routine.result_layout.size()) {
+                let reg_name = Register::Rcx.name(split.size);
+                writeln!(out, "\tmov {}, {} [rsp+{}]", reg_name, name_of_size(split.size), from.0 + split.offset)?;
+                writeln!(out, "\tmov {} [rax+{}], {}", name_of_size(split.size), split.offset, reg_name)?;
+            }
+        } else {
+            writeln!(out, "\tmov {}, [rsp+{}]", Register::Rax.name(routine.result_layout.size()), routine.result.0 + stack_ptr_offset)?;
+        }
+    }
+    
     writeln!(out, "\tadd rsp, {}", stack_ptr_offset)?;
+
     writeln!(out, "\tret")?;
 
     Ok(())
