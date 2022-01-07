@@ -224,6 +224,72 @@ fn emit_routine(
     writeln!(out, "\tsub rsp, {}", stack_ptr_offset)?;
 
     // @Incomplete: Copy over the arguments from where they were passed
+    // Do this to ignore the return function pointer that's also on the stack at this point.
+    let mut to_stack = StructLayout::new(0);
+    let mut arg_pos = StructLayout::new_with_align(stack_ptr_offset + 8, 16);
+    let mut args_read = 0;
+
+    if routine.result_layout.size() > 0 && (routine.result_layout.size() > 8 || !routine.result_layout.size().is_power_of_two()) {
+        arg_pos.next(Layout::PTR);
+        args_read += 1;
+    }
+
+    for &(_, arg_layout) in &routine.args {
+        if arg_layout.size() == 0 { continue; }
+
+        let reg = [Register::Rcx, Register::Rdx, Register::R8, Register::R9].get(args_read).copied();
+
+        if arg_layout.size() > 8 || !arg_layout.size().is_power_of_two() {
+            let reg = if let Some(reg) = reg {
+                arg_pos.next(Layout::U64);
+                reg
+            } else {
+                let stack_pos = arg_pos.next(Layout::PTR);
+                writeln!(
+                    out,
+                    "\tlea rax, [rsp+{}]",
+                    stack_pos,
+                )?;
+                Register::Rax
+            };
+
+            let write_to = to_stack.next(arg_layout.layout);
+            for split in split_into_powers_of_two(arg_layout.size()) {
+                let reg_name = Register::Rbx.name(split.size);
+                writeln!(out, "\tmov {}, {} [{}+{}]", reg_name, name_of_size(split.size), reg.name(8), split.offset)?;
+                writeln!(out, "\tmov {} [rsp+{}], {}", name_of_size(split.size), write_to + split.offset, reg_name)?;
+            }
+        } else {
+            let write_to = to_stack.next(arg_layout.layout);
+
+            if let Some(reg) = reg {
+                arg_pos.next(Layout::U64);
+                writeln!(
+                    out,
+                    "\tmov [rsp+{}], {}",
+                    write_to,
+                    reg.name(arg_layout.size()),
+                )?;
+            } else {
+                let stack_pos = arg_pos.next(arg_layout.layout);
+                let reg_name = Register::Rbx.name(arg_layout.size());
+                writeln!(
+                    out,
+                    "\tmov {}, [rsp+{}]",
+                    reg_name,
+                    stack_pos,
+                )?;
+                writeln!(
+                    out,
+                    "\tmov [rsp+{}], {}",
+                    write_to,
+                    reg_name,
+                )?;
+            }
+        }
+
+        args_read += 1;
+    }
 
     for instr in &routine.instr {
         writeln!(out, "; {:?}", instr)?;
@@ -273,11 +339,11 @@ fn emit_routine(
                     for &(arg, arg_layout) in args {
                         if arg_layout.size() > 8 || !arg_layout.size().is_power_of_two() {
                             let from = arg;
-                            let to = Value(scratch_region_layout.next(arg_layout.layout));
+                            let to = scratch_region_layout.next(arg_layout.layout);
                             for split in split_into_powers_of_two(arg_layout.size()) {
                                 let reg_name = Register::Rax.name(split.size);
-                                writeln!(out, "\tmov {}, {} [rsp+{}]", reg_name, name_of_size(split.size), from.0 + split.offset)?;
-                                writeln!(out, "\tmov {} [rsp+{}], {}", name_of_size(split.size), to.0 + split.offset, reg_name)?;
+                                writeln!(out, "\tmov {}, {} [rsp+{}]", reg_name, name_of_size(split.size), from.0 + split.offset + scratch_region_layout.size())?;
+                                writeln!(out, "\tmov {} [rsp+{}], {}", name_of_size(split.size), to + split.offset, reg_name)?;
                             }
                         }
                     }
@@ -292,7 +358,9 @@ fn emit_routine(
                 let stack_offset = args_layouts.size() + scratch_region_layout.size();
 
                 // @TODO: Check if it's a float too.
-                if to_layout.size() > 8 {
+                // @TODO: This doesn't check if it has a constructor or not. We don't have constructors,
+                // but if we call into c++, this might matter... :(
+                if to_layout.size() > 0 && (to_layout.size() > 8 || !to_layout.size().is_power_of_two()) {
                     // We need to pass a pointer to the return value as the first argument
                     writeln!(
                         out,
@@ -306,6 +374,8 @@ fn emit_routine(
                 }
 
                 for &(arg, arg_layout) in args.iter() {
+                    if arg_layout.size() == 0 { continue; }
+
                     let reg = [Register::Rcx, Register::Rdx, Register::R8, Register::R9].get(arguments_passed).copied();
                     if arg_layout.size() > 8 || !arg_layout.size().is_power_of_two() {
                         let from_pos = scratch_region_pos.next(arg_layout.layout);
@@ -315,7 +385,7 @@ fn emit_routine(
                             writeln!(
                                 out,
                                 "\tlea {}, [rsp+{}]",
-                                reg.name(arg_layout.size()),
+                                reg.name(8),
                                 from_pos,
                             )?;
                         } else {

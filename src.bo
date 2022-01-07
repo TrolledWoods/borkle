@@ -2,24 +2,30 @@
 
 const message_box = fn(_: i32, message: &u8, title: &u8, _: i32) -> i32  extern "MessageBoxA";
 
-const inner_func = fn() {
-    message_box(0, "From inner function!\0".ptr, "Test Title\0".ptr, 0);
+const inner_func = fn(_: &u8, _: i64, message: [3] [] u8) {
+    for message {
+        message_box(0, "From inner function!\0".ptr, v.ptr, 0);
+    };
 };
 
 #entry fn() {
-    for message in ["One\0", "Two\0", "Three\0"] {
-        message_box(0, message.ptr, "Test Title\0".ptr, 0);
+    for ["Hi\0", "Hi2\0", "Hi3\0"] {
+        message_box(0, "From outer function!\0".ptr, v.ptr, 0);
     };
 
-    inner_func();
+    inner_func(#0, 2, ["Hi\0", "Hi2\0", "Hi3\0"]);
+
+    // inner_func(&0, 0, ["Hi\0", "Hi2\0", "Hi3\0"]);
 };
 
 // Roadmap for full(and decent) x64 support:
 //
-// - Handle large arguments
+// * - Handle large arguments
 // - Handle floats
-// - Actually handle getting passed arguments, and fill the return slot.
+// * - Actually handle getting passed arguments, 
+// - fill the return slot.
 // - Support multiple calling conventions; for one, we can do one that's better than the windows one, and, linux/mac probably don't use the same one anyway, so we need this logic
+// - Generalize moving memory from one place to another(basically memcpy intrinsic)
 // - Proper register allocator
 // - `cfg` tag to do some form of conditional compilation; will not be like C preprocessor directives though, since we both run at compile-time and at runtime, so that isn't good enough
 
