@@ -1,40 +1,21 @@
 #no_base:
 
-const write_console = fn(buffer: &u8, console_handle: &u8, num_chars: u16, written: &u16, _: &u8) -> i32  extern "WriteConsoleA";
 
+const WriteConsole = fn(console_handle: &u8, buffer: &u8, num_chars: u32, written: &u32, _: &u8) -> i32  extern "WriteConsoleA";
+const GetStdHandle = fn(handle: u32) -> &u8  extern "GetStdHandle";
+const STD_OUTPUT_HANDLE = cast (-11 : i32) : u32; // cast (-11 : i32) : u32; //  4294967285 : u32;
 
-
-
-
-const message_box = fn(_: i32, message: &u8, title: &u8, _: i32) -> i32  extern "MessageBoxA";
-
-const write_things.(Args) = fn(#var_args: messages: Args) -> [] u8 {
-    for #const: messages {
-        message_box(0, v._1.ptr, v._0.ptr, 0);
-    };
-
-    "This string is returned\0"
+const is_invalid_handle_value = fn(handle: &u8) -> bool {
+    bit_cast handle : isize == -1
 };
+
 
 #entry fn() {
 
-    let temp = fn(v: &u8) {};
+    let written = 0;
+    let message = "Hello, world!\n";
+    WriteConsole(GetStdHandle(STD_OUTPUT_HANDLE), message.ptr, cast message.len, &written, #0);
 
-    let x = 0 : u8;
-    temp(#0);
-
-    if x == 99  {
-        message_box(0, "Worked!\0".ptr, "Worked!\0".ptr, 0);
-    };
-
-
-
-    let return_string = write_things(["A\0", "B\0"], ["Cdifjijdf\0", "difjodifjoahsudhuirv\0"], ["JLKdjlkfsdf\0", "oiedsfijoasdfijo\0", "Ignored\0"]);
-
-    message_box(0, return_string.ptr, return_string.ptr, 0);
-
-
-    // inner_func(&0, 0, ["Hi\0", "Hi2\0", "Hi3\0"]);
 };
 
 // Roadmap for full(and decent) x64 support:

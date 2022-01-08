@@ -590,7 +590,7 @@ fn emit_routine(
                 writeln!(out, "\tmov {} [rax+{}], {}", name_of_size(split.size), split.offset, reg_name)?;
             }
         } else {
-            writeln!(out, "\tmov {}, [rsp+{}]", Register::Rax.name(routine.result_layout.size()), routine.result.0 + stack_ptr_offset)?;
+            writeln!(out, "\tmov {}, [rsp+{}]", Register::Rax.name(routine.result_layout.size()), routine.result.0)?;
         }
     }
     

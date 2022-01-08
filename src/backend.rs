@@ -116,7 +116,7 @@ impl Backends {
                     command.arg("/Fetarget\\output.exe");
                     command.arg("/link");
                     command.arg("OneCore.lib");
-                    command.arg("/subsystem:windows");
+                    command.arg("/subsystem:console");
                     command.arg(format!("/entry:function_{}", usize::from(entry_point)));
 
                     command.stdout(std::process::Stdio::inherit());
