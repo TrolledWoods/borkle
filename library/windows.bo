@@ -1,0 +1,19 @@
+const WriteConsole = fn(console_handle: &u8, buffer: &u8, num_chars: u32, written: &u32, _: &u8) -> i32  extern "WriteConsoleA";
+const GetStdHandle = fn(handle: u32) -> &u8  extern "GetStdHandle";
+const STD_OUTPUT_HANDLE = cast (-11 : i32) : u32;
+const ExitProcess = fn(exit_code: u32) -> ()  extern "ExitProcess";
+
+// @Cleanup: We cannot put an invalid pointer into a constant yet, so this is all we can do.
+// Later, I might add more control over pointers, so you can store an incorrect into a pointer too,
+// or maybe mark it as something that shouldn't be moved?
+const is_invalid_handle_value = fn(handle: &u8) -> bool {
+    bit_cast handle : isize == -1
+};
+
+const VirtualAlloc = fn(address: &u8, size: usize, allocation_type: u32, protection: u32) -> &u8 extern "VirtualAlloc";
+const VirtualFree = fn(address: &u8, size: usize, free_type: u32) -> i32 extern "VirtualFree";
+
+const MEM_COMMIT   = 0x00001000 : u32;
+const MEM_DECOMMIT = 0x00004000 : u32;
+
+const PAGE_READWRITE = 0x04 : u32;

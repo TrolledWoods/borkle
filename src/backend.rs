@@ -92,6 +92,8 @@ impl Backends {
                     let mut command = std::process::Command::new("nasm");
                     command.arg(&path);
                     command.arg("-fwin64");
+                    command.arg("-g");
+                    command.arg("-Fcv8");
                     command.stdout(std::process::Stdio::inherit());
                     command.stderr(std::process::Stdio::inherit());
 
@@ -114,6 +116,7 @@ impl Backends {
                     let mut command = std::process::Command::new("cl");
                     command.arg(&path);
                     command.arg("/Fetarget\\output.exe");
+                    command.arg("/Zi");
                     command.arg("/link");
                     command.arg("OneCore.lib");
                     command.arg("/subsystem:console");

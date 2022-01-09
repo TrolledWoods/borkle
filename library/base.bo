@@ -1,8 +1,8 @@
 #no_base:
 
-library "intrinsics.bo";
-library "vec.bo";
+library "windows.bo";
 library "iter.bo";
+library "vec.bo";
 
 const true = 1 > (0 : u8);
 const false = 1 < (0 : u8);
@@ -10,23 +10,16 @@ const false = 1 < (0 : u8);
 const min.(T) = fn(a: T, b: T) -> T  if a < b  a else b;
 const max.(T) = fn(a: T, b: T) -> T  if a > b  a else b;
 
-const assert = i_assert;
+const assert = fn(condition: bool) {
+    if !condition {
+        // TODO: Print where assert failed.
+        put_string("Assert failed\n");
+        ExitProcess(1);
+    };
+};
 
 const array_ptr   .(N, T) = fn(array: &[N] T) ->   &T    cast array;
 const array_to_buf.(N, T) = fn(array: &[N] T) -> [] T    cast array;
-
-const get_char = fn() -> u8 {
-    let out = 0;
-    let buf = #0;
-    buf.ptr = &out;
-    buf.len = 1;
-    i_stdin_read(buf);
-    out
-};
-
-const get_line = fn() -> typeof Vec.(u8) {
-    vec_from_iter(take_while(stdin(), fn(v) *v != NEW_LINE))
-};
 
 const filled_array.(N, T) = fn(fill_with: T) -> [N] T {
     let arr = #uninit : [N] T;
@@ -35,11 +28,21 @@ const filled_array.(N, T) = fn(fill_with: T) -> [N] T {
 };
 
 const copy.(T) = fn(to: &T, from: &T, size: usize) {
-    i_copy(cast from, cast to, size * sizeof T);
+    if from < to {
+        while i < size {
+            *(to + (size - i - 1)) = *(from + (size - i - 1));
+        };
+    } else {
+        while i < size {
+            *(to + i) = *(from + i);
+        };
+    };
 };
 
 const copy_nonoverlapping.(T) = fn(to: &T, from: &T, size: usize) {
-    i_copy_nonoverlapping(cast from, cast to, size * sizeof T);
+    while i < size {
+        *(to + i) = *(from + i);
+    };
 };
 
 const alloc_copy.(T) = fn(original: [] T) -> [] T {
@@ -50,16 +53,13 @@ const alloc_copy.(T) = fn(original: [] T) -> [] T {
 
 const alloc.(T) = fn(count: usize) -> [] T {
     let buf = #0;
-    buf.ptr = cast i_alloc(count * sizeof T);
+    buf.ptr = cast VirtualAlloc(#0, count * sizeof T, MEM_COMMIT, PAGE_READWRITE);
     buf.len = count;
     buf
 };
 
 const dealloc.(T) = fn(buf: [] T) {
-    let temp = #0;
-    temp.ptr = cast buf.ptr;
-    temp.len = buf.len * sizeof T;
-    i_dealloc(temp);
+    VirtualFree(cast buf.ptr, buf.len / sizeof T, MEM_DECOMMIT);
 };
 
 const fill.(T) = fn(buf: [] T, value: T) {
@@ -118,11 +118,14 @@ const cmp_strings = fn(a: [] u8, b: [] u8) -> bool { 'function
     } else true
 };
 
+const put_string = fn(c: [] u8) {
+    let handle = GetStdHandle(STD_OUTPUT_HANDLE);
+    WriteConsole(handle, c.ptr, cast c.len, &0, #0);
+};
+
 const put_char = fn(c: u8) {
-    let buf = #0;
-    buf.ptr = &c;
-    buf.len = 1;
-    i_stdout_write(buf);
+    let handle = GetStdHandle(STD_OUTPUT_HANDLE);
+    WriteConsole(handle, &c, 1, &0, #0);
 };
 
 const take_char = fn(string: &[] u8) -> u8 {
@@ -286,8 +289,9 @@ const vec_writer.(T) = fn(vec: &typeof Vec.(T)) -> typeof Writer.(T) {
 const stdout_writer = fn() -> typeof Writer.(u8) {
     let writer = #0;
     writer.write_buf = fn(_, buffer) {
-        i_stdout_write(buffer);
-        buffer.len
+        let written = 0;
+        WriteConsole(GetStdHandle(STD_OUTPUT_HANDLE), buffer.ptr, cast buffer.len, &written, #0);
+        cast written
     };
     writer.write_single = fn(_, c) {
         put_char(c);
@@ -430,5 +434,4 @@ const write.(Args) = fn(writer: typeof Writer.(u8), format_str: [] u8, #var_args
 
 const print.(Args) = fn(format_str: [] u8, #var_args: args: Args) {
     write(stdout_writer(), format_str, .args = args);
-    i_stdout_flush();
 };

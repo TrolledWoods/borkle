@@ -188,7 +188,7 @@ create_arguments!(
         output_ir: bool = false;
             "If set to true, a file containing ir will be emitted",
 
-        debug: bool = false;
+        debug: bool = true;
             "Whether or not debug information will be emitted(very basic, just prints the locations of the nodes that are run for now)",
 
         num_threads: usize = 2_usize;

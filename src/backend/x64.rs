@@ -12,13 +12,15 @@ use std::cmp::{Ord, Ordering};
 #[derive(Default)]
 pub struct Emitter {
     extern_defs: String,
+    p_data: String,
+    x_data: String,
     text: String,
 }
 
 impl Emitter {
     pub fn emit_routine(
         &mut self, 
-        _program: &Program,
+        program: &Program,
         function_id: FunctionId,
         routine: &Routine,
         _args: &[Type],
@@ -26,7 +28,7 @@ impl Emitter {
     ) {
         match routine {
             Routine::UserDefined(routine) => {
-                emit_routine(&mut self.text, function_id, routine).unwrap();
+                emit_routine(&mut self.text, &mut self.p_data, &mut self.x_data, program, function_id, routine).unwrap();
             }
             Routine::Extern(symbol_name) => {
                 writeln!(&mut self.extern_defs, "extern {}", symbol_name).unwrap();
@@ -52,6 +54,18 @@ pub fn emit(program: &Program, file_path: &Path, emitters: Vec<Emitter>) {
 
     for emitter in &emitters {
         write!(&mut out, "{}", emitter.text).unwrap();
+    }
+
+    writeln!(&mut out, "\nsection .pdata rdata align=4").unwrap();
+
+    for emitter in &emitters {
+        write!(&mut out, "{}", emitter.p_data).unwrap();
+    }
+
+    writeln!(&mut out, "\nsection .xdata rdata align=8").unwrap();
+
+    for emitter in &emitters {
+        write!(&mut out, "{}", emitter.x_data).unwrap();
     }
 
     if let Err(_) = std::fs::write(file_path, &out) {
@@ -210,9 +224,21 @@ fn split_into_powers_of_two(mut value: usize) -> impl Iterator<Item = SizeSplit>
 
 fn emit_routine(
     out: &mut String,
+    p_data: &mut String,
+    x_data: &mut String,
+    program: &Program,
     function_id: FunctionId,
     routine: &UserDefinedRoutine,
 ) -> fmt::Result {
+    let is_debugging = program.arguments.debug;
+
+    if is_debugging {
+        let loc = routine.loc;
+        writeln!(out, "# {}+0 {:?}", loc.line, loc.file.as_str().strip_prefix("\\\\?\\").unwrap_or(loc.file.as_str())).unwrap();
+        writeln!(p_data, "# {}+0 {:?}", loc.line, loc.file.as_str().strip_prefix("\\\\?\\").unwrap_or(loc.file.as_str())).unwrap();
+        writeln!(x_data, "# {}+0 {:?}", loc.line, loc.file.as_str().strip_prefix("\\\\?\\").unwrap_or(loc.file.as_str())).unwrap();
+    }
+
     writeln!(out, "; {}", routine.name)?;
     writeln!(out, "{}:", function_symbol(function_id))?;
 
@@ -222,6 +248,8 @@ fn emit_routine(
     let stack_ptr_offset = align_to(stack_size + 8, 16) - 8;
 
     writeln!(out, "\tsub rsp, {}", stack_ptr_offset)?;
+
+    writeln!(out, "{}_prolog_end:", function_symbol(function_id))?;
 
     // @Incomplete: Copy over the arguments from where they were passed
     // Do this to ignore the return function pointer that's also on the stack at this point.
@@ -252,15 +280,15 @@ fn emit_routine(
                 let stack_pos = arg_pos.next(Layout::PTR);
                 writeln!(
                     out,
-                    "\tlea rax, [rsp+{}]",
+                    "\tlea rcx, [rsp+{}]",
                     stack_pos,
                 )?;
-                Register::Rax
+                Register::Rcx
             };
 
             let write_to = to_stack.next(arg_layout.layout);
             for split in split_into_powers_of_two(arg_layout.size()) {
-                let reg_name = Register::Rbx.name(split.size);
+                let reg_name = Register::Rax.name(split.size);
                 writeln!(out, "\tmov {}, {} [{}+{}]", reg_name, name_of_size(split.size), reg.name(8), split.offset)?;
                 writeln!(out, "\tmov {} [rsp+{}], {}", name_of_size(split.size), write_to + split.offset, reg_name)?;
             }
@@ -277,7 +305,7 @@ fn emit_routine(
                 )?;
             } else {
                 let stack_pos = arg_pos.next(arg_layout.layout);
-                let reg_name = Register::Rbx.name(arg_layout.size());
+                let reg_name = Register::Rcx.name(arg_layout.size());
                 writeln!(
                     out,
                     "\tmov {}, [rsp+{}]",
@@ -297,11 +325,12 @@ fn emit_routine(
     }
 
     for instr in &routine.instr {
-        writeln!(out, "; {:?}", instr)?;
-
         match *instr {
-            // @Incomplete: Do this
-            Instr::DebugLocation(_) => {}
+            Instr::DebugLocation(loc) => {
+                if is_debugging {
+                    writeln!(out, "# {}+0 {:?}", loc.line, loc.file.as_str().strip_prefix("\\\\?\\").unwrap_or(loc.file.as_str())).unwrap();
+                }
+            }
             Instr::Call { to: (to, to_layout), pointer, ref args, loc: _ } => {
                 // @Incomplete: We want to look at which calling convention we're using here too,
                 // for now we just assume the standard x64 convention
@@ -423,7 +452,7 @@ fn emit_routine(
                         } else {
                             let arg_stackpos = arg_pos.next(arg_layout.layout);
 
-                            let reg_name = Register::Rbx.name(arg_layout.size());
+                            let reg_name = Register::Rcx.name(arg_layout.size());
                             writeln!(
                                 out,
                                 "\tmov {}, [rsp+{}]",
@@ -555,10 +584,15 @@ fn emit_routine(
                         if needs_sign_extend {
                             writeln!(out, "\tmovsx {}, {}", to_reg, from_reg)?;
                         } else {
-                            // @HACK: Because moving to eax fills the higher bits with zero, this
-                            // is fine.
-                            let to_reg_temp = Register::Rax.name(to_number.size().max(4));
-                            writeln!(out, "\tmovzx {}, {}", to_reg_temp, from_reg)?;
+                            let to_reg_temp = Register::Rax.name(to_number.size());
+
+                            if from_number.size() == 4 {
+                                // Moving a 32bit register to a 64bit register is already a zero extend.
+                                // @HACK
+                                writeln!(out, "\tmov {}, {}", Register::Rax.name(4), from_reg)?;
+                            } else {
+                                writeln!(out, "\tmovzx {}, {}", to_reg_temp, from_reg)?;
+                            }
                         }
 
                         writeln!(out, "\tmov [rsp+{}], {}", to.0, to_reg)?;
@@ -593,11 +627,39 @@ fn emit_routine(
             writeln!(out, "\tmov {}, [rsp+{}]", Register::Rax.name(routine.result_layout.size()), routine.result.0)?;
         }
     }
-    
+
     writeln!(out, "\tadd rsp, {}", stack_ptr_offset)?;
-
     writeln!(out, "\tret")?;
+    writeln!(out, "{}_end:", function_symbol(function_id))?;
 
+    writeln!(p_data, "\tdd {} wrt ..imagebase", function_symbol(function_id))?;
+    writeln!(p_data, "\tdd {}_end wrt ..imagebase", function_symbol(function_id))?;
+    writeln!(p_data, "\tdd x_{} wrt ..imagebase", function_symbol(function_id))?;
+
+    let num_entries: u8 = if stack_ptr_offset > 0 { 1 } else { 0 };
+
+    let func_symbol = function_symbol(function_id);
+    writeln!(x_data, "x_{func_symbol}:", func_symbol = func_symbol)?;
+    writeln!(x_data, "\tdb {code}, ({func_symbol}_end - {func_symbol}), {num_entries}, 0", func_symbol = func_symbol, num_entries = num_entries, code = 0b0010_0000)?;
+    writeln!(x_data, "\tdd {func_symbol}_array wrt ..imagebase", func_symbol = func_symbol)?;
+    writeln!(x_data, "{func_symbol}_array:", func_symbol = func_symbol)?;
+
+    if stack_ptr_offset > 0 {
+        let mut unwind_code: u8 = 0;
+        if stack_ptr_offset > 128 {
+            unwind_code |= 1 << 4;
+            // Only 512K bytes for now
+            assert!(stack_ptr_offset < 512_000);
+            unwind_code |= 0;
+            writeln!(x_data, "\tdb 0, {unwind_code}", unwind_code = unwind_code)?;
+            writeln!(x_data, "\tdd {}", stack_ptr_offset / 8)?;
+        } else {
+            unwind_code |= 2 << 4;
+            unwind_code |= ((stack_ptr_offset - 8) / 8) as u8;
+            writeln!(x_data, "\tdb 0, {unwind_code}", unwind_code = unwind_code)?;
+        }
+    }
+    
     Ok(())
 }
 
@@ -606,6 +668,19 @@ enum RegImmAddr {
     Reg(Register, usize),
     Stack(Value, usize),
     Imm(u64, usize),
+}
+
+impl RegImmAddr {
+    //TODO: Create a new enum that doesn't include an immediate value
+    fn remove_imm(self, out: &mut String, reg: Register) -> Result<Self, fmt::Error> {
+        Ok(match self {
+            Self::Imm(num, size) => {
+                writeln!(out, "\tmov {}, {}", reg.name(size), num)?;
+                Self::Reg(reg, size)
+            }
+            _ => self,
+        })
+    }
 }
 
 impl fmt::Display for RegImmAddr {
@@ -652,17 +727,19 @@ fn emit_binary(out: &mut String, op: BinaryOp, type_: PrimitiveType, to: Value, 
         }
         BinaryOp::Mult => {
             if type_.signed() {
-                writeln!(out, "\timul {}, {}", reg_a, right)?;
+                writeln!(out, "\timul {}", right)?;
             } else {
-                writeln!(out, "\tmul {}, {}", reg_a, right)?;
+                let right = right.remove_imm(out, Register::R8)?;
+                writeln!(out, "\tmul {}", right)?;
             }
             writeln!(out, "\tmov [rsp+{}], {}", to.0, reg_a)?;
         }
         BinaryOp::Div => {
+            let right = right.remove_imm(out, Register::R8)?;
             if type_.signed() {
-                writeln!(out, "\tidiv {}, {}", reg_a, right)?;
+                writeln!(out, "\tidiv {}", right)?;
             } else {
-                writeln!(out, "\tdiv {}, {}", reg_a, right)?;
+                writeln!(out, "\tdiv {}", right)?;
             }
             writeln!(out, "\tmov [rsp+{}], {}", to.0, reg_a)?;
         }

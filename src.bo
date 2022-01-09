@@ -1,21 +1,5 @@
-#no_base:
-
-
-const WriteConsole = fn(console_handle: &u8, buffer: &u8, num_chars: u32, written: &u32, _: &u8) -> i32  extern "WriteConsoleA";
-const GetStdHandle = fn(handle: u32) -> &u8  extern "GetStdHandle";
-const STD_OUTPUT_HANDLE = cast (-11 : i32) : u32; // cast (-11 : i32) : u32; //  4294967285 : u32;
-
-const is_invalid_handle_value = fn(handle: &u8) -> bool {
-    bit_cast handle : isize == -1
-};
-
-
 #entry fn() {
-
-    let written = 0;
-    let message = "Hello, world!\n";
-    WriteConsole(GetStdHandle(STD_OUTPUT_HANDLE), message.ptr, cast message.len, &written, #0);
-
+    print("Hello!\n");
 };
 
 // Roadmap for full(and decent) x64 support:

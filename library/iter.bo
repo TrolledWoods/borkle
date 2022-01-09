@@ -1,5 +1,4 @@
 library "vec.bo";
-library "intrinsics.bo";
 
 const Iterator.(State, Item) = #0 : {
     state: State;
@@ -9,20 +8,6 @@ const Iterator.(State, Item) = #0 : {
 //
 // -- Creation --
 //
-
-const stdin = fn() -> typeof Iterator.(_, u8) {
-    let stream = #0;
-    stream.state = 42 : u8;
-
-    stream.next = fn(state, out) {
-        let buf = #0;
-        buf.ptr = out;
-        buf.len = 1;
-        i_stdin_read(buf);
-        true
-    };
-    stream
-};
 
 const array_iter.(N, T) = fn(array: [N] T) -> typeof Iterator.(_, type T) {
     let stream = #0;
