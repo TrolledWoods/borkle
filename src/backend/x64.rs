@@ -190,12 +190,12 @@ fn label_name(function: FunctionId, label: LabelId) -> impl fmt::Display {
     Formatter(move |f| write!(f, "label_{}_{}", usize::from(function), label.0))
 }
 
-fn split_into_powers_of_two(mut value: usize) -> impl Iterator<Item = SizeSplit> {
+fn split_into_powers_of_two_with_max(mut value: usize, max: usize) -> impl Iterator<Item = SizeSplit> {
     let mut offset = 0;
     std::iter::from_fn(move || {
         if value == 0 {
             None
-        } else if value <= 8 && value.is_power_of_two() {
+        } else if value <= max && value.is_power_of_two() {
             let size = SizeSplit {
                 offset,
                 size: value,
@@ -203,8 +203,8 @@ fn split_into_powers_of_two(mut value: usize) -> impl Iterator<Item = SizeSplit>
             value = 0;
             Some(size)
         } else {
-            let current = if value >= 8 {
-                8
+            let current = if value >= max {
+                max
             } else {
                 value.next_power_of_two() / 2
             };
@@ -220,12 +220,20 @@ fn split_into_powers_of_two(mut value: usize) -> impl Iterator<Item = SizeSplit>
     })
 }
 
+fn split_into_powers_of_two(value: usize) -> impl Iterator<Item = SizeSplit> {
+    split_into_powers_of_two_with_max(value, 8)
+}
+
 struct Stack {
     offset: usize,
     stack_size: usize,
 }
 
 impl Stack {
+    fn variables_base(&self) -> usize {
+        self.offset - self.stack_size
+    }
+
     fn value_with_offset(&self, value: &Value, offset: usize) -> impl fmt::Display {
         let result = self.offset - self.stack_size + value.0 + offset;
         Formatter(move |f| write!(f, "[rsp+{}]", result))
@@ -312,7 +320,7 @@ fn emit_routine(
 
     // @Incomplete: Copy over the arguments from where they were passed
     // Do this to ignore the return function pointer that's also on the stack at this point.
-    let mut to_stack = StructLayout::new(0);
+    let mut to_stack = StructLayout::new(stack.variables_base());
     let mut arg_pos = StructLayout::new_with_align(stack.offset + 8, 16);
     let mut args_read = 0;
 
@@ -533,10 +541,10 @@ fn emit_routine(
                 }
             }
             Instr::MoveImm { to, ref from, size } => {
-                for split in split_into_powers_of_two(size) {
-                    let mut number = [0_u8; 8];
+                for split in split_into_powers_of_two_with_max(size, 4) {
+                    let mut number = [0_u8; 4];
                     number[..split.size].copy_from_slice(&from[split.offset..split.offset + split.size]);
-                    let number = u64::from_le_bytes(number);
+                    let number = u32::from_le_bytes(number);
 
                     writeln!(out, "\tmov {} {}, {}", name_of_size(split.size), stack.value_with_offset(&to, split.offset), number)?;
                 }
@@ -709,14 +717,14 @@ fn emit_routine(
             // Only 512K bytes for now
             assert!(stack_size < 512_000);
             unwind_code |= 0 << 4;
-            writeln!(x_data, "\tdb 0, {unwind_code}", unwind_code = unwind_code)?;
-            writeln!(x_data, "\tdd {}", stack_size / 8)?;
+            writeln!(x_data, "\tdb ({func_symbol}_prolog_end - {func_symbol}), {unwind_code}", func_symbol = func_symbol, unwind_code = unwind_code)?;
+            writeln!(x_data, "\tdw {}", stack_size / 8)?;
         } else {
             unwind_code |= 2;
             unwind_code |= (((stack_size - 8) / 8) as u8) << 4;
-            writeln!(x_data, "\tdb 0, {unwind_code}", unwind_code = unwind_code)?;
+            writeln!(x_data, "\tdb ({func_symbol}_prolog_end - {func_symbol}), {unwind_code}", func_symbol = func_symbol, unwind_code = unwind_code)?;
             // Ignored code for alignment
-            writeln!(x_data, "\tdd 0")?;
+            writeln!(x_data, "\tdw 0")?;
         }
     }
     

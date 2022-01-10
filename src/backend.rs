@@ -119,6 +119,7 @@ impl Backends {
                     command.arg("/Zi");
                     command.arg("/link");
                     command.arg("OneCore.lib");
+                    command.arg("/debug");
                     command.arg("/subsystem:console");
                     command.arg(format!("/entry:function_{}", usize::from(entry_point)));
 

@@ -1,28 +1,50 @@
-library "windows.bo";
+#no_base:
 
-const other_func = fn(val: u32) {
-    put_string("fdjsfjkasdfjkhasdjkflhasjkdhf");
+// library "windows.bo";
+// import "tests/main.bo";
+
+const generic.(T) = fn(var: T) -> T {
+    // Sample
+    let x = var;
+    x
 };
 
-const inner_test = fn(_: u32) {
-    put_string("Just to put something here\n");
+const non_generic.(T) = fn(var: T) {
+    let x = var;
+    generic(x);
 };
 
-const test = fn() {
-    let x = 99;
-    inner_test(x);
+const non_generic_u32 = non_generic.(u32);
+const non_generic_u64 = non_generic.(u64);
+
+const call_back = fn(thing: u64 /* fn(u32) -> u32 */) -> u32 {
+    if thing == 0 {
+        let x = 732 : u32;
+    };
+
+    let var = (bit_cast thing)(99 : u32);
+
+    var
 };
+
+const generic_func = generic.(u32); 
 
 #entry fn() {
-    test();
+    generic(3 : u32);
+    generic(3 : u64);
+    non_generic_u32(3 : u32);
+    non_generic_u64(3 : u64);
 
-    let handle = GetStdHandle(STD_OUTPUT_HANDLE);
-    if is_invalid_handle_value(handle) {
-        ExitProcess(1);
+    let func_ptr = generic_func;
+    func_ptr(99);
+
+    let number = bit_cast func_ptr : u64;
+
+    if number == 0 {
+        let x = 732 : u32;
     };
-    WriteConsole(handle, "Test\n".ptr, 5, &0, #0);
 
-    ExitProcess(0);
+    call_back(number);
 };
 
 // Roadmap for full(and decent) x64 support:
@@ -44,4 +66,4 @@ const test = fn() {
 
 // -- For being able to build this again once I forget
 // nasm output.asm -fwin64
-// cl output.obj /link OneCore.lib /entry:function_2 /subsystem:windows
+// cl output.obj /link OneCore.lib /entry:function_2 /subsystem:console

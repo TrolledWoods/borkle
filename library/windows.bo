@@ -1,6 +1,7 @@
+const MessageBox = fn(hwnd: &u8, message: &u8, title: &u8, u_type: u32) -> i32  extern "MessageBoxA";
 const WriteConsole = fn(console_handle: &u8, buffer: &u8, num_chars: u32, written: &u32, _: &u8) -> i32  extern "WriteConsoleA";
 const GetStdHandle = fn(handle: u32) -> &u8  extern "GetStdHandle";
-const STD_OUTPUT_HANDLE = cast (-11 : i32) : u32;
+const STD_OUTPUT_HANDLE = cast (-12 : i32) : u32;
 const ExitProcess = fn(exit_code: u32) -> ()  extern "ExitProcess";
 
 // @Cleanup: We cannot put an invalid pointer into a constant yet, so this is all we can do.

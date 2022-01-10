@@ -120,6 +120,7 @@ const cmp_strings = fn(a: [] u8, b: [] u8) -> bool { 'function
 
 const put_string = fn(c: [] u8) {
     let handle = GetStdHandle(STD_OUTPUT_HANDLE);
+    if is_invalid_handle_value(handle)  ExitProcess(1);
     WriteConsole(handle, c.ptr, cast c.len, &0, #0);
 };
 
