@@ -1,5 +1,28 @@
+library "windows.bo";
+
+const other_func = fn(val: u32) {
+    put_string("fdjsfjkasdfjkhasdjkflhasjkdhf");
+};
+
+const inner_test = fn(_: u32) {
+    put_string("Just to put something here\n");
+};
+
+const test = fn() {
+    let x = 99;
+    inner_test(x);
+};
+
 #entry fn() {
-    print("Hello!\n");
+    test();
+
+    let handle = GetStdHandle(STD_OUTPUT_HANDLE);
+    if is_invalid_handle_value(handle) {
+        ExitProcess(1);
+    };
+    WriteConsole(handle, "Test\n".ptr, 5, &0, #0);
+
+    ExitProcess(0);
 };
 
 // Roadmap for full(and decent) x64 support:

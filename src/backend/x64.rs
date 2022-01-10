@@ -28,8 +28,7 @@ impl Emitter {
     ) {
         match routine {
             Routine::UserDefined(routine) => {
-                writeln!(&mut self.extern_defs, "global {}", function_symbol(function_id)).unwrap();
-                emit_routine(&mut self.text, &mut self.p_data, &mut self.x_data, program, function_id, routine).unwrap();
+                emit_routine(&mut self.text, &mut self.extern_defs, &mut self.p_data, &mut self.x_data, program, function_id, routine).unwrap();
             }
             Routine::Extern(symbol_name) => {
                 writeln!(&mut self.extern_defs, "extern {}", symbol_name).unwrap();
@@ -240,6 +239,7 @@ impl Stack {
 
 fn emit_routine(
     out: &mut String,
+    extern_defs: &mut String,
     p_data: &mut String,
     x_data: &mut String,
     program: &Program,
@@ -250,10 +250,15 @@ fn emit_routine(
 
     if is_debugging {
         let loc = routine.loc;
-        writeln!(out, "# {}+0 {:?}", loc.line, loc.file.as_str().strip_prefix("\\\\?\\").unwrap_or(loc.file.as_str())).unwrap();
-        writeln!(p_data, "# {}+0 {:?}", loc.line, loc.file.as_str().strip_prefix("\\\\?\\").unwrap_or(loc.file.as_str())).unwrap();
-        writeln!(x_data, "# {}+0 {:?}", loc.line, loc.file.as_str().strip_prefix("\\\\?\\").unwrap_or(loc.file.as_str())).unwrap();
+        let file_str = loc.file.as_str().strip_prefix("\\\\?\\").unwrap_or(loc.file.as_str());
+        writeln!(out, "# {}+0 {:?}", loc.line, file_str)?;
+
+        writeln!(extern_defs, "# {}+0 {:?}", loc.line, file_str)?;
+        writeln!(p_data, "# {}+0 {:?}", loc.line, file_str)?;
+        writeln!(x_data, "# {}+0 {:?}", loc.line, file_str)?;
     }
+
+    writeln!(extern_defs, "global {}", function_symbol(function_id)).unwrap();
 
     writeln!(out, "; {}", routine.name)?;
     writeln!(out, "{}:", function_symbol(function_id))?;
@@ -266,6 +271,40 @@ fn emit_routine(
         offset: align_to(stack_size + 8, 16) - 8,
         stack_size: stack_size,
     };
+
+    let mut function_args_offset = 0;
+    for instr in &routine.instr {
+        if let Instr::Call { to: (_, to_layout), pointer: _, ref args, loc: _ } = instr {
+            let mut args_layouts = StructLayout::new_with_align(0, 16);
+            let mut scratch_region_layout = StructLayout::new_with_align(0, 16);
+            let mut num_args = 0;
+            if to_layout.size() > 8 {
+                // The return value is passed as a pointer, so we need 8 extra bytes to the return stack.
+                args_layouts.next(Layout::PTR);
+                num_args += 1;
+            }
+            for &(_, arg_layout) in args {
+                if arg_layout.size() > 8 || !arg_layout.size().is_power_of_two() {
+                    args_layouts.next(Layout::PTR);
+                    scratch_region_layout.next(arg_layout.layout);
+                } else {
+                    if num_args < 4 {
+                        args_layouts.next(Layout::U64);
+                    } else {
+                        args_layouts.next(arg_layout.layout);
+                    }
+                }
+            }
+            for &(_, arg_layout) in args {
+                if arg_layout.size() > 8 || !arg_layout.size().is_power_of_two() {
+                    scratch_region_layout.next(arg_layout.layout);
+                }
+            }
+            args_layouts.position = args_layouts.position.max(32);
+            function_args_offset = function_args_offset.max(args_layouts.size() + scratch_region_layout.size());
+        }
+    }
+    stack.offset += function_args_offset;
 
     writeln!(out, "\tsub rsp, {}", stack.offset)?;
 
@@ -386,11 +425,8 @@ fn emit_routine(
 
                 args_layouts.position = args_layouts.position.max(32);
 
-                writeln!(out, "\tsub rsp, {}", scratch_region_layout.size())?;
-                stack.offset += scratch_region_layout.size();
-
                 {
-                    let mut scratch_region_layout = StructLayout::new_with_align(0, 16);
+                    let mut scratch_region_layout = StructLayout::new_with_align(args_layouts.size(), 16);
                     for &(arg, arg_layout) in args {
                         if arg_layout.size() > 8 || !arg_layout.size().is_power_of_two() {
                             let from = arg;
@@ -403,9 +439,6 @@ fn emit_routine(
                         }
                     }
                 }
-
-                writeln!(out, "\tsub rsp, {}", args_layouts.size())?;
-                stack.offset += args_layouts.size();
 
                 let mut arguments_passed = 0;
                 let mut arg_pos = StructLayout::new_with_align(0, 16);
@@ -498,9 +531,6 @@ fn emit_routine(
                         writeln!(out, "\tmov {} {}, {}", name_of_size(to_layout.size()), stack.value(&to), Register::Rax.name(to_layout.size()))?;
                     }
                 }
-
-                writeln!(out, "\tadd rsp, {}", args_layouts.size() + scratch_region_layout.size())?;
-                stack.offset -= args_layouts.size() + scratch_region_layout.size();
             }
             Instr::MoveImm { to, ref from, size } => {
                 for split in split_into_powers_of_two(size) {
@@ -655,27 +685,38 @@ fn emit_routine(
     writeln!(p_data, "\tdd {}_end wrt ..imagebase", function_symbol(function_id))?;
     writeln!(p_data, "\tdd x_{} wrt ..imagebase", function_symbol(function_id))?;
 
-    let num_entries: u8 = if stack.offset > 0 { 1 } else { 0 };
+    let stack_size = stack.offset;
+    debug_assert!(stack_size % 8 == 0);
+
+    let num_entries: u8 = if stack_size > 0 {
+        if stack_size > 128 {
+            2
+        } else {
+            1
+        }
+    } else {
+        0
+    };
 
     let func_symbol = function_symbol(function_id);
     writeln!(x_data, "x_{func_symbol}:", func_symbol = func_symbol)?;
-    writeln!(x_data, "\tdb {code}, ({func_symbol}_end - {func_symbol}), {num_entries}, 0", func_symbol = func_symbol, num_entries = num_entries, code = 0b0010_0000)?;
-    writeln!(x_data, "\tdd {func_symbol}_array wrt ..imagebase", func_symbol = func_symbol)?;
-    writeln!(x_data, "{func_symbol}_array:", func_symbol = func_symbol)?;
+    writeln!(x_data, "\tdb {code}, ({func_symbol}_prolog_end - {func_symbol}), {num_entries}, 0", func_symbol = func_symbol, num_entries = num_entries, code = 0b0000_0001)?;
 
-    if stack.offset > 0 {
+    if stack_size > 0 {
         let mut unwind_code: u8 = 0;
-        if stack.offset > 128 {
-            unwind_code |= 1 << 4;
+        if stack_size > 128 {
+            unwind_code |= 1;
             // Only 512K bytes for now
-            assert!(stack.offset < 512_000);
-            unwind_code |= 0;
+            assert!(stack_size < 512_000);
+            unwind_code |= 0 << 4;
             writeln!(x_data, "\tdb 0, {unwind_code}", unwind_code = unwind_code)?;
-            writeln!(x_data, "\tdd {}", stack.offset / 8)?;
+            writeln!(x_data, "\tdd {}", stack_size / 8)?;
         } else {
-            unwind_code |= 2 << 4;
-            unwind_code |= ((stack.offset - 8) / 8) as u8;
+            unwind_code |= 2;
+            unwind_code |= (((stack_size - 8) / 8) as u8) << 4;
             writeln!(x_data, "\tdb 0, {unwind_code}", unwind_code = unwind_code)?;
+            // Ignored code for alignment
+            writeln!(x_data, "\tdd 0")?;
         }
     }
     
