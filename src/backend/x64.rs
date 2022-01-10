@@ -273,10 +273,10 @@ fn emit_routine(
 
     // @Incomplete: We want to later on track the max alignment used in the stack, and manually align it if it's
     // greater than 16 bytes.
-    let stack_size = routine.stack.max;
+    let stack_size = align_to(routine.stack.max + 8, 16) - 8;
 
     let mut stack = Stack {
-        offset: align_to(stack_size + 8, 16) - 8,
+        offset: stack_size,
         stack_size: stack_size,
     };
 
@@ -318,77 +318,79 @@ fn emit_routine(
 
     writeln!(out, "{}_prolog_end:", function_symbol(function_id))?;
 
-    // @Incomplete: Copy over the arguments from where they were passed
-    // Do this to ignore the return function pointer that's also on the stack at this point.
-    let mut to_stack = StructLayout::new(stack.variables_base());
-    let mut arg_pos = StructLayout::new_with_align(stack.offset + 8, 16);
-    let mut args_read = 0;
+    {
+        // @Incomplete: Copy over the arguments from where they were passed
+        // Do this to ignore the return function pointer that's also on the stack at this point.
+        let mut to_stack = StructLayout::new(stack.variables_base());
+        let mut arg_pos = StructLayout::new_with_align(stack.offset + 8, 16);
+        let mut args_read = 0;
 
-    if routine.result_layout.size() > 0 && (routine.result_layout.size() > 8 || !routine.result_layout.size().is_power_of_two()) {
-        let stack_pos = arg_pos.next(Layout::PTR);
-        writeln!(
-            out,
-            "\tmov [rsp+{}], rcx",
-            stack_pos,
-        )?;
-        args_read += 1;
-    }
-
-    for &(_, arg_layout) in &routine.args {
-        if arg_layout.size() == 0 { continue; }
-
-        let reg = [Register::Rcx, Register::Rdx, Register::R8, Register::R9].get(args_read).copied();
-
-        if arg_layout.size() > 8 || !arg_layout.size().is_power_of_two() {
-            let reg = if let Some(reg) = reg {
-                arg_pos.next(Layout::U64);
-                reg
-            } else {
-                let stack_pos = arg_pos.next(Layout::PTR);
-                writeln!(
-                    out,
-                    "\tlea rcx, [rsp+{}]",
-                    stack_pos,
-                )?;
-                Register::Rcx
-            };
-
-            let write_to = to_stack.next(arg_layout.layout);
-            for split in split_into_powers_of_two(arg_layout.size()) {
-                let reg_name = Register::Rax.name(split.size);
-                writeln!(out, "\tmov {}, {} [{}+{}]", reg_name, name_of_size(split.size), reg.name(8), split.offset)?;
-                writeln!(out, "\tmov {} [rsp+{}], {}", name_of_size(split.size), write_to + split.offset, reg_name)?;
-            }
-        } else {
-            let write_to = to_stack.next(arg_layout.layout);
-
-            if let Some(reg) = reg {
-                arg_pos.next(Layout::U64);
-                writeln!(
-                    out,
-                    "\tmov [rsp+{}], {}",
-                    write_to,
-                    reg.name(arg_layout.size()),
-                )?;
-            } else {
-                let stack_pos = arg_pos.next(arg_layout.layout);
-                let reg_name = Register::Rcx.name(arg_layout.size());
-                writeln!(
-                    out,
-                    "\tmov {}, [rsp+{}]",
-                    reg_name,
-                    stack_pos,
-                )?;
-                writeln!(
-                    out,
-                    "\tmov [rsp+{}], {}",
-                    write_to,
-                    reg_name,
-                )?;
-            }
+        if routine.result_layout.size() > 0 && (routine.result_layout.size() > 8 || !routine.result_layout.size().is_power_of_two()) {
+            let stack_pos = arg_pos.next(Layout::PTR);
+            writeln!(
+                out,
+                "\tmov [rsp+{}], rcx",
+                stack_pos,
+            )?;
+            args_read += 1;
         }
 
-        args_read += 1;
+        for &(_, arg_layout) in &routine.args {
+            if arg_layout.size() == 0 { continue; }
+
+            let reg = [Register::Rcx, Register::Rdx, Register::R8, Register::R9].get(args_read).copied();
+
+            if arg_layout.size() > 8 || !arg_layout.size().is_power_of_two() {
+                let reg = if let Some(reg) = reg {
+                    arg_pos.next(Layout::U64);
+                    reg
+                } else {
+                    let stack_pos = arg_pos.next(Layout::PTR);
+                    writeln!(
+                        out,
+                        "\tlea rcx, [rsp+{}]",
+                        stack_pos,
+                    )?;
+                    Register::Rcx
+                };
+
+                let write_to = to_stack.next(arg_layout.layout);
+                for split in split_into_powers_of_two(arg_layout.size()) {
+                    let reg_name = Register::Rax.name(split.size);
+                    writeln!(out, "\tmov {}, {} [{}+{}]", reg_name, name_of_size(split.size), reg.name(8), split.offset)?;
+                    writeln!(out, "\tmov {} [rsp+{}], {}", name_of_size(split.size), write_to + split.offset, reg_name)?;
+                }
+            } else {
+                let write_to = to_stack.next(arg_layout.layout);
+
+                if let Some(reg) = reg {
+                    arg_pos.next(Layout::U64);
+                    writeln!(
+                        out,
+                        "\tmov [rsp+{}], {}",
+                        write_to,
+                        reg.name(arg_layout.size()),
+                    )?;
+                } else {
+                    let stack_pos = arg_pos.next(arg_layout.layout);
+                    let reg_name = Register::Rcx.name(arg_layout.size());
+                    writeln!(
+                        out,
+                        "\tmov {}, [rsp+{}]",
+                        reg_name,
+                        stack_pos,
+                    )?;
+                    writeln!(
+                        out,
+                        "\tmov [rsp+{}], {}",
+                        write_to,
+                        reg_name,
+                    )?;
+                }
+            }
+
+            args_read += 1;
+        }
     }
 
     for instr in &routine.instr {
@@ -403,7 +405,6 @@ fn emit_routine(
                 // for now we just assume the standard x64 convention
 
                 let mut args_layouts = StructLayout::new_with_align(0, 16);
-                let mut scratch_region_layout = StructLayout::new_with_align(0, 16);
                 let mut num_args = 0;
 
                 if to_layout.size() > 8 {
@@ -416,9 +417,6 @@ fn emit_routine(
                     if arg_layout.size() > 8 || !arg_layout.size().is_power_of_two() {
                         // Pass as pointer instead
                         args_layouts.next(Layout::PTR);
-                        // We're passing as value, so we can't let the caller modify us even though we're passing a pointer.
-                        // Therefore, we also allocate space for a temporary value of the argument
-                        scratch_region_layout.next(arg_layout.layout);
                     } else {
                         if num_args < 4 {
                             args_layouts.next(Layout::U64);

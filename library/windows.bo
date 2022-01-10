@@ -1,3 +1,5 @@
+#no_base:
+
 const MessageBox = fn(hwnd: &u8, message: &u8, title: &u8, u_type: u32) -> i32  extern "MessageBoxA";
 const WriteConsole = fn(console_handle: &u8, buffer: &u8, num_chars: u32, written: &u32, _: &u8) -> i32  extern "WriteConsoleA";
 const GetStdHandle = fn(handle: u32) -> &u8  extern "GetStdHandle";

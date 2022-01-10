@@ -17,14 +17,22 @@ const non_generic.(T) = fn(var: T) {
 const non_generic_u32 = non_generic.(u32);
 const non_generic_u64 = non_generic.(u64);
 
-const call_back = fn(thing: u64 /* fn(u32) -> u32 */) -> u32 {
-    if thing == 0 {
-        let x = 732 : u32;
-    };
+const ExitProcess = fn(exit_code: u32) -> ()  extern "ExitProcess";
 
-    let var = (bit_cast thing)(99 : u32);
+const call_back = fn(thing: [8] u8) -> u32 {
+    ExitProcess(cast (bit_cast thing : u64));
 
-    var
+    0
+};
+
+const call_back2 = fn(thing: u64) -> u32 {
+    ExitProcess(cast thing);
+
+    0
+};
+
+const is_invalid_handle_value = fn(handle: &u8) -> bool {
+    bit_cast handle : isize == -1
 };
 
 const generic_func = generic.(u32); 
@@ -38,13 +46,8 @@ const generic_func = generic.(u32);
     let func_ptr = generic_func;
     func_ptr(99);
 
-    let number = bit_cast func_ptr : u64;
-
-    if number == 0 {
-        let x = 732 : u32;
-    };
-
-    call_back(number);
+    // call_back(bit_cast (42 : u64));
+    call_back2(42 : u64);
 };
 
 // Roadmap for full(and decent) x64 support:
@@ -52,7 +55,7 @@ const generic_func = generic.(u32);
 // * - Handle large arguments
 // - Handle floats
 // * - Actually handle getting passed arguments, 
-// - fill the return slot.
+// * - fill the return slot.
 // - Support multiple calling conventions; for one, we can do one that's better than the windows one, and, linux/mac probably don't use the same one anyway, so we need this logic
 // - Generalize moving memory from one place to another(basically memcpy intrinsic)
 // - Proper register allocator
