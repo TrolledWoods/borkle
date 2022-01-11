@@ -1,6 +1,5 @@
-#no_base:
-
-// library "windows.bo";
+library "windows.bo";
+import "tests/main.bo";
 
 const generic.(T) = fn(var: T) -> T {
     // Sample
@@ -16,32 +15,16 @@ const non_generic.(T) = fn(var: T) {
 const non_generic_u32 = non_generic.(u32);
 const non_generic_u64 = non_generic.(u64);
 
-const ExitProcess = fn(exit_code: u32) -> ()  extern "ExitProcess";
-
 const call_back2 = fn(thing: u64) -> u32 {
     ExitProcess(cast thing);
 
     0
 };
 
-const is_invalid_handle_value = fn(handle: &u8) -> bool {
-    bit_cast handle : isize == -1
-};
-
 const generic_func = generic.(u32); 
 
 #entry fn() {
-    generic(3 : u32);
-    generic(3 : u64);
-    non_generic_u32(3 : u32);
-    non_generic_u64(3 : u64);
-
-    test();
-
-    let func_ptr = generic;
-    func_ptr(99 : u32);
-
-    call_back2(42 : u64);
+    run_aoc_tests();
 
     ExitProcess(0);
 };
@@ -66,9 +49,3 @@ const generic_func = generic.(u32);
 // -- For being able to build this again once I forget
 // nasm output.asm -fwin64
 // cl output.obj /link OneCore.lib /entry:function_2 /subsystem:console
-
-import "tests/main.bo";
-// const test = fn() {
-//     let x = 99 : u32;
-// };
-

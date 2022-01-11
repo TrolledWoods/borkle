@@ -765,29 +765,74 @@ impl RegImmAddr {
         })
     }
 
+    fn reduce_size(self, out: &mut String, imm_reg: Register, max_size: usize) -> Result<Self, fmt::Error> {
+        Ok(match self {
+            Self::Imm(num, size) if size > max_size => {
+                if num < 2_u64.pow(max_size as u32 * 8 - 1) {
+                    Self::Imm(num, max_size)
+                } else {
+                    writeln!(out, "\tmov {}, {}", imm_reg.name(size), num)?;
+                    Self::Reg(imm_reg, size)
+                }
+            }
+            Self::Stack(value, size) if size > max_size => {
+                Self::Stack(value, max_size)
+            }
+            Self::Reg(reg, size) if size > max_size => {
+                Self::Reg(reg, max_size)
+            }
+            _ => self,
+        })
+    }
+
+    fn reduce_immediate_size(self, out: &mut String, imm_reg: Register, max_size: usize) -> Result<Self, fmt::Error> {
+        Ok(match self {
+            Self::Imm(num, size) if size > max_size => {
+                if num < 2_u64.pow(max_size as u32 * 8 - 1) {
+                    Self::Imm(num, max_size)
+                } else {
+                    writeln!(out, "\tmov {}, {}", imm_reg.name(size), num)?;
+                    Self::Reg(imm_reg, max_size)
+                }
+            }
+            _ => self,
+        })
+    }
+
     fn print<'a>(&'a self, stack: &'a Stack) -> impl fmt::Display + 'a {
         Formatter(move |f| {
             match *self {
                 Self::Reg(reg, size) => write!(f, "{}", reg.name(size)),
                 Self::Stack(val, size) => write!(f, "{} {}", name_of_size(size), stack.value(&val)),
-                Self::Imm(val, size) => write!(f, "{} {}", name_of_size(size), val),
+                Self::Imm(val, _size) => write!(f, "{}", val),
             }
         })
     }
 }
 
-fn emit_unary(out: &mut String, op: UnaryOp, stack: &Stack, _type_: PrimitiveType, to: Value, a: RegImmAddr, size: usize) -> fmt::Result {
+fn emit_unary(out: &mut String, op: UnaryOp, stack: &Stack, type_: PrimitiveType, to: Value, a: RegImmAddr, size: usize) -> fmt::Result {
     let reg_out = Register::Rax.name(size);
+
+    let a = a.reduce_immediate_size(out, Register::R8, 4)?;
     writeln!(out, "\tmov {}, {}", reg_out, a.print(stack))?;
     
     match op {
         UnaryOp::Not => {
-            writeln!(out, "\tnot {}", reg_out)?;
+            if matches!(type_, PrimitiveType::Bool) {
+                let a = a.remove_imm(out, Register::R8)?;
+                writeln!(out, "\tcmp {}, 0", a.print(stack))?;
+                writeln!(out, "\tsete {}", reg_out)?;
+            } else {
+                writeln!(out, "\tnot {}", reg_out)?;
+            }
         }
         UnaryOp::Negate => {
             writeln!(out, "\tneg {}", reg_out)?;
         }
-        _ => writeln!(out, "\t; Unhandled unary operator {:?}", op)?,
+        _ => {
+            writeln!(out, "\t; Unhandled unary operator {:?}", op)?;
+            println!("\t; Unhandled unary operator {:?}", op);
+        }
     }
 
     writeln!(out, "\tmov {}, {}", stack.value(&to), reg_out)?;
@@ -798,6 +843,8 @@ fn emit_unary(out: &mut String, op: UnaryOp, stack: &Stack, _type_: PrimitiveTyp
 fn emit_binary(out: &mut String, op: BinaryOp, stack: &Stack, type_: PrimitiveType, to: Value, a: Value, right: RegImmAddr, size: usize) -> fmt::Result {
     let reg_a = Register::Rax.name(size);
     writeln!(out, "\tmov {}, {}", reg_a, stack.value(&a))?;
+
+    let right = right.reduce_immediate_size(out, Register::R8, 4)?;
 
     match op {
         BinaryOp::Add => {
@@ -818,12 +865,35 @@ fn emit_binary(out: &mut String, op: BinaryOp, stack: &Stack, type_: PrimitiveTy
             writeln!(out, "\tmov {}, {}", stack.value(&to), reg_a)?;
         }
         BinaryOp::Div => {
+            // @Note: Remainder is stored in RDX
             let right = right.remove_imm(out, Register::R8)?;
             if type_.signed() {
                 writeln!(out, "\tidiv {}", right.print(stack))?;
             } else {
                 writeln!(out, "\tdiv {}", right.print(stack))?;
             }
+            writeln!(out, "\tmov {}, {}", stack.value(&to), reg_a)?;
+        }
+        BinaryOp::Modulo => {
+            // @Note: Normal value is stored in EAX, remainder is stored in RDX
+            let right = right.remove_imm(out, Register::R8)?;
+            if type_.signed() {
+                writeln!(out, "\tidiv {}", right.print(stack))?;
+            } else {
+                writeln!(out, "\tdiv {}", right.print(stack))?;
+            }
+            writeln!(out, "\tmov {}, {}", stack.value(&to), Register::Rdx.name(size))?;
+        }
+        BinaryOp::ShiftLeft => {
+            let right = right.reduce_size(out, Register::R8, 1)?;
+            writeln!(out, "\tmov cl, {}", right.print(stack))?;
+            writeln!(out, "\tshl {}, cl", reg_a)?;
+            writeln!(out, "\tmov {}, {}", stack.value(&to), reg_a)?;
+        }
+        BinaryOp::ShiftRight => {
+            let right = right.reduce_size(out, Register::R8, 1)?;
+            writeln!(out, "\tmov cl, {}", right.print(stack))?;
+            writeln!(out, "\tsar {}, cl", reg_a)?;
             writeln!(out, "\tmov {}, {}", stack.value(&to), reg_a)?;
         }
         BinaryOp::Equals => {
@@ -850,7 +920,18 @@ fn emit_binary(out: &mut String, op: BinaryOp, stack: &Stack, type_: PrimitiveTy
             writeln!(out, "\tcmp {}, {}", reg_a, right.print(stack))?;
             writeln!(out, "\tsetle BYTE {}", stack.value(&to))?;
         }
-        _ => writeln!(out, "\t; Unhandled binary operator {:?}", op)?,
+        BinaryOp::And | BinaryOp::BitAnd => {
+            writeln!(out, "\tand {}, {}", reg_a, right.print(stack))?;
+            writeln!(out, "\tmov {}, {}", stack.value(&to), reg_a)?;
+        }
+        BinaryOp::Or | BinaryOp::BitOr => {
+            writeln!(out, "\tor {}, {}", reg_a, right.print(stack))?;
+            writeln!(out, "\tmov {}, {}", stack.value(&to), reg_a)?;
+        }
+        _ => {
+            writeln!(out, "\t; Unhandled binary operator {:?}", op)?;
+            println!("\t; Unhandled binary operator {:?}", op);
+        }
     }
 
     Ok(())

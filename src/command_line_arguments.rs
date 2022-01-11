@@ -182,6 +182,8 @@ create_arguments!(
             "The path where the x64 file should be created",
         output_x64: bool = true;
             "If set to true, a file containing x64 will be emitted",
+        debug_asm_output: bool = false;
+            "Internal compiler debugging option, debug symbols will be generated for the assembly itself to debug it",
 
         ir_path: PathBuf = "target/output.bir";
             "The path where the ir file should be created",

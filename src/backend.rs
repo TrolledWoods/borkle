@@ -91,6 +91,9 @@ impl Backends {
 
                     let mut command = std::process::Command::new("nasm");
                     command.arg(&path);
+                    if program.arguments.debug_asm_output {
+                        command.arg("--no-line");
+                    }
                     command.arg("-fwin64");
                     command.arg("-g");
                     command.arg("-Fcv8");
