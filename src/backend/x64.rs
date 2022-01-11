@@ -8,13 +8,19 @@ use std::path::Path;
 use std::fmt::{self, Write};
 use super::{Formatter, function_symbol, global_symbol};
 use std::cmp::{Ord, Ordering};
+use ustr::{UstrSet, UstrMap};
+
+#[derive(Default)]
+struct FileEmitter {
+    p_data: String,
+    text: String,
+}
 
 #[derive(Default)]
 pub struct Emitter {
+    files: UstrMap<FileEmitter>,
     extern_defs: String,
-    p_data: String,
     x_data: String,
-    text: String,
 }
 
 impl Emitter {
@@ -28,7 +34,8 @@ impl Emitter {
     ) {
         match routine {
             Routine::UserDefined(routine) => {
-                emit_routine(&mut self.text, &mut self.extern_defs, &mut self.p_data, &mut self.x_data, program, function_id, routine).unwrap();
+                let file_emitter = self.files.entry(routine.loc.file).or_insert_with(Default::default);
+                emit_routine(&mut file_emitter.text, &mut self.extern_defs, &mut file_emitter.p_data, &mut self.x_data, program, function_id, routine).unwrap();
             }
             Routine::Extern(symbol_name) => {
                 writeln!(&mut self.extern_defs, "extern {}", symbol_name).unwrap();
@@ -48,16 +55,27 @@ pub fn emit(program: &Program, file_path: &Path, emitters: Vec<Emitter>) {
         write!(&mut out, "{}", emitter.extern_defs).unwrap();
     }
 
+    // @Performance: This is not fast!
+    let files: UstrSet = emitters.iter().flat_map(|v| v.files.keys()).copied().collect();
+
     writeln!(&mut out, "\nsection .text").unwrap();
 
-    for emitter in &emitters {
-        write!(&mut out, "{}", emitter.text).unwrap();
+    for file in &files {
+        for emitter in &emitters {
+            if let Some(file_contents) = emitter.files.get(file) {
+                write!(&mut out, "{}", file_contents.text).unwrap();
+            }
+        }
     }
 
     writeln!(&mut out, "\nsection .pdata rdata align=4").unwrap();
 
-    for emitter in &emitters {
-        write!(&mut out, "{}", emitter.p_data).unwrap();
+    for file in &files {
+        for emitter in &emitters {
+            if let Some(file_contents) = emitter.files.get(file) {
+                write!(&mut out, "{}", file_contents.p_data).unwrap();
+            }
+        }
     }
 
     writeln!(&mut out, "\nsection .xdata rdata align=8").unwrap();
@@ -260,9 +278,9 @@ fn emit_routine(
         let loc = routine.loc;
         writeln!(out, "%line {:0>3}+000 {}", loc.line, loc.file)?;
 
-        writeln!(extern_defs, "%line {:0>3}+000 {}", loc.line, loc.file)?;
-        writeln!(p_data, "%line {:0>3}+000 {}", loc.line, loc.file)?;
-        writeln!(x_data, "%line {:0>3}+000 {}", loc.line, loc.file)?;
+        // writeln!(extern_defs, "%line {:0>3}+000 {}", loc.line, loc.file)?;
+        // writeln!(p_data, "%line {:0>3}+000 {}", loc.line, loc.file)?;
+        // writeln!(x_data, "%line {:0>3}+000 {}", loc.line, loc.file)?;
     }
 
     writeln!(extern_defs, "global {}", function_symbol(function_id)).unwrap();
