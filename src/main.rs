@@ -61,12 +61,7 @@ fn main() {
         }
 
         let mut program = program::Program::new(logger, options.clone(), backend::Backends { backends });
-        program.add_file(
-            &options
-                .file
-                .canonicalize()
-                .expect("The main source file couldn't be canonicalized"),
-        );
+        program.add_file(&options.file);
 
         let (backend_emitters, mut errors) = thread_pool::run(&mut program, options.num_threads);
 

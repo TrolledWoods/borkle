@@ -12,9 +12,9 @@ const max.(T) = fn(a: T, b: T) -> T  if a > b  a else b;
 
 const assert = fn(condition: bool) {
     if !condition {
-        // TODO: Print where assert failed.
         put_string("Assert failed\n");
-        ExitProcess(1);
+
+        4 / 0 : u32;
     };
 };
 

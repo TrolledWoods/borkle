@@ -118,6 +118,7 @@ impl Backends {
                     command.arg("/Fetarget\\output.exe");
                     command.arg("/Zi");
                     command.arg("/link");
+                    command.arg("/incremental:no");
                     command.arg("OneCore.lib");
                     command.arg("/debug");
                     command.arg("/subsystem:console");

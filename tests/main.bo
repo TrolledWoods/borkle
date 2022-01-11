@@ -1,4 +1,10 @@
-import "aoc/day1.bo";
+#no_base:
+
+const test = fn() {
+    let x = 99 : u32;
+};
+
+/*import "aoc/day1.bo";
 import "aoc/day2.bo";
 import "aoc/day3.bo";
 import "aoc/day4.bo";
@@ -81,4 +87,4 @@ const test_blocks_and_breaks = fn() {
 
     assert(value == 99);
 };
-*/
+*/*/

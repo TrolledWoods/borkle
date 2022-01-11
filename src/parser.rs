@@ -1287,9 +1287,7 @@ fn parse_tags(global: &mut DataContext<'_>, expr_name: &str, tags: &mut [(Ustr, 
 }
 
 fn offset_path(path: &Path, addition: &str) -> PathBuf {
-    let mut path = path
-        .canonicalize()
-        .expect("TODO: Make an error message for not being able to canonicalize paths");
+    let mut path = path.to_path_buf();
 
     for part in addition.split('/') {
         if part == ".." {

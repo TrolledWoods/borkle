@@ -41,12 +41,12 @@ impl Emitter {
 pub fn emit(program: &Program, file_path: &Path, emitters: Vec<Emitter>) {
     let mut out = String::new();
 
+    writeln!(&mut out, "\nsection .data").unwrap();
+    emit_constants(&mut out, program);
+
     for emitter in &emitters {
         write!(&mut out, "{}", emitter.extern_defs).unwrap();
     }
-
-    writeln!(&mut out, "\nsection .data").unwrap();
-    emit_constants(&mut out, program);
 
     writeln!(&mut out, "\nsection .text").unwrap();
 
@@ -258,12 +258,11 @@ fn emit_routine(
 
     if is_debugging {
         let loc = routine.loc;
-        let file_str = loc.file.as_str().strip_prefix("\\\\?\\").unwrap_or(loc.file.as_str());
-        writeln!(out, "# {}+0 {:?}", loc.line, file_str)?;
+        writeln!(out, "%line {:0>3}+000 {}", loc.line, loc.file)?;
 
-        writeln!(extern_defs, "# {}+0 {:?}", loc.line, file_str)?;
-        writeln!(p_data, "# {}+0 {:?}", loc.line, file_str)?;
-        writeln!(x_data, "# {}+0 {:?}", loc.line, file_str)?;
+        writeln!(extern_defs, "%line {:0>3}+000 {}", loc.line, loc.file)?;
+        writeln!(p_data, "%line {:0>3}+000 {}", loc.line, loc.file)?;
+        writeln!(x_data, "%line {:0>3}+000 {}", loc.line, loc.file)?;
     }
 
     writeln!(extern_defs, "global {}", function_symbol(function_id)).unwrap();
@@ -397,7 +396,7 @@ fn emit_routine(
         match *instr {
             Instr::DebugLocation(loc) => {
                 if is_debugging {
-                    writeln!(out, "# {}+0 {:?}", loc.line, loc.file.as_str().strip_prefix("\\\\?\\").unwrap_or(loc.file.as_str())).unwrap();
+                    writeln!(out, "%line {:0>3}+000 {}", loc.line, loc.file)?;
                 }
             }
             Instr::Call { to: (to, to_layout), pointer, ref args, loc: _ } => {

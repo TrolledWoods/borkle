@@ -298,7 +298,7 @@ fn parse_file(
     file: &Path,
     meta_data: Option<(Location, ScopeId)>,
 ) {
-    let file_name_str = file.to_str().expect("File path is not a valid string, this should not happen since all paths are constructed from strings originally").into();
+    let file_name_str = format!("{}", file.display()).into();
 
     // If the file has already been parsed, do not parse it again!
     let mut loaded_files = program.loaded_files.lock();
