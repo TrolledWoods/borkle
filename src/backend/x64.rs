@@ -243,19 +243,268 @@ fn split_into_powers_of_two(value: usize) -> impl Iterator<Item = SizeSplit> {
     split_into_powers_of_two_with_max(value, 8)
 }
 
-/*struct AllocatedRegister {
-    stack_pos: usize,
-    size: u8,
+#[derive(Clone, Copy)]
+struct ReferencedStackValue {
+    stack_offset: usize,
+    size: usize,
 }
 
 #[derive(Default)]
+struct AllocatedRegister {
+    /// The stack value here is the offset on the stack, not the value itself.
+    referenced_stack_value: Option<ReferencedStackValue>,
+    in_use: bool,
+}
+
+// For now, this only includes volatile registers, because it's a little tricky to
+// store non-volatile registers on the stack with the system I have right now.
+const AVAILABLE_REGISTERS: &[Register] = &[Register::Rax, Register::Rcx, Register::Rdx, Register::R8, Register::R9, Register::R10, Register::R11];
+
+#[derive(Default)]
 struct Registers {
-    allocated: [Option<AllocatedRegister>; Register::RegCount as u8 as usize],
-}*/
+    allocated: [AllocatedRegister; Register::RegCount as u8 as usize],
+}
+
+impl Registers {
+    fn set_in_use_and_keep_stack_value(&mut self, id: Register) -> RegisterHandle {
+        let register = &mut self.allocated[id as u8 as usize];
+        debug_assert!(!register.in_use);
+        register.in_use = true;
+
+        RegisterHandle {
+            id: id
+        }
+    }
+}
+
+struct RegisterHandle {
+    id: Register,
+}
 
 struct Context<'a> {
     out: &'a mut String,
     stack: Stack,
+    registers: Registers,
+}
+
+impl Context<'_> {
+    /// Pushes the value of a register to the stack.
+    /// Does not invalidate the register, so only do this if you need to read from the stack later.
+    fn push_reg_changes(&mut self, reg: &RegisterHandle) -> fmt::Result {
+        let register = &mut self.registers.allocated[reg.id as u8 as usize];
+        let referenced_value = register.referenced_stack_value.as_mut().expect("Can't push changes from a register that isn't a stack value");
+
+        writeln!(self.out, "\tmov [rsp+{}], {}", referenced_value.stack_offset, reg.id.name(referenced_value.size))?;
+
+        Ok(())
+    }
+
+    /// Reads data for use in a "single instruction". Might allocate a register,
+    /// so make sure there's enough registers left over for this.
+    fn get_data(&mut self, allowed_data: AllowedDataFlags, wanted_data: Data) -> Result<DataHandle, fmt::Error> {
+        match wanted_data {
+            Data::Stack(value, size) => {
+                let stack_offset = self.stack.get_stack_offset(&value);
+                // If it's already in a register, we use that.
+                // TODO: Here, we have a choice; we could upload it to memory, or copy the register value. I think in x86 we have enough registers to always be able
+                // to allocate more register values, but if we need to save on registers, we could use memory instead here.
+                if let Some((existing, kind, old_in_use)) = self.try_get_stack_value_in_reg(stack_offset, size) {
+                    match kind {
+                        StackValueInRegister::Exact => if old_in_use {
+                            return Ok(DataHandle::BorrowedReg(existing, size));
+                        } else {
+                            let new = self.registers.set_in_use_and_keep_stack_value(existing);
+                            return Ok(DataHandle::Reg(new, size));
+                        },
+                        StackValueInRegister::Cropped { offset, existing_size } => {
+                            // @Duplicate code with the other place that does zero extension
+                            let new_reg = if old_in_use {
+                                self.alloc_reg()
+                            } else {
+                                self.registers.set_in_use_and_keep_stack_value(existing)
+                            };
+
+                            if size == 8 && existing_size == 4 {
+                                if old_in_use {
+                                    writeln!(self.out, "\tmov {}, {}", new_reg.id.name(existing_size), existing.name(existing_size))?;
+                                }
+                                writeln!(self.out, "\tmovzx {}, {}", new_reg.id.name(existing_size), existing.name(existing_size))?;
+                            } else {
+                                // mov zero extends by default in this case.
+                                writeln!(self.out, "\tmov {}, {}", new_reg.id.name(8), existing.name(4))?;
+                            }
+
+                            return Ok(DataHandle::Reg(new_reg, size));
+                        }
+                    }
+                }
+
+                if allowed_data & ALLOWED_DATA_INDIRECT == 0 {
+                    // If we aren't allowed to use indirect data, we have to download it.
+                }
+
+                Ok(DataHandle::Stack(value, size))
+            }
+            Data::Imm(value, size) => {
+                let allowed_size = (allowed_data & ALLOWED_DATA_MAX_IMM_SIZE) as u32;
+
+                // TODO: Eventually, I'd like to allow for setting any immediate size you want separately.
+                // We have to allocate a register if the value does not fit in the allowed size.
+                if allowed_size == 0 || ((allowed_size as usize) < size && value >= (2_u64.pow(allowed_size * 8 - 1))) {
+                    let reg = self.alloc_reg();
+                    writeln!(self.out, "\tmov {}, {}", reg.id.name(size), value)?;
+                    return Ok(DataHandle::Reg(reg, size));
+                }
+
+                Ok(DataHandle::Imm(value, size))
+            }
+        }
+    }
+
+    fn free_data(&mut self, handle: DataHandle) {
+        match handle {
+            DataHandle::Reg(handle, _) => {
+                self.free_reg(handle);
+            }
+            DataHandle::BorrowedReg { .. } => {}
+            DataHandle::Stack { .. } => {}
+            DataHandle::Imm { .. } => {}
+        }
+    }
+
+    /// Forces an allocation of a specific register. Will crash if the register is currently
+    /// in use.
+    fn alloc_specific_reg(&mut self, id: Register) -> RegisterHandle {
+        let register = &mut self.registers.allocated[id as u8 as usize];
+        debug_assert!(!register.in_use);
+        register.in_use = true;
+        register.referenced_stack_value = None;
+
+        RegisterHandle {
+            id,
+        }
+    }
+
+    /// Allocates a register.
+    fn alloc_reg(&mut self) -> RegisterHandle {
+        for &prev_id in AVAILABLE_REGISTERS {
+            let prev_reg = &mut self.registers.allocated[prev_id as u8 as usize];
+            if !prev_reg.in_use {
+                prev_reg.in_use = true;
+                return RegisterHandle {
+                    id: prev_id
+                };
+            }
+        }
+
+        unreachable!("Out of registers to allocate!");
+    }
+
+    fn free_reg(&mut self, to: RegisterHandle) {
+        let reg = &mut self.registers.allocated[to.id as u8 as usize];
+        reg.in_use = false;
+    }
+
+    fn alloc_reg_with_stack_value(
+        &mut self,
+        stack_offset: usize,
+        size: usize,
+        wants_to_become_owner: bool,
+    ) -> Result<RegisterHandle, fmt::Error> {
+        let reg = self.alloc_reg();
+        self.load_stack_value(&reg, stack_offset, size, wants_to_become_owner)?;
+        Ok(reg)
+    }
+
+    /// If you want to initialize a stack value, you can just set the register as the owner, without actually loading
+    /// the original value at all.
+    fn make_stack_value_owner_without_loading(&mut self, to: &RegisterHandle, stack_offset: usize, size: usize) {
+        let register = &mut self.registers.allocated[to.id as u8 as usize];
+        register.referenced_stack_value = Some(ReferencedStackValue {
+            stack_offset,
+            size,
+        });
+    }
+
+    // @Cleanup: The last boolean in the arguments is if the register is in use or not.
+    fn try_get_stack_value_in_reg(&mut self, stack_offset: usize, size: usize) -> Option<(Register, StackValueInRegister, bool)> {
+        for &prev_id in AVAILABLE_REGISTERS {
+            let prev_reg = &mut self.registers.allocated[prev_id as u8 as usize];
+
+            if let Some(prev) = prev_reg.referenced_stack_value {
+                // Check if the new value is a subset of the other value.
+                if prev.stack_offset <= stack_offset && stack_offset + size >= prev.stack_offset + prev.size {
+                    if prev.stack_offset == stack_offset {
+                        return Some((prev_id, StackValueInRegister::Exact, prev_reg.in_use));
+                    } else {
+                        return Some((
+                            prev_id,
+                            StackValueInRegister::Cropped {
+                                offset: stack_offset - prev.stack_offset,
+                                existing_size: prev.size,
+                            },
+                            prev_reg.in_use,
+                        ));
+                    }
+                }
+            }
+        }
+
+        None
+    }
+
+    fn load_stack_value(&mut self, to: &RegisterHandle, stack_offset: usize, size: usize, wants_to_become_owner: bool) -> fmt::Result {
+        let register = &mut self.registers.allocated[to.id as u8 as usize];
+        if wants_to_become_owner {
+            register.referenced_stack_value = Some(ReferencedStackValue {
+                stack_offset,
+                size,
+            });
+        }
+
+        // Check if there is already a register set to be loaded from that stack value.
+        // We can then just read the stack value from that register instead.
+        let mut loaded = false;
+        for &prev_id in AVAILABLE_REGISTERS {
+            let prev_reg = &mut self.registers.allocated[prev_id as u8 as usize];
+
+            if let Some(prev) = prev_reg.referenced_stack_value {
+                // Check if the new value is a subset of the other value.
+                if prev.stack_offset <= stack_offset && stack_offset + size >= prev.stack_offset + prev.size {
+                    debug_assert!(!loaded, "A register shouldn't be loaded twice here");
+
+                    if prev.stack_offset == stack_offset {
+                        // We can load it with just a `mov`
+                        writeln!(self.out, "\tmov {}, {}", to.id.name(size), prev_id.name(size))?;
+                    } else {
+                        // We need to do something more complex, with bitshifts
+                        // Since we always allocate a full register, the to register can be used as a "scratch pad" for this
+                        writeln!(self.out, "\tmov {}, {}", to.id.name(prev.size), prev_id.name(prev.size))?;
+                        writeln!(self.out, "\tshr {}, {}", to.id.name(prev.size), (stack_offset - prev.stack_offset) * 8)?;
+                    }
+
+                    loaded = true;
+                }
+
+                // Check if the new value is overlapping the other value.
+                if prev.stack_offset <= stack_offset + size && stack_offset <= prev.stack_offset + prev.size {
+                    debug_assert!(!(wants_to_become_owner && prev_reg.in_use), "Can't have two registers owning overlapping stack values at the same time");
+
+                    // We take over as the new owner, the old one can't be an owner anymore.
+                    if wants_to_become_owner {
+                        prev_reg.referenced_stack_value = None;
+                    }
+                }
+            }
+        }
+
+        if !loaded {
+            // We have to bite the bullet and load straight from memory
+            writeln!(self.out, "\tmov {}, [rsp+{}]", to.id.name(size), stack_offset)?;
+        }
+
+        Ok(())
+    }
 }
 
 struct Stack {
@@ -264,6 +513,10 @@ struct Stack {
 }
 
 impl Stack {
+    fn get_stack_offset(&self, value: &Value) -> usize {
+        self.variables_base() + value.0
+    }
+    
     fn variables_base(&self) -> usize {
         self.offset - self.stack_size
     }
@@ -314,6 +567,7 @@ fn emit_routine(
             offset: stack_size,
             stack_size,
         },
+        registers: Registers::default(),
     };
 
     let mut function_args_offset = 0;
@@ -624,19 +878,19 @@ fn emit_routine(
                 assert!(!type_.is_float(), "Float operations not handled yet in x64 backend");
 
                 let size = type_.size();
-                emit_unary(&mut ctx, op, type_, to, RegImmAddr::Stack(from, size), size)?;
+                emit_unary(&mut ctx, op, type_, to, Data::Stack(from, size), size)?;
             }
             Instr::Binary { to, a, b, op, type_ } => {
                 assert!(!type_.is_float(), "Float operations not handled yet in x64 backend");
 
                 let size = type_.size();
-                emit_binary(&mut ctx, op, type_, to, a, RegImmAddr::Stack(b, size), size)?;
+                emit_binary(&mut ctx, op, type_, to, a, Data::Stack(b, size), size)?;
             }
             Instr::BinaryImm { to, a, b, op, type_ } => {
                 assert!(!type_.is_float(), "Float operations not handled yet in x64 backend");
 
                 let size = type_.size();
-                emit_binary(&mut ctx, op, type_, to, a, RegImmAddr::Imm(b, size), size)?;
+                emit_binary(&mut ctx, op, type_, to, a, Data::Imm(b, size), size)?;
             }
             Instr::JumpIfZero { condition, to } => {
                 writeln!(ctx.out, "\tmov al, BYTE {}", ctx.stack.value(&condition))?;
@@ -780,62 +1034,41 @@ fn emit_routine(
 }
 
 #[derive(Clone, Copy)]
-enum RegImmAddr {
-    Reg(Register, usize),
+enum StackValueInRegister {
+    Exact,
+    Cropped {
+        offset: usize,
+        existing_size: usize,
+    },
+}
+
+const ALLOWED_ALL: AllowedDataFlags = ALLOWED_DATA_TEMPORARY | ALLOWED_DATA_INDIRECT | ALLOWED_DATA_MAX_IMM_SIZE;
+const ALLOWED_NO_IMM64: AllowedDataFlags = ALLOWED_DATA_TEMPORARY | ALLOWED_DATA_INDIRECT | (ALLOWED_DATA_MAX_IMM_SIZE & 8);
+
+type AllowedDataFlags = u64;
+const ALLOWED_DATA_MAX_IMM_SIZE: AllowedDataFlags = 0b0000_1111;
+const ALLOWED_DATA_TEMPORARY:    AllowedDataFlags = 0b0001_0000;
+const ALLOWED_DATA_INDIRECT:     AllowedDataFlags = 0b0010_0000;
+
+#[derive(Clone, Copy)]
+enum Data {
     Stack(Value, usize),
     Imm(u64, usize),
 }
 
-impl RegImmAddr {
-    //TODO: Create a new enum that doesn't include an immediate value
-    fn remove_imm(self, out: &mut String, reg: Register) -> Result<Self, fmt::Error> {
-        Ok(match self {
-            Self::Imm(num, size) => {
-                writeln!(out, "\tmov {}, {}", reg.name(size), num)?;
-                Self::Reg(reg, size)
-            }
-            _ => self,
-        })
-    }
+enum DataHandle {
+    BorrowedReg(Register, usize),
+    Reg(RegisterHandle, usize),
+    Stack(Value, usize),
+    Imm(u64, usize),
+}
 
-    fn reduce_size(self, out: &mut String, imm_reg: Register, max_size: usize) -> Result<Self, fmt::Error> {
-        Ok(match self {
-            Self::Imm(num, size) if size > max_size => {
-                if num < 2_u64.pow(max_size as u32 * 8 - 1) {
-                    Self::Imm(num, max_size)
-                } else {
-                    writeln!(out, "\tmov {}, {}", imm_reg.name(size), num)?;
-                    Self::Reg(imm_reg, size)
-                }
-            }
-            Self::Stack(value, size) if size > max_size => {
-                Self::Stack(value, max_size)
-            }
-            Self::Reg(reg, size) if size > max_size => {
-                Self::Reg(reg, max_size)
-            }
-            _ => self,
-        })
-    }
-
-    fn reduce_immediate_size(self, out: &mut String, imm_reg: Register, max_size: usize) -> Result<Self, fmt::Error> {
-        Ok(match self {
-            Self::Imm(num, size) if size > max_size => {
-                if num < 2_u64.pow(max_size as u32 * 8 - 1) {
-                    Self::Imm(num, max_size)
-                } else {
-                    writeln!(out, "\tmov {}, {}", imm_reg.name(size), num)?;
-                    Self::Reg(imm_reg, max_size)
-                }
-            }
-            _ => self,
-        })
-    }
-
+impl DataHandle {
     fn print<'a>(&'a self, stack: &'a Stack) -> impl fmt::Display + 'a {
         Formatter(move |f| {
             match *self {
-                Self::Reg(reg, size) => write!(f, "{}", reg.name(size)),
+                Self::BorrowedReg(reg, size) => write!(f, "{}", reg.name(size)),
+                Self::Reg(ref reg, size) => write!(f, "{}", reg.id.name(size)),
                 Self::Stack(val, size) => write!(f, "{} {}", name_of_size(size), stack.value(&val)),
                 Self::Imm(val, _size) => write!(f, "{}", val),
             }
@@ -843,7 +1076,7 @@ impl RegImmAddr {
     }
 }
 
-fn emit_unary(ctx: &mut Context<'_>, op: UnaryOp, type_: PrimitiveType, to: Value, a: RegImmAddr, size: usize) -> fmt::Result {
+fn emit_unary(ctx: &mut Context<'_>, op: UnaryOp, type_: PrimitiveType, to: Value, a: Data, size: usize) -> fmt::Result {
     let reg_out = Register::Rax.name(size);
 
     let a = a.reduce_immediate_size(ctx.out, Register::R8, 4)?;
@@ -873,7 +1106,7 @@ fn emit_unary(ctx: &mut Context<'_>, op: UnaryOp, type_: PrimitiveType, to: Valu
     Ok(())
 }
 
-fn emit_binary(ctx: &mut Context<'_>, op: BinaryOp, type_: PrimitiveType, to: Value, a: Value, right: RegImmAddr, size: usize) -> fmt::Result {
+fn emit_binary(ctx: &mut Context<'_>, op: BinaryOp, type_: PrimitiveType, to: Value, a: Value, right: Data, size: usize) -> fmt::Result {
     let reg_a = Register::Rax.name(size);
     writeln!(ctx.out, "\tmov {}, {}", reg_a, ctx.stack.value(&a))?;
 
