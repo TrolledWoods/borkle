@@ -16,8 +16,41 @@ const run_aoc_tests = fn() {
     TestsDay7();
 };
 
+const run_tests = fn() {
+    test_basic();
+    test_blocks_and_breaks();
+    test_division();
+    test_multiplication();
+    
+    run_aoc_tests();
+};
+
 const ok = fn(name: [] u8) {
     print("[OK] %\n", name);
+};
+
+const test_division = fn() {
+    defer ok("division");
+
+    assert(23 / 7 == 3 : u8);
+    assert(-5 / 2 == -2 : i8);
+    assert(1842 / 102 == 18 : u32);
+    assert(-1842 / 102 == -18 : i32);
+    assert(1842 / 102 == 18 : u64);
+    assert(1842 / -102 == -18 : i64);
+};
+
+const test_multiplication = fn() {
+    defer ok("multiplication");
+
+    assert(1 * 7 == 7 : u8);
+    assert(-582 * 5 == -2910 : i16);
+    assert(7 * -7 == -49 : i8);
+    assert(582 * 5 == 2910 : u16);
+    assert(89_421 * 3_488 == 311_900_448 : u32);
+    assert(-89_421 * 3_488 == -311_900_448 : i32);
+    assert(74178 * 49122 == 3643771716 : u64);
+    assert(-74178 * 49122 == -3643771716 : i64);
 };
 
 const test_basic = fn() {

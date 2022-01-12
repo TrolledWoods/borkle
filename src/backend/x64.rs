@@ -547,6 +547,11 @@ fn emit_routine(
 
                 writeln!(out, "\tcall {}", stack.value(&pointer))?;
 
+                if is_debugging {
+                    // Too make the call stack point to the actual call, and not the line after.
+                    writeln!(out, "\tnop")?;
+                }
+
                 if to_layout.size() > 0 {
                     // If it was passed in a register we have to do this, if it was passed by pointer,
                     // then it was written to directly and we're fine.
@@ -932,19 +937,35 @@ fn emit_binary(out: &mut String, op: BinaryOp, stack: &Stack, type_: PrimitiveTy
         }
         BinaryOp::LargerThan => {
             writeln!(out, "\tcmp {}, {}", reg_a, right.print(stack))?;
-            writeln!(out, "\tsetg BYTE {}", stack.value(&to))?;
+            if type_.signed() {
+                writeln!(out, "\tsetg BYTE {}", stack.value(&to))?;
+            } else {
+                writeln!(out, "\tseta BYTE {}", stack.value(&to))?;
+            }
         }
         BinaryOp::LargerThanEquals => {
             writeln!(out, "\tcmp {}, {}", reg_a, right.print(stack))?;
-            writeln!(out, "\tsetge BYTE {}", stack.value(&to))?;
+            if type_.signed() {
+                writeln!(out, "\tsetge BYTE {}", stack.value(&to))?;
+            } else {
+                writeln!(out, "\tsetae BYTE {}", stack.value(&to))?;
+            }
         }
         BinaryOp::LessThan => {
             writeln!(out, "\tcmp {}, {}", reg_a, right.print(stack))?;
-            writeln!(out, "\tsetl BYTE {}", stack.value(&to))?;
+            if type_.signed() {
+                writeln!(out, "\tsetl BYTE {}", stack.value(&to))?;
+            } else {
+                writeln!(out, "\tsetb BYTE {}", stack.value(&to))?;
+            }
         }
         BinaryOp::LessThanEquals => {
             writeln!(out, "\tcmp {}, {}", reg_a, right.print(stack))?;
-            writeln!(out, "\tsetle BYTE {}", stack.value(&to))?;
+            if type_.signed() {
+                writeln!(out, "\tsetle BYTE {}", stack.value(&to))?;
+            } else {
+                writeln!(out, "\tsetbe BYTE {}", stack.value(&to))?;
+            }
         }
         BinaryOp::And | BinaryOp::BitAnd => {
             writeln!(out, "\tand {}, {}", reg_a, right.print(stack))?;

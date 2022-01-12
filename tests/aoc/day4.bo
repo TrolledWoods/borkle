@@ -131,5 +131,6 @@ const aoc_day4 = fn() -> { part_1: u64; part_2: u64; } {
     let result = #0;
     result.part_1 = unmarked_nums * number_at_marked;
     result.part_2 = worst_unmarked_nums * worst_number_at_marked;
+
     result
 };

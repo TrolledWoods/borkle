@@ -2,10 +2,9 @@ library "windows.bo";
 import "tests/main.bo";
 
 #entry fn() {
-    print("%\n", -2 : i32);
-    print("8 mod 3 = %\n", (-8) % 3 : i32);
+    run_tests();
 
-    run_aoc_tests();
+    ExitProcess(0);
 };
 
 // Roadmap for full(and decent) x64 support:

@@ -59,18 +59,32 @@ const alloc_copy.(T) = fn(original: [] T) -> [] T {
 };
 
 const alloc.(T) = fn(count: usize) -> [] T {
-    let buf = #0;
-    buf.ptr = cast VirtualAlloc(#0, count * sizeof T, MEM_COMMIT, PAGE_READWRITE);
-    buf.len = count;
-    buf
+    if count > 0 {
+        let buf = #0;
+        buf.ptr = cast VirtualAlloc(#0, count * sizeof T, MEM_COMMIT, PAGE_READWRITE);
+        buf.len = count;
+        buf
+    } else {
+        #0
+    }
 };
 
 const dealloc.(T) = fn(buf: [] T) {
-    VirtualFree(cast buf.ptr, buf.len * sizeof T, MEM_DECOMMIT);
+    if buf.len > 0 {
+        VirtualFree(cast buf.ptr, buf.len * sizeof T, MEM_DECOMMIT);
+    };
 };
 
 const fill.(T) = fn(buf: [] T, value: T) {
     for &buf { *v = value; };
+};
+
+const arr_one.(T) = fn(v: &T) -> &[1] T {
+    cast v
+};
+
+const buf_one.(T) = fn(v: &T) -> [] T {
+    cast arr_one(v)
 };
 
 const slice_cmp.(T) = fn(a: [] T, b: [] T) -> bool { 'function
@@ -113,7 +127,8 @@ const count_ones.(T) = fn(number: T) -> usize {
 };
 
 const NEGATIVE_SIGN = *"-".ptr : u8;
-const DIGIT0 = 48 : u8;
+const LETTER_A = *"A".ptr : u8;
+const DIGIT0 = *"0".ptr : u8;
 
 // TEMPORARY until not operator is done a gain
 const not = fn(v: bool) -> bool  if v false else true;
@@ -282,6 +297,36 @@ const count_writer.(T) = fn() -> typeof Writer.(T) {
     writer
 };
 
+// @HACK: Right now, it takes a reference to `buf`, and will modify it. Hence, if you write
+// to a buffer, make sure to copy the buffer to a temporary variable first, before you
+// reference it, so it doesn't remove your original buffer.
+const buf_writer.(T) = fn(buf: &[] T) -> typeof Writer.(T) {
+    let writer = #0;
+    writer.state = cast buf;
+    writer.write_buf = fn(buf_ptr, from) {
+        let buf = cast buf_ptr : &[] T;
+        let writing = min(buf.len, from.len);
+
+        copy_nonoverlapping(buf.ptr, from.ptr, writing);
+        buf.len = buf.len - writing;
+        buf.ptr = buf.ptr + writing;
+
+        writing
+    };
+    writer.write_single = fn(buf_ptr, from) {
+        let buf = cast buf_ptr : &[] T;
+        if buf.len > 0 {
+            *buf.ptr = from;
+            buf.len = buf.len - 1;
+            buf.ptr = buf.ptr + 1;
+            1
+        } else {
+            0
+        }
+    };
+    writer
+};
+
 const vec_writer.(T) = fn(vec: &typeof Vec.(T)) -> typeof Writer.(T) {
     let writer = #0;
     writer.state = cast vec;
@@ -352,7 +397,7 @@ const write_i64 = fn(to: typeof Writer.(u8), num: i64, base: u64) -> usize { 'fu
         written = written + write_single(to, NEGATIVE_SIGN);
         written = written + write_u64(to, cast -num, base);
     } else {
-        written = written + write_u64(to, cast -num, base);
+        written = written + write_u64(to, cast num, base);
     };
 
     written
@@ -364,7 +409,6 @@ const write_u64 = fn(to: typeof Writer.(u8), num: u64, base: u64) -> usize { 'fu
     };
 
     let factor = 1;
-
     while factor <= num     factor = factor * base;
 
     let written = 0;
@@ -373,7 +417,11 @@ const write_u64 = fn(to: typeof Writer.(u8), num: u64, base: u64) -> usize { 'fu
         let digit = num / factor;
         num = num - digit * factor;
 
-        written = written + write_single(to, DIGIT0 + (cast digit : u8));
+        if digit >= 10 {
+            written = written + write_single(to, LETTER_A + (cast digit : u8 - 10));
+        } else {
+            written = written + write_single(to, DIGIT0 + (cast digit : u8));
+        };
     };
 
     written
@@ -386,10 +434,10 @@ const write_fmt_no_padding.(T) = fn(to: typeof Writer.(u8), fmt_val: typeof Form
         fmt_val.value
     };
 
-    if #const: typeof value is u8 || typeof value is u16 || typeof value is u32 || typeof value is u64 {
+    if #const: typeof value is u8 || typeof value is u16 || typeof value is u32 || typeof value is u64 || typeof value is usize {
         let base = if fmt_val.base == 0 { 10 } else { fmt_val.base };
         write_u64(to, cast value, cast base)
-    } else if #const: typeof value is i8 || typeof value is i16 || typeof value is i32 || typeof value is i64 {
+    } else if #const: typeof value is i8 || typeof value is i16 || typeof value is i32 || typeof value is i64 || typeof value is isize {
         let base = if fmt_val.base == 0 { 10 } else { fmt_val.base };
         write_i64(to, cast value, cast base)
     } else if #const: typeof value is typeof Vec.(u8) {
@@ -471,6 +519,13 @@ const write.(Args) = fn(writer: typeof Writer.(u8), format_str: [] u8, #var_args
     if splits.next(&splits.state, &sub_str)  written = written + write_buf(writer, sub_str);
 
     written
+};
+
+const sprint.(Args) = fn(format_str: [] u8, #var_args: args: Args) -> [] u8 {
+    let count = write(count_writer(), format_str, .args = args);
+    let buffer = alloc(count);
+    write(buf_writer(&{ buffer }), format_str, .args = args);
+    buffer
 };
 
 const print.(Args) = fn(format_str: [] u8, #var_args: args: Args) {
