@@ -1,42 +1,15 @@
 library "windows.bo";
 import "tests/main.bo";
 
-const generic.(T) = fn(var: T) -> T {
-    // Sample
-    let x = var;
-    x
-};
-
-const non_generic.(T) = fn(var: T) {
-    let x = var;
-    generic(x);
-};
-
-const non_generic_u32 = non_generic.(u32);
-const non_generic_u64 = non_generic.(u64);
-
-const call_back2 = fn(thing: u64) -> u32 {
-    ExitProcess(cast thing);
-
-    0
-};
-
-const generic_func = generic.(u32); 
-
 #entry fn() {
-    run_aoc_tests();
-    
-    let val = #0 : { x: u32; y: u64; z: i16; };
-    val.x = 99;
-    val.y = 32;
-    val.z = 47;
+    print("8 mod 3 = %\n", 8 % 3 : u32);
 
-    print("Val x is: %, y is %, z is %\n", val.x, val.y, val.z);
+    run_aoc_tests();
 };
 
 // Roadmap for full(and decent) x64 support:
 //
-// - Module doesn't work the way I thought it did, we need more logic for it, AH is used for remainder in 8bit contexts: https://www.felixcloutier.com/x86/div
+// - Modulo doesn't work the way I thought it did, we need more logic for it, AH is used for remainder in 8bit contexts: https://www.felixcloutier.com/x86/div
 // * - Handle large arguments
 // - Handle floats
 // * - Actually handle getting passed arguments, 

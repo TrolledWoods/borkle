@@ -866,6 +866,7 @@ fn emit_binary(out: &mut String, op: BinaryOp, stack: &Stack, type_: PrimitiveTy
         }
         BinaryOp::Div => {
             // @Note: Remainder is stored in RDX
+            writeln!(out, "\txor rdx, rdx")?;
             let right = right.remove_imm(out, Register::R8)?;
             if type_.signed() {
                 writeln!(out, "\tidiv {}", right.print(stack))?;
@@ -876,13 +877,19 @@ fn emit_binary(out: &mut String, op: BinaryOp, stack: &Stack, type_: PrimitiveTy
         }
         BinaryOp::Modulo => {
             // @Note: Normal value is stored in EAX, remainder is stored in RDX
+            writeln!(out, "\txor rdx, rdx")?;
             let right = right.remove_imm(out, Register::R8)?;
             if type_.signed() {
                 writeln!(out, "\tidiv {}", right.print(stack))?;
             } else {
                 writeln!(out, "\tdiv {}", right.print(stack))?;
             }
-            writeln!(out, "\tmov {}, {}", stack.value(&to), Register::Rdx.name(size))?;
+
+            if size == 1 {
+                writeln!(out, "\tmov {}, ah", stack.value(&to))?;
+            } else {
+                writeln!(out, "\tmov {}, {}", stack.value(&to), Register::Rdx.name(size))?;
+            }
         }
         BinaryOp::ShiftLeft => {
             let right = right.reduce_size(out, Register::R8, 1)?;
