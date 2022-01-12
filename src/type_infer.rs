@@ -19,24 +19,6 @@ pub use value_sets::{ValueSets, ValueSetId, ValueSetHandles, ValueSet};
 
 const DEBUG: bool = false;
 
-mod static_values {
-    //! Static value header, e.g. value indices we know what their values are statically, for very common types,
-    //! like integers and so on.
-    use super::ValueId;
-
-    pub const INT_SIZE : ValueId = ValueId::Dynamic(0);
-    pub const BOOL     : ValueId = ValueId::Dynamic(1);
-    pub const POINTER  : ValueId = ValueId::Dynamic(2);
-    pub const ONE      : ValueId = ValueId::Dynamic(4);
-    pub const TWO      : ValueId = ValueId::Dynamic(6);
-    pub const FOUR     : ValueId = ValueId::Dynamic(8);
-    pub const EIGHT    : ValueId = ValueId::Dynamic(10);
-    pub const TRUE     : ValueId = ValueId::Dynamic(12);
-    pub const FALSE    : ValueId = ValueId::Dynamic(14);
-    pub const USIZE    : ValueId = ValueId::Dynamic(16);
-    pub const STATIC_VALUES_SIZE : u32 = 17;
-}
-
 pub trait IntoConstant {
     fn into_constant(self) -> Option<ConstantRef>;
 }
@@ -114,8 +96,10 @@ pub enum TypeKind {
     Int,
     /// int size
     Float,
-    /// No arguments, the size of an integer, hidden type that the user cannot access
-    IntSize,
+    /// The size of an integer (the size is stored in the brackets)
+    IntSize(u8),
+    /// Whether an int is signed or not
+    IntSigned(bool),
 
     Bool,
     Empty,
@@ -147,7 +131,7 @@ pub enum TypeKind {
 impl TypeKind {
     fn get_needed_children_for_layout<'a>(&self, children: &'a [ValueId]) -> &'a [ValueId] {
         match self {
-            TypeKind::Type | TypeKind::IntSize | TypeKind::Bool | TypeKind::Empty | TypeKind::Function | TypeKind::Reference | TypeKind::Buffer | TypeKind::ConstantValue(_) | TypeKind::CompareUnspecified => &[],
+            TypeKind::Type | TypeKind::IntSize(_) | TypeKind::IntSigned(_) | TypeKind::Bool | TypeKind::Empty | TypeKind::Function | TypeKind::Reference | TypeKind::Buffer | TypeKind::ConstantValue(_) | TypeKind::CompareUnspecified => &[],
             TypeKind::Float => &children[0..1],
             TypeKind::Int => &children[1..2],
             TypeKind::Array => children,
@@ -165,15 +149,12 @@ fn compute_type_layout(kind: &TypeKind, structures: &Structures, values: &Values
     match kind {
         TypeKind::CompareUnspecified => Layout { size: 1, align: 0 },
         TypeKind::Float => {
-            let size = extract_constant_from_value(structures, values, children[0]).unwrap();
-            let size_value = unsafe { *size.as_ptr().cast::<u8>() };
+            let Some(&Type { kind: TypeKind::IntSize(size_value), .. }) = get_value(structures, values, children[1]).kind else { panic!() };
             let size_bytes = size_value as usize;
             Layout { size: size_bytes, align: size_bytes }
         }
         TypeKind::Int => {
-            let size = extract_constant_from_value(structures, values, children[1]).unwrap();
-            // @Correctness: We want to make sure that the type actually is a u8 here
-            let size_value = unsafe { *size.as_ptr().cast::<u8>() };
+            let Some(&Type { kind: TypeKind::IntSize(size_value), .. }) = get_value(structures, values, children[1]).kind else { panic!() };
             let size_bytes = match size_value {
                 0 => 8,
                 1 => 1,
@@ -184,7 +165,8 @@ fn compute_type_layout(kind: &TypeKind, structures: &Structures, values: &Values
             };
             Layout { size: size_bytes, align: size_bytes }
         }
-        TypeKind::IntSize => Layout { size: 1, align: 1 },
+        TypeKind::IntSize(_) => Layout { size: 1, align: 1 },
+        TypeKind::IntSigned(_) => Layout { size: 1, align: 1 },
         TypeKind::Bool => Layout { size: 1, align: 1 },
         TypeKind::Empty => Layout { size: 0, align: 1 },
         TypeKind::Buffer => Layout { size: 16, align: 8 },
@@ -467,12 +449,6 @@ pub enum ValueId {
 impl Default for ValueId {
     fn default() -> Self {
         Self::None
-    }
-}
-
-impl ValueId {
-    pub fn is_static_value(&self) -> bool {
-        matches!(self, ValueId::Dynamic(v) if *v < static_values::STATIC_VALUES_SIZE)
     }
 }
 
@@ -870,11 +846,8 @@ pub struct TypeSystem {
 }
 
 impl TypeSystem {
-    pub fn new(program: &crate::program::Program, ast_size: usize) -> Self {
-        let u8_type = crate::types::Type::new(crate::types::TypeKind::Int(IntTypeKind::U8));
-        let bool_type = crate::types::Type::new(crate::types::TypeKind::Bool);
-
-        let mut this = Self {
+    pub fn new(ast_size: usize) -> Self {
+        Self {
             comparisons: Vec::new(),
             structures: Structures::default(),
             values: Values::new(ast_size),
@@ -884,24 +857,7 @@ impl TypeSystem {
             available_constraints: HashMap::new(),
             queued_constraints: Vec::new(),
             errors: Vec::new(),
-        };
-
-        this.add_type(TypeKind::IntSize, Args([]), ());
-        this.add_type(TypeKind::Bool, Args([]), ());
-
-        for i in [0, 1, 2, 4, 8_u8] {
-            let buffer = program.insert_buffer(u8_type, &i);
-            this.add_value(static_values::INT_SIZE, buffer, ());
         }
-
-        for i in [1, 0_u8] {
-            let buffer = program.insert_buffer(bool_type, &i);
-            this.add_value(static_values::BOOL, buffer, ());
-        }
-
-        this.add_int(IntTypeKind::Usize, ());
-
-        this
     }
 
     fn resolve_comparison(&mut self, comparison: ComparisonId, result: bool) {
@@ -956,11 +912,6 @@ impl TypeSystem {
         other_id: ValueId,
         already_converted: &mut Vec<(u32, ValueId)>,
     ) -> ValueId {
-        // Static values are the same in both sets
-        if other_id.is_static_value() {
-            return other_id;
-        }
-
         // Check if we've already converted the value
         let value_structure_id = other.values.structure_id_of_value(other_id);
         if let Some(value_structure_id) = value_structure_id {
@@ -1117,14 +1068,14 @@ impl TypeSystem {
             TypeKind::CompareUnspecified => unreachable!("CompareUnspecified should never be converted to a compiler type"),
             TypeKind::Type => types::Type::new(types::TypeKind::Type),
             TypeKind::Constant | TypeKind::ConstantValue(_) => unreachable!("Constants aren't concrete types, cannot use them as node types"),
-            TypeKind::IntSize => unreachable!("Int sizes are a hidden type for now, the user shouldn't be able to access them"),
+            TypeKind::IntSize(_) => unreachable!("Int sizes are a hidden type for now, the user shouldn't be able to access them"),
+            TypeKind::IntSigned(_) => unreachable!("Int signs are a hidden type for now, the user shouldn't be able to access them"),
             TypeKind::Float => {
                 let [size] = &**type_args else {
                     unreachable!("Invalid float size")
                 };
 
-                let size_value = self.extract_constant_temp(*size).expect("Size wasn't a value");
-                let size_value = unsafe { *size_value.as_ptr().cast::<u8>() };
+                let Some(&Type { kind: TypeKind::IntSize(size_value), .. }) = self.get(*size).kind else { panic!() };
 
                 let type_kind = match size_value {
                     4 => types::TypeKind::F32,
@@ -1139,11 +1090,9 @@ impl TypeSystem {
                     unreachable!("Invalid int size and sign")
                 };
 
-                let sign_value = self.extract_constant_temp(*signed).expect("Sign wasn't a value");
-                let size_value = self.extract_constant_temp(*size).expect("Size wasn't a value");
+                let Some(&Type { kind: TypeKind::IntSigned(sign_value), .. }) = self.get(*signed).kind else { panic!() };
+                let Some(&Type { kind: TypeKind::IntSize  (size_value), .. }) = self.get(*size).kind else { panic!() };
 
-                let sign_value = unsafe { *sign_value.as_ptr().cast::<bool>() };
-                let size_value = unsafe { *size_value.as_ptr().cast::<u8>() };
                 let int_type_kind = match (sign_value, size_value) {
                     (false, 0) => IntTypeKind::Usize,
                     (false, 1) => IntTypeKind::U8,
@@ -1339,12 +1288,8 @@ impl TypeSystem {
                 let compiler_type = unsafe { *value.as_ptr().cast::<types::Type>() };
                 format!("{}", compiler_type)
             }
-            Some(Type { kind: TypeKind::IntSize, .. }) => {
-                let byte;
-                unsafe {
-                    byte = *value.as_ptr();
-                }
-                match byte {
+            Some(Type { kind: TypeKind::IntSize(size), .. }) => {
+                match size {
                     0 => "ptr".to_string(),
                     1 => "1".to_string(),
                     2 => "2".to_string(),
@@ -1353,19 +1298,23 @@ impl TypeSystem {
                     num => format!("<invalid int size value {}>", num),
                 }
             }
+            Some(Type { kind: TypeKind::IntSigned(signed), .. }) => {
+                format!("{}", signed)
+            }
             Some(Type { kind: TypeKind::Int, args: Some(c) }) => {
                 let [signed, size] = &**c else { panic!() };
 
-                let Some(signed) = self.extract_constant_temp(*signed) else {
-                    return "(?)".to_string()
-                };
+                let Some(&Type { kind: TypeKind::IntSigned(signed), .. }) = self.get(*signed).kind else { panic!() };
+                let Some(&Type { kind: TypeKind::IntSize(size), .. }) = self.get(*size).kind else { panic!() };
 
-                let Some(size) = self.extract_constant_temp(*size) else {
-                    return "(?)".to_string()
+                let size = match size {
+                    0 => 8,
+                    1 => 1,
+                    2 => 2,
+                    4 => 4,
+                    8 => 8,
+                    _ => unreachable!("Invalid int size"),
                 };
-
-                let signed = unsafe { *signed.as_ptr().cast::<bool>() };
-                let size = unsafe { *size.as_ptr().cast::<u8>() } as usize;
 
                 let mut big_int = [0; 16];
                 unsafe {
@@ -1401,7 +1350,8 @@ impl TypeSystem {
             Some(Type { kind: TypeKind::Type, .. }) => "type".to_string(),
             Some(Type { kind: TypeKind::Bool, .. }) => "bool".to_string(),
             Some(Type { kind: TypeKind::Empty, .. }) => "Empty".to_string(),
-            Some(Type { kind: TypeKind::IntSize, .. }) => "<size of int>".to_string(),
+            Some(Type { kind: TypeKind::IntSize(s), .. }) => format!("<size of int, {}>", s),
+            Some(Type { kind: TypeKind::IntSigned(s), .. }) => format!("<sign of int, {}>", s),
             Some(Type { kind: TypeKind::ConstantValue(_), .. }) => "<constant value>".to_string(),
             None => "_".to_string(),
             Some(Type { kind: TypeKind::Constant, args: Some(c) }) => match &**c {
@@ -1822,7 +1772,8 @@ impl TypeSystem {
                                 }
                             }
                             "len" => {
-                                self.set_equal(static_values::USIZE, b_id, constraint.reason);
+                                let usize_type = self.add_int(IntTypeKind::Usize, ());
+                                self.set_equal(usize_type, b_id, constraint.reason);
 
                                 self.constraints[constraint_id].applied = true;
                             }
@@ -2119,10 +2070,12 @@ impl TypeSystem {
                 self.set_type(id, TypeKind::Type, Args([]), set.clone())
             }
             types::TypeKind::F64 => {
-                self.set_type(id, TypeKind::Float, Args([(static_values::EIGHT, Reason::temp_zero())]), set.clone())
+                let size = self.add_type(TypeKind::IntSize(8), Args([]), ());
+                self.set_type(id, TypeKind::Float, Args([(size, Reason::temp_zero())]), set.clone())
             }
             types::TypeKind::F32 => {
-                self.set_type(id, TypeKind::Float, Args([(static_values::FOUR, Reason::temp_zero())]), set.clone())
+                let size = self.add_type(TypeKind::IntSize(4), Args([]), ());
+                self.set_type(id, TypeKind::Float, Args([(size, Reason::temp_zero())]), set.clone())
             }
             types::TypeKind::Int(int_type_kind) => {
                 self.set_int(id, int_type_kind, set.clone());
@@ -2147,7 +2100,7 @@ impl TypeSystem {
             }
             types::TypeKind::Array(type_, length) => {
                 let inner = self.add_compiler_type(program, type_, set.clone());
-                let usize_type = static_values::USIZE;
+                let usize_type = self.add_int(IntTypeKind::Usize, ());
                 let constant_ref_length = program.insert_buffer(
                     types::Type::new(types::TypeKind::Int(IntTypeKind::Usize)),
                     &length as *const _ as *const u8,
@@ -2215,19 +2168,23 @@ impl TypeSystem {
     // @Speed: This creates a temporary, but is also a kind of temporary value itself....
     pub fn set_int(&mut self, value_id: ValueId, int_kind: IntTypeKind, set: impl IntoValueSet) {
         let (signed, size) = match int_kind {
-            IntTypeKind::U8    => (static_values::FALSE, static_values::ONE),
-            IntTypeKind::U16   => (static_values::FALSE, static_values::TWO),
-            IntTypeKind::U32   => (static_values::FALSE, static_values::FOUR),
-            IntTypeKind::U64   => (static_values::FALSE, static_values::EIGHT),
-            IntTypeKind::Usize => (static_values::FALSE, static_values::POINTER),
-            IntTypeKind::I8    => (static_values::TRUE,  static_values::ONE),
-            IntTypeKind::I16   => (static_values::TRUE,  static_values::TWO),
-            IntTypeKind::I32   => (static_values::TRUE,  static_values::FOUR),
-            IntTypeKind::I64   => (static_values::TRUE,  static_values::EIGHT),
-            IntTypeKind::Isize => (static_values::TRUE,  static_values::POINTER),
+            IntTypeKind::U8    => (false, 1),
+            IntTypeKind::U16   => (false, 2),
+            IntTypeKind::U32   => (false, 4),
+            IntTypeKind::U64   => (false, 8),
+            IntTypeKind::Usize => (false, 0),
+            IntTypeKind::I8    => (true,  1),
+            IntTypeKind::I16   => (true,  2),
+            IntTypeKind::I32   => (true,  4),
+            IntTypeKind::I64   => (true,  8),
+            IntTypeKind::Isize => (true,  0),
         };
 
-        self.set_type(value_id, TypeKind::Int, Args([(signed, Reason::temp_zero()), (size, Reason::temp_zero())]), set);
+        // @Performance: We could ignore adding the size_type here
+        let size = self.add_type(TypeKind::IntSize(size), Args([]), ());
+        let sign = self.add_type(TypeKind::IntSigned(signed), Args([]), ());
+
+        self.set_type(value_id, TypeKind::Int, Args([(sign, Reason::temp_zero()), (size, Reason::temp_zero())]), set);
     }
 
     pub fn add_type(&mut self, kind: TypeKind, args: impl IntoValueArgs, set: impl IntoValueSet) -> ValueId {

@@ -1183,13 +1183,10 @@ impl Context<'_, '_> {
         let type_ = self.types.get(type_id);
         match type_.kind() {
             type_infer::TypeKind::Int => {
-                let signed = self.types.extract_constant_temp(type_.args()[0]).unwrap();
-                let size   = self.types.extract_constant_temp(type_.args()[1]).unwrap();
+                let Some(&type_infer::Type { kind: type_infer::TypeKind::IntSigned(signed), .. }) = self.types.get(type_.args()[0]).kind else { panic!() };
+                let Some(&type_infer::Type { kind: type_infer::TypeKind::IntSize(size), .. }) = self.types.get(type_.args()[1]).kind else { panic!() };
 
-                let signed_value = unsafe { *signed.as_ptr().cast::<u8>() > 0 };
-                let size_value = unsafe { *size.as_ptr().cast::<u8>() };
-
-                Some(match (signed_value, size_value) {
+                Some(match (signed, size) {
                     (true, 0) => PrimitiveType::I64,
                     (true, 1) => PrimitiveType::I8,
                     (true, 2) => PrimitiveType::I16,
@@ -1204,10 +1201,9 @@ impl Context<'_, '_> {
                 })
             }
             type_infer::TypeKind::Float => {
-                let size = self.types.extract_constant_temp(type_.args()[0]).unwrap();
-                let size_value = unsafe { *size.as_ptr().cast::<u8>() };
+                let Some(&type_infer::Type { kind: type_infer::TypeKind::IntSize(size), .. }) = self.types.get(type_.args()[0]).kind else { panic!() };
 
-                Some(match size_value {
+                Some(match size {
                     4 => PrimitiveType::F32,
                     8 => PrimitiveType::F64,
                     _ => unreachable!(),

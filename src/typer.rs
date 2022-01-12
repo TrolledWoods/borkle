@@ -140,7 +140,7 @@ pub fn begin<'a>(
     poly_params: Vec<(Location, Ustr)>,
 ) -> (YieldData, MemberMetaData) {
     let mut emit_deps = DependencyList::new();
-    let mut infer = TypeSystem::new(program, ast.structure.len());
+    let mut infer = TypeSystem::new(ast.structure.len());
 
     let mut poly_params: Vec<_> = poly_params
         .into_iter()
