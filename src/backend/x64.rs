@@ -156,6 +156,7 @@ enum Register {
     R13,
     R14,
     R15,
+    RegCount,
 }
 
 impl Register {
@@ -242,6 +243,21 @@ fn split_into_powers_of_two(value: usize) -> impl Iterator<Item = SizeSplit> {
     split_into_powers_of_two_with_max(value, 8)
 }
 
+/*struct AllocatedRegister {
+    stack_pos: usize,
+    size: u8,
+}
+
+#[derive(Default)]
+struct Registers {
+    allocated: [Option<AllocatedRegister>; Register::RegCount as u8 as usize],
+}*/
+
+struct Context<'a> {
+    out: &'a mut String,
+    stack: Stack,
+}
+
 struct Stack {
     offset: usize,
     stack_size: usize,
@@ -292,9 +308,12 @@ fn emit_routine(
     // greater than 16 bytes.
     let stack_size = align_to(routine.stack.max + 8, 16) - 8;
 
-    let mut stack = Stack {
-        offset: stack_size,
-        stack_size: stack_size,
+    let mut ctx = Context {
+        out,
+        stack: Stack {
+            offset: stack_size,
+            stack_size,
+        },
     };
 
     let mut function_args_offset = 0;
@@ -329,23 +348,23 @@ fn emit_routine(
             function_args_offset = function_args_offset.max(args_layouts.size() + scratch_region_layout.size());
         }
     }
-    stack.offset += function_args_offset;
+    ctx.stack.offset += function_args_offset;
 
-    writeln!(out, "\tsub rsp, {}", stack.offset)?;
+    writeln!(ctx.out, "\tsub rsp, {}", ctx.stack.offset)?;
 
-    writeln!(out, "{}_prolog_end:", function_symbol(function_id))?;
+    writeln!(ctx.out, "{}_prolog_end:", function_symbol(function_id))?;
 
     {
         // @Incomplete: Copy over the arguments from where they were passed
         // Do this to ignore the return function pointer that's also on the stack at this point.
-        let mut to_stack = StructLayout::new(stack.variables_base());
-        let mut arg_pos = StructLayout::new_with_align(stack.offset + 8, 16);
+        let mut to_stack = StructLayout::new(ctx.stack.variables_base());
+        let mut arg_pos = StructLayout::new_with_align(ctx.stack.offset + 8, 16);
         let mut args_read = 0;
 
         if routine.result_layout.size() > 0 && (routine.result_layout.size() > 8 || !routine.result_layout.size().is_power_of_two()) {
             let stack_pos = arg_pos.next(Layout::PTR);
             writeln!(
-                out,
+                ctx.out,
                 "\tmov [rsp+{}], rcx",
                 stack_pos,
             )?;
@@ -364,7 +383,7 @@ fn emit_routine(
                 } else {
                     let stack_pos = arg_pos.next(Layout::PTR);
                     writeln!(
-                        out,
+                        ctx.out,
                         "\tlea rcx, [rsp+{}]",
                         stack_pos,
                     )?;
@@ -374,8 +393,8 @@ fn emit_routine(
                 let write_to = to_stack.next(arg_layout.layout);
                 for split in split_into_powers_of_two(arg_layout.size()) {
                     let reg_name = Register::Rax.name(split.size);
-                    writeln!(out, "\tmov {}, {} [{}+{}]", reg_name, name_of_size(split.size), reg.name(8), split.offset)?;
-                    writeln!(out, "\tmov {} [rsp+{}], {}", name_of_size(split.size), write_to + split.offset, reg_name)?;
+                    writeln!(ctx.out, "\tmov {}, {} [{}+{}]", reg_name, name_of_size(split.size), reg.name(8), split.offset)?;
+                    writeln!(ctx.out, "\tmov {} [rsp+{}], {}", name_of_size(split.size), write_to + split.offset, reg_name)?;
                 }
             } else {
                 let write_to = to_stack.next(arg_layout.layout);
@@ -383,7 +402,7 @@ fn emit_routine(
                 if let Some(reg) = reg {
                     arg_pos.next(Layout::U64);
                     writeln!(
-                        out,
+                        ctx.out,
                         "\tmov [rsp+{}], {}",
                         write_to,
                         reg.name(arg_layout.size()),
@@ -392,13 +411,13 @@ fn emit_routine(
                     let stack_pos = arg_pos.next(arg_layout.layout);
                     let reg_name = Register::Rcx.name(arg_layout.size());
                     writeln!(
-                        out,
+                        ctx.out,
                         "\tmov {}, [rsp+{}]",
                         reg_name,
                         stack_pos,
                     )?;
                     writeln!(
-                        out,
+                        ctx.out,
                         "\tmov [rsp+{}], {}",
                         write_to,
                         reg_name,
@@ -414,7 +433,7 @@ fn emit_routine(
         match *instr {
             Instr::DebugLocation(loc) => {
                 if is_debugging {
-                    writeln!(out, "%line {:0>3}+000 {}", loc.line, loc.file)?;
+                    writeln!(ctx.out, "%line {:0>3}+000 {}", loc.line, loc.file)?;
                 }
             }
             Instr::Call { to: (to, to_layout), pointer, ref args, loc: _ } => {
@@ -456,8 +475,8 @@ fn emit_routine(
                             let to = scratch_region_layout.next(arg_layout.layout);
                             for split in split_into_powers_of_two(arg_layout.size()) {
                                 let reg_name = Register::Rax.name(split.size);
-                                writeln!(out, "\tmov {}, {} {}", reg_name, name_of_size(split.size), stack.value_with_offset(&from, split.offset))?;
-                                writeln!(out, "\tmov {} [rsp+{}], {}", name_of_size(split.size), to + split.offset, reg_name)?;
+                                writeln!(ctx.out, "\tmov {}, {} {}", reg_name, name_of_size(split.size), ctx.stack.value_with_offset(&from, split.offset))?;
+                                writeln!(ctx.out, "\tmov {} [rsp+{}], {}", name_of_size(split.size), to + split.offset, reg_name)?;
                             }
                         }
                     }
@@ -473,10 +492,10 @@ fn emit_routine(
                 if to_layout.size() > 0 && (to_layout.size() > 8 || !to_layout.size().is_power_of_two()) {
                     // We need to pass a pointer to the return value as the first argument
                     writeln!(
-                        out,
+                        ctx.out,
                         "\nlea {}, {}",
                         Register::Rcx.name(8),
-                        stack.value(&to)
+                        ctx.stack.value(&to)
                     )?;
 
                     arguments_passed += 1;
@@ -493,7 +512,7 @@ fn emit_routine(
                         if let Some(reg) = reg {
                             arg_pos.next(Layout::U64);
                             writeln!(
-                                out,
+                                ctx.out,
                                 "\tlea {}, [rsp+{}]",
                                 reg.name(8),
                                 from_pos,
@@ -502,12 +521,12 @@ fn emit_routine(
                             let arg_stackpos = arg_pos.next(Layout::PTR);
                             // @Correctness: `rbx` is non-volatile, we shouldn't modify it.
                             writeln!(
-                                out,
+                                ctx.out,
                                 "\tlea rax, [rsp+{}]",
                                 from_pos,
                             )?;
                             writeln!(
-                                out,
+                                ctx.out,
                                 "\tmov [rsp+{}], rax",
                                 arg_stackpos,
                             )?;
@@ -518,23 +537,23 @@ fn emit_routine(
                             arg_pos.next(Layout::U64);
 
                             writeln!(
-                                out,
+                                ctx.out,
                                 "\tmov {}, {}",
                                 reg.name(arg_layout.size()),
-                                stack.value(&arg),
+                                ctx.stack.value(&arg),
                             )?;
                         } else {
                             let arg_stackpos = arg_pos.next(arg_layout.layout);
 
                             let reg_name = Register::Rax.name(arg_layout.size());
                             writeln!(
-                                out,
+                                ctx.out,
                                 "\tmov {}, {}",
                                 reg_name,
-                                stack.value(&arg),
+                                ctx.stack.value(&arg),
                             )?;
                             writeln!(
-                                out,
+                                ctx.out,
                                 "\tmov [rsp+{}], {}",
                                 arg_stackpos,
                                 reg_name,
@@ -545,18 +564,18 @@ fn emit_routine(
                     arguments_passed += 1;
                 }
 
-                writeln!(out, "\tcall {}", stack.value(&pointer))?;
+                writeln!(ctx.out, "\tcall {}", ctx.stack.value(&pointer))?;
 
                 if is_debugging {
                     // Too make the call stack point to the actual call, and not the line after.
-                    writeln!(out, "\tnop")?;
+                    writeln!(ctx.out, "\tnop")?;
                 }
 
                 if to_layout.size() > 0 {
                     // If it was passed in a register we have to do this, if it was passed by pointer,
                     // then it was written to directly and we're fine.
                     if to_layout.size() <= 8 && to_layout.size().is_power_of_two() {
-                        writeln!(out, "\tmov {} {}, {}", name_of_size(to_layout.size()), stack.value(&to), Register::Rax.name(to_layout.size()))?;
+                        writeln!(ctx.out, "\tmov {} {}, {}", name_of_size(to_layout.size()), ctx.stack.value(&to), Register::Rax.name(to_layout.size()))?;
                     }
                 }
             }
@@ -566,94 +585,94 @@ fn emit_routine(
                     number[..split.size].copy_from_slice(&from[split.offset..split.offset + split.size]);
                     let number = u32::from_le_bytes(number);
 
-                    writeln!(out, "\tmov {} {}, {}", name_of_size(split.size), stack.value_with_offset(&to, split.offset), number)?;
+                    writeln!(ctx.out, "\tmov {} {}, {}", name_of_size(split.size), ctx.stack.value_with_offset(&to, split.offset), number)?;
                 }
             }
             Instr::Move { to, from, size } => {
                 for split in split_into_powers_of_two(size) {
                     let reg_name = Register::Rax.name(split.size);
-                    writeln!(out, "\tmov {}, {} {}", reg_name, name_of_size(split.size), stack.value_with_offset(&from, split.offset))?;
-                    writeln!(out, "\tmov {} {}, {}", name_of_size(split.size), stack.value_with_offset(&to, split.offset), reg_name)?;
+                    writeln!(ctx.out, "\tmov {}, {} {}", reg_name, name_of_size(split.size), ctx.stack.value_with_offset(&from, split.offset))?;
+                    writeln!(ctx.out, "\tmov {} {}, {}", name_of_size(split.size), ctx.stack.value_with_offset(&to, split.offset), reg_name)?;
                 }
             }
             Instr::StackPtr { to, take_pointer_to } => {
                 let reg_name = Register::Rax.name(8);
-                writeln!(out, "\tlea {}, {}", reg_name, stack.value(&take_pointer_to))?;
-                writeln!(out, "\tmov {}, {}", stack.value(&to), reg_name)?;
+                writeln!(ctx.out, "\tlea {}, {}", reg_name, ctx.stack.value(&take_pointer_to))?;
+                writeln!(ctx.out, "\tmov {}, {}", ctx.stack.value(&to), reg_name)?;
             }
             Instr::IncrPtr { to, amount, scale } => {
                 let reg_src = Register::Rcx.name(8);
                 let reg_amount = Register::Rax.name(8);
-                writeln!(out, "\tmov {}, {}", reg_src, stack.value(&to))?;
-                writeln!(out, "\tmov {}, {}", reg_amount, stack.value(&amount))?;
+                writeln!(ctx.out, "\tmov {}, {}", reg_src, ctx.stack.value(&to))?;
+                writeln!(ctx.out, "\tmov {}, {}", reg_amount, ctx.stack.value(&amount))?;
                 match scale {
-                    1 => writeln!(out, "\tlea {}, [{}+{}]", reg_src, reg_src, reg_amount)?,
-                    2 | 4 | 8 => writeln!(out, "\tlea {}, [{}+{}*{}]", reg_src, reg_src, reg_amount, scale)?,
+                    1 => writeln!(ctx.out, "\tlea {}, [{}+{}]", reg_src, reg_src, reg_amount)?,
+                    2 | 4 | 8 => writeln!(ctx.out, "\tlea {}, [{}+{}*{}]", reg_src, reg_src, reg_amount, scale)?,
                     _ => {
                         let reg_temp_scale = Register::Rdx.name(8);
-                        writeln!(out, "\tmov {}, {}", reg_temp_scale, scale)?;
-                        writeln!(out, "\tmul {}", reg_temp_scale)?;
-                        writeln!(out, "\tlea {}, [{}+{}]", reg_src, reg_src, reg_amount)?;
+                        writeln!(ctx.out, "\tmov {}, {}", reg_temp_scale, scale)?;
+                        writeln!(ctx.out, "\tmul {}", reg_temp_scale)?;
+                        writeln!(ctx.out, "\tlea {}, [{}+{}]", reg_src, reg_src, reg_amount)?;
                     },
                 }
-                writeln!(out, "\tmov {}, {}", stack.value(&to), reg_src)?;
+                writeln!(ctx.out, "\tmov {}, {}", ctx.stack.value(&to), reg_src)?;
             }
             Instr::LabelDefinition(label_id) => {
-                writeln!(out, "{}:", label_name(function_id, label_id))?;
+                writeln!(ctx.out, "{}:", label_name(function_id, label_id))?;
             }
             Instr::Unary { to, from, op, type_ } => {
                 assert!(!type_.is_float(), "Float operations not handled yet in x64 backend");
 
                 let size = type_.size();
-                emit_unary(out, op, &stack, type_, to, RegImmAddr::Stack(from, size), size)?;
+                emit_unary(&mut ctx, op, type_, to, RegImmAddr::Stack(from, size), size)?;
             }
             Instr::Binary { to, a, b, op, type_ } => {
                 assert!(!type_.is_float(), "Float operations not handled yet in x64 backend");
 
                 let size = type_.size();
-                emit_binary(out, op, &stack, type_, to, a, RegImmAddr::Stack(b, size), size)?;
+                emit_binary(&mut ctx, op, type_, to, a, RegImmAddr::Stack(b, size), size)?;
             }
             Instr::BinaryImm { to, a, b, op, type_ } => {
                 assert!(!type_.is_float(), "Float operations not handled yet in x64 backend");
 
                 let size = type_.size();
-                emit_binary(out, op, &stack, type_, to, a, RegImmAddr::Imm(b, size), size)?;
+                emit_binary(&mut ctx, op, type_, to, a, RegImmAddr::Imm(b, size), size)?;
             }
             Instr::JumpIfZero { condition, to } => {
-                writeln!(out, "\tmov al, BYTE {}", stack.value(&condition))?;
-                writeln!(out, "\tcmp al, 0")?;
-                writeln!(out, "\tje  {}", label_name(function_id, to))?;
+                writeln!(ctx.out, "\tmov al, BYTE {}", ctx.stack.value(&condition))?;
+                writeln!(ctx.out, "\tcmp al, 0")?;
+                writeln!(ctx.out, "\tje  {}", label_name(function_id, to))?;
             }
             Instr::Jump { to } => {
-                writeln!(out, "\tjmp  {}", label_name(function_id, to))?;
+                writeln!(ctx.out, "\tjmp  {}", label_name(function_id, to))?;
             }
             Instr::RefGlobal { to_ptr, global } => {
-                writeln!(out, "\tmov rax, {}", global_symbol(global.as_ptr() as usize))?;
-                writeln!(out, "\tmov {}, rax", stack.value(&to_ptr))?;
+                writeln!(ctx.out, "\tmov rax, {}", global_symbol(global.as_ptr() as usize))?;
+                writeln!(ctx.out, "\tmov {}, rax", ctx.stack.value(&to_ptr))?;
             }
             Instr::IndirectMove { to_ptr, from, size } => {
-                writeln!(out, "\tmov rax, {}", stack.value(&to_ptr))?;
+                writeln!(ctx.out, "\tmov rax, {}", ctx.stack.value(&to_ptr))?;
 
                 for split in split_into_powers_of_two(size) {
                     let reg_name = Register::Rcx.name(split.size);
-                    writeln!(out, "\tmov {}, {} {}", reg_name, name_of_size(split.size), stack.value_with_offset(&from, split.offset))?;
-                    writeln!(out, "\tmov {} [rax+{}], {}", name_of_size(split.size), split.offset, reg_name)?;
+                    writeln!(ctx.out, "\tmov {}, {} {}", reg_name, name_of_size(split.size), ctx.stack.value_with_offset(&from, split.offset))?;
+                    writeln!(ctx.out, "\tmov {} [rax+{}], {}", name_of_size(split.size), split.offset, reg_name)?;
                 }
             }
             Instr::Dereference { to, from_ptr, size } => {
-                writeln!(out, "\tmov rax, {}", stack.value(&from_ptr))?;
+                writeln!(ctx.out, "\tmov rax, {}", ctx.stack.value(&from_ptr))?;
 
                 for split in split_into_powers_of_two(size) {
                     let reg_name = Register::Rcx.name(split.size);
-                    writeln!(out, "\tmov {}, {} [rax+{}]", reg_name, name_of_size(split.size), split.offset)?;
-                    writeln!(out, "\tmov {} {}, {}", name_of_size(split.size), stack.value_with_offset(&to, split.offset), reg_name)?;
+                    writeln!(ctx.out, "\tmov {}, {} [rax+{}]", reg_name, name_of_size(split.size), split.offset)?;
+                    writeln!(ctx.out, "\tmov {} {}, {}", name_of_size(split.size), ctx.stack.value_with_offset(&to, split.offset), reg_name)?;
                 }
             }
             Instr::SetToZero { to_ptr, size } => {
-                writeln!(out, "\tlea rax, {}", stack.value(&to_ptr))?;
+                writeln!(ctx.out, "\tlea rax, {}", ctx.stack.value(&to_ptr))?;
 
                 for split in split_into_powers_of_two(size) {
-                    writeln!(out, "\tmov {} [rax+{}], 0", name_of_size(split.size), split.offset)?;
+                    writeln!(ctx.out, "\tmov {} [rax+{}], 0", name_of_size(split.size), split.offset)?;
                 }
             }
             Instr::ConvertNum { to, from, to_number, from_number } => {
@@ -666,32 +685,32 @@ fn emit_routine(
 
                         let to_reg   = Register::Rax.name(to_number.size());
                         let from_reg = Register::Rcx.name(from_number.size());
-                        writeln!(out, "\tmov {}, {}", from_reg, stack.value(&from))?;
+                        writeln!(ctx.out, "\tmov {}, {}", from_reg, ctx.stack.value(&from))?;
                         if needs_sign_extend {
-                            writeln!(out, "\tmovsx {}, {}", to_reg, from_reg)?;
+                            writeln!(ctx.out, "\tmovsx {}, {}", to_reg, from_reg)?;
                         } else {
                             let to_reg_temp = Register::Rax.name(to_number.size());
 
                             if from_number.size() == 4 {
                                 // Moving a 32bit register to a 64bit register is already a zero extend.
                                 // @HACK
-                                writeln!(out, "\tmov {}, {}", Register::Rax.name(4), from_reg)?;
+                                writeln!(ctx.out, "\tmov {}, {}", Register::Rax.name(4), from_reg)?;
                             } else {
-                                writeln!(out, "\tmovzx {}, {}", to_reg_temp, from_reg)?;
+                                writeln!(ctx.out, "\tmovzx {}, {}", to_reg_temp, from_reg)?;
                             }
                         }
 
-                        writeln!(out, "\tmov {}, {}", stack.value(&to), to_reg)?;
+                        writeln!(ctx.out, "\tmov {}, {}", ctx.stack.value(&to), to_reg)?;
                     }
                     Ordering::Equal => {
                         let reg_name = Register::Rax.name(to_number.size());
-                        writeln!(out, "\tmov {}, {}", reg_name, stack.value(&from))?;
-                        writeln!(out, "\tmov {}, {}", stack.value(&to), reg_name)?;
+                        writeln!(ctx.out, "\tmov {}, {}", reg_name, ctx.stack.value(&from))?;
+                        writeln!(ctx.out, "\tmov {}, {}", ctx.stack.value(&to), reg_name)?;
                     }
                     Ordering::Less => {
                         let reg_name = Register::Rax.name(to_number.size());
-                        writeln!(out, "\tmov {}, {}", reg_name, stack.value(&from))?;
-                        writeln!(out, "\tmov {}, {}", stack.value(&to), reg_name)?;
+                        writeln!(ctx.out, "\tmov {}, {}", reg_name, ctx.stack.value(&from))?;
+                        writeln!(ctx.out, "\tmov {}, {}", ctx.stack.value(&to), reg_name)?;
                     }
                 }
             }
@@ -700,29 +719,29 @@ fn emit_routine(
 
     if routine.result_layout.size() > 0 {
         if routine.result_layout.size() > 8 || !routine.result_layout.size().is_power_of_two() {
-            let to_ptr = stack.offset + 8;
+            let to_ptr = ctx.stack.offset + 8;
             let from = routine.result;
-            writeln!(out, "\tmov rax, [rsp+{}]", to_ptr)?;
+            writeln!(ctx.out, "\tmov rax, [rsp+{}]", to_ptr)?;
 
             for split in split_into_powers_of_two(routine.result_layout.size()) {
                 let reg_name = Register::Rcx.name(split.size);
-                writeln!(out, "\tmov {}, {} {}", reg_name, name_of_size(split.size), stack.value_with_offset(&from, split.offset))?;
-                writeln!(out, "\tmov {} [rax+{}], {}", name_of_size(split.size), split.offset, reg_name)?;
+                writeln!(ctx.out, "\tmov {}, {} {}", reg_name, name_of_size(split.size), ctx.stack.value_with_offset(&from, split.offset))?;
+                writeln!(ctx.out, "\tmov {} [rax+{}], {}", name_of_size(split.size), split.offset, reg_name)?;
             }
         } else {
-            writeln!(out, "\tmov {}, {}", Register::Rax.name(routine.result_layout.size()), stack.value(&routine.result))?;
+            writeln!(ctx.out, "\tmov {}, {}", Register::Rax.name(routine.result_layout.size()), ctx.stack.value(&routine.result))?;
         }
     }
 
-    writeln!(out, "\tadd rsp, {}", stack.offset)?;
-    writeln!(out, "\tret")?;
-    writeln!(out, "{}_end:", function_symbol(function_id))?;
+    writeln!(ctx.out, "\tadd rsp, {}", ctx.stack.offset)?;
+    writeln!(ctx.out, "\tret")?;
+    writeln!(ctx.out, "{}_end:", function_symbol(function_id))?;
 
     writeln!(p_data, "\tdd {} wrt ..imagebase", function_symbol(function_id))?;
     writeln!(p_data, "\tdd {}_end wrt ..imagebase", function_symbol(function_id))?;
     writeln!(p_data, "\tdd x_{} wrt ..imagebase", function_symbol(function_id))?;
 
-    let stack_size = stack.offset;
+    let stack_size = ctx.stack.offset;
     debug_assert!(stack_size % 8 == 0);
 
     let num_entries: u8 = if stack_size > 0 {
@@ -824,168 +843,168 @@ impl RegImmAddr {
     }
 }
 
-fn emit_unary(out: &mut String, op: UnaryOp, stack: &Stack, type_: PrimitiveType, to: Value, a: RegImmAddr, size: usize) -> fmt::Result {
+fn emit_unary(ctx: &mut Context<'_>, op: UnaryOp, type_: PrimitiveType, to: Value, a: RegImmAddr, size: usize) -> fmt::Result {
     let reg_out = Register::Rax.name(size);
 
-    let a = a.reduce_immediate_size(out, Register::R8, 4)?;
-    writeln!(out, "\tmov {}, {}", reg_out, a.print(stack))?;
+    let a = a.reduce_immediate_size(ctx.out, Register::R8, 4)?;
+    writeln!(ctx.out, "\tmov {}, {}", reg_out, a.print(&ctx.stack))?;
     
     match op {
         UnaryOp::Not => {
             if matches!(type_, PrimitiveType::Bool) {
-                let a = a.remove_imm(out, Register::R8)?;
-                writeln!(out, "\tcmp {}, 0", a.print(stack))?;
-                writeln!(out, "\tsete {}", reg_out)?;
+                let a = a.remove_imm(ctx.out, Register::R8)?;
+                writeln!(ctx.out, "\tcmp {}, 0", a.print(&ctx.stack))?;
+                writeln!(ctx.out, "\tsete {}", reg_out)?;
             } else {
-                writeln!(out, "\tnot {}", reg_out)?;
+                writeln!(ctx.out, "\tnot {}", reg_out)?;
             }
         }
         UnaryOp::Negate => {
-            writeln!(out, "\tneg {}", reg_out)?;
+            writeln!(ctx.out, "\tneg {}", reg_out)?;
         }
         _ => {
-            writeln!(out, "\t; Unhandled unary operator {:?}", op)?;
+            writeln!(ctx.out, "\t; Unhandled unary operator {:?}", op)?;
             println!("\t; Unhandled unary operator {:?}", op);
         }
     }
 
-    writeln!(out, "\tmov {}, {}", stack.value(&to), reg_out)?;
+    writeln!(ctx.out, "\tmov {}, {}", ctx.stack.value(&to), reg_out)?;
 
     Ok(())
 }
 
-fn emit_binary(out: &mut String, op: BinaryOp, stack: &Stack, type_: PrimitiveType, to: Value, a: Value, right: RegImmAddr, size: usize) -> fmt::Result {
+fn emit_binary(ctx: &mut Context<'_>, op: BinaryOp, type_: PrimitiveType, to: Value, a: Value, right: RegImmAddr, size: usize) -> fmt::Result {
     let reg_a = Register::Rax.name(size);
-    writeln!(out, "\tmov {}, {}", reg_a, stack.value(&a))?;
+    writeln!(ctx.out, "\tmov {}, {}", reg_a, ctx.stack.value(&a))?;
 
-    let right = right.reduce_immediate_size(out, Register::R8, 4)?;
+    let right = right.reduce_immediate_size(ctx.out, Register::R8, 4)?;
 
     match op {
         BinaryOp::Add => {
-            writeln!(out, "\tadd {}, {}", reg_a, right.print(stack))?;
-            writeln!(out, "\tmov {}, {}", stack.value(&to), reg_a)?;
+            writeln!(ctx.out, "\tadd {}, {}", reg_a, right.print(&ctx.stack))?;
+            writeln!(ctx.out, "\tmov {}, {}", ctx.stack.value(&to), reg_a)?;
         }
         BinaryOp::Sub => {
-            writeln!(out, "\tsub {}, {}", reg_a, right.print(stack))?;
-            writeln!(out, "\tmov {}, {}", stack.value(&to), reg_a)?;
+            writeln!(ctx.out, "\tsub {}, {}", reg_a, right.print(&ctx.stack))?;
+            writeln!(ctx.out, "\tmov {}, {}", ctx.stack.value(&to), reg_a)?;
         }
         BinaryOp::Mult => {
             if type_.signed() {
-                writeln!(out, "\timul {}", right.print(stack))?;
+                writeln!(ctx.out, "\timul {}", right.print(&ctx.stack))?;
             } else {
-                let right = right.remove_imm(out, Register::R8)?;
-                writeln!(out, "\tmul {}", right.print(stack))?;
+                let right = right.remove_imm(ctx.out, Register::R8)?;
+                writeln!(ctx.out, "\tmul {}", right.print(&ctx.stack))?;
             }
-            writeln!(out, "\tmov {}, {}", stack.value(&to), reg_a)?;
+            writeln!(ctx.out, "\tmov {}, {}", ctx.stack.value(&to), reg_a)?;
         }
         BinaryOp::Div => {
             // @Note: Remainder is stored in RDX
-            let right = right.remove_imm(out, Register::R8)?;
+            let right = right.remove_imm(ctx.out, Register::R8)?;
             if type_.signed() {
                 match size {
-                    1 => writeln!(out, "\tmovsx ax, al")?,
-                    2 => writeln!(out, "\tcwd")?,
-                    4 => writeln!(out, "\tcdq")?,
-                    8 => writeln!(out, "\tcqo")?,
+                    1 => writeln!(ctx.out, "\tmovsx ax, al")?,
+                    2 => writeln!(ctx.out, "\tcwd")?,
+                    4 => writeln!(ctx.out, "\tcdq")?,
+                    8 => writeln!(ctx.out, "\tcqo")?,
                     _ => unreachable!(),
                 }
-                writeln!(out, "\tidiv {}", right.print(stack))?;
+                writeln!(ctx.out, "\tidiv {}", right.print(&ctx.stack))?;
             } else {
                 if size == 1 {
-                    writeln!(out, "\txor ah, ah")?;
+                    writeln!(ctx.out, "\txor ah, ah")?;
                 } else {
-                    writeln!(out, "\txor {reg_name:}, {reg_name:}", reg_name = Register::Rdx.name(size))?;
+                    writeln!(ctx.out, "\txor {reg_name:}, {reg_name:}", reg_name = Register::Rdx.name(size))?;
                 }
-                writeln!(out, "\tdiv {}", right.print(stack))?;
+                writeln!(ctx.out, "\tdiv {}", right.print(&ctx.stack))?;
             }
 
-            writeln!(out, "\tmov {}, {}", stack.value(&to), reg_a)?;
+            writeln!(ctx.out, "\tmov {}, {}", ctx.stack.value(&to), reg_a)?;
         }
         BinaryOp::Modulo => {
             // @Note: Normal value is stored in EAX, remainder is stored in RDX
-            let right = right.remove_imm(out, Register::R8)?;
+            let right = right.remove_imm(ctx.out, Register::R8)?;
             if type_.signed() {
                 match size {
-                    1 => writeln!(out, "\tmovsx ax, al")?,
-                    2 => writeln!(out, "\tcwd")?,
-                    4 => writeln!(out, "\tcdq")?,
-                    8 => writeln!(out, "\tcqo")?,
+                    1 => writeln!(ctx.out, "\tmovsx ax, al")?,
+                    2 => writeln!(ctx.out, "\tcwd")?,
+                    4 => writeln!(ctx.out, "\tcdq")?,
+                    8 => writeln!(ctx.out, "\tcqo")?,
                     _ => unreachable!(),
                 }
-                writeln!(out, "\tidiv {}", right.print(stack))?;
+                writeln!(ctx.out, "\tidiv {}", right.print(&ctx.stack))?;
             } else {
-                writeln!(out, "\txor {reg_name:}, {reg_name:}", reg_name = Register::Rdx.name(size))?;
-                writeln!(out, "\tdiv {}", right.print(stack))?;
+                writeln!(ctx.out, "\txor {reg_name:}, {reg_name:}", reg_name = Register::Rdx.name(size))?;
+                writeln!(ctx.out, "\tdiv {}", right.print(&ctx.stack))?;
             }
 
             if size == 1 {
-                writeln!(out, "\tmov {}, ah", stack.value(&to))?;
+                writeln!(ctx.out, "\tmov {}, ah", ctx.stack.value(&to))?;
             } else {
-                writeln!(out, "\tmov {}, {}", stack.value(&to), Register::Rdx.name(size))?;
+                writeln!(ctx.out, "\tmov {}, {}", ctx.stack.value(&to), Register::Rdx.name(size))?;
             }
         }
         BinaryOp::ShiftLeft => {
-            let right = right.reduce_size(out, Register::R8, 1)?;
-            writeln!(out, "\tmov cl, {}", right.print(stack))?;
-            writeln!(out, "\tshl {}, cl", reg_a)?;
-            writeln!(out, "\tmov {}, {}", stack.value(&to), reg_a)?;
+            let right = right.reduce_size(ctx.out, Register::R8, 1)?;
+            writeln!(ctx.out, "\tmov cl, {}", right.print(&ctx.stack))?;
+            writeln!(ctx.out, "\tshl {}, cl", reg_a)?;
+            writeln!(ctx.out, "\tmov {}, {}", ctx.stack.value(&to), reg_a)?;
         }
         BinaryOp::ShiftRight => {
-            let right = right.reduce_size(out, Register::R8, 1)?;
-            writeln!(out, "\tmov cl, {}", right.print(stack))?;
-            writeln!(out, "\tsar {}, cl", reg_a)?;
-            writeln!(out, "\tmov {}, {}", stack.value(&to), reg_a)?;
+            let right = right.reduce_size(ctx.out, Register::R8, 1)?;
+            writeln!(ctx.out, "\tmov cl, {}", right.print(&ctx.stack))?;
+            writeln!(ctx.out, "\tsar {}, cl", reg_a)?;
+            writeln!(ctx.out, "\tmov {}, {}", ctx.stack.value(&to), reg_a)?;
         }
         BinaryOp::Equals => {
-            writeln!(out, "\tcmp {}, {}", reg_a, right.print(stack))?;
-            writeln!(out, "\tsete BYTE {}", stack.value(&to))?;
+            writeln!(ctx.out, "\tcmp {}, {}", reg_a, right.print(&ctx.stack))?;
+            writeln!(ctx.out, "\tsete BYTE {}", ctx.stack.value(&to))?;
         }
         BinaryOp::NotEquals => {
-            writeln!(out, "\tcmp {}, {}", reg_a, right.print(stack))?;
-            writeln!(out, "\tsetne BYTE {}", stack.value(&to))?;
+            writeln!(ctx.out, "\tcmp {}, {}", reg_a, right.print(&ctx.stack))?;
+            writeln!(ctx.out, "\tsetne BYTE {}", ctx.stack.value(&to))?;
         }
         BinaryOp::LargerThan => {
-            writeln!(out, "\tcmp {}, {}", reg_a, right.print(stack))?;
+            writeln!(ctx.out, "\tcmp {}, {}", reg_a, right.print(&ctx.stack))?;
             if type_.signed() {
-                writeln!(out, "\tsetg BYTE {}", stack.value(&to))?;
+                writeln!(ctx.out, "\tsetg BYTE {}", ctx.stack.value(&to))?;
             } else {
-                writeln!(out, "\tseta BYTE {}", stack.value(&to))?;
+                writeln!(ctx.out, "\tseta BYTE {}", ctx.stack.value(&to))?;
             }
         }
         BinaryOp::LargerThanEquals => {
-            writeln!(out, "\tcmp {}, {}", reg_a, right.print(stack))?;
+            writeln!(ctx.out, "\tcmp {}, {}", reg_a, right.print(&ctx.stack))?;
             if type_.signed() {
-                writeln!(out, "\tsetge BYTE {}", stack.value(&to))?;
+                writeln!(ctx.out, "\tsetge BYTE {}", ctx.stack.value(&to))?;
             } else {
-                writeln!(out, "\tsetae BYTE {}", stack.value(&to))?;
+                writeln!(ctx.out, "\tsetae BYTE {}", ctx.stack.value(&to))?;
             }
         }
         BinaryOp::LessThan => {
-            writeln!(out, "\tcmp {}, {}", reg_a, right.print(stack))?;
+            writeln!(ctx.out, "\tcmp {}, {}", reg_a, right.print(&ctx.stack))?;
             if type_.signed() {
-                writeln!(out, "\tsetl BYTE {}", stack.value(&to))?;
+                writeln!(ctx.out, "\tsetl BYTE {}", ctx.stack.value(&to))?;
             } else {
-                writeln!(out, "\tsetb BYTE {}", stack.value(&to))?;
+                writeln!(ctx.out, "\tsetb BYTE {}", ctx.stack.value(&to))?;
             }
         }
         BinaryOp::LessThanEquals => {
-            writeln!(out, "\tcmp {}, {}", reg_a, right.print(stack))?;
+            writeln!(ctx.out, "\tcmp {}, {}", reg_a, right.print(&ctx.stack))?;
             if type_.signed() {
-                writeln!(out, "\tsetle BYTE {}", stack.value(&to))?;
+                writeln!(ctx.out, "\tsetle BYTE {}", ctx.stack.value(&to))?;
             } else {
-                writeln!(out, "\tsetbe BYTE {}", stack.value(&to))?;
+                writeln!(ctx.out, "\tsetbe BYTE {}", ctx.stack.value(&to))?;
             }
         }
         BinaryOp::And | BinaryOp::BitAnd => {
-            writeln!(out, "\tand {}, {}", reg_a, right.print(stack))?;
-            writeln!(out, "\tmov {}, {}", stack.value(&to), reg_a)?;
+            writeln!(ctx.out, "\tand {}, {}", reg_a, right.print(&ctx.stack))?;
+            writeln!(ctx.out, "\tmov {}, {}", ctx.stack.value(&to), reg_a)?;
         }
         BinaryOp::Or | BinaryOp::BitOr => {
-            writeln!(out, "\tor {}, {}", reg_a, right.print(stack))?;
-            writeln!(out, "\tmov {}, {}", stack.value(&to), reg_a)?;
+            writeln!(ctx.out, "\tor {}, {}", reg_a, right.print(&ctx.stack))?;
+            writeln!(ctx.out, "\tmov {}, {}", ctx.stack.value(&to), reg_a)?;
         }
         _ => {
-            writeln!(out, "\t; Unhandled binary operator {:?}", op)?;
+            writeln!(ctx.out, "\t; Unhandled binary operator {:?}", op)?;
             println!("\t; Unhandled binary operator {:?}", op);
         }
     }
