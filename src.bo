@@ -1,11 +1,8 @@
 library "windows.bo";
+library "vec.bo";
 import "tests/main.bo";
 
 #entry fn() {
-    let a = 5 : u32;
-
-    a : u64;
-
     run_tests();
 
     ExitProcess(0);
@@ -13,7 +10,7 @@ import "tests/main.bo";
 
 // Roadmap for full(and decent) x64 support:
 //
-// - Modulo doesn't work the way I thought it did, we need more logic for it, AH is used for remainder in 8bit contexts: https://www.felixcloutier.com/x86/div
+// * - Modulo doesn't work the way I thought it did, we need more logic for it, AH is used for remainder in 8bit contexts: https://www.felixcloutier.com/x86/div
 // * - Handle large arguments
 // - Handle floats
 // * - Actually handle getting passed arguments, 

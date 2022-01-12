@@ -288,7 +288,7 @@ impl Error {
 
 #[derive(Debug, Clone)]
 pub enum ErrorKind {
-    IncompatibleTypes(ConstraintId),
+    IncompatibleTypes,
     IndexOutOfBounds(usize),
     NonexistantName(Ustr),
 }
@@ -911,6 +911,7 @@ impl TypeSystem {
         other: &TypeSystem,
         other_id: ValueId,
         already_converted: &mut Vec<(u32, ValueId)>,
+        source_location: Location,
     ) -> ValueId {
         // Check if we've already converted the value
         let value_structure_id = other.values.structure_id_of_value(other_id);
@@ -933,8 +934,8 @@ impl TypeSystem {
             Some(Type { kind, args: Some(ref args) }) => {
                 let new_args = args.iter()
                     .map(|&v| (
-                        self.map_value_from_other_typesystem_to_this(other, v, already_converted),
-                        Reason::temp_zero(),
+                        self.map_value_from_other_typesystem_to_this(other, v, already_converted, source_location),
+                        Reason::temp(source_location),
                     ))
                     .collect::<Vec<_>>();
                 self.set_type(value_id, kind.clone(), Args(new_args), ());
@@ -953,10 +954,11 @@ impl TypeSystem {
         other: &TypeSystem,
         // The first one is the id of the this typesystem, the second one is the id in the other
         to_convert: impl IntoIterator<Item = (ValueId, ValueId, Reason)>,
+        source_location: Location,
     ) {
         let mut already_converted = Vec::new();
         for (this_id, other_id, reason) in to_convert {
-            let new_id = self.map_value_from_other_typesystem_to_this(other, other_id, &mut already_converted);
+            let new_id = self.map_value_from_other_typesystem_to_this(other, other_id, &mut already_converted, source_location);
             self.set_equal(new_id, this_id, reason);
         }
     }
@@ -1003,7 +1005,7 @@ impl TypeSystem {
                     }
                     errors.global_error(format!("Field '{}' doesn't exist on type {}", name, self.value_to_str(a, 0)));
                 }
-                Error { a, b, kind: ErrorKind::IncompatibleTypes(_) } => {
+                Error { a, b, kind: ErrorKind::IncompatibleTypes } => {
                     let a_id = a;
                     let b_id = b;
 
@@ -1340,8 +1342,8 @@ impl TypeSystem {
             Some(Type { kind: TypeKind::Type, .. }) => "type".to_string(),
             Some(Type { kind: TypeKind::Bool, .. }) => "bool".to_string(),
             Some(Type { kind: TypeKind::Empty, .. }) => "Empty".to_string(),
-            Some(Type { kind: TypeKind::IntSize(s), .. }) => format!("<size of int, {}>", s),
-            Some(Type { kind: TypeKind::IntSigned(s), .. }) => format!("<sign of int, {}>", s),
+            Some(Type { kind: TypeKind::IntSize(s), .. }) => format!("size {}", s),
+            Some(Type { kind: TypeKind::IntSigned(s), .. }) => format!("int sign {}", s),
             Some(Type { kind: TypeKind::ConstantValue(_), .. }) => "<constant value>".to_string(),
             None => "_".to_string(),
             Some(Type { kind: TypeKind::Constant, args: Some(c) }) => match &**c {
@@ -1361,9 +1363,7 @@ impl TypeSystem {
             Some(Type { kind, args: None, .. }) => format!("{:?}", kind),
             Some(Type { kind: TypeKind::Float, args: Some(c) }) => match &**c {
                 [size] => {
-                    if let Some(size) = self.extract_constant_temp(*size) {
-                        let size = unsafe { *size.as_ptr().cast::<u8>() };
-
+                    if let Some(&Type { kind: TypeKind::IntSize(size), .. }) = self.get(*size).kind {
                         match size {
                             4 => "f32",
                             8 => "f64",
@@ -1380,10 +1380,7 @@ impl TypeSystem {
             }
             Some(Type { kind: TypeKind::Int, args: Some(c) }) => match &**c {
                 [signed, size] => {
-                    if let (Some(sign), Some(size)) = (self.extract_constant_temp(*signed), self.extract_constant_temp(*size)) {
-                        let sign = unsafe { *sign.as_ptr().cast::<u8>() } > 0;
-                        let size = unsafe { *size.as_ptr().cast::<u8>() };
-
+                    if let (Some(&Type { kind: TypeKind::IntSigned(sign), .. }), Some(&Type { kind: TypeKind::IntSize(size), .. })) = (self.get(*signed).kind, self.get(*size).kind) {
                         match (sign, size) {
                             (true, 0) => "isize",
                             (true, 1) => "i8",
@@ -1965,7 +1962,7 @@ impl TypeSystem {
                     (Some(_), None) => (a_id, b_id),
                     (Some(a_type), Some(b_type)) => {
                         if a_type.kind != b_type.kind {
-                            self.errors.push(Error { a: a_id, b: b_id, kind: ErrorKind::IncompatibleTypes(constraint_id) });
+                            self.errors.push(Error { a: a_id, b: b_id, kind: ErrorKind::IncompatibleTypes });
                             self.constraints[constraint_id].applied = true;
                             return;
                         } else {
@@ -1975,7 +1972,7 @@ impl TypeSystem {
                                 (Some(_), None) => (a_id, b_id),
                                 (Some(a_args), Some(b_args)) => {
                                     if a_args.len() != b_args.len() {
-                                        self.errors.push(Error { a: a_id, b: b_id, kind: ErrorKind::IncompatibleTypes(constraint_id) });
+                                        self.errors.push(Error { a: a_id, b: b_id, kind: ErrorKind::IncompatibleTypes });
                                         self.constraints[constraint_id].applied = true;
                                         return;
                                     } else {

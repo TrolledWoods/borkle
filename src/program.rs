@@ -128,6 +128,10 @@ impl Program {
         }
     }
 
+    pub fn get_polymember_loc(&self, id: PolyMemberId) -> Location {
+        self.poly_members.read()[id].loc
+    }
+
     pub fn get_function_loc(&self, id: FunctionId) -> Location {
         self.functions.read()[id].loc
     }

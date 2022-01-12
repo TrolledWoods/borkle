@@ -1790,9 +1790,12 @@ fn build_global<'a>(
 
             param_reasons.push((node_type_id, other_yield_data.root_value_id, Reason::new(node.loc, ReasonKind::PolyMember(id))));
 
+            let poly_loc = ctx.program.get_polymember_loc(id);
+
             ctx.infer.add_subtree_from_other_typesystem(
                 &other_yield_data.infer, 
                 param_reasons.into_iter(),
+                poly_loc,
             );
 
             ctx.infer.value_sets.lock(set);
