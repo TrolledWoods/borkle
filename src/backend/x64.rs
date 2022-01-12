@@ -592,7 +592,7 @@ fn emit_routine(
                     _ => {
                         let reg_temp_scale = Register::Rdx.name(8);
                         writeln!(out, "\tmov {}, {}", reg_temp_scale, scale)?;
-                        writeln!(out, "\tmul DWORD {}", reg_temp_scale)?;
+                        writeln!(out, "\tmul {}", reg_temp_scale)?;
                         writeln!(out, "\tlea {}, [{}+{}]", reg_src, reg_src, reg_amount)?;
                     },
                 }

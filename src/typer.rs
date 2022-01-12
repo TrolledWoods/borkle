@@ -1411,7 +1411,10 @@ fn build_type(
             ctx.inside_type_comparison = old_inside_type_comparison;
             ctx.infer.set_equal(node_type_id, type_, Reason::new(node_loc, ReasonKind::TypeOf));
         }
-        _ => unreachable!("Node {:?} is not a valid type (at least not yet)", node.kind),
+        _ => {
+            ctx.errors.error(node_loc, "Expected a type".to_string());
+            ctx.infer.value_sets.get_mut(set).has_errors = true;
+        }
     }
 
     node_type_id

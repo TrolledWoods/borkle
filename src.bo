@@ -3,17 +3,6 @@ library "vec.bo";
 import "tests/main.bo";
 
 #entry fn() {
-    let vec = vec_new();
-    defer vec_free(vec);
-    vec_push(&vec, "first");
-    vec_push(&vec, "second");
-
-    vec_push_arr(&vec, ["a", "b", "c"]);
-
-    for vec_as_buf(&vec) {
-        print("vec[%] = %\n", i, v);
-    };
-
     run_tests();
 
     ExitProcess(0);
@@ -21,6 +10,7 @@ import "tests/main.bo";
 
 // Roadmap for full(and decent) x64 support:
 //
+// - Proper register allocator
 // * - Modulo doesn't work the way I thought it did, we need more logic for it, AH is used for remainder in 8bit contexts: https://www.felixcloutier.com/x86/div
 // * - Handle large arguments
 // - Handle floats
@@ -28,7 +18,6 @@ import "tests/main.bo";
 // * - fill the return slot.
 // - Support multiple calling conventions; for one, we can do one that's better than the windows one, and, linux/mac probably don't use the same one anyway, so we need this logic
 // - Generalize moving memory from one place to another(basically memcpy intrinsic)
-// - Proper register allocator
 // - `cfg` tag to do some form of conditional compilation; will not be like C preprocessor directives though, since we both run at compile-time and at runtime, so that isn't good enough
 
 // TODO:
