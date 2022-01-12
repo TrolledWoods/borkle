@@ -25,12 +25,18 @@ const generic_func = generic.(u32);
 
 #entry fn() {
     run_aoc_tests();
+    
+    let val = #0 : { x: u32; y: u64; z: i16; };
+    val.x = 99;
+    val.y = 32;
+    val.z = 47;
 
-    ExitProcess(0);
+    print("Val x is: %, y is %, z is %\n", val.x, val.y, val.z);
 };
 
 // Roadmap for full(and decent) x64 support:
 //
+// - Module doesn't work the way I thought it did, we need more logic for it, AH is used for remainder in 8bit contexts: https://www.felixcloutier.com/x86/div
 // * - Handle large arguments
 // - Handle floats
 // * - Actually handle getting passed arguments, 

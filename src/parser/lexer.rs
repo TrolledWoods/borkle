@@ -390,6 +390,7 @@ fn string_literal(
             Some((_, _, '"')) => break,
 
             Some((_, _, '\\')) => match chars.next() {
+                Some((_, _, 's')) => while !matches!(chars.next(), Some((_, _, '\\')) | None) {},
                 Some((_, _, '"')) => string.push('"'),
                 Some((_, _, '\\')) => string.push('\\'),
                 Some((_, _, 'n')) => string.push('\n'),

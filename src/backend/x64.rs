@@ -456,8 +456,8 @@ fn emit_routine(
                             let to = scratch_region_layout.next(arg_layout.layout);
                             for split in split_into_powers_of_two(arg_layout.size()) {
                                 let reg_name = Register::Rax.name(split.size);
-                                writeln!(out, "\tmov {}, {} {}", reg_name, name_of_size(split.size), stack.value(&from))?;
-                                writeln!(out, "\tmov {} [rsp+{}], {}", name_of_size(split.size), to, reg_name)?;
+                                writeln!(out, "\tmov {}, {} {}", reg_name, name_of_size(split.size), stack.value_with_offset(&from, split.offset))?;
+                                writeln!(out, "\tmov {} [rsp+{}], {}", name_of_size(split.size), to + split.offset, reg_name)?;
                             }
                         }
                     }
@@ -503,12 +503,12 @@ fn emit_routine(
                             // @Correctness: `rbx` is non-volatile, we shouldn't modify it.
                             writeln!(
                                 out,
-                                "\tlea rbx, [rsp+{}]",
+                                "\tlea rax, [rsp+{}]",
                                 from_pos,
                             )?;
                             writeln!(
                                 out,
-                                "\tmov [rsp+{}], rbx",
+                                "\tmov [rsp+{}], rax",
                                 arg_stackpos,
                             )?;
                         }
@@ -526,7 +526,7 @@ fn emit_routine(
                         } else {
                             let arg_stackpos = arg_pos.next(arg_layout.layout);
 
-                            let reg_name = Register::Rcx.name(arg_layout.size());
+                            let reg_name = Register::Rax.name(arg_layout.size());
                             writeln!(
                                 out,
                                 "\tmov {}, {}",

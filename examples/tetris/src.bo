@@ -1,0 +1,279 @@
+library "windows.bo";
+
+const WIDTH  = 16 + 6 : usize;
+const HEIGHT = 16 + 3 : usize;
+
+const DefaultLine = 0x7 : u64 | (0x7 << (cast WIDTH - 3));
+const FullLine = {
+    let value = 0 : u64;
+    while i < WIDTH {
+        value = value | 1 << cast i;
+    };
+    value
+};
+
+const Background = "\s
+\  |#######$$#######|  \s
+\  |#######$$#######|  \s
+\+ |#######$$#######| +\s
+\| |#######$$#######| |\s
+\| |#######$$#######| |\s
+\+-|=======$$=======|-+\s
+\| |#######$$#######| |\s
+\| |#######$$#######| |\s
+\+ |#######$$#######| +\s
+\  |#######$$#######|  \s
+\  |#######$$#######|  \s
+\+-|=======$$=======|-+\s
+\| |#######$$#######| |\s
+\| |#######$$#######| |\s
+\+ |#######$$#######| +\s
+\| |#######$$#######| |\s
+\| +-------##-------+ |\s
+\+  |   |  ||  |   |  +\s
+\ v v v v v||v v v v v ";
+
+const TETROMINOES = [
+    2b_0010_0010_0010_0010,
+    2b_0000_0010_1110_0000,
+    2b_0000_1000_1110_0000,
+    2b_0000_0110_0110_0000,
+    2b_0000_0110_0110_0000,
+    2b_0000_1110_0100_0000,
+    2b_0000_0011_0110_0000,
+    2b_0000_0110_0011_0000,
+] : [8] u16;
+
+const rotate_tetrominoe_right = fn(tetrominoe: u16) -> u16 {
+    let out = 0;
+    while i < 4 {
+        let i1 = i;
+        while i < 4 {
+            let cell = get_tetrominoe_cell(tetrominoe, cast i, cast i1);
+            set_tetrominoe_cell(&out, cast i1, 3 - cast i, cell);
+        };
+    };
+    out
+};
+
+const get_tetrominoe_cell = fn(tetrominoe: u16, x: isize, y: isize) -> bool { 'func
+    if x < 0 || x > 4 || y < 0 || y > 4 {
+        break 'func false;
+    };
+
+    (tetrominoe >> cast (y * 4 + x) & 1) > 0
+};
+
+const set_tetrominoe_cell = fn(tetrominoe: &u16, x: isize, y: isize, to: bool) { 'func
+    assert(!(x < 0 || x > 4 || y < 0 || y > 4));
+
+    let bit = cast (y * 4 + x);
+    if to {
+        *tetrominoe = *tetrominoe | (1 << bit);
+    } else {
+        *tetrominoe = *tetrominoe & !(1 << bit);
+    };
+};
+
+const does_piece_fit = fn(map: [] u64, tetrominoe: u16, piece_x: i32, piece_y: i32) -> bool { 'func
+    if piece_y < 0 break 'func false;
+
+    while i < 4 {
+        let row = (tetrominoe >> cast (i * 4)) & 0xf;
+        if row > 0 {
+            if piece_y + cast i >= cast HEIGHT break 'func false;
+
+            let map_row = map.ptr + (cast piece_y + i);
+            if (*map_row & (cast row << cast piece_x)) > 0 {
+                break 'func false;
+            };
+        };
+    };
+
+    true
+};
+
+const init_map = fn(map: [] u64) {
+    fill(map, DefaultLine);
+
+    *(map.ptr + (HEIGHT - 1)) = FullLine;
+    *(map.ptr + (HEIGHT - 2)) = FullLine;
+    *(map.ptr + (HEIGHT - 3)) = FullLine;
+};
+
+#entry fn() {
+    let screen = alloc.(u8)(WIDTH * HEIGHT);
+    defer dealloc(screen);
+
+    let console_handle = CreateConsoleScreenBuffer(GENERIC_READ | GENERIC_WRITE, 0, #0, 1 /* textmode buffer */, #0);
+    SetConsoleActiveScreenBuffer(console_handle);
+
+    let map = alloc.(u64)(HEIGHT);
+    defer dealloc(map);
+    init_map(map);
+
+    let counter = 0 : u32;
+
+    let falling_x = cast WIDTH / 2 - 4 / 2 : i32;
+    let falling_y = 0 : i32;
+
+    let key_is_held = #0 : [4] bool;
+
+    let tetromino_randomizer = 12784128471 : u64;
+
+    let randomize_tetromino = fn(randomizer) -> u16 {
+        *randomizer = *randomizer * 17;
+        *randomizer = *randomizer + 4;
+        *randomizer = *randomizer * 13;
+        *randomizer = *randomizer + 5;
+        *randomizer = *randomizer & 0xffff_ffff;
+
+        *(&TETROMINOES._0 + cast (*randomizer & 0x7))
+    };
+
+    let tetrominoe = randomize_tetromino(&tetromino_randomizer);
+
+    let running = true;
+    while true {
+        Sleep(50);
+
+        fill(screen, 32);
+        
+        let key_was_held = key_is_held;
+        for &key_is_held {
+            // R, L, D, Z
+            *v = (GetAsyncKeyState(*(&[0x27, 0x25, 0x28, cast *"Z".ptr]._0 + i)) & 0x8000) != 0;
+        };
+
+        if key_is_held._3 && !key_was_held._3 {
+            if running {
+                let new_tetrominoe = rotate_tetrominoe_right(tetrominoe);
+                if does_piece_fit(map, new_tetrominoe, falling_x, falling_y) {
+                    tetrominoe = new_tetrominoe;
+                } else {
+                    while 'outer i < 2 {
+                        let new_y = falling_y + cast i;
+                        while i < 3 {
+                            let new_x = falling_y + cast i - 1;
+                            if does_piece_fit(map, new_tetrominoe, new_x, new_y) {
+                                falling_x = new_x;
+                                falling_y = new_y;
+                                tetrominoe = new_tetrominoe;
+                                break 'outer;
+                            };
+                        };
+                    };
+                };
+            } else {
+                init_map(map);
+                falling_x = cast WIDTH / 2 - 4 / 2 : i32;
+                falling_y = 0 : i32;
+                running = true;
+            };
+        };
+
+        if running && key_is_held._0 {
+            falling_x = falling_x + 1;
+            if !does_piece_fit(map, tetrominoe, falling_x, falling_y) {
+                falling_x = falling_x - 1;
+            };
+        };
+
+        if running && key_is_held._1 {
+            falling_x = falling_x - 1;
+            if !does_piece_fit(map, tetrominoe, falling_x, falling_y) {
+                falling_x = falling_x + 1;
+            };
+        };
+
+        let go_down = counter > 12 || key_is_held._2;
+
+        counter = counter + 1;
+        if running && go_down {
+            falling_y = falling_y + 1;
+
+            if !does_piece_fit(map, tetrominoe, falling_x, falling_y) {
+                falling_y = falling_y - 1;
+
+                while i < 4 {
+                    let row = (tetrominoe >> cast (i * 4)) & 0xf;
+                    if row > 0 {
+                        let map_row = map.ptr + (cast falling_y + i);
+                        *map_row = *map_row | (cast row << cast falling_x);
+                    };
+                };
+
+                for &map {
+                    if i >= HEIGHT - 3  break;
+                    if *v == FullLine {
+                        *v = DefaultLine;
+
+                        let to_i = i;
+                        while i < to_i {
+                            *(map.ptr + (to_i - i)) = *(map.ptr + (to_i - i - 1));
+                        };
+
+                        *map.ptr = DefaultLine;
+                    };
+                };
+
+                falling_x = cast WIDTH / 2 - 4 / 2;
+                falling_y = 0;
+
+                tetrominoe = randomize_tetromino(&tetromino_randomizer);
+
+                if !does_piece_fit(map, tetrominoe, falling_x, falling_y) {
+                    running = false;
+                };
+            };
+
+            counter = 0;
+        };
+    
+        // Fill the existing things
+        while i < HEIGHT {
+            let y = i;
+            let map_row = *(map.ptr + i);
+
+            while i < WIDTH {
+                let back_ptr = Background.ptr + (y * WIDTH + i);
+                *(screen.ptr + (y * WIDTH + i)) = if (map_row & (1 << cast i)) > 0 {
+                    *back_ptr
+                } else {
+                    SPACE
+                };
+            };
+        };
+
+        // Fill the falling tetrominoe
+        if running while i < 4 {
+            let y = i;
+            while i < 4 {
+                let x = i;
+                if get_tetrominoe_cell(tetrominoe, cast x, cast y) {
+                    *(screen.ptr + (((y + cast falling_y) * WIDTH + (x + cast falling_x)))) = 42;
+                };
+            };
+        };
+
+        if !running {
+            let message = [
+                "  ______________  ",
+                " |              | ",
+                " |  Game over!  | ",
+                " |______________| ",
+                "                  ",
+            ];
+
+            for message {
+                copy_buf(screen.ptr + (WIDTH / 2 - v.len / 2 + WIDTH * (HEIGHT / 4 + i)), v);
+            };
+        };
+
+        while i < HEIGHT {
+            WriteConsoleOutputCharacter(console_handle, screen.ptr + (i * WIDTH), cast WIDTH, (0, cast i), &0);
+        };
+    };
+
+    ExitProcess(0);
+};

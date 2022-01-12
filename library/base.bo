@@ -13,9 +13,12 @@ const max.(T) = fn(a: T, b: T) -> T  if a > b  a else b;
 const assert = fn(condition: bool) {
     if !condition {
         put_string("Assert failed\n");
-
-        4 / 0 : u32;
+        abort();
     };
+};
+
+const abort = fn() {
+    4 / 0 : u8;
 };
 
 const array_ptr   .(N, T) = fn(array: &[N] T) ->   &T    cast array;
@@ -25,6 +28,10 @@ const filled_array.(N, T) = fn(fill_with: T) -> [N] T {
     let arr = #uninit : [N] T;
     for &arr { *v = fill_with; };
     arr
+};
+
+const copy_buf.(T) = fn(to: &T, from: [] T) {
+    copy(to, from.ptr, from.len);
 };
 
 const copy.(T) = fn(to: &T, from: &T, size: usize) {
@@ -59,7 +66,7 @@ const alloc.(T) = fn(count: usize) -> [] T {
 };
 
 const dealloc.(T) = fn(buf: [] T) {
-    VirtualFree(cast buf.ptr, buf.len / sizeof T, MEM_DECOMMIT);
+    VirtualFree(cast buf.ptr, buf.len * sizeof T, MEM_DECOMMIT);
 };
 
 const fill.(T) = fn(buf: [] T, value: T) {
@@ -119,9 +126,12 @@ const cmp_strings = fn(a: [] u8, b: [] u8) -> bool { 'function
 };
 
 const put_string = fn(c: [] u8) {
-    let handle = GetStdHandle(STD_OUTPUT_HANDLE);
-    if is_invalid_handle_value(handle)  ExitProcess(1);
-    WriteConsole(handle, c.ptr, cast c.len, &0, #0);
+    let handle = GetStdHandle(4294967285); // STD_OUTPUT_HANDLE);
+    if handle == #0 : &_                abort();
+    if is_invalid_handle_value(handle)  abort();
+    if c.ptr == #0 : &_                 abort();
+    let result = WriteConsole(handle, c.ptr, cast c.len, &0, #0);
+    if result != 1  ExitProcess(GetLastError());
 };
 
 const put_char = fn(c: u8) {
@@ -287,6 +297,20 @@ const vec_writer.(T) = fn(vec: &typeof Vec.(T)) -> typeof Writer.(T) {
     writer
 };
 
+const stderr_writer = fn() -> typeof Writer.(u8) {
+    let writer = #0;
+    writer.write_buf = fn(_, buffer) {
+        let written = 0;
+        WriteConsole(GetStdHandle(STD_ERROR_HANDLE), buffer.ptr, cast buffer.len, &written, #0);
+        cast written
+    };
+    writer.write_single = fn(_, c) {
+        put_char(c);
+        1
+    };
+    writer
+};
+
 const stdout_writer = fn() -> typeof Writer.(u8) {
     let writer = #0;
     writer.write_buf = fn(_, buffer) {
@@ -435,4 +459,8 @@ const write.(Args) = fn(writer: typeof Writer.(u8), format_str: [] u8, #var_args
 
 const print.(Args) = fn(format_str: [] u8, #var_args: args: Args) {
     write(stdout_writer(), format_str, .args = args);
+};
+
+const eprint.(Args) = fn(format_str: [] u8, #var_args: args: Args) {
+    write(stderr_writer(), format_str, .args = args);
 };
