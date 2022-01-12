@@ -1003,19 +1003,9 @@ impl TypeSystem {
                     }
                     errors.global_error(format!("Field '{}' doesn't exist on type {}", name, self.value_to_str(a, 0)));
                 }
-                Error { a, b, kind: ErrorKind::IncompatibleTypes(creator) } => {
-                    let mut a_id = a;
-                    let mut b_id = b;
-                    let mut creator = Some(creator);
-                    while let Some(c) = creator {
-                        if let ConstraintKind::Equal { creator: c, values: [a, b], .. } = self.constraints[c].kind {
-                            creator = c;
-                            a_id = a;
-                            b_id = b;
-                        } else {
-                            break;
-                        }
-                    }
+                Error { a, b, kind: ErrorKind::IncompatibleTypes(_) } => {
+                    let a_id = a;
+                    let b_id = b;
 
                     for chain in explain::get_reasons_with_look_inside(a_id, a_id, self, ast) {
                         chain.output(errors, ast, self);

@@ -2,6 +2,10 @@ library "windows.bo";
 import "tests/main.bo";
 
 #entry fn() {
+    let a = 5 : u32;
+
+    a : u64;
+
     run_tests();
 
     ExitProcess(0);
