@@ -2,7 +2,8 @@ library "windows.bo";
 import "tests/main.bo";
 
 #entry fn() {
-    print("8 mod 3 = %\n", 8 % 3 : u32);
+    print("%\n", -2 : i32);
+    print("8 mod 3 = %\n", (-8) % 3 : i32);
 
     run_aoc_tests();
 };

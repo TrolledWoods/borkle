@@ -112,6 +112,7 @@ const count_ones.(T) = fn(number: T) -> usize {
     num_bits
 };
 
+const NEGATIVE_SIGN = *"-".ptr : u8;
 const DIGIT0 = 48 : u8;
 
 // TEMPORARY until not operator is done a gain
@@ -345,6 +346,18 @@ const Format.(T) = #0 : {
     base: u8;
 };
 
+const write_i64 = fn(to: typeof Writer.(u8), num: i64, base: u64) -> usize { 'func
+    let written = 0;
+    if num < 0 {
+        written = written + write_single(to, NEGATIVE_SIGN);
+        written = written + write_u64(to, cast -num, base);
+    } else {
+        written = written + write_u64(to, cast -num, base);
+    };
+
+    written
+};
+
 const write_u64 = fn(to: typeof Writer.(u8), num: u64, base: u64) -> usize { 'func
     if num == 0 {
         break 'func write_single(to, DIGIT0);
@@ -373,9 +386,12 @@ const write_fmt_no_padding.(T) = fn(to: typeof Writer.(u8), fmt_val: typeof Form
         fmt_val.value
     };
 
-    if #const: typeof value is Int {
+    if #const: typeof value is u8 || typeof value is u16 || typeof value is u32 || typeof value is u64 {
         let base = if fmt_val.base == 0 { 10 } else { fmt_val.base };
         write_u64(to, cast value, cast base)
+    } else if #const: typeof value is i8 || typeof value is i16 || typeof value is i32 || typeof value is i64 {
+        let base = if fmt_val.base == 0 { 10 } else { fmt_val.base };
+        write_i64(to, cast value, cast base)
     } else if #const: typeof value is typeof Vec.(u8) {
         write_buf(to, vec_as_buffer(&value))
     } else if #const: typeof value is [] u8 {

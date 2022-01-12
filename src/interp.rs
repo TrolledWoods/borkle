@@ -329,7 +329,7 @@ pub unsafe fn run_binary_op(op: BinaryOp, result: *mut u8, a: *const u8, b: *con
         (BinaryOp::ShiftRight, PrimitiveType::I32) => *result.cast::<i32>() = *a.cast::<i32>() >> *b.cast::<i32>(),
         (BinaryOp::ShiftRight, PrimitiveType::I64) => *result.cast::<i64>() = *a.cast::<i64>() >> *b.cast::<i64>(),
 
-        (BinaryOp::BitAnd, PrimitiveType::U8)  => *result.cast::<u8 >() = *a.cast::<u8 >() & *b.cast::<u8 >(),
+        (BinaryOp::BitAnd, PrimitiveType::U8 | PrimitiveType::Bool)  => *result.cast::<u8 >() = *a.cast::<u8 >() & *b.cast::<u8 >(),
         (BinaryOp::BitAnd, PrimitiveType::U16) => *result.cast::<u16>() = *a.cast::<u16>() & *b.cast::<u16>(),
         (BinaryOp::BitAnd, PrimitiveType::U32) => *result.cast::<u32>() = *a.cast::<u32>() & *b.cast::<u32>(),
         (BinaryOp::BitAnd, PrimitiveType::U64) => *result.cast::<u64>() = *a.cast::<u64>() & *b.cast::<u64>(),
@@ -338,7 +338,7 @@ pub unsafe fn run_binary_op(op: BinaryOp, result: *mut u8, a: *const u8, b: *con
         (BinaryOp::BitAnd, PrimitiveType::I32) => *result.cast::<i32>() = *a.cast::<i32>() & *b.cast::<i32>(),
         (BinaryOp::BitAnd, PrimitiveType::I64) => *result.cast::<i64>() = *a.cast::<i64>() & *b.cast::<i64>(),
 
-        (BinaryOp::BitOr, PrimitiveType::U8)  => *result.cast::<u8 >() = *a.cast::<u8 >() | *b.cast::<u8 >(),
+        (BinaryOp::BitOr, PrimitiveType::U8 | PrimitiveType::Bool)  => *result.cast::<u8 >() = *a.cast::<u8 >() | *b.cast::<u8 >(),
         (BinaryOp::BitOr, PrimitiveType::U16) => *result.cast::<u16>() = *a.cast::<u16>() | *b.cast::<u16>(),
         (BinaryOp::BitOr, PrimitiveType::U32) => *result.cast::<u32>() = *a.cast::<u32>() | *b.cast::<u32>(),
         (BinaryOp::BitOr, PrimitiveType::U64) => *result.cast::<u64>() = *a.cast::<u64>() | *b.cast::<u64>(),
@@ -403,7 +403,7 @@ pub unsafe fn run_binary_op(op: BinaryOp, result: *mut u8, a: *const u8, b: *con
         (BinaryOp::Modulo, PrimitiveType::F32) => *result.cast::<f32>() = *a.cast::<f32>() / *b.cast::<f32>(),
         (BinaryOp::Modulo, PrimitiveType::F64) => *result.cast::<f64>() = *a.cast::<f64>() / *b.cast::<f64>(),
 
-        (BinaryOp::Equals, PrimitiveType::U8)  => *result.cast::<bool>() = *a.cast::<u8 >() == *b.cast::<u8 >(),
+        (BinaryOp::Equals, PrimitiveType::U8 | PrimitiveType::Bool)  => *result.cast::<bool>() = *a.cast::<u8 >() == *b.cast::<u8 >(),
         (BinaryOp::Equals, PrimitiveType::U16) => *result.cast::<bool>() = *a.cast::<u16>() == *b.cast::<u16>(),
         (BinaryOp::Equals, PrimitiveType::U32) => *result.cast::<bool>() = *a.cast::<u32>() == *b.cast::<u32>(),
         (BinaryOp::Equals, PrimitiveType::U64) => *result.cast::<bool>() = *a.cast::<u64>() == *b.cast::<u64>(),
@@ -414,7 +414,7 @@ pub unsafe fn run_binary_op(op: BinaryOp, result: *mut u8, a: *const u8, b: *con
         (BinaryOp::Equals, PrimitiveType::F32) => *result.cast::<bool>() = *a.cast::<f32>() == *b.cast::<f32>(),
         (BinaryOp::Equals, PrimitiveType::F64) => *result.cast::<bool>() = *a.cast::<f64>() == *b.cast::<f64>(),
 
-        (BinaryOp::NotEquals, PrimitiveType::U8)  => *result.cast::<bool>() = *a.cast::<u8 >() != *b.cast::<u8 >(),
+        (BinaryOp::NotEquals, PrimitiveType::U8 | PrimitiveType::Bool)  => *result.cast::<bool>() = *a.cast::<u8 >() != *b.cast::<u8 >(),
         (BinaryOp::NotEquals, PrimitiveType::U16) => *result.cast::<bool>() = *a.cast::<u16>() != *b.cast::<u16>(),
         (BinaryOp::NotEquals, PrimitiveType::U32) => *result.cast::<bool>() = *a.cast::<u32>() != *b.cast::<u32>(),
         (BinaryOp::NotEquals, PrimitiveType::U64) => *result.cast::<bool>() = *a.cast::<u64>() != *b.cast::<u64>(),
@@ -469,8 +469,8 @@ pub unsafe fn run_binary_op(op: BinaryOp, result: *mut u8, a: *const u8, b: *con
         (BinaryOp::LargerThanEquals, PrimitiveType::F32) => *result.cast::<bool>() = *a.cast::<f32>() >= *b.cast::<f32>(),
         (BinaryOp::LargerThanEquals, PrimitiveType::F64) => *result.cast::<bool>() = *a.cast::<f64>() >= *b.cast::<f64>(),
 
-        (BinaryOp::And, PrimitiveType::U8)  => *result.cast::<bool>() = (*a.cast::<u8>() > 0) & (*b.cast::<u8>() > 0),
-        (BinaryOp::Or,  PrimitiveType::U8)  => *result.cast::<bool>() = (*a.cast::<u8>() > 0) | (*b.cast::<u8>() > 0),
+        (BinaryOp::And, PrimitiveType::U8 | PrimitiveType::Bool)  => *result.cast::<bool>() = (*a.cast::<u8>() > 0) & (*b.cast::<u8>() > 0),
+        (BinaryOp::Or,  PrimitiveType::U8 | PrimitiveType::Bool)  => *result.cast::<bool>() = (*a.cast::<u8>() > 0) | (*b.cast::<u8>() > 0),
 
 
         _ => unreachable!(),

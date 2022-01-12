@@ -866,22 +866,41 @@ fn emit_binary(out: &mut String, op: BinaryOp, stack: &Stack, type_: PrimitiveTy
         }
         BinaryOp::Div => {
             // @Note: Remainder is stored in RDX
-            writeln!(out, "\txor rdx, rdx")?;
             let right = right.remove_imm(out, Register::R8)?;
             if type_.signed() {
+                match size {
+                    1 => writeln!(out, "\tmovsx ax, al")?,
+                    2 => writeln!(out, "\tcwd")?,
+                    4 => writeln!(out, "\tcdq")?,
+                    8 => writeln!(out, "\tcqo")?,
+                    _ => unreachable!(),
+                }
                 writeln!(out, "\tidiv {}", right.print(stack))?;
             } else {
+                if size == 1 {
+                    writeln!(out, "\txor ah, ah")?;
+                } else {
+                    writeln!(out, "\txor {reg_name:}, {reg_name:}", reg_name = Register::Rdx.name(size))?;
+                }
                 writeln!(out, "\tdiv {}", right.print(stack))?;
             }
+
             writeln!(out, "\tmov {}, {}", stack.value(&to), reg_a)?;
         }
         BinaryOp::Modulo => {
             // @Note: Normal value is stored in EAX, remainder is stored in RDX
-            writeln!(out, "\txor rdx, rdx")?;
             let right = right.remove_imm(out, Register::R8)?;
             if type_.signed() {
+                match size {
+                    1 => writeln!(out, "\tmovsx ax, al")?,
+                    2 => writeln!(out, "\tcwd")?,
+                    4 => writeln!(out, "\tcdq")?,
+                    8 => writeln!(out, "\tcqo")?,
+                    _ => unreachable!(),
+                }
                 writeln!(out, "\tidiv {}", right.print(stack))?;
             } else {
+                writeln!(out, "\txor {reg_name:}, {reg_name:}", reg_name = Register::Rdx.name(size))?;
                 writeln!(out, "\tdiv {}", right.print(stack))?;
             }
 
