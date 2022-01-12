@@ -3,6 +3,17 @@ library "vec.bo";
 import "tests/main.bo";
 
 #entry fn() {
+    let vec = vec_new();
+    defer vec_free(vec);
+    vec_push(&vec, "first");
+    vec_push(&vec, "second");
+
+    vec_push_arr(&vec, ["a", "b", "c"]);
+
+    for vec_as_buf(&vec) {
+        print("vec[%] = %\n", i, v);
+    };
+
     run_tests();
 
     ExitProcess(0);

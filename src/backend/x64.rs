@@ -582,11 +582,20 @@ fn emit_routine(
                 writeln!(out, "\tmov {}, {}", stack.value(&to), reg_name)?;
             }
             Instr::IncrPtr { to, amount, scale } => {
-                let reg_src = Register::Rax.name(8);
-                let reg_amount = Register::Rcx.name(8);
+                let reg_src = Register::Rcx.name(8);
+                let reg_amount = Register::Rax.name(8);
                 writeln!(out, "\tmov {}, {}", reg_src, stack.value(&to))?;
                 writeln!(out, "\tmov {}, {}", reg_amount, stack.value(&amount))?;
-                writeln!(out, "\tlea {}, [{}+{}*{}]", reg_src, reg_src, reg_amount, scale)?;
+                match scale {
+                    1 => writeln!(out, "\tlea {}, [{}+{}]", reg_src, reg_src, reg_amount)?,
+                    2 | 4 | 8 => writeln!(out, "\tlea {}, [{}+{}*{}]", reg_src, reg_src, reg_amount, scale)?,
+                    _ => {
+                        let reg_temp_scale = Register::Rdx.name(8);
+                        writeln!(out, "\tmov {}, {}", reg_temp_scale, scale)?;
+                        writeln!(out, "\tmul DWORD {}", reg_temp_scale)?;
+                        writeln!(out, "\tlea {}, [{}+{}]", reg_src, reg_src, reg_amount)?;
+                    },
+                }
                 writeln!(out, "\tmov {}, {}", stack.value(&to), reg_src)?;
             }
             Instr::LabelDefinition(label_id) => {

@@ -441,7 +441,7 @@ const write_fmt_no_padding.(T) = fn(to: typeof Writer.(u8), fmt_val: typeof Form
         let base = if fmt_val.base == 0 { 10 } else { fmt_val.base };
         write_i64(to, cast value, cast base)
     } else if #const: typeof value is typeof Vec.(u8) {
-        write_buf(to, vec_as_buffer(&value))
+        write_buf(to, vec_as_buf(&value))
     } else if #const: typeof value is [] u8 {
         write_buf(to, value)
     } else {

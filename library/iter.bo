@@ -28,7 +28,7 @@ const array_iter.(N, T) = fn(array: [N] T) -> typeof Iterator.(_, type T) {
 };
 
 const vec_iter.(T) = fn(vec: &typeof Vec.(T)) -> typeof Iterator.(_, type &T) {
-    buf_iter(vec_as_buffer(vec))
+    buf_iter(vec_as_buf(vec))
 };
 
 const buf_iter.(T) = fn(buffer: [] T) -> typeof Iterator.(_, type &T) {
