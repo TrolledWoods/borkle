@@ -11,7 +11,7 @@ import "tests/main.bo";
 // Roadmap for full(and decent) x64 support:
 //
 // - Proper register allocator
-// * - Modulo doesn't work the way I thought it did, we need more logic for it, AH is used for remainder in 8bit contexts: https://www.felixcloutier.com/x86/div
+// * - Modulo/Division
 // * - Handle large arguments
 // - Handle floats
 // * - Actually handle getting passed arguments, 
