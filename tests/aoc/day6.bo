@@ -3,8 +3,8 @@ import "../main.bo";
 
 const TestsDay6 = fn() {
     defer ok("AOC day 6");
-    assert(aoc_day6(80) == 350917);
-    assert(aoc_day6(256) == 1592918715629);
+    assert_eq(aoc_day6(80),  350917);
+    assert_eq(aoc_day6(256), 1592918715629);
 };
 
 const aoc_day6 = fn(time: usize) -> u64 {

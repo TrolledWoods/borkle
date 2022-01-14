@@ -4,8 +4,8 @@ import "../main.bo";
 const TestsDay4 = fn() {
     defer ok("AOC day 4");
     let results = aoc_day4();
-    assert(results.part_1 == 46920);
-    assert(results.part_2 == 12635);
+    assert_eq(results.part_1, 46920);
+    assert_eq(results.part_2, 12635);
 };
 
 const aoc_day4 = fn() -> { part_1: u64; part_2: u64; } {

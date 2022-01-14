@@ -3,9 +3,8 @@ import "../main.bo";
 
 const TestsDay3 = fn() {
     defer ok("AOC day 3");
-    assert(aoc_day3_part1() == 2003336);
-    
-    assert(aoc_day3_part2() == 1877139);
+    assert_eq(aoc_day3_part1(), 2003336);
+    assert_eq(aoc_day3_part2(), 1877139);
 };
 
 const aoc_day3_part1 = fn() -> u64 {

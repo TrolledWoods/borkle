@@ -6,8 +6,8 @@ const COMMA = *",".ptr;
 const TestsDay7 = fn() {
     defer ok("AOC day 7");
     let result = aoc_day7();
-    assert(result.part_1 == 348996);
-    assert(result.part_2 == 98231647);
+    assert_eq(result.part_1, 348996);
+    assert_eq(result.part_2, 98231647);
 };
 
 const aoc_day7 = fn() -> { part_1: u64; part_2: u64 } {

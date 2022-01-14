@@ -3,8 +3,8 @@ import "day1_input.bo";
 
 const TestsDay1 = fn() {
     defer ok("AOC day 1");
-    assert(aoc_day1_part_1(INPUT) == 1466);
-    assert(aoc_day1_part_2(INPUT) == 1491);
+    assert_eq(aoc_day1_part_1(INPUT), 1466);
+    assert_eq(aoc_day1_part_2(INPUT), 1491);
 };
 
 const aoc_day1_part_1 = fn(parse: [] u8) -> u64 {

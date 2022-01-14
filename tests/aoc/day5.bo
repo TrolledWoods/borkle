@@ -3,8 +3,8 @@ import "../main.bo";
 
 const TestsDay5 = fn() {
     defer ok("AOC day 5");
-    assert(aoc_day5(false) == 5608);
-    assert(aoc_day5(true) == 20299);
+    assert_eq(aoc_day5(false), 5608);
+    assert_eq(aoc_day5(true), 20299);
 };
 
 const aoc_day5 = fn(include_diagonals: bool) -> u64 {

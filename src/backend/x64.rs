@@ -956,10 +956,19 @@ fn emit_routine(
                 writeln!(ctx.out, "\tmov {}, {}", ctx.stack.value(&to), reg_src)?;
             }
             Instr::LabelDefinition(label_id) => {
-                writeln!(ctx.out, "{}:", label_name(function_id, label_id))?;
+                if is_debugging {
+                    // This lets you see the label name for jump instructions
+                    // in the debugger.
+                    writeln!(extern_defs, "global {}", label_name(function_id, label_id))?;
+                }
+
                 // We don't know where one might jump in here from, so we have to loose
                 // all information about registers.
+                // Important that this is before the label, otherwise we'll just mess
+                // up the state!
                 ctx.flush_all()?;
+
+                writeln!(ctx.out, "{}:", label_name(function_id, label_id))?;
             }
             Instr::Unary { to, from, op, type_ } => {
                 assert!(!type_.is_float(), "Float operations not handled yet in x64 backend");
@@ -980,13 +989,21 @@ fn emit_routine(
                 emit_binary(&mut ctx, op, type_, to, Data::Stack(a, size), Data::Imm(b, size), size)?;
             }
             Instr::JumpIfZero { condition, to } => {
+                // We don't know what the thing at the other end is going to want,
+                // so we need to put the stack up to date.
+                ctx.push_all_changes()?;
+
                 let cond = ctx.get_data(Data::Stack(condition, 1), READ)?;
                 writeln!(ctx.out, "\tcmp {}, 0", cond.print(&ctx.stack))?;
                 writeln!(ctx.out, "\tje  {}", label_name(function_id, to))?;
-
-                ctx.free_all();
             }
             Instr::Jump { to } => {
+                // We don't know what the state is going
+                // to be at the other end. The instructions
+                // after this are unreachable except through a label,
+                // so the state we leave the ctx in is irrelevant,
+                // though I just flush all to be nice.
+                ctx.flush_all()?;
                 writeln!(ctx.out, "\tjmp  {}", label_name(function_id, to))?;
             }
             Instr::RefGlobal { to_ptr, global } => {
@@ -1365,7 +1382,7 @@ fn emit_binary(ctx: &mut Context<'_>, op: BinaryOp, type_: PrimitiveType, to: Va
             let b = ctx.get_data(b, READ)?.truncate_to_size(1);
 
             ctx.emit_write_dat("mov", cl, 1, b)?;
-            ctx.emit_write_dat("shl", a, size, DataHandle::Reg(cl, 1))?;
+            ctx.emit_write_dat("sar", a, size, DataHandle::Reg(cl, 1))?;
             ctx.write_stack_value(a, to, size)?;
         }
         BinaryOp::Equals => {
