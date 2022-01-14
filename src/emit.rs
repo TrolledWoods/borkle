@@ -548,7 +548,9 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, mut node: NodeView<'a>) -> Value {
 
             let type_id = TypeId::Node(ctx.variant_id, left.id);
             let type_ = ctx.types.get(type_id);
-            if let type_infer::TypeKind::Reference = type_.kind() {
+            let r_type_id = TypeId::Node(ctx.variant_id, right.id);
+            let r_type = ctx.types.get(r_type_id);
+            if let (type_infer::TypeKind::Reference, type_infer::TypeKind::Int) = (type_.kind(), r_type.kind()) {
                 let pointee_id = type_.args()[0];
                 let pointee_layout = *ctx.types.get(pointee_id).layout.unwrap();
                 let b_copy = ctx.create_reg_with_layout(Layout::USIZE);

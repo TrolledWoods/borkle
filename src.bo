@@ -1,12 +1,43 @@
 library "windows.bo";
-library "vec.bo";
 import "tests/main.bo";
 
 #entry fn() {
-    run_tests();
+    // print("Hello, world!\n");
+    // run_tests();
 
-    ExitProcess(0);
+    put_string("Hello, world!\n");
+
+    let big_struct = #0 : {
+        a: u8;
+        b: u8;
+        c: u8;
+    };
+
+    (big_struct.a, big_struct.b) = (0x99, 0x42);
+
+    let func2 = fn(a, b: typeof a) a;
+    let big_struct2 = func2(big_struct, big_struct);
+
+    assert(big_struct2.a == 0x99);
+    assert(big_struct2.b == 0x42);
+
+    assert(1 + 3 == 4 : u32);
+    assert(23 / 7 == 3 : u8);
+    assert(-5 / 2 == -2 : i8);
+    assert(1842 / 102 == 18 : u32);
+    assert(-1842 / 102 == -18 : i32);
+    assert(1842 / 102 == 18 : u64);
+    assert(1842 / -102 == -18 : i64);
+
+    put_string("Hello, world! 2\n");
+
+    ExitProcess(99);
 };
+
+// TODO(For register allocator):
+// The flags need cleaning up, probably, I want just a pre-made set of flag groups from
+//   the basic flags, so I don't need to do any bit-logic in the code itself, to reduce
+//   mistakes(because I have a hunch that these will be really difficult to catch later on).
 
 // Roadmap for full(and decent) x64 support:
 //

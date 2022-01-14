@@ -142,10 +142,11 @@ const cmp_strings = fn(a: [] u8, b: [] u8) -> bool { 'function
 };
 
 const put_string = fn(c: [] u8) {
-    let handle = GetStdHandle(4294967285); // STD_OUTPUT_HANDLE);
-    if handle == #0 : &_                abort();
-    if is_invalid_handle_value(handle)  abort();
-    if c.ptr == #0 : &_                 abort();
+    let handle = GetStdHandle(STD_OUTPUT_HANDLE);
+    // -- Doesn't work if I don't comment out these lines :^)
+    // if handle == #0 : &_                abort();
+    // if is_invalid_handle_value(handle)  abort();
+    // if c.ptr == #0 : &_                 abort();
     let result = WriteConsole(handle, c.ptr, cast c.len, &0, #0);
     if result != 1  ExitProcess(GetLastError());
 };
