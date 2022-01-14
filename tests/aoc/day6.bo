@@ -34,6 +34,7 @@ const aoc_day6 = fn(time: usize) -> u64 {
     while i * 2 < parse.len {
         let fish_timer = *(parse.ptr + i * 2) - DIGIT0;
 
+
         total = total + *(rolling_sum_ptr + cast fish_timer);
     };
 

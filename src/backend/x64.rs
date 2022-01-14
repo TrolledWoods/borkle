@@ -384,7 +384,7 @@ impl Context<'_> {
         match wanted_data {
             Data::Reg(reg, size) => {
                 let new = self.alloc_reg()?;
-                writeln!(self.out, "\tmov {}, {}", new.name(size), reg.name(size))?;
+                self.emit_write_dat("mov", reg, size, DataHandle::Reg(reg, size))?;
                 Ok(DataHandle::Reg(new, size))
             }
             Data::Stack(value, size) => {
@@ -398,8 +398,7 @@ impl Context<'_> {
                 // We have to allocate a register if the value does not fit in the allowed size.
                 if allowed_size == 0 || ((allowed_size as usize) < size && value >= (2_u64.pow(allowed_size * 8 - 1))) {
                     let reg = self.alloc_reg()?;
-                    self.push_reg_changes(reg)?;
-                    writeln!(self.out, "\tmov {}, {}", reg.name(size), value)?;
+                    self.emit_write_dat("mov", reg, size, DataHandle::Imm(value, size))?;
                     return Ok(DataHandle::Reg(reg, size));
                 }
 
@@ -421,8 +420,11 @@ impl Context<'_> {
             if let Some(old) = allocated.referenced_stack_value {
                 // TODO: I'm not entirely sure I can remove this assert, but sometimes you do want to completely override a value,
                 // and then purging is fine, even if it's updated. The update is just lost.
-                // debug_assert!(!old.updated, "Cannot purge something that has been updated");
                 if old.stack_offset + old.size > stack_offset && old.stack_offset < stack_offset + size {
+                    if old.updated && old.stack_offset < stack_offset || old.stack_offset + old.size > stack_offset + size {
+                        todo!("Purging of things that aren't sub-values of the original, and that are updated");
+                    }
+
                     if DEBUG_SPAM { writeln!(self.out, "; Purged {}--{}", old.stack_offset, old.stack_offset + old.size)?; }
                     allocated.referenced_stack_value = None;
                 }
@@ -541,6 +543,8 @@ impl Context<'_> {
                 }
             }
         }
+
+        self.push_reg_changes(reg)?;
 
         self.registers.allocated[reg as u8 as usize].referenced_stack_value = Some(ReferencedStackValue {
             stack_offset,
@@ -1025,9 +1029,7 @@ fn emit_routine(
                 }
             }
             Instr::Dereference { to, from_ptr, size } => {
-                // TODO: We can reduce this to just push_all_changes, but for that to work,
-                // we also need to allow you to free a single value.
-                // ctx.push_all_changes();
+                // TODO: Implement dereference properly
                 ctx.flush_all()?;
 
                 writeln!(ctx.out, "\tmov rax, {}", ctx.stack.value(&from_ptr))?;
