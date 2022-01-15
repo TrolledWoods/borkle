@@ -1019,7 +1019,8 @@ fn emit_routine(
             Instr::IndirectMove { to_ptr, from, size } => {
                 ctx.flush_all()?;
 
-                // TODO: Think about if we can improve this somehow, but I'm not sure we can.
+                // TODO: Think about if we can improve this somehow, but I'm not sure we can, because we don't know
+                // where to is.
                 writeln!(ctx.out, "\tmov rax, {}", ctx.stack.value(&to_ptr))?;
 
                 for split in split_into_powers_of_two(size) {
@@ -1051,13 +1052,10 @@ fn emit_routine(
                     let temp = ctx.alloc_reg()?;
                     ctx.emit_write_dat("xor", temp, split.size, DataHandle::Reg(temp, split.size))?;
                     ctx.write_stack_value(temp, Value(to.0 + split.offset), split.size)?;
-                    ctx.free_all();
+                    ctx.free_reg(temp);
                 }
             }
             Instr::ConvertNum { to, from, to_number, from_number } => {
-                // TODO: I'm lazy.
-                ctx.flush_all()?;
-                
                 assert!(!to_number.is_float());
                 assert!(!from_number.is_float());
 
@@ -1065,34 +1063,28 @@ fn emit_routine(
                     Ordering::Greater => {
                         let needs_sign_extend = to_number.signed() && from_number.signed();
 
-                        let to_reg   = Register::Rax.name(to_number.size());
-                        let from_reg = Register::Rcx.name(from_number.size());
-                        writeln!(ctx.out, "\tmov {}, {}", from_reg, ctx.stack.value(&from))?;
-                        if needs_sign_extend {
-                            writeln!(ctx.out, "\tmovsx {}, {}", to_reg, from_reg)?;
-                        } else {
-                            let to_reg_temp = Register::Rax.name(to_number.size());
+                        let reg = ctx.get_data_as_reg(Data::Stack(from, from_number.size()))?;
 
+                        if needs_sign_extend {
+                            ctx.emit_write_dat("movsx", reg, to_number.size(), DataHandle::Reg(reg, from_number.size()))?;
+                        } else {
                             if from_number.size() == 4 {
-                                // Moving a 32bit register to a 64bit register is already a zero extend.
-                                // @HACK
-                                writeln!(ctx.out, "\tmov {}, {}", Register::Rax.name(4), from_reg)?;
+                                // Writing to a 32 bit register is already a zero extend, which means,
+                                // that `reg` is already zero extended.
                             } else {
-                                writeln!(ctx.out, "\tmovzx {}, {}", to_reg_temp, from_reg)?;
+                                ctx.emit_write_dat("movzx", reg, to_number.size(), DataHandle::Reg(reg, from_number.size()))?;
                             }
                         }
 
-                        writeln!(ctx.out, "\tmov {}, {}", ctx.stack.value(&to), to_reg)?;
+                        ctx.write_stack_value(reg, to, to_number.size())?;
                     }
                     Ordering::Equal => {
-                        let reg_name = Register::Rax.name(to_number.size());
-                        writeln!(ctx.out, "\tmov {}, {}", reg_name, ctx.stack.value(&from))?;
-                        writeln!(ctx.out, "\tmov {}, {}", ctx.stack.value(&to), reg_name)?;
+                        let reg = ctx.get_data_as_reg(Data::Stack(from, from_number.size()))?;
+                        ctx.write_stack_value(reg, to, to_number.size())?;
                     }
                     Ordering::Less => {
-                        let reg_name = Register::Rax.name(to_number.size());
-                        writeln!(ctx.out, "\tmov {}, {}", reg_name, ctx.stack.value(&from))?;
-                        writeln!(ctx.out, "\tmov {}, {}", ctx.stack.value(&to), reg_name)?;
+                        let reg = ctx.get_data_as_reg(Data::Stack(from, from_number.size()))?;
+                        ctx.write_stack_value(reg, to, to_number.size())?;
                     }
                 }
             }
