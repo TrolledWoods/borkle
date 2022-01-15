@@ -3,6 +3,9 @@ library "windows.bo";
 const WIDTH  = 16 + 6 : usize;
 const HEIGHT = 16 + 3 : usize;
 
+const DEFAULT_MESSAGE_TIME = 60 : u64;
+const MESSAGE_BLINK_SPEED = 6 : u64;
+
 const DefaultLine = 0x7 : u64 | (0x7 << (cast WIDTH - 3));
 const FullLine = {
     let value = 0 : u64;
@@ -132,13 +135,17 @@ const init_map = fn(map: [] u64) {
     };
 
     let tetrominoe = randomize_tetromino(&tetromino_randomizer);
+    let score = 0 : u64;
+
+    let message = "You shouldn't see this. Ever.";
+    let message_timer = 0 : u64;
 
     let running = true;
     while true {
         Sleep(50);
 
         fill(screen, 32);
-        
+
         let key_was_held = key_is_held;
         for &key_is_held {
             // R, L, D, Z
@@ -168,6 +175,7 @@ const init_map = fn(map: [] u64) {
                 init_map(map);
                 falling_x = cast WIDTH / 2 - 4 / 2 : i32;
                 falling_y = 0 : i32;
+                score = 0;
                 running = true;
             };
         };
@@ -203,9 +211,11 @@ const init_map = fn(map: [] u64) {
                     };
                 };
 
+                let number_of_full_lines = 0 : u32;
                 for &map {
                     if i >= HEIGHT - 3  break;
                     if *v == FullLine {
+                        number_of_full_lines = number_of_full_lines + 1;
                         *v = DefaultLine;
 
                         let to_i = i;
@@ -215,6 +225,29 @@ const init_map = fn(map: [] u64) {
 
                         *map.ptr = DefaultLine;
                     };
+                };
+
+                if number_of_full_lines == 0 {
+                } else if number_of_full_lines == 1 {
+                    message_timer = DEFAULT_MESSAGE_TIME;
+                    message = " Single +1 ";
+                    score = score + 1;
+                } else if number_of_full_lines == 2 {
+                    message_timer = DEFAULT_MESSAGE_TIME;
+                    message = " Double +3 ";
+                    score = score + 3;
+                } else if number_of_full_lines == 3 {
+                    message_timer = DEFAULT_MESSAGE_TIME;
+                    message = " Triple + 7";
+                    score = score + 7;
+                } else if number_of_full_lines == 4 {
+                    message_timer = DEFAULT_MESSAGE_TIME;
+                    message = " FOUR +16 ";
+                    score = score + 16;
+                } else {
+                    message_timer = 999999;
+                    message = "You got more than four lines, which isn't even supposed to be possible. +42069";
+                    message_timer = 42069;
                 };
 
                 falling_x = cast WIDTH / 2 - 4 / 2;
@@ -255,6 +288,14 @@ const init_map = fn(map: [] u64) {
                 };
             };
         };
+
+        if message_timer > 0 && (message_timer / MESSAGE_BLINK_SPEED) % 2 == 0 {
+            write(buf_writer(&{ screen }), "%", pad(message, WIDTH, PAD_CENTER, *"=".ptr));
+        } else {
+            write(buf_writer(&{ screen }), "Score: % ", score);
+        };
+
+        if message_timer > 0  message_timer = message_timer - 1;
 
         if !running {
             let message = [

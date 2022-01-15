@@ -28,6 +28,30 @@ const abort = fn() {
     4 / 0 : u8;
 };
 
+const start_timer = fn() -> u64 {
+    let timer = 0;
+    QueryPerformanceCounter(&timer);
+    timer
+};
+
+const read_timer_nanos = fn(start_time: u64) -> u64 {
+    let end_time = 0;
+    QueryPerformanceCounter(&end_time);
+
+    let freq = 0;
+    QueryPerformanceFrequency(&freq);
+    ((end_time - start_time) * 1_000_000_000) / freq
+};
+
+const read_timer_micros = fn(start_time: u64) -> u64 {
+    let end_time = 0;
+    QueryPerformanceCounter(&end_time);
+
+    let freq = 0;
+    QueryPerformanceFrequency(&freq);
+    ((end_time - start_time) * 1_000_000) / freq
+};
+
 const array_ptr   .(N, T) = fn(array: &[N] T) ->   &T    cast array;
 const array_to_buf.(N, T) = fn(array: &[N] T) -> [] T    cast array;
 
@@ -150,10 +174,9 @@ const cmp_strings = fn(a: [] u8, b: [] u8) -> bool { 'function
 
 const put_string = fn(c: [] u8) {
     let handle = GetStdHandle(STD_OUTPUT_HANDLE);
-    // -- Doesn't work if I don't comment out these lines :^)
-    // if handle == #0 : &_                abort();
-    // if is_invalid_handle_value(handle)  abort();
-    // if c.ptr == #0 : &_                 abort();
+    if handle == #0 : &_                abort();
+    if is_invalid_handle_value(handle)  abort();
+    if c.ptr == #0 : &_                 abort();
     let result = WriteConsole(handle, c.ptr, cast c.len, &0, #0);
     if result != 1  ExitProcess(GetLastError());
 };

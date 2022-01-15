@@ -10,7 +10,7 @@ use super::{Formatter, function_symbol, global_symbol};
 use std::cmp::{Ord, Ordering};
 use ustr::{UstrSet, UstrMap};
 
-const DEBUG_SPAM: bool = true;
+const DEBUG_SPAM: bool = false;
 
 #[derive(Default)]
 struct FileEmitter {
@@ -327,7 +327,7 @@ impl Context<'_> {
     }
 
     fn flush_all(&mut self) -> fmt::Result {
-        writeln!(self.out, "\t; FLUSH!!!!! Culprit: {}", std::panic::Location::caller())?;
+        if DEBUG_SPAM { writeln!(self.out, "\t; FLUSH!!!!! Culprit: {}", std::panic::Location::caller())?; }
         for &id in AVAILABLE_REGISTERS {
             self.flush(id)?;
         }
@@ -407,6 +407,11 @@ impl Context<'_> {
         }
     }
 
+    fn free_reg(&mut self, reg: Register) {
+        let register = &mut self.registers.allocated[reg as u8 as usize];
+        register.in_use = false;
+    }
+
     fn free_all(&mut self) {
         for allocated in &mut self.registers.allocated {
             allocated.in_use = false;
@@ -474,12 +479,12 @@ impl Context<'_> {
         }
 
         let prev_id = best.expect("Out of registers to allocate!");
-        writeln!(self.out, "; allocated {}", prev_id.name(8)).unwrap();
+        if DEBUG_SPAM { writeln!(self.out, "; allocated {}", prev_id.name(8)).unwrap(); }
 
         // TODO: We don't need to push changes all the time, if you're going to change it more.
         // For example, if you have a stack value that was updated, and you want to update it
         // again, you don't need to push it for each mutation.
-        self.push_reg_changes(prev_id)?;
+        // self.push_reg_changes(prev_id)?;
 
         let prev_reg = &mut self.registers.allocated[prev_id as u8 as usize];
 
@@ -553,7 +558,7 @@ impl Context<'_> {
         });
 
         if let Some(existing) = existing {
-            writeln!(self.out, "\tmov {}, {} ; existing stack value", reg.name(size), existing.name(size))?;
+            writeln!(self.out, "\tmov {}, {}", reg.name(size), existing.name(size))?;
         } else {
             writeln!(self.out, "\tmov {}, {} [rsp+{}]", reg.name(size), name_of_size(size), stack_offset)?;
         }
@@ -601,10 +606,6 @@ fn emit_routine(
     if is_debugging {
         let loc = routine.loc;
         writeln!(out, "%line {:0>3}+000 {}", loc.line, loc.file)?;
-
-        // writeln!(extern_defs, "%line {:0>3}+000 {}", loc.line, loc.file)?;
-        // writeln!(p_data, "%line {:0>3}+000 {}", loc.line, loc.file)?;
-        // writeln!(x_data, "%line {:0>3}+000 {}", loc.line, loc.file)?;
     }
 
     writeln!(extern_defs, "global {}", function_symbol(function_id)).unwrap();
@@ -739,22 +740,24 @@ fn emit_routine(
     }
 
     for instr in &routine.instr {
-        writeln!(ctx.out, "; {:?}", instr)?;
-        write!(ctx.out, "; ")?;
-        for (i, &reg_id) in AVAILABLE_REGISTERS.iter().enumerate() {
-            if i > 0 { write!(ctx.out, ", ")?; }
+        if DEBUG_SPAM {
+            writeln!(ctx.out, "; {:?}", instr)?;
+            write!(ctx.out, "; ")?;
+            for (i, &reg_id) in AVAILABLE_REGISTERS.iter().enumerate() {
+                if i > 0 { write!(ctx.out, ", ")?; }
 
-            let reg = &ctx.registers.allocated[reg_id as u8 as usize];
+                let reg = &ctx.registers.allocated[reg_id as u8 as usize];
 
-            write!(ctx.out, "{}", reg_id.name(8))?;
-            if let Some(stack_value) = reg.referenced_stack_value {
-                write!(ctx.out, " {}--{}", stack_value.stack_offset, stack_value.stack_offset + stack_value.size)?;
-                if stack_value.updated {
-                    write!(ctx.out, "!")?;
+                write!(ctx.out, "{}", reg_id.name(8))?;
+                if let Some(stack_value) = reg.referenced_stack_value {
+                    write!(ctx.out, " {}--{}", stack_value.stack_offset, stack_value.stack_offset + stack_value.size)?;
+                    if stack_value.updated {
+                        write!(ctx.out, "!")?;
+                    }
                 }
             }
+            writeln!(ctx.out)?;
         }
-        writeln!(ctx.out)?;
 
         match *instr {
             Instr::DebugLocation(loc) => {
@@ -934,6 +937,7 @@ fn emit_routine(
             Instr::StackPtr { to, take_pointer_to } => {
                 // TODO: This could probably be cleaned up, but for now, addresses aren't supported in the context emission.
                 let temp = ctx.alloc_reg()?;
+                ctx.push_reg_changes(temp)?;
                 writeln!(ctx.out, "\tlea {}, {}", temp.name(8), ctx.stack.value(&take_pointer_to))?;
                 ctx.reg_written_to(temp);
                 ctx.write_stack_value(temp, to, 8)?;
@@ -963,7 +967,7 @@ fn emit_routine(
                 if is_debugging {
                     // This lets you see the label name for jump instructions
                     // in the debugger.
-                    writeln!(extern_defs, "global {}", label_name(function_id, label_id))?;
+                    // writeln!(extern_defs, "global {}", label_name(function_id, label_id))?;
                 }
 
                 // We don't know where one might jump in here from, so we have to loose
@@ -1012,6 +1016,7 @@ fn emit_routine(
             }
             Instr::RefGlobal { to_ptr, global } => {
                 let reg = ctx.alloc_reg()?;
+                ctx.push_reg_changes(reg)?;
                 writeln!(ctx.out, "\tmov {}, {}", reg.name(8), global_symbol(global.as_ptr() as usize))?;
                 ctx.reg_written_to(reg);
                 ctx.write_stack_value(reg, to_ptr, 8)?;
@@ -1029,7 +1034,6 @@ fn emit_routine(
                 }
             }
             Instr::Dereference { to, from_ptr, size } => {
-                // TODO: Implement dereference properly
                 ctx.flush_all()?;
 
                 writeln!(ctx.out, "\tmov rax, {}", ctx.stack.value(&from_ptr))?;
@@ -1037,14 +1041,30 @@ fn emit_routine(
                 for split in split_into_powers_of_two(size) {
                     let reg_name = Register::Rcx.name(split.size);
                     writeln!(ctx.out, "\tmov {}, {} [rax+{}]", reg_name, name_of_size(split.size), split.offset)?;
-                    writeln!(ctx.out, "\tmov {} {}, {}", name_of_size(split.size), ctx.stack.value_with_offset(&to, split.offset), reg_name)?;
+                    writeln!(ctx.out, "\tmov {}, {}", ctx.stack.value_with_offset(&to, split.offset), reg_name)?;
                 }
+
+                /*ctx.push_all_changes()?;
+
+                let stack_value = ctx.get_data_as_reg(Data::Stack(from_ptr, 8))?;
+
+                // TODO: Make sure this works for overlapping memory regions.
+                for split in split_into_powers_of_two(size) {
+                    let temp = ctx.alloc_reg()?;
+                    
+                    // TODO: This can't be done with _write_dat right now, so it's a bit volatile.
+                    ctx.push_reg_changes(temp)?;
+                    writeln!(ctx.out, "\tmov {}, {} [{}+{}]", temp.name(split.size), name_of_size(split.size), stack_value.name(8), split.offset)?;
+                    ctx.reg_written_to(temp);
+
+                    ctx.write_stack_value(temp, Value(to.0 + split.offset), split.size)?;
+                    ctx.free_reg(temp);
+                }*/
             }
             Instr::SetToZero { to_ptr: to, size } => {
                 for split in split_into_powers_of_two(size) {
                     let temp = ctx.alloc_reg()?;
                     ctx.emit_write_dat("xor", temp, split.size, DataHandle::Reg(temp, split.size))?;
-                    ctx.reg_written_to(temp);
                     ctx.write_stack_value(temp, Value(to.0 + split.offset), split.size)?;
                     ctx.free_all();
                 }
@@ -1274,6 +1294,7 @@ fn emit_binary(ctx: &mut Context<'_>, op: BinaryOp, type_: PrimitiveType, to: Va
                 // @Cleanup: Should make a `poison_reg` function that just prepares a register
                 // for being filled with junk.
                 ctx.alloc_specific_reg(Register::Rdx)?;
+                ctx.push_reg_changes(Register::Rdx)?;
                 ctx.reg_written_to(Register::Rdx);
             }
 
@@ -1293,6 +1314,7 @@ fn emit_binary(ctx: &mut Context<'_>, op: BinaryOp, type_: PrimitiveType, to: Va
         BinaryOp::Div => {
             if size > 1 {
                 ctx.alloc_specific_reg(Register::Rdx)?;
+                ctx.push_reg_changes(Register::Rdx)?;
             }
 
             ctx.alloc_specific_reg(Register::Rax)?;
@@ -1329,6 +1351,7 @@ fn emit_binary(ctx: &mut Context<'_>, op: BinaryOp, type_: PrimitiveType, to: Va
         BinaryOp::Modulo => {
             if size > 1 {
                 ctx.alloc_specific_reg(Register::Rdx)?;
+                ctx.push_reg_changes(Register::Rdx)?;
             }
 
             ctx.alloc_specific_reg(Register::Rax)?;

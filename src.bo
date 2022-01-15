@@ -2,7 +2,11 @@ library "windows.bo";
 import "tests/main.bo";
 
 #entry fn() {
+    let timer = start_timer();
+
     run_tests();
+
+    print("Took % nanos\n", read_timer_nanos(timer));
 
     ExitProcess(99);
 };

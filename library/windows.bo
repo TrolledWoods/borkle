@@ -1,5 +1,8 @@
 #no_base:
 
+const QueryPerformanceFrequency = fn(frequency: &u64) -> i32  extern "QueryPerformanceFrequency";
+const QueryPerformanceCounter   = fn(frequency: &u64) -> i32  extern "QueryPerformanceCounter";
+
 const MessageBox = fn(hwnd: &u8, message: &u8, title: &u8, u_type: u32) -> i32  extern "MessageBoxA";
 const OutputDebugString = fn(message: &u8) -> ()  extern "OutputDebugStringA";
 const WriteConsole = fn(console_handle: &u8, buffer: &u8, num_chars: u32, written: &u32, _: &u8) -> i32  extern "WriteConsoleA";
