@@ -481,11 +481,6 @@ impl Context<'_> {
         let prev_id = best.expect("Out of registers to allocate!");
         if DEBUG_SPAM { writeln!(self.out, "; allocated {}", prev_id.name(8)).unwrap(); }
 
-        // TODO: We don't need to push changes all the time, if you're going to change it more.
-        // For example, if you have a stack value that was updated, and you want to update it
-        // again, you don't need to push it for each mutation.
-        // self.push_reg_changes(prev_id)?;
-
         let prev_reg = &mut self.registers.allocated[prev_id as u8 as usize];
 
         self.registers.usage_ctr += 1;
@@ -539,7 +534,7 @@ impl Context<'_> {
                     } else if !existing_is_updated {
                         existing = Some(prev_id);
                     }
-                } else if prev.updated && (prev.stack_offset + prev.size > stack_offset && prev.stack_offset < stack_offset + size) {
+                } else if prev.updated && (prev.stack_offset + prev.size > stack_offset && stack_offset + size > prev.stack_offset) {
                     // We can't copy from the register since we're not exactly overlapping, so we have to push the changes to the stack and
                     // then read it from the stack.
                     // We don't do a `existing_is_updated` check, because there may be multiple sub-regions of the stack that are updated, and we may
@@ -967,7 +962,7 @@ fn emit_routine(
                 if is_debugging {
                     // This lets you see the label name for jump instructions
                     // in the debugger.
-                    // writeln!(extern_defs, "global {}", label_name(function_id, label_id))?;
+                    writeln!(extern_defs, "global {}", label_name(function_id, label_id))?;
                 }
 
                 // We don't know where one might jump in here from, so we have to loose
@@ -1034,32 +1029,22 @@ fn emit_routine(
                 }
             }
             Instr::Dereference { to, from_ptr, size } => {
-                ctx.flush_all()?;
+                ctx.push_all_changes()?;
 
-                writeln!(ctx.out, "\tmov rax, {}", ctx.stack.value(&from_ptr))?;
+                let ptr_reg = ctx.alloc_reg()?;
+                ctx.reg_written_to(ptr_reg);
+
+                writeln!(ctx.out, "\tmov {}, {}", ptr_reg.name(8), ctx.stack.value(&from_ptr))?;
 
                 for split in split_into_powers_of_two(size) {
-                    let reg_name = Register::Rcx.name(split.size);
-                    writeln!(ctx.out, "\tmov {}, {} [rax+{}]", reg_name, name_of_size(split.size), split.offset)?;
-                    writeln!(ctx.out, "\tmov {}, {}", ctx.stack.value_with_offset(&to, split.offset), reg_name)?;
+                    let temp_reg = ctx.alloc_reg()?;
+                    ctx.push_reg_changes(temp_reg)?;
+                    writeln!(ctx.out, "\tmov {}, {} [{}+{}]", temp_reg.name(split.size), name_of_size(split.size), ptr_reg.name(8), split.offset)?;
+                    ctx.reg_written_to(temp_reg);
+
+                    ctx.write_stack_value(temp_reg, Value(to.0 + split.offset), split.size)?;
+                    ctx.free_reg(temp_reg);
                 }
-
-                /*ctx.push_all_changes()?;
-
-                let stack_value = ctx.get_data_as_reg(Data::Stack(from_ptr, 8))?;
-
-                // TODO: Make sure this works for overlapping memory regions.
-                for split in split_into_powers_of_two(size) {
-                    let temp = ctx.alloc_reg()?;
-                    
-                    // TODO: This can't be done with _write_dat right now, so it's a bit volatile.
-                    ctx.push_reg_changes(temp)?;
-                    writeln!(ctx.out, "\tmov {}, {} [{}+{}]", temp.name(split.size), name_of_size(split.size), stack_value.name(8), split.offset)?;
-                    ctx.reg_written_to(temp);
-
-                    ctx.write_stack_value(temp, Value(to.0 + split.offset), split.size)?;
-                    ctx.free_reg(temp);
-                }*/
             }
             Instr::SetToZero { to_ptr: to, size } => {
                 for split in split_into_powers_of_two(size) {
@@ -1289,7 +1274,7 @@ fn emit_binary(ctx: &mut Context<'_>, op: BinaryOp, type_: PrimitiveType, to: Va
             ctx.write_stack_value(a, to, size)?;
         }
         BinaryOp::Mult => {
-            if size == 8 {
+            if size > 1 {
                 // This is written to for overflowing values in this case.
                 // @Cleanup: Should make a `poison_reg` function that just prepares a register
                 // for being filled with junk.
