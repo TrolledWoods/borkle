@@ -34,7 +34,7 @@ const vec_reserve.(T) = fn(vec: &typeof Vec.(T), requested: usize) {
             old_buf.len = vec.capacity;
 
             let new_capacity = vec.capacity;
-            while new_capacity < requested {
+            while new_capacity <= requested {
                 new_capacity = new_capacity * 2;
             };
 

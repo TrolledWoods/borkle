@@ -494,12 +494,61 @@ impl Context<'_> {
         value: Value,
         size: usize,
     ) -> Result<Register, fmt::Error> {
+        let stack_offset = self.stack.get_stack_offset(&value);
+
+        let mut existing = None;
+        let mut existing_in_use = true;
+        for &prev_id in AVAILABLE_REGISTERS {
+            let prev_reg = &mut self.registers.allocated[prev_id as u8 as usize];
+
+            if let Some(prev) = &mut prev_reg.referenced_stack_value {
+                if prev.stack_offset == stack_offset && prev.size == size {
+                    if existing.is_none() || (existing_in_use && !prev_reg.in_use) {
+                        existing = Some(prev_id);
+                        existing_in_use = prev_reg.in_use;
+                    }
+                } else if prev.updated && (prev.stack_offset + prev.size > stack_offset && stack_offset + size > prev.stack_offset) {
+                    // We can't copy from the register since we're not exactly overlapping, so we have to push the changes to the stack and
+                    // then read it from the stack.
+                    // We don't do a `existing_is_updated` check, because there may be multiple sub-regions of the stack that are updated, and we may
+                    // overlap several of them.
+                    self.push_reg_changes(prev_id)?;
+                }
+            }
+        }
+
+        if let Some(existing) = existing {
+            if !existing_in_use {
+                // self.push_reg_changes(existing);
+
+                let register = &mut self.registers.allocated[existing as u8 as usize];
+
+                register.in_use = true;
+                return Ok(existing);
+            }
+        }
+
         let reg = self.alloc_reg()?;
-        self.read_stack_value(reg, value, size)?;
+        self.push_reg_changes(reg)?;
+
+        self.registers.allocated[reg as u8 as usize].referenced_stack_value = Some(ReferencedStackValue {
+            stack_offset,
+            size,
+            updated: false,
+        });
+
+        if let Some(existing) = existing {
+            writeln!(self.out, "\tmov {}, {}", reg.name(size), existing.name(size))?;
+        } else {
+            writeln!(self.out, "\tmov {}, {} [rsp+{}]", reg.name(size), name_of_size(size), stack_offset)?;
+        }
+
         Ok(reg)
     }
 
     fn write_stack_value(&mut self, reg: Register, value: Value, size: usize) -> fmt::Result {
+        self.push_reg_changes(reg)?;
+
         let stack_offset = self.stack.get_stack_offset(&value);
         self.purge_stack_value(stack_offset, size)?;
         self.registers.allocated[reg as u8 as usize].referenced_stack_value = Some(ReferencedStackValue {
@@ -514,26 +563,18 @@ impl Context<'_> {
     fn read_stack_value(&mut self, reg: Register, value: Value, size: usize) -> fmt::Result {
         let stack_offset = self.stack.get_stack_offset(&value);
 
-        // Try to find a register that contains the value.
         let mut existing = None;
-        let mut existing_is_updated = false;
         for &prev_id in AVAILABLE_REGISTERS {
             let prev_reg = &mut self.registers.allocated[prev_id as u8 as usize];
 
             if let Some(prev) = &mut prev_reg.referenced_stack_value {
                 if prev.stack_offset == stack_offset && prev.size == size {
                     if prev_id == reg {
-                        // We are already the stack value, we don't even have to care.
+                        // We're already the right stack value.
                         return Ok(());
                     }
 
-                    if prev.updated {
-                        debug_assert!(!existing_is_updated, "Cannot have two existing is updated");
-                        existing = Some(prev_id);
-                        existing_is_updated = true;
-                    } else if !existing_is_updated {
-                        existing = Some(prev_id);
-                    }
+                    existing = Some(prev_id);
                 } else if prev.updated && (prev.stack_offset + prev.size > stack_offset && stack_offset + size > prev.stack_offset) {
                     // We can't copy from the register since we're not exactly overlapping, so we have to push the changes to the stack and
                     // then read it from the stack.
@@ -559,6 +600,35 @@ impl Context<'_> {
         }
 
         Ok(())
+    }
+
+    fn find_stack_value(&mut self, stack_offset: usize, size: usize) -> Result<(Option<Register>, bool), fmt::Error> {
+        // Try to find a register that contains the value.
+        let mut existing = None;
+        let mut existing_is_updated = false;
+        for &prev_id in AVAILABLE_REGISTERS {
+            let prev_reg = &mut self.registers.allocated[prev_id as u8 as usize];
+
+            if let Some(prev) = &mut prev_reg.referenced_stack_value {
+                if prev.stack_offset == stack_offset && prev.size == size {
+                    if prev.updated {
+                        debug_assert!(!existing_is_updated, "Cannot have two existing is updated");
+                        existing = Some(prev_id);
+                        existing_is_updated = true;
+                    } else if !existing_is_updated {
+                        existing = Some(prev_id);
+                    }
+                } else if prev.updated && (prev.stack_offset + prev.size > stack_offset && stack_offset + size > prev.stack_offset) {
+                    // We can't copy from the register since we're not exactly overlapping, so we have to push the changes to the stack and
+                    // then read it from the stack.
+                    // We don't do a `existing_is_updated` check, because there may be multiple sub-regions of the stack that are updated, and we may
+                    // overlap several of them.
+                    self.push_reg_changes(prev_id)?;
+                }
+            }
+        }
+
+        Ok((existing, existing_is_updated))
     }
 }
 
@@ -924,7 +994,6 @@ fn emit_routine(
                     let from = ctx.get_data(Data::Stack(Value(from.0 + split.offset), split.size), READ)?;
                     let temp = ctx.alloc_reg()?;
                     ctx.emit_write_dat("mov", temp, split.size, from)?;
-                    ctx.reg_written_to(temp);
                     ctx.write_stack_value(temp, Value(to.0 + split.offset), split.size)?;
                     ctx.free_all();
                 }

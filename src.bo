@@ -2,11 +2,6 @@ library "windows.bo";
 import "tests/main.bo";
 
 #entry fn() {
-    let number = -3 : i32;
-    let new_number = cast number : i64;
-
-    print("The number is %\n", new_number);
-
     let timer = start_timer();
 
     run_tests();
