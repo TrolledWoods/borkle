@@ -2,19 +2,17 @@ library "windows.bo";
 import "tests/main.bo";
 
 #entry fn() {
+    let arr = ["hello\tafter tab", "my", "name", "is", "bob"];
+    defer for arr  print("Element at % is %, raw_text is %\n", i, v, raw_text(v));
+
     let timer = start_timer();
 
     run_tests();
 
     print("Took % nanos\n", read_timer_nanos(timer));
 
-    ExitProcess(99);
+    // ExitProcess(99);
 };
-
-// TODO(For register allocator):
-// The flags need cleaning up, probably, I want just a pre-made set of flag groups from
-//   the basic flags, so I don't need to do any bit-logic in the code itself, to reduce
-//   mistakes(because I have a hunch that these will be really difficult to catch later on).
 
 // Roadmap for full(and decent) x64 support:
 //

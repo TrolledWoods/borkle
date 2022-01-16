@@ -288,6 +288,7 @@ const take_rev_whitespace = fn(string: &[] u8) {
 };
 
 const SPACE = *" ".ptr;
+const DOUBLE_QUOTE = *"\"".ptr;
 const NEW_LINE = *"\n".ptr;
 const TAB = *"\t".ptr;
 const CARRIAGE_RETURN = *"\r".ptr;
@@ -414,12 +415,15 @@ const PAD_LEFT   = 0 : u8;
 const PAD_CENTER = 1 : u8;
 const PAD_RIGHT  = 2 : u8;
 
+const FMT_FLAGS_RAW = 1 : u8;
+
 const Format.(T) = #0 : {
     value: T;
     pad: usize;
     pad_char: u8;
     pad_dir: u8;
     base: u8;
+    flags: u8;
 };
 
 const write_i64 = fn(to: typeof Writer.(u8), num: i64, base: u64) -> usize { 'func
@@ -430,6 +434,30 @@ const write_i64 = fn(to: typeof Writer.(u8), num: i64, base: u64) -> usize { 'fu
     } else {
         written = written + write_u64(to, cast num, base);
     };
+
+    written
+};
+
+const write_escaped_string = fn(to: typeof Writer.(u8), string: [] u8) -> usize {
+    let written = 0;
+
+    written = written + write_single(to, DOUBLE_QUOTE);
+
+    for string {
+        if v == DOUBLE_QUOTE {
+            written = written + write_buf(to, "\\\"");
+        } else if v == CARRIAGE_RETURN {
+            written = written + write_buf(to, "\\r");
+        } else if v == TAB {
+            written = written + write_buf(to, "\\t");
+        } else if v == NEW_LINE {
+            written = written + write_buf(to, "\\n");
+        } else {
+            written = written + write_single(to, v);
+        };
+    };
+
+    written = written + write_single(to, DOUBLE_QUOTE);
 
     written
 };
@@ -472,9 +500,17 @@ const write_fmt_no_padding.(T) = fn(to: typeof Writer.(u8), fmt_val: typeof Form
         let base = if fmt_val.base == 0 { 10 } else { fmt_val.base };
         write_i64(to, cast value, cast base)
     } else if #const: typeof value is typeof Vec.(u8) {
-        write_buf(to, vec_as_buf(&value))
+        if (fmt_val.flags & FMT_FLAGS_RAW) > 0 {
+            write_buf(to, vec_as_buf(&value))
+        } else {
+            write_escaped_string(to, vec_as_buf(&value))
+        }
     } else if #const: typeof value is [] u8 {
-        write_buf(to, value)
+        if (fmt_val.flags & FMT_FLAGS_RAW) > 0 {
+            write_buf(to, value)
+        } else {
+            write_escaped_string(to, value)
+        }
     } else {
         assert(false);
         0
@@ -513,13 +549,19 @@ const write_fmt.(T) = fn(to: typeof Writer.(u8), val: typeof Format.(T)) -> usiz
 
 const fmt.(T) = fn(val: T) -> typeof Format {
     // @TODO: Once we have actual type aliases, `is` should just work with them.
-    if #const: T is { value: _; pad: usize; pad_char: u8; pad_dir: u8; base: u8; } {
+    if #const: T is { value: _; pad: usize; pad_char: u8; pad_dir: u8; base: u8; flags: u8; } {
         val
     } else {
         let thing = #0;
         thing.value = val;
         thing
     }
+};
+
+const raw_text.(T) = fn(value: T) -> typeof Format {
+    let format = fmt(value);
+    format.flags = format.flags | FMT_FLAGS_RAW;
+    format
 };
 
 const pad.(T) = fn(value: T, pad: usize, pad_dir: u8, pad_char: u8) -> typeof Format {
