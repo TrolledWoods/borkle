@@ -389,7 +389,24 @@ impl Context<'_> {
             }
             Data::Stack(value, size) => {
                 let new = self.alloc_reg_with_stack_value(value, size)?;
-                Ok(DataHandle::Reg(new, size))
+                if let Some(reg) = new {
+                    Ok(DataHandle::Reg(reg, size))
+                } else if allowed_data & ALLOWED_DATA_FLAG_INDIRECT > 0 {
+                    Ok(DataHandle::Stack(value, size))
+                } else {
+                    let stack_offset = self.stack.get_stack_offset(&value);
+                    let reg = self.alloc_reg()?;
+                    self.flush(reg)?;
+                    writeln!(self.out, "\tmov {}, {} [rsp+{}]", reg.name(size), name_of_size(size), stack_offset)?;
+
+                    self.registers.allocated[reg as u8 as usize].referenced_stack_value = Some(ReferencedStackValue {
+                        stack_offset,
+                        size,
+                        updated: false,
+                    });
+
+                    Ok(DataHandle::Reg(reg, size))
+                }
             }
             Data::Imm(value, size) => {
                 let allowed_size = (allowed_data & ALLOWED_DATA_FLAG_MAX_IMM_SIZE) as u32;
@@ -493,7 +510,7 @@ impl Context<'_> {
         &mut self,
         value: Value,
         size: usize,
-    ) -> Result<Register, fmt::Error> {
+    ) -> Result<Option<Register>, fmt::Error> {
         let stack_offset = self.stack.get_stack_offset(&value);
 
         let mut existing = None;
@@ -524,26 +541,26 @@ impl Context<'_> {
                 let register = &mut self.registers.allocated[existing as u8 as usize];
 
                 register.in_use = true;
-                return Ok(existing);
+                return Ok(Some(existing));
             }
         }
 
-        let reg = self.alloc_reg()?;
-        self.push_reg_changes(reg)?;
-
-        self.registers.allocated[reg as u8 as usize].referenced_stack_value = Some(ReferencedStackValue {
-            stack_offset,
-            size,
-            updated: false,
-        });
-
         if let Some(existing) = existing {
-            writeln!(self.out, "\tmov {}, {}", reg.name(size), existing.name(size))?;
-        } else {
-            writeln!(self.out, "\tmov {}, {} [rsp+{}]", reg.name(size), name_of_size(size), stack_offset)?;
-        }
+            let reg = self.alloc_reg()?;
+            self.push_reg_changes(reg)?;
 
-        Ok(reg)
+            self.registers.allocated[reg as u8 as usize].referenced_stack_value = Some(ReferencedStackValue {
+                stack_offset,
+                size,
+                updated: false,
+            });
+
+            writeln!(self.out, "\tmov {}, {}", reg.name(size), existing.name(size))?;
+
+            Ok(Some(reg))
+        } else {
+            Ok(None)
+        }
     }
 
     fn write_stack_value(&mut self, reg: Register, value: Value, size: usize) -> fmt::Result {
