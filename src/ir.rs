@@ -47,7 +47,26 @@ pub struct TypedLayout {
     pub layout: Layout,
 }
 
+impl std::ops::Deref for TypedLayout {
+    type Target = Layout;
+
+    fn deref(&self) -> &Self::Target {
+        &self.layout
+    }
+}
+
+impl std::ops::DerefMut for TypedLayout {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.layout
+    }
+}
+
 impl TypedLayout {
+    pub const ZST: TypedLayout = TypedLayout {
+        primitive: None,
+        layout: Layout::ZST,
+    };
+    
     pub fn size(&self) -> usize {
         self.layout.size
     }
