@@ -39,7 +39,6 @@ pub fn emit<'a>(
         defers: Vec::new(),
     };
 
-    let body_id = TypeId::Node(ctx.variant_id, node);
     let (result, result_layout) = emit_node(&mut ctx, ast.get(node));
 
     let result = ctx.flush_value(result, result_layout);
@@ -115,7 +114,6 @@ pub fn emit_function_declaration<'a>(
     // so we skip that one.
 
     let body = children.nth(1).unwrap();
-    let body_id = TypeId::Node(ctx.variant_id, body.id);
     let (result, result_layout) = emit_node(&mut ctx, body);
 
     let result = ctx.flush_value(result, result_layout);
@@ -186,7 +184,7 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, mut node: NodeView<'a>) -> (Value, T
 
             let end_label = ctx.create_label();
 
-            let (to, to_layout) = ctx.create_reg_and_layout(TypeId::Node(ctx.variant_id, node.id));
+            let (to, _to_layout) = ctx.create_reg_and_layout(TypeId::Node(ctx.variant_id, node.id));
             ctx.locals.get_label_mut(*label).value = Some(to);
 
             // Set up iterator values
@@ -256,7 +254,7 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, mut node: NodeView<'a>) -> (Value, T
             let [v_value_decl, body] = inner.children.as_array();
 
             let end_label = ctx.create_label();
-            let (to, to_layout) = ctx.create_reg_and_layout(TypeId::Node(ctx.variant_id, node.id));
+            let (to, _to_layout) = ctx.create_reg_and_layout(TypeId::Node(ctx.variant_id, node.id));
             ctx.locals.get_label_mut(*label).value = Some(to);
             ctx.locals.get_label_mut(*label).ir_labels = Some(vec![end_label]);
 
@@ -368,7 +366,7 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, mut node: NodeView<'a>) -> (Value, T
             let end_label = ctx.create_label();
             let else_body_label = ctx.create_label();
 
-            let (to, to_layout) = ctx.create_reg_and_layout(TypeId::Node(ctx.variant_id, node.id));
+            let (to, _to_layout) = ctx.create_reg_and_layout(TypeId::Node(ctx.variant_id, node.id));
             let label = ctx.locals.get_label_mut(*label);
             label.value = Some(to);
             label.ir_labels = Some(vec![end_label]);
@@ -448,7 +446,7 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, mut node: NodeView<'a>) -> (Value, T
         }
         NodeKind::Literal(Literal::Int(num)) => {
             let to_layout = ctx.get_typed_layout(TypeId::Node(ctx.variant_id, node.id));
-            (Value::Immediate((num as u64).to_le_bytes()), to_layout)
+            (Value::Immediate((*num as u64).to_le_bytes()), to_layout)
         }
         &NodeKind::Literal(Literal::Float(num)) => {
             let to_layout = ctx.get_typed_layout(TypeId::Node(ctx.variant_id, node.id));
@@ -618,7 +616,7 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, mut node: NodeView<'a>) -> (Value, T
                 ctx.emit_move(get_member(to, offset), child_value, child_layout);
             }
 
-            (to, to_layout)
+            (Value::Stack(to), to_layout)
         }
         NodeKind::ArrayLiteral => {
             // TODO: We want a `Value` that is just an array, to allow destructuring to be very fast later on.
@@ -635,7 +633,7 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, mut node: NodeView<'a>) -> (Value, T
                 offset += child_layout.size;
             }
 
-            (to, to_layout)
+            (Value::Stack(to), to_layout)
         }
         NodeKind::Reference => {
             let [operand] = node.children.as_array();
@@ -650,18 +648,23 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, mut node: NodeView<'a>) -> (Value, T
             let (from, from_layout) = emit_node(ctx, operand);
             let from = ctx.flush_value(from, from_layout);
             ctx.emit_dereference(to, from, layout.layout);
-            (to, layout)
+            (Value::Stack(to), layout)
         }
         NodeKind::Unary { op } => {
             let [operand] = node.children.as_array();
-            let to = ctx.create_reg(TypeId::Node(ctx.variant_id, node.id));
-            let from = emit_node(ctx, operand);
+            let (to, to_layout) = ctx.create_reg_and_typed_layout(TypeId::Node(ctx.variant_id, node.id));
+            let (from, from_layout) = emit_node(ctx, operand);
+            let from = ctx.flush_value(from, from_layout);
             let number_type = ctx.to_number_type(TypeId::Node(ctx.variant_id, operand.id)).unwrap();
             ctx.emit_unary(*op, to, from, number_type);
-            to
+            (Value::Stack(to), to_layout)
         }
         NodeKind::Local { local_id, .. } => {
-            ctx.locals.get(*local_id).value.unwrap()
+            let local = ctx.locals.get(*local_id);
+            let defined_at = local.declared_at.unwrap();
+            let value = local.value.unwrap();
+            let layout = ctx.get_typed_layout(TypeId::Node(ctx.variant_id, defined_at));
+            (Value::Stack(value), layout)
         }
         NodeKind::ConstAtEvaluation { .. } => {
             // TODO: Implement this, it's not going to work yet because emission cannot produce errors,
@@ -680,7 +683,7 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, mut node: NodeView<'a>) -> (Value, T
         NodeKind::Block { label } => {
             let num_defers_at_start = ctx.defers.len();
 
-            let (to, to_layout) = ctx.create_reg_and_layout(TypeId::Node(ctx.variant_id, node.id));
+            let (to, to_layout) = ctx.create_reg_and_typed_layout(TypeId::Node(ctx.variant_id, node.id));
 
             if let Some(label) = *label {
                 let ir_labels = (0..=ctx.locals.get_label(label).num_defers)
@@ -698,8 +701,8 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, mut node: NodeView<'a>) -> (Value, T
                 emit_node(ctx, content);
             }
 
-            let from = emit_node(ctx, children.next().unwrap());
-            ctx.emit_move(to, from, to_layout);
+            let (from, from_layout) = emit_node(ctx, children.next().unwrap());
+            ctx.flush_value_to(to, from, from_layout);
 
             for (i, defer_index) in (num_defers_at_start..ctx.defers.len()).enumerate().rev() {
                 if let Some(label) = *label {
@@ -717,12 +720,14 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, mut node: NodeView<'a>) -> (Value, T
             }
 
             ctx.defers.truncate(num_defers_at_start);
-
             ctx.registers.head = head;
-            to
+
+            (Value::Stack(to), to_layout)
         }
         NodeKind::ResolvedGlobal(id, _) => {
             let (ptr, _) = ctx.program.get_member_value(*id);
+
+            let to_layout = ctx.get_typed_layout(node_type_id);
 
             if let type_infer::TypeKind::Function = ctx.types.get(TypeId::Node(ctx.variant_id, node.id)).kind() {
                 let function_id = unsafe { *(ptr.as_ptr() as *const FunctionId) };
@@ -731,16 +736,15 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, mut node: NodeView<'a>) -> (Value, T
                 }
             }
 
-            let (to, to_layout) = ctx.create_reg_and_layout(TypeId::Node(ctx.variant_id, node.id));
-            ctx.emit_global(to, ptr, to_layout);
-            to
+            (Value::Constant { constant: ptr, offset: 0 }, to_layout)
         }
         NodeKind::FunctionCall => {
             let mut children = node.children.into_iter();
             let calling_node = children.next().unwrap();
 
             let (to, to_layout) = ctx.create_reg_and_typed_layout(TypeId::Node(ctx.variant_id, node.id));
-            let calling = emit_node(ctx, calling_node.clone());
+            let (calling, calling_layout) = emit_node(ctx, calling_node.clone());
+            let calling = ctx.flush_value(calling, calling_layout);
             let calling_type = ctx.types.get(TypeId::Node(ctx.variant_id, calling_node.id));
             // @Performance
             let output_args = calling_type.args().to_vec().into_iter().skip(1).map(|v| {
@@ -753,40 +757,39 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, mut node: NodeView<'a>) -> (Value, T
                     match *arg {
                         FunctionArgUsage::ValueOfAssign { function_arg } => {
                             let [_, right] = node.children.into_array();
-                            let given = emit_node(ctx, right);
+                            let (given, _) = emit_node(ctx, right);
 
                             let (to, to_layout) = output_args[function_arg];
-                            ctx.emit_move(to, given, to_layout.layout);
+                            ctx.flush_value_to(to, given, to_layout);
                         }
                         FunctionArgUsage::Value { function_arg } => {
-                            let given = emit_node(ctx, node);
+                            let (given, given_layout) = emit_node(ctx, node);
 
-                            let (to, to_layout) = output_args[function_arg];
-                            ctx.emit_move(to, given, to_layout.layout);
+                            let (to, _) = output_args[function_arg];
+                            ctx.flush_value_to(to, given, given_layout);
                         }
                         FunctionArgUsage::TupleElement { function_arg, field } => {
-                            let given = emit_node(ctx, node);
+                            let (given, given_layout) = emit_node(ctx, node);
 
                             let calling_type = ctx.types.get(TypeId::Node(ctx.variant_id, calling_node.id));
                             let arg_type_id = calling_type.args()[function_arg + 1];
-                            let (_, offset, arg_type_) = ctx.types.value_to_compiler_type(arg_type_id).0.members[field];
-                            let to_layout = Layout { size: arg_type_.size(), align: arg_type_.align() };
+                            let (_, offset, _) = ctx.types.value_to_compiler_type(arg_type_id).0.members[field];
 
                             let (to, _) = output_args[function_arg];
-                            ctx.emit_move(get_member(to, offset), given, to_layout);
+                            ctx.flush_value_to(get_member(to, offset), given, given_layout);
                         }
                     }
                 }
             } else {
-                for (&(to, to_layout), node) in output_args.iter().zip(children) {
-                    let given = emit_node(ctx, node);
-                    ctx.emit_move(to, given, to_layout.layout);
+                for (&(to, _), node) in output_args.iter().zip(children) {
+                    let (given, given_layout) = emit_node(ctx, node);
+                    ctx.flush_value_to(to, given, given_layout);
                 }
             }
 
             ctx.emit_call((to, to_layout), calling, output_args, calling_node.loc);
 
-            to
+            (Value::Stack(to), to_layout)
         }
         NodeKind::TypeBound { .. } => {
             let [value, _] = node.children.as_array();
@@ -800,27 +803,25 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, mut node: NodeView<'a>) -> (Value, T
             let [inner] = node.children.as_array();
             let inner_type = TypeId::Node(ctx.variant_id, inner.id);
             let size = ctx.types.get(inner_type).layout.unwrap().size;
+            let to_layout = ctx.get_typed_layout(node_type_id);
 
-            let to = ctx.create_reg(node_type_id);
-            ctx.emit_move_imm(to, size.to_le_bytes(), Layout::USIZE);
-            to
+            (Value::Immediate(size.to_le_bytes()), to_layout)
         }
         NodeKind::TypeAsValue => {
             let [inner] = node.children.as_array();
             let inner_type = TypeId::Node(ctx.variant_id, inner.id);
             let compiler_type = ctx.types.value_to_compiler_type(inner_type);
-            let constant_ref = ctx.program.insert_buffer(Type::new(TypeKind::Type), &compiler_type as *const _ as *const u8);
 
-            let (to, to_layout) = ctx.create_reg_and_layout(node_type_id);
-            ctx.emit_global(to, constant_ref, to_layout);
-            to
+            let imm = Value::Immediate((compiler_type.0 as *const _ as usize as u64).to_le_bytes());
+            let layout = ctx.get_typed_layout(node_type_id);
+            (imm, layout)
         }
         NodeKind::PolymorphicArgument(_) => {
             let &AdditionalInfoKind::Constant(constant) = &ctx.additional_info[&(ctx.variant_id, node.id)] else { panic!() };
             let inner_type = TypeId::Node(ctx.variant_id, node.id);
-            let (to, to_layout) = ctx.create_reg_and_layout(inner_type);
-            ctx.emit_global(to, constant, to_layout);
-            to
+            let layout = ctx.get_typed_layout(inner_type);
+
+            (Value::Constant { constant, offset: 0 }, layout)
         }
         NodeKind::If {
             is_const: Some(_),
@@ -846,9 +847,8 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, mut node: NodeView<'a>) -> (Value, T
                 }
             }
 
-            let (to, to_layout) = ctx.create_reg_and_layout(TypeId::Node(ctx.variant_id, node.id));
-            ctx.emit_global(to, ptr, to_layout);
-            to
+            let layout = ctx.get_typed_layout(node_type_id);
+            (Value::Constant { constant: ptr, offset: 0 }, layout)
         }
         NodeKind::BuiltinFunction(_) | NodeKind::FunctionDeclaration { .. } => {
             let &AdditionalInfoKind::Function(id) = &ctx.additional_info[&(ctx.variant_id, node.id)] else { panic!() };
@@ -857,17 +857,15 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, mut node: NodeView<'a>) -> (Value, T
             let compiler_type = ctx.types.value_to_compiler_type(inner_type);
             let constant_ref = ctx.program.insert_buffer(compiler_type, &id as *const _ as *const u8);
 
-            let (to, to_layout) = ctx.create_reg_and_layout(inner_type);
-            ctx.emit_global(to, constant_ref, to_layout);
-            to
+            let layout = ctx.get_typed_layout(node_type_id);
+            (Value::Constant { constant: constant_ref, offset: 0 }, layout)
         }
         NodeKind::Is => {
-            let to = ctx.create_reg(node_type_id);
-           
             let &AdditionalInfoKind::IsExpression(comparison_id) = &ctx.additional_info[&(ctx.variant_id, node.id)] else { panic!() };
+            let layout = ctx.get_typed_layout(node_type_id);
+
             let value = ctx.types.get_comparison_result(comparison_id);
-            ctx.emit_move_imm(to, (value as u64).to_le_bytes(), Layout::BOOL);
-            to
+            (Value::Immediate((value as u64).to_le_bytes()), layout)
         }
         c => unreachable!("This node should not reach emission: {:?}", c),
     }
@@ -934,7 +932,8 @@ fn emit_declarative_lvalue<'a>(
         } => {
             debug_assert!(!is_declaring);
             let [operand] = node.children.as_array();
-            let pointer = emit_node(ctx, operand);
+            let (pointer, pointer_layout) = emit_node(ctx, operand);
+            let pointer = ctx.flush_value(pointer, pointer_layout);
             let layout = *ctx.types.get(node_type_id).layout.unwrap();
             ctx.emit_indirect_move(pointer, from, layout);
         }
@@ -988,7 +987,9 @@ fn emit_lvalue<'a>(
             // If `of` is a reference, we need to do stuff.
             let (base_type, parent_value) = if let Some(type_infer::Type { kind: type_infer::TypeKind::Reference, args }) = ctx.types.get(TypeId::Node(ctx.variant_id, of.id)).kind {
                 let arg = args.as_ref().unwrap()[0];
-                (ctx.types.value_to_compiler_type(arg), emit_node(ctx, of))
+                let (of, of_layout) = emit_node(ctx, of);
+                let of = ctx.flush_value(of, of_layout);
+                (ctx.types.value_to_compiler_type(arg), of)
             } else {
                 let parent_value = emit_lvalue(ctx, can_reference_temporaries, of.clone());
                 (ctx.types.value_to_compiler_type(TypeId::Node(ctx.variant_id, of.id)), parent_value)
@@ -1005,7 +1006,8 @@ fn emit_lvalue<'a>(
             op: UnaryOp::Dereference,
         } => {
             let [operand] = node.children.as_array();
-            emit_node(ctx, operand)
+            let (value, layout) = emit_node(ctx, operand);
+            ctx.flush_value(value, layout)
         }
         NodeKind::Local { local_id, .. } => {
             let to = ctx.create_reg(ref_type_id);
@@ -1030,7 +1032,8 @@ fn emit_lvalue<'a>(
         kind => {
             if can_reference_temporaries {
                 let to = ctx.create_reg(ref_type_id);
-                let from = emit_node(ctx, node);
+                let (from, from_layout) = emit_node(ctx, node);
+                let from = ctx.flush_value(from, from_layout);
                 ctx.emit_reference(to, from);
                 to
             } else {
@@ -1102,31 +1105,31 @@ impl Context<'_, '_> {
 
         match from {
             Value::Immediate(num) => {
-                self.emit_move_imm(to, num, layout);
+                self.emit_move_imm(to, num, layout.layout);
             }
             Value::Constant { constant, offset } => {
                 // TODO: This can be done more efficiently if RefGlobal allows an offset.
                 let temp = self.create_reg_with_layout(Layout::PTR);
                 self.instr.push(Instr::RefGlobal { to_ptr: temp, global: constant });
                 self.emit_binary_imm_u64(BinaryOp::Add, temp, temp, offset as u64);
-                self.emit_dereference(to, temp, layout);
+                self.emit_dereference(to, temp, layout.layout);
             }
             Value::Stack(value) => {
-                self.emit_move(to, value, layout);
+                self.emit_move(to, value, layout.layout);
             }
             Value::Zeroed => {
-                self.emit_set_to_zero(to, layout);
+                self.emit_set_to_zero(to, layout.layout);
             }
             Value::Uninit => {}
             Value::RefInStack { value, offset } => {
                 if offset == 0 {
-                    self.emit_dereference(to, value, layout);
+                    self.emit_dereference(to, value, layout.layout);
                 } else {
                     // TODO: This can be done more efficiently if Dereference allows an offset.
                     let temp = self.create_reg_with_layout(Layout::PTR);
                     self.emit_move(temp, value, Layout::PTR);
                     self.emit_binary_imm_u64(BinaryOp::Add, temp, temp, offset as u64);
-                    self.emit_dereference(to, temp, layout);
+                    self.emit_dereference(to, temp, layout.layout);
                 }
             }
         }
