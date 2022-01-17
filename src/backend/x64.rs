@@ -1,4 +1,4 @@
-use crate::ir::{Instr, UserDefinedRoutine, Routine, LabelId, PrimitiveType, Value};
+use crate::ir::{Instr, UserDefinedRoutine, Routine, LabelId, PrimitiveType, StackValue};
 use crate::layout::{align_to, StructLayout, Layout};
 use crate::program::{Program, FunctionId};
 use crate::types::PointerInType;
@@ -508,7 +508,7 @@ impl Context<'_> {
 
     fn alloc_reg_with_stack_value(
         &mut self,
-        value: Value,
+        value: StackValue,
         size: usize,
     ) -> Result<Option<Register>, fmt::Error> {
         let stack_offset = self.stack.get_stack_offset(&value);
@@ -563,7 +563,7 @@ impl Context<'_> {
         }
     }
 
-    fn write_stack_value(&mut self, reg: Register, value: Value, size: usize) -> fmt::Result {
+    fn write_stack_value(&mut self, reg: Register, value: StackValue, size: usize) -> fmt::Result {
         self.push_reg_changes(reg)?;
 
         let stack_offset = self.stack.get_stack_offset(&value);
@@ -577,7 +577,7 @@ impl Context<'_> {
         Ok(())
     }
 
-    fn read_stack_value(&mut self, reg: Register, value: Value, size: usize) -> fmt::Result {
+    fn read_stack_value(&mut self, reg: Register, value: StackValue, size: usize) -> fmt::Result {
         let stack_offset = self.stack.get_stack_offset(&value);
 
         let mut existing = None;
@@ -655,7 +655,7 @@ struct Stack {
 }
 
 impl Stack {
-    fn get_stack_offset(&self, value: &Value) -> usize {
+    fn get_stack_offset(&self, value: &StackValue) -> usize {
         self.variables_base() + value.0
     }
     
@@ -663,12 +663,12 @@ impl Stack {
         self.offset - self.stack_size
     }
 
-    fn value_with_offset(&self, value: &Value, offset: usize) -> impl fmt::Display {
+    fn value_with_offset(&self, value: &StackValue, offset: usize) -> impl fmt::Display {
         let result = self.offset - self.stack_size + value.0 + offset;
         Formatter(move |f| write!(f, "[rsp+{}]", result))
     }
 
-    fn value(&self, value: &Value) -> impl fmt::Display {
+    fn value(&self, value: &StackValue) -> impl fmt::Display {
         let result = self.offset - self.stack_size + value.0;
         Formatter(move |f| write!(f, "[rsp+{}]", result))
     }
@@ -1002,16 +1002,16 @@ fn emit_routine(
                     // TODO: We probably want to prefer a register that already contained the old stack value.
                     let temp = ctx.alloc_reg()?;
                     ctx.emit_write_dat("mov", temp, split.size, DataHandle::Imm(number, split.size))?;
-                    ctx.write_stack_value(temp, Value(to.0 + split.offset), split.size)?;
+                    ctx.write_stack_value(temp, StackValue(to.0 + split.offset), split.size)?;
                     ctx.free_all();
                 }
             }
             Instr::Move { to, from, size } => {
                 for split in split_into_powers_of_two(size) {
-                    let from = ctx.get_data(Data::Stack(Value(from.0 + split.offset), split.size), READ)?;
+                    let from = ctx.get_data(Data::Stack(StackValue(from.0 + split.offset), split.size), READ)?;
                     let temp = ctx.alloc_reg()?;
                     ctx.emit_write_dat("mov", temp, split.size, from)?;
-                    ctx.write_stack_value(temp, Value(to.0 + split.offset), split.size)?;
+                    ctx.write_stack_value(temp, StackValue(to.0 + split.offset), split.size)?;
                     ctx.free_all();
                 }
             }
@@ -1129,7 +1129,7 @@ fn emit_routine(
                     writeln!(ctx.out, "\tmov {}, {} [{}+{}]", temp_reg.name(split.size), name_of_size(split.size), ptr_reg.name(8), split.offset)?;
                     ctx.reg_written_to(temp_reg);
 
-                    ctx.write_stack_value(temp_reg, Value(to.0 + split.offset), split.size)?;
+                    ctx.write_stack_value(temp_reg, StackValue(to.0 + split.offset), split.size)?;
                     ctx.free_reg(temp_reg);
                 }
             }
@@ -1137,7 +1137,7 @@ fn emit_routine(
                 for split in split_into_powers_of_two(size) {
                     let temp = ctx.alloc_reg()?;
                     ctx.emit_write_dat("xor", temp, split.size, DataHandle::Reg(temp, split.size))?;
-                    ctx.write_stack_value(temp, Value(to.0 + split.offset), split.size)?;
+                    ctx.write_stack_value(temp, StackValue(to.0 + split.offset), split.size)?;
                     ctx.free_reg(temp);
                 }
             }
@@ -1264,7 +1264,7 @@ const READ_REG: AllowedDataFlags = 0;
 
 #[derive(Clone, Copy)]
 enum Data {
-    Stack(Value, usize),
+    Stack(StackValue, usize),
     Imm(u64, usize),
     Reg(Register, usize),
 }
@@ -1272,7 +1272,7 @@ enum Data {
 #[derive(Clone, Copy)]
 enum DataHandle {
     Reg(Register, usize),
-    Stack(Value, usize),
+    Stack(StackValue, usize),
     Imm(u64, usize),
 }
 
@@ -1296,7 +1296,7 @@ impl DataHandle {
     }
 }
 
-fn emit_unary(ctx: &mut Context<'_>, op: UnaryOp, type_: PrimitiveType, to: Value, a: Data, size: usize) -> fmt::Result {
+fn emit_unary(ctx: &mut Context<'_>, op: UnaryOp, type_: PrimitiveType, to: StackValue, a: Data, size: usize) -> fmt::Result {
     match op {
         UnaryOp::Not => {
             if matches!(type_, PrimitiveType::Bool) {
@@ -1327,7 +1327,7 @@ fn emit_unary(ctx: &mut Context<'_>, op: UnaryOp, type_: PrimitiveType, to: Valu
     Ok(())
 }
 
-fn emit_binary(ctx: &mut Context<'_>, op: BinaryOp, type_: PrimitiveType, to: Value, a: Data, b: Data, size: usize) -> fmt::Result {
+fn emit_binary(ctx: &mut Context<'_>, op: BinaryOp, type_: PrimitiveType, to: StackValue, a: Data, b: Data, size: usize) -> fmt::Result {
     match op {
         BinaryOp::Add => {
             let a = ctx.get_data_as_reg(a)?;

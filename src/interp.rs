@@ -9,7 +9,7 @@ use crate::typer::AdditionalInfo;
 
 mod stack;
 
-pub use stack::{Stack, StackFrame, StackValue, StackValueMut};
+pub use stack::{Stack, StackFrame, StackValueRef, StackValueMut};
 
 pub fn emit_and_run<'a>(
     thread_context: &mut crate::thread_pool::ThreadContext<'a>,

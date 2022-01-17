@@ -62,78 +62,78 @@ impl TypedLayout {
 pub enum Instr {
     DebugLocation(Location),
     Call {
-        to: (Value, TypedLayout),
-        pointer: Value,
+        to: (StackValue, TypedLayout),
+        pointer: StackValue,
         // FIXME: We don't really want a vector here, we want a more efficient datastructure
-        args: Vec<(Value, TypedLayout)>,
+        args: Vec<(StackValue, TypedLayout)>,
         loc: Location,
     },
     SetToZero {
-        to_ptr: Value,
+        to_ptr: StackValue,
         size: usize,
     },
     Binary {
-        to: Value,
-        a: Value,
-        b: Value,
+        to: StackValue,
+        a: StackValue,
+        b: StackValue,
         op: BinaryOp,
         type_: PrimitiveType,
     },
     BinaryImm {
-        to: Value,
-        a: Value,
+        to: StackValue,
+        a: StackValue,
         b: u64,
         op: BinaryOp,
         type_: PrimitiveType,
     },
     IncrPtr {
-        to: Value,
-        amount: Value,
+        to: StackValue,
+        amount: StackValue,
         scale: usize,
     },
     Unary {
-        to: Value,
-        from: Value,
+        to: StackValue,
+        from: StackValue,
         op: UnaryOp,
         type_: PrimitiveType,
     },
     RefGlobal {
-        to_ptr: Value,
+        to_ptr: StackValue,
         global: ConstantRef,
     },
     StackPtr {
-        to: Value,
-        take_pointer_to: Value,
+        to: StackValue,
+        take_pointer_to: StackValue,
     },
     Move {
-        to: Value,
-        from: Value,
+        to: StackValue,
+        from: StackValue,
         size: usize,
     },
     MoveImm {
-        to: Value,
+        to: StackValue,
         from: [u8; 8],
         size: usize,
     },
     IndirectMove {
-        to_ptr: Value,
-        from: Value,
+        to_ptr: StackValue,
+        from: StackValue,
         size: usize,
     },
     Dereference {
-        to: Value,
-        from_ptr: Value,
+        to: StackValue,
+        from_ptr: StackValue,
         size: usize,
     },
     ConvertNum {
-        to: Value,
-        from: Value,
+        to: StackValue,
+        from: StackValue,
         to_number: PrimitiveType,
         from_number: PrimitiveType,
     },
     // jump to 'to' if condition
     JumpIfZero {
-        condition: Value,
+        condition: StackValue,
         to: LabelId,
     },
     // jump to 'to'
@@ -155,8 +155,8 @@ pub struct UserDefinedRoutine {
     pub label_locations: Vec<usize>,
     pub instr: Vec<Instr>,
     pub stack: StackAllocator,
-    pub args: Vec<(Value, TypedLayout)>,
-    pub result: Value,
+    pub args: Vec<(StackValue, TypedLayout)>,
+    pub result: StackValue,
     pub result_layout: TypedLayout,
 }
 
@@ -175,7 +175,7 @@ impl StackAllocator {
         }
     }
 
-    pub fn create(&mut self, align: usize, size: usize) -> Value {
+    pub fn create(&mut self, align: usize, size: usize) -> StackValue {
         debug_assert_ne!(size, 0);
         debug_assert!(size >= align);
 
@@ -184,7 +184,7 @@ impl StackAllocator {
             location: self.head,
             size,
         });
-        let value = Value(self.head);
+        let value = StackValue(self.head);
         self.head += size;
         self.max = self.head.max(self.max);
         value
@@ -197,19 +197,19 @@ pub struct StackValueInfo {
 }
 
 impl StackValueInfo {
-    pub fn value(&self) -> Value {
-        Value(self.location)
+    pub fn value(&self) -> StackValue {
+        StackValue(self.location)
     }
 }
 
 #[derive(Debug, Clone, Copy)]
-pub struct Value(pub usize);
+pub struct StackValue(pub usize);
 
-impl Value {
+impl StackValue {
     pub const ZST: Self = Self(0);
 }
 
-impl fmt::Display for Value {
+impl fmt::Display for StackValue {
     fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(fmt, "r{}", self.0)
     }

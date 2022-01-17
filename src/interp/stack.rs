@@ -1,4 +1,4 @@
-use crate::ir::{StackAllocator, Value};
+use crate::ir::{StackAllocator, StackValue};
 use std::alloc::{alloc, dealloc, Layout};
 use std::marker::PhantomData;
 use std::ptr::NonNull;
@@ -37,12 +37,12 @@ impl Drop for Stack {
 }
 
 #[derive(Clone, Copy)]
-pub struct StackValue<'a> {
+pub struct StackValueRef<'a> {
     ptr: *const u8,
     _phantom: PhantomData<&'a u8>,
 }
 
-impl StackValue<'_> {
+impl StackValueRef<'_> {
     pub fn as_ptr(self) -> *const u8 {
         self.ptr
     }
@@ -81,7 +81,7 @@ pub struct StackFrame<'a> {
 }
 
 impl<'a> StackFrame<'a> {
-    pub fn into_value(self, value: Value) -> StackValueMut<'a> {
+    pub fn into_value(self, value: StackValue) -> StackValueMut<'a> {
         let offset = value.0;
         debug_assert!(offset < self.stack.len());
         StackValueMut {
@@ -90,16 +90,16 @@ impl<'a> StackFrame<'a> {
         }
     }
 
-    pub fn get(&self, value: Value) -> StackValue<'_> {
+    pub fn get(&self, value: StackValue) -> StackValueRef<'_> {
         let offset = value.0;
         debug_assert!(offset < self.stack.len());
-        StackValue {
+        StackValueRef {
             ptr: unsafe { self.stack.as_ptr().add(offset) },
             _phantom: PhantomData,
         }
     }
 
-    pub fn get_mut(&mut self, value: Value) -> StackValueMut<'_> {
+    pub fn get_mut(&mut self, value: StackValue) -> StackValueMut<'_> {
         let offset = value.0;
         debug_assert!(offset < self.stack.len());
         StackValueMut {

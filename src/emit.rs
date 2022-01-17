@@ -1,4 +1,4 @@
-use crate::ir::{Instr, LabelId, StackAllocator, Routine, UserDefinedRoutine, Value, PrimitiveType, TypedLayout};
+use crate::ir::{Instr, LabelId, StackAllocator, Routine, UserDefinedRoutine, StackValue, PrimitiveType, TypedLayout};
 use crate::layout::StructLayout;
 use crate::location::Location;
 use crate::literal::Literal;
@@ -142,13 +142,13 @@ pub fn emit_function_declaration<'a>(
         .set_routine_of_function(function_id, ctx.calling, routine);
 }
 
-fn emit_node<'a>(ctx: &mut Context<'a, '_>, mut node: NodeView<'a>) -> Value {
+fn emit_node<'a>(ctx: &mut Context<'a, '_>, mut node: NodeView<'a>) -> StackValue {
     ctx.emit_debug(node.loc);
 
     let node_type_id = TypeId::Node(ctx.variant_id, node.id);
 
     match &node.kind {
-        NodeKind::Empty => Value::ZST,
+        NodeKind::Empty => StackValue::ZST,
         NodeKind::Break {
             label: label_id,
             num_defer_deduplications,
@@ -173,7 +173,7 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, mut node: NodeView<'a>) -> Value {
             ctx.emit_move(label_value, from, from_layout);
             ctx.emit_jump(ir_label);
 
-            Value::ZST
+            StackValue::ZST
         }
         NodeKind::For {
             is_const: Some(_),
@@ -565,7 +565,7 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, mut node: NodeView<'a>) -> Value {
             let from = emit_node(ctx, from);
             emit_declarative_lvalue(ctx, to, from, false);
 
-            let empty_result = Value::ZST;
+            let empty_result = StackValue::ZST;
             empty_result
         }
         NodeKind::Binary { op } => {
@@ -651,12 +651,12 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, mut node: NodeView<'a>) -> Value {
             /*let type_ = ctx.ast.get(*inner).type_();
             let constant =
                 crate::interp::emit_and_run(ctx.thread_context, ctx.program, ctx.locals, &ctx.ast, *inner);
-            Value::Global(constant, type_)*/
+            StackValue::Global(constant, type_)*/
         }
         NodeKind::Defer => {
             let [deferring] = node.children.as_array();
             ctx.defers.push(deferring);
-            Value::ZST
+            StackValue::ZST
         }
         NodeKind::Block { label } => {
             let num_defers_at_start = ctx.defers.len();
@@ -857,7 +857,7 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, mut node: NodeView<'a>) -> Value {
 fn emit_declarative_lvalue<'a>(
     ctx: &mut Context<'a, '_>,
     mut node: NodeView<'a>,
-    from: Value,
+    from: StackValue,
     is_declaring: bool,
 ) {
     ctx.emit_debug(node.loc);
@@ -954,7 +954,7 @@ fn emit_lvalue<'a>(
     ctx: &mut Context<'a, '_>,
     can_reference_temporaries: bool,
     mut node: NodeView<'a>,
-) -> Value {
+) -> StackValue {
     ctx.emit_debug(node.loc);
 
     // @TODO: Creating all these types suck, maybe we should remove the damn `Global` thing from registers,
@@ -1053,7 +1053,7 @@ impl Context<'_, '_> {
         }
     }
 
-    fn create_reg_and_typed_layout(&mut self, type_id: TypeId) -> (Value, TypedLayout) {
+    fn create_reg_and_typed_layout(&mut self, type_id: TypeId) -> (StackValue, TypedLayout) {
         let number_type = self.to_number_type(type_id);
 
         let type_ = self.types.get(type_id);
@@ -1068,7 +1068,7 @@ impl Context<'_, '_> {
         )
     }
 
-    fn create_reg_and_layout(&mut self, type_id: TypeId) -> (Value, Layout) {
+    fn create_reg_and_layout(&mut self, type_id: TypeId) -> (StackValue, Layout) {
         let layout = *self.types.get(type_id).layout.unwrap();
 
         (
@@ -1077,15 +1077,15 @@ impl Context<'_, '_> {
         )
     }
 
-    fn create_reg(&mut self, type_id: TypeId) -> Value {
+    fn create_reg(&mut self, type_id: TypeId) -> StackValue {
         self.create_reg_and_layout(type_id).0
     }
 
-    fn create_reg_with_layout(&mut self, layout: Layout) -> Value {
+    fn create_reg_with_layout(&mut self, layout: Layout) -> StackValue {
         debug_assert!(layout.align > 0, "Incomplete layout");
 
         if layout.size == 0 {
-            Value::ZST
+            StackValue::ZST
         } else {
             self.registers.create(layout.align, layout.size)
         }
@@ -1102,7 +1102,7 @@ impl Context<'_, '_> {
         self.instr.push(Instr::LabelDefinition(label_id));
     }
 
-    fn emit_global(&mut self, to: Value, global: ConstantRef, layout: Layout) {
+    fn emit_global(&mut self, to: StackValue, global: ConstantRef, layout: Layout) {
         if layout.size != 0 {
             let temp = self.create_reg_with_layout(Layout::PTR);
             self.instr.push(Instr::RefGlobal { to_ptr: temp, global });
@@ -1110,14 +1110,14 @@ impl Context<'_, '_> {
         }
     }
 
-    fn emit_ref_to_global(&mut self, to_ptr: Value, global: ConstantRef, type_: crate::types::Type) {
+    fn emit_ref_to_global(&mut self, to_ptr: StackValue, global: ConstantRef, type_: crate::types::Type) {
         if type_.size() != 0 {
             println!("{}", crate::program::constant_to_str(type_, global, 0));
             self.instr.push(Instr::RefGlobal { to_ptr, global });
         }
     }
 
-    fn emit_jump_if_zero(&mut self, condition: Value, to: LabelId) {
+    fn emit_jump_if_zero(&mut self, condition: StackValue, to: LabelId) {
         self.instr.push(Instr::JumpIfZero { condition, to });
     }
 
@@ -1125,32 +1125,32 @@ impl Context<'_, '_> {
         self.instr.push(Instr::Jump { to });
     }
 
-    fn emit_set_to_zero(&mut self, to_ptr: Value, layout: Layout) {
+    fn emit_set_to_zero(&mut self, to_ptr: StackValue, layout: Layout) {
         self.instr.push(Instr::SetToZero { to_ptr, size: layout.size });
     }
 
-    fn emit_convert_num(&mut self, to: Value, to_number: PrimitiveType, from: Value, from_number: PrimitiveType) {
+    fn emit_convert_num(&mut self, to: StackValue, to_number: PrimitiveType, from: StackValue, from_number: PrimitiveType) {
         self.instr.push(Instr::ConvertNum { to, to_number, from, from_number });
     }
 
-    fn emit_member(&mut self, to: Value, of: Value, member_offset: usize, size: usize) {
+    fn emit_member(&mut self, to: StackValue, of: StackValue, member_offset: usize, size: usize) {
         if size != 0 {
-            let member = Value(of.0 + member_offset);
+            let member = StackValue(of.0 + member_offset);
             self.instr.push(Instr::Move { to, from: member, size });
         }
     }
 
-    fn emit_reference(&mut self, to: Value, from: Value) {
+    fn emit_reference(&mut self, to: StackValue, from: StackValue) {
         self.instr.push(Instr::StackPtr { to, take_pointer_to: from });
     }
 
-    fn emit_dereference(&mut self, to: Value, from_ptr: Value, layout: Layout) {
+    fn emit_dereference(&mut self, to: StackValue, from_ptr: StackValue, layout: Layout) {
         if layout.size != 0 {
             self.instr.push(Instr::Dereference { to, from_ptr, size: layout.size });
         }
     }
 
-    fn emit_move_imm(&mut self, to: Value, from: [u8; 8], layout: Layout) {
+    fn emit_move_imm(&mut self, to: StackValue, from: [u8; 8], layout: Layout) {
         if layout.size != 0 {
             self.instr.push(Instr::MoveImm {
                 to,
@@ -1160,7 +1160,7 @@ impl Context<'_, '_> {
         }
     }
 
-    fn emit_move(&mut self, to: Value, from: Value, layout: Layout) {
+    fn emit_move(&mut self, to: StackValue, from: StackValue, layout: Layout) {
         if layout.size != 0 {
             self.instr.push(Instr::Move {
                 to,
@@ -1170,7 +1170,7 @@ impl Context<'_, '_> {
         }
     }
 
-    fn emit_indirect_move(&mut self, to_ptr: Value, from: Value, layout: Layout) {
+    fn emit_indirect_move(&mut self, to_ptr: StackValue, from: StackValue, layout: Layout) {
         if layout.size != 0 {
             self.instr.push(Instr::IndirectMove {
                 to_ptr,
@@ -1180,23 +1180,23 @@ impl Context<'_, '_> {
         }
     }
 
-    fn emit_call(&mut self, to: (Value, TypedLayout), pointer: Value, args: Vec<(Value, TypedLayout)>, loc: Location) {
+    fn emit_call(&mut self, to: (StackValue, TypedLayout), pointer: StackValue, args: Vec<(StackValue, TypedLayout)>, loc: Location) {
         self.instr.push(Instr::Call { to, pointer, args, loc });
     }
 
-    fn emit_unary(&mut self, op: UnaryOp, to: Value, from: Value, type_: PrimitiveType) {
+    fn emit_unary(&mut self, op: UnaryOp, to: StackValue, from: StackValue, type_: PrimitiveType) {
         self.instr.push(Instr::Unary { op, to, from, type_ });
     }
 
-    fn emit_binary_imm_u64(&mut self, op: BinaryOp, to: Value, a: Value, b: u64) {
+    fn emit_binary_imm_u64(&mut self, op: BinaryOp, to: StackValue, a: StackValue, b: u64) {
         self.instr.push(Instr::BinaryImm { to, a, b, op, type_: PrimitiveType::U64 });
     }
 
-    fn emit_binary(&mut self, op: BinaryOp, to: Value, a: Value, b: Value, type_: PrimitiveType) {
+    fn emit_binary(&mut self, op: BinaryOp, to: StackValue, a: StackValue, b: StackValue, type_: PrimitiveType) {
         self.instr.push(Instr::Binary { to, a, b, op, type_ });
     }
 
-    fn emit_incr_ptr(&mut self, to: Value, amount: Value, scale: usize) {
+    fn emit_incr_ptr(&mut self, to: StackValue, amount: StackValue, scale: usize) {
         self.instr.push(Instr::IncrPtr { to, amount, scale });
     }
 
@@ -1251,6 +1251,6 @@ impl Context<'_, '_> {
     }
 }
 
-fn get_member(value: Value, offset: usize) -> Value {
-    Value(value.0 + offset)
+fn get_member(value: StackValue, offset: usize) -> StackValue {
+    StackValue(value.0 + offset)
 }

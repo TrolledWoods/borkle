@@ -14,14 +14,10 @@ import "tests/main.bo";
 // Roadmap for full(and decent) x64 support:
 //
 // - Proper register allocator
-// * - Modulo/Division
-// * - Handle large arguments
 // - Handle floats
-// * - Actually handle getting passed arguments, 
-// * - fill the return slot.
 // - Support multiple calling conventions; for one, we can do one that's better than the windows one, and, linux/mac probably don't use the same one anyway, so we need this logic
 // - Generalize moving memory from one place to another(basically memcpy intrinsic)
-// - `cfg` tag to do some form of conditional compilation; will not be like C preprocessor directives though, since we both run at compile-time and at runtime, so that isn't good enough
+// - Defer to typechecking improvement to allow for implicit casts again -> `cfg` tag to do some form of conditional compilation; will not be like C preprocessor directives though, since we both run at compile-time and at runtime, so that isn't good enough
 
 // TODO:
 // - Make [ptr + usize -> _] also infer to [ptr + usize -> ptr] (maybe similar for other operators too?)

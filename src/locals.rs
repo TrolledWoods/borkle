@@ -1,5 +1,5 @@
 use crate::location::Location;
-use crate::ir::Value;
+use crate::ir::StackValue;
 use crate::ast::NodeId;
 use crate::types::Type;
 use ustr::Ustr;
@@ -21,7 +21,7 @@ pub struct Local {
     /// matches.
     pub stack_frame_id: crate::type_infer::ValueSetId,
     pub read_only: bool,
-    pub value: Option<Value>,
+    pub value: Option<StackValue>,
     pub uses: Vec<Location>,
     pub num_uses: usize,
 }
@@ -58,7 +58,7 @@ pub struct Label {
     pub type_infer_value_id: crate::type_infer::ValueId,
     pub stack_frame_id: crate::type_infer::ValueSetId,
     pub type_: Option<Type>,
-    pub value: Option<crate::ir::Value>,
+    pub value: Option<crate::ir::StackValue>,
     pub ir_labels: Option<Vec<crate::ir::LabelId>>,
 }
 
