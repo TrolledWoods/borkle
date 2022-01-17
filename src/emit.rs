@@ -1024,6 +1024,19 @@ fn emit_lvalue<'a>(
     }
 }
 
+enum Value {
+    Immediate([u8; 8]),
+    Constant {
+        constant: ConstantRef,
+        offset: usize,
+    },
+    Stack(StackValue),
+    RefInStack {
+        value: StackValue,
+        offset: usize,
+    },
+}
+
 pub struct Context<'a, 'b> {
     pub thread_context: &'a mut ThreadContext<'b>,
     pub instr: Vec<Instr>,
@@ -1050,6 +1063,43 @@ impl Context<'_, '_> {
             }
 
             self.instr.push(Instr::DebugLocation(loc));
+        }
+    }
+
+    fn flush_value(&mut self, from: Value, layout: Layout) -> StackValue {
+        let temp = self.create_reg_with_layout(layout);
+        self.flush_value_to(temp, from, layout);
+        temp
+    }
+
+    fn flush_value_to(&mut self, to: StackValue, from: Value, layout: Layout) {
+        if layout.size == 0 { return; }
+
+        match from {
+            Value::Immediate(num) => {
+                self.emit_move_imm(to, num, layout);
+            }
+            Value::Constant { constant, offset } => {
+                // TODO: This can be done more efficiently if RefGlobal allows an offset.
+                let temp = self.create_reg_with_layout(Layout::PTR);
+                self.instr.push(Instr::RefGlobal { to_ptr: temp, global: constant });
+                self.emit_binary_imm_u64(BinaryOp::Add, temp, temp, offset as u64);
+                self.emit_dereference(to, temp, layout);
+            }
+            Value::Stack(value) => {
+                self.emit_move(to, value, layout);
+            }
+            Value::RefInStack { value, offset } => {
+                if offset == 0 {
+                    self.emit_dereference(to, value, layout);
+                } else {
+                    // TODO: This can be done more efficiently if Dereference allows an offset.
+                    let temp = self.create_reg_with_layout(Layout::PTR);
+                    self.emit_move(temp, value, Layout::PTR);
+                    self.emit_binary_imm_u64(BinaryOp::Add, temp, temp, offset as u64);
+                    self.emit_dereference(to, temp, layout);
+                }
+            }
         }
     }
 
