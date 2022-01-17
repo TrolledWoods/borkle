@@ -181,7 +181,7 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, mut node: NodeView<'a>) -> Value {
         } => {
             let [iterating, i_value_decl, mut inner, else_body] = node.children.as_array();
 
-            let AdditionalInfoKind::ConstForAstVariants(variants) = &ctx.additional_info[&(ctx.variant_id, node.id)] else { panic!() };
+            let &AdditionalInfoKind::ConstForAstVariants { referenced, ref variant_ids } = &ctx.additional_info[&(ctx.variant_id, node.id)] else { panic!() };
 
             let end_label = ctx.create_label();
 
@@ -192,23 +192,52 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, mut node: NodeView<'a>) -> Value {
             let i_value = ctx.create_reg(TypeId::Node(ctx.variant_id, i_value_decl.id));
             ctx.emit_move_imm(i_value, 0_usize.to_le_bytes(), Layout::USIZE);
 
-            let iterating_value = emit_node(ctx, iterating.clone());
-            let mut iterating_value_fields = StructLayout::new(0);
-            for &variant_id in variants.iter() {
-                emit_declarative_lvalue(ctx, i_value_decl.clone(), i_value, true);
+            // TODO: Figure out how to abstract this.
+            if referenced {
+                let iterating_value_ptr = emit_node(ctx, iterating.clone());
 
-                let [v_value_decl, body] = inner.children.as_array();
+                let mut old_field_offset = 0;
+                let mut iterating_value_fields = StructLayout::new(0);
+                for &variant_id in variant_ids.iter() {
+                    let [v_value_decl, body] = inner.children.as_array();
 
-                let field_layout = *ctx.types.get(TypeId::Node(variant_id, v_value_decl.id)).layout.unwrap();
-                let field_offset = iterating_value_fields.next(field_layout);
+                    let field_layout = *ctx.types.get(TypeId::Node(variant_id, v_value_decl.id)).layout.unwrap();
+                    let new_field_offset = iterating_value_fields.next(field_layout);
+                    if new_field_offset != old_field_offset {
+                        ctx.emit_binary_imm_u64(BinaryOp::Add, iterating_value_ptr, iterating_value_ptr, (new_field_offset - old_field_offset) as u64);
+                    }
+                    old_field_offset = new_field_offset;
 
-                let old_variant_id = ctx.variant_id;
-                ctx.variant_id = variant_id;
-                emit_declarative_lvalue(ctx, v_value_decl, get_member(iterating_value, field_offset), true);
-                emit_node(ctx, body);
-                ctx.variant_id = old_variant_id;
+                    emit_declarative_lvalue(ctx, i_value_decl.clone(), i_value, true);
 
-                ctx.emit_binary_imm_u64(BinaryOp::Add, i_value, i_value, 1);
+                    let old_variant_id = ctx.variant_id;
+                    ctx.variant_id = variant_id;
+                    emit_declarative_lvalue(ctx, v_value_decl, iterating_value_ptr, true);
+                    emit_node(ctx, body);
+                    ctx.variant_id = old_variant_id;
+
+                    ctx.emit_binary_imm_u64(BinaryOp::Add, i_value, i_value, 1);
+                }
+            } else {
+                let iterating_value = emit_node(ctx, iterating.clone());
+
+                let mut iterating_value_fields = StructLayout::new(0);
+                for &variant_id in variant_ids.iter() {
+                    emit_declarative_lvalue(ctx, i_value_decl.clone(), i_value, true);
+
+                    let [v_value_decl, body] = inner.children.as_array();
+
+                    let field_layout = *ctx.types.get(TypeId::Node(variant_id, v_value_decl.id)).layout.unwrap();
+                    let field_offset = iterating_value_fields.next(field_layout);
+
+                    let old_variant_id = ctx.variant_id;
+                    ctx.variant_id = variant_id;
+                    emit_declarative_lvalue(ctx, v_value_decl, get_member(iterating_value, field_offset), true);
+                    emit_node(ctx, body);
+                    ctx.variant_id = old_variant_id;
+
+                    ctx.emit_binary_imm_u64(BinaryOp::Add, i_value, i_value, 1);
+                }
             }
 
             let evaluate_to = emit_node(ctx, else_body);

@@ -38,7 +38,10 @@ pub enum AdditionalInfoKind {
     Function(FunctionId),
     IsExpression(type_infer::ComparisonId),
     ConstIfResult(bool),
-    ConstForAstVariants(Vec<AstVariantId>),
+    ConstForAstVariants {
+        referenced: bool,
+        variant_ids: Vec<AstVariantId>,
+    },
     Constant(ConstantRef),
     Monomorphised(MemberId),
 }
@@ -316,13 +319,26 @@ fn subset_was_completed(ctx: &mut Context<'_, '_>, ast: &mut Ast, waiting_on: Wa
             let node = ast.get(node_id);
             let [iterator, _i_value, mut inner, _else_body] = node.children.into_array();
 
-            let iterator_type = ctx.infer.get(iterator_type);
+            let mut iterator_type = ctx.infer.get(iterator_type);
+
+            let mut referenced = false;
+            if matches!(iterator_type.kind(), TypeKind::Reference) {
+                iterator_type = ctx.infer.get(iterator_type.args()[0]);
+                referenced = true;
+            }
+
             if !matches!(iterator_type.kind(), TypeKind::Tuple) {
-                ctx.errors.error(iterator.loc, "Constant for loops can only iterate over tuples for now".to_string());
+                ctx.errors.error(iterator.loc, "Constant for loops can only iterate over tuples or references of tuples".to_string());
                 return;
             }
 
-            let iterator_args = iterator_type.args().to_vec();
+            let iterator_args: Vec<_> = if referenced {
+                iterator_type.args().to_vec().into_iter().map(|v| {
+                    ctx.infer.add_type(TypeKind::Reference, Args([(v, Reason::temp(node.loc))]), parent_set)
+                }).collect()
+            } else {
+                iterator_type.args().to_vec()
+            };
 
             let mut emit_deps = ctx.infer.value_sets.get_mut(parent_set).emit_deps.take().unwrap_or_default();
             let mut sub_ctx = Context {
@@ -355,7 +371,7 @@ fn subset_was_completed(ctx: &mut Context<'_, '_>, ast: &mut Ast, waiting_on: Wa
             }
 
             ctx.infer.value_sets.get_mut(parent_set).emit_deps = Some(emit_deps);
-            ctx.additional_info.insert((ast_variant_id, node_id), AdditionalInfoKind::ConstForAstVariants(variant_ids));
+            ctx.additional_info.insert((ast_variant_id, node_id), AdditionalInfoKind::ConstForAstVariants { referenced, variant_ids });
 
             ctx.infer.value_sets.unlock(parent_set);
         }

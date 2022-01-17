@@ -2,16 +2,13 @@ library "windows.bo";
 import "tests/main.bo";
 
 #entry fn() {
-    let arr = ["hello\tafter tab", "my", "name", "is", "bob"];
-    defer for arr  print("Element at % is %, raw_text is %\n", i, v, raw_text(v));
-
     let timer = start_timer();
 
     run_tests();
 
     print("Took % nanos\n", read_timer_nanos(timer));
 
-    // ExitProcess(99);
+    ExitProcess(99);
 };
 
 // Roadmap for full(and decent) x64 support:

@@ -290,7 +290,7 @@ const init_map = fn(map: [] u64) {
         };
 
         if message_timer > 0 && (message_timer / MESSAGE_BLINK_SPEED) % 2 == 0 {
-            write(buf_writer(&{ screen }), "%", pad(message, WIDTH, PAD_CENTER, *"=".ptr));
+            write(buf_writer(&{ screen }), "%", pad(raw_text(message), WIDTH, PAD_CENTER, *"=".ptr));
         } else {
             write(buf_writer(&{ screen }), "Score: % ", score);
         };
