@@ -66,6 +66,11 @@ impl TypedLayout {
         primitive: None,
         layout: Layout::ZST,
     };
+
+    pub const PTR: TypedLayout = TypedLayout {
+        primitive: Some(PrimitiveType::U64),
+        layout: Layout::PTR,
+    };
     
     pub fn size(&self) -> usize {
         self.layout.size
