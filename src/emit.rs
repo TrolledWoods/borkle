@@ -1072,6 +1072,7 @@ enum Value {
         value: StackValue,
         offset: usize,
     },
+    Tuple(Vec<(Value, TypedLayout)>),
 }
 
 impl Value {
@@ -1146,6 +1147,18 @@ impl Context<'_, '_> {
                     self.emit_binary_imm_u64(BinaryOp::Add, to_ptr, to_ptr, offset as u64);
                 }
             }
+            Value::Tuple(ref fields) => {
+                // TODO: Later, we want a "flush value offset", that lets you flush to an offset of something.
+                let temp = self.create_reg_with_layout(Layout::PTR);
+                let mut tuple_layout = StructLayout::new(0);
+                let mut prev_offset = 0;
+                for &(ref field, field_layout) in fields {
+                    let new_offset = tuple_layout.next(field_layout.layout);
+                    self.emit_binary_imm_u64(BinaryOp::Add, temp, temp, (new_offset - prev_offset) as u64);
+                    prev_offset = new_offset;
+                    self.flush_value_to_indirect(temp, field, field_layout);
+                }
+            }
         }
     }
 
@@ -1179,6 +1192,13 @@ impl Context<'_, '_> {
                     self.emit_move(temp, value, Layout::PTR);
                     self.emit_binary_imm_u64(BinaryOp::Add, temp, temp, offset as u64);
                     self.emit_dereference(to, temp, layout.layout);
+                }
+            }
+            Value::Tuple(ref fields) => {
+                let mut tuple_layout = StructLayout::new(0);
+                for &(ref field, field_layout) in fields {
+                    let new_offset = tuple_layout.next(field_layout.layout);
+                    self.flush_value_to(StackValue(to.0 + new_offset), field, field_layout);
                 }
             }
         }

@@ -1,4 +1,11 @@
-library "windows.bo";
+#no_base:
+
+#entry fn() {
+    // let (x, y) = (5 : u32, 2 : u32);
+    let (_, x) = (99 : u32, 42 : u32);
+};
+
+/*library "windows.bo";
 import "tests/main.bo";
 
 #entry fn() {
@@ -9,7 +16,7 @@ import "tests/main.bo";
     print("Took % nanos\n", read_timer_nanos(timer));
 
     ExitProcess(99);
-};
+};*/
 
 // Roadmap for full(and decent) x64 support:
 //

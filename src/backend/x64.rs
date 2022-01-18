@@ -685,9 +685,11 @@ fn emit_routine(
 ) -> fmt::Result {
     let is_debugging = program.arguments.debug;
 
+    let mut prev_line = 0;
     if is_debugging {
         let loc = routine.loc;
         writeln!(out, "%line {:0>3}+000 {}", loc.line, loc.file)?;
+        prev_line = loc.line;
     }
 
     writeln!(extern_defs, "global {}", function_symbol(function_id)).unwrap();
@@ -844,7 +846,10 @@ fn emit_routine(
         match *instr {
             Instr::DebugLocation(loc) => {
                 if is_debugging {
-                    writeln!(ctx.out, "%line {:0>3}+000 {}", loc.line, loc.file)?;
+                    if loc.line != prev_line {
+                        writeln!(ctx.out, "%line {:0>3}+000 {}", loc.line, loc.file)?;
+                        prev_line = loc.line;
+                    }
                 }
             }
             Instr::Call { to: (to, to_layout), pointer, ref args, loc: _ } => {
