@@ -1,4 +1,4 @@
-#no_base:
+/*#no_base:
 
 #entry fn() {
     let thing = (1 : u32, 2 : u32);
@@ -6,9 +6,9 @@
     let thing_ptr = &thing;
 
     let (x, y) = (thing_ptr._1, thing_ptr._0);
-};
+};*/
 
-/*library "windows.bo";
+library "windows.bo";
 import "tests/main.bo";
 
 #entry fn() {
@@ -19,7 +19,7 @@ import "tests/main.bo";
     print("Took % nanos\n", read_timer_nanos(timer));
 
     ExitProcess(99);
-};*/
+};
 
 // IR emission improvements
 //

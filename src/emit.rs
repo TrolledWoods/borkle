@@ -541,11 +541,17 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, mut node: NodeView<'a>) -> (Value, T
             let (mut of, mut of_layout) = emit_node(ctx, of);
             if let Some(type_infer::Type { kind: type_infer::TypeKind::Reference, args }) = ctx.types.get(of_type_id).kind {
                 of_type_id = args.as_ref().unwrap()[0];
-                let of_flushed = ctx.flush_value(&of, of_layout);
-                let (new_reg, layout) = ctx.create_reg_and_typed_layout(of_type_id);
-                ctx.emit_dereference(new_reg, of_flushed, layout.layout);
-                of = Value::Stack(new_reg);
-                of_layout = layout;
+
+                if let Value::Stack(of_stack) = of {
+                    of = Value::RefInStack { value: of_stack, offset: 0 };
+                    of_layout = ctx.get_typed_layout(of_type_id);
+                } else {
+                    let of_flushed = ctx.flush_value(&of, of_layout);
+                    let (new_reg, layout) = ctx.create_reg_and_typed_layout(of_type_id);
+                    ctx.emit_dereference(new_reg, of_flushed, layout.layout);
+                    of = Value::Stack(new_reg);
+                    of_layout = layout;
+                }
             }
 
             let of_type = ctx.types.value_to_compiler_type(of_type_id);
