@@ -1,8 +1,11 @@
 #no_base:
 
 #entry fn() {
-    // let (x, y) = (5 : u32, 2 : u32);
-    let (_, x) = (99 : u32, 42 : u32);
+    let thing = (1 : u32, 2 : u32);
+
+    let thing_ptr = &thing;
+
+    let (x, y) = (thing_ptr._1, thing_ptr._0);
 };
 
 /*library "windows.bo";
@@ -18,9 +21,13 @@ import "tests/main.bo";
     ExitProcess(99);
 };*/
 
+// IR emission improvements
+//
+// - Swapping variables using destructuring, for example, (x, y) = (y, x), is broken with the current system, this should be fixed!
+// - Arrays need a `Value` as well.
+
 // Roadmap for full(and decent) x64 support:
 //
-// - Proper register allocator
 // - Handle floats
 // - Support multiple calling conventions; for one, we can do one that's better than the windows one, and, linux/mac probably don't use the same one anyway, so we need this logic
 // - Generalize moving memory from one place to another(basically memcpy intrinsic)

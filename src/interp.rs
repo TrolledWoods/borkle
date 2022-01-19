@@ -222,19 +222,19 @@ fn interp_internal(program: &Program, stack: &mut StackFrame<'_>, routine: &User
                     *to_ptr = from_ptr;
                 }
             }
-            Instr::IndirectMove { to_ptr, from, size } => {
+            Instr::IndirectMove { to_ptr, from, offset, size } => {
                 let to_ptr = unsafe { stack.get_mut(to_ptr).read::<*mut u8>() };
                 let from_ptr = stack.get(from).as_ptr();
                 unsafe {
-                    std::ptr::copy(from_ptr, to_ptr, size);
+                    std::ptr::copy(from_ptr, to_ptr.add(offset), size);
                 }
             }
-            Instr::Dereference { to, from_ptr, size } => {
+            Instr::Dereference { to, from_ptr, offset, size } => {
                 let ptr = unsafe { stack.get(from_ptr).read::<*const u8>() };
 
                 let to_ptr = stack.get_mut(to).as_mut_ptr();
                 unsafe {
-                    std::ptr::copy(ptr, to_ptr, size);
+                    std::ptr::copy(ptr.add(offset), to_ptr, size);
                 }
             }
             Instr::ConvertNum {

@@ -92,6 +92,8 @@ pub enum Instr {
         args: Vec<(StackValue, TypedLayout)>,
         loc: Location,
     },
+    // TODO: We want this to take a pointer as well. Do we want some way to generically
+    // take either a pointer, or a stack value?
     SetToZero {
         to_ptr: StackValue,
         size: usize,
@@ -141,12 +143,14 @@ pub enum Instr {
     },
     IndirectMove {
         to_ptr: StackValue,
+        offset: usize,
         from: StackValue,
         size: usize,
     },
     Dereference {
         to: StackValue,
         from_ptr: StackValue,
+        offset: usize,
         size: usize,
     },
     ConvertNum {

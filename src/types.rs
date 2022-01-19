@@ -146,27 +146,12 @@ impl Type {
     }
 
     pub fn member(self, member_name: Ustr) -> Option<Member> {
-        for &(name, offset, type_) in &self.0.members {
+        for (i, &(name, offset, type_)) in self.0.members.iter().enumerate() {
             if name == member_name {
                 return Some(Member {
+                    index: i,
                     byte_offset: offset,
                     indirections: 1,
-                    type_,
-                });
-            }
-        }
-
-        for &Alias {
-            name,
-            offset,
-            indirections,
-            type_,
-        } in &self.0.aliases
-        {
-            if name == member_name {
-                return Some(Member {
-                    byte_offset: offset,
-                    indirections,
                     type_,
                 });
             }
@@ -618,6 +603,7 @@ pub struct Alias {
 }
 
 pub struct Member {
+    pub index: usize,
     pub byte_offset: usize,
     pub indirections: usize,
     pub type_: Type,

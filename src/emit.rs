@@ -536,16 +536,16 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, mut node: NodeView<'a>) -> (Value, T
             // TODO: This can be optimized heavily using the value system.
 
             let [of] = node.children.as_array();
-            let (to, to_layout) = ctx.create_reg_and_typed_layout(TypeId::Node(ctx.variant_id, node.id));
 
             let mut of_type_id = TypeId::Node(ctx.variant_id, of.id);
-            let (of, of_layout) = emit_node(ctx, of);
-            let mut of = ctx.flush_value(&of, of_layout);
+            let (mut of, mut of_layout) = emit_node(ctx, of);
             if let Some(type_infer::Type { kind: type_infer::TypeKind::Reference, args }) = ctx.types.get(of_type_id).kind {
                 of_type_id = args.as_ref().unwrap()[0];
-                let (new_reg, layout) = ctx.create_reg_and_layout(of_type_id);
-                ctx.emit_dereference(new_reg, of, layout);
-                of = new_reg;
+                let of_flushed = ctx.flush_value(&of, of_layout);
+                let (new_reg, layout) = ctx.create_reg_and_typed_layout(of_type_id);
+                ctx.emit_dereference(new_reg, of_flushed, layout.layout);
+                of = Value::Stack(new_reg);
+                of_layout = layout;
             }
 
             let of_type = ctx.types.value_to_compiler_type(of_type_id);
@@ -555,13 +555,10 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, mut node: NodeView<'a>) -> (Value, T
 
             debug_assert_eq!(member.indirections, 1);
 
-            ctx.emit_move(
-                to,
-                get_member(of, member.byte_offset),
-                to_layout.layout,
-            );
+            let member = ctx.get_member_of_value(&of, of_layout, member.index, member.byte_offset);
+            let layout = ctx.get_typed_layout(node_type_id);
 
-            (Value::Stack(to), to_layout)
+            (member, layout)
         }
         NodeKind::Binary {
             op: BinaryOp::Assign,
@@ -601,21 +598,15 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, mut node: NodeView<'a>) -> (Value, T
             (Value::Stack(to), to_layout)
         }
         NodeKind::Tuple => {
-            // TODO: We want a `Value` that is just a tuple, to allow destructuring to be very fast later on.
+            let to_layout = ctx.get_typed_layout(node_type_id);
 
-            let (to, to_layout) = ctx.create_reg_and_typed_layout(node_type_id);
-
-            let mut fields = StructLayout::new(0);
+            let mut nodes = Vec::new();
             for child in node.children.into_iter() {
-                let child_layout = *ctx.types.get(TypeId::Node(ctx.variant_id, child.id)).layout.unwrap();
                 let (child_value, child_value_layout) = emit_node(ctx, child);
-                let child_value = ctx.flush_value(&child_value, child_value_layout);
-
-                let offset = fields.next(child_layout);
-                ctx.emit_move(get_member(to, offset), child_value, child_layout);
+                nodes.push((child_value, child_value_layout));
             }
 
-            (Value::Stack(to), to_layout)
+            (Value::Tuple(nodes), to_layout)
         }
         NodeKind::ArrayLiteral => {
             // TODO: We want a `Value` that is just an array, to allow destructuring to be very fast later on.
@@ -900,20 +891,31 @@ fn emit_declarative_lvalue<'a>(
             emit_declarative_lvalue(ctx, value, from, true);
         }
         NodeKind::Tuple => {
-            let node_layout = ctx.get_typed_layout(node_type_id);
-            let from = ctx.flush_value(&from, node_layout);
+            match *from {
+                Value::Tuple(ref values) => {
+                    for (child, (value, _)) in node.children.into_iter().zip(values) {
+                        emit_declarative_lvalue(ctx, child, value, is_declaring);
+                    }
+                }
+                _ => {
+                    // TODO: We want to be able to get fields off of value, which can be done somewhat efficiently with
+                    // stack values, references(probably), e.t.c.
+                    let node_layout = ctx.get_typed_layout(node_type_id);
+                    let from = ctx.flush_value(&from, node_layout);
 
-            let mut temp = Vec::with_capacity(node.children.len());
-            let mut child_layouting = StructLayout::new(0);
-            for child in node.children.into_iter() {
-                let (to, child_layout) = ctx.create_reg_and_typed_layout(TypeId::Node(ctx.variant_id, child.id));
-                let offset = child_layouting.next(child_layout.layout);
-                ctx.emit_move(to, get_member(from, offset), child_layout.layout);
-                temp.push(to);
-            }
+                    let mut temp = Vec::with_capacity(node.children.len());
+                    let mut child_layouting = StructLayout::new(0);
+                    for child in node.children.into_iter() {
+                        let (to, child_layout) = ctx.create_reg_and_typed_layout(TypeId::Node(ctx.variant_id, child.id));
+                        let offset = child_layouting.next(child_layout.layout);
+                        ctx.emit_move(to, get_member(from, offset), child_layout.layout);
+                        temp.push(to);
+                    }
 
-            for (child, to) in node.children.into_iter().zip(temp) {
-                emit_declarative_lvalue(ctx, child, &Value::Stack(to), is_declaring);
+                    for (child, to) in node.children.into_iter().zip(temp) {
+                        emit_declarative_lvalue(ctx, child, &Value::Stack(to), is_declaring);
+                    }
+                }
             }
         }
         NodeKind::ArrayLiteral => {
@@ -948,19 +950,17 @@ fn emit_declarative_lvalue<'a>(
         }
         NodeKind::Local { local_id, .. } => {
             let node_layout = ctx.get_typed_layout(node_type_id);
-            let from = ctx.flush_value(&from, node_layout);
 
             if is_declaring {
                 let local = ctx.locals.get(*local_id);
                 let type_id = TypeId::Node(ctx.variant_id, local.declared_at.unwrap());
-                let (local_value, local_value_layout) = ctx.create_reg_and_layout(type_id);
+                let (local_value, _) = ctx.create_reg_and_layout(type_id);
                 let local = ctx.locals.get_mut(*local_id);
                 local.value = Some(local_value);
-                ctx.emit_move(local_value, from, local_value_layout);
+                ctx.flush_value_to(local_value, from, node_layout);
             } else {
                 let to = ctx.locals.get(*local_id).value.unwrap();
-                let layout = *ctx.types.get(node_type_id).layout.unwrap();
-                ctx.emit_move(to, from, layout);
+                ctx.flush_value_to(to, from, node_layout);
             }
         }
         NodeKind::Parenthesis => {
@@ -1105,6 +1105,33 @@ impl Context<'_, '_> {
             }
 
             self.instr.push(Instr::DebugLocation(loc));
+        }
+    }
+
+    fn get_member_of_value(&mut self, value: &Value, value_layout: TypedLayout, member_number: usize, member_offset: usize) -> Value {
+        match *value {
+            Value::Zeroed => Value::Zeroed,
+            Value::Constant { constant, offset } => {
+                Value::Constant { constant, offset: offset + member_offset }
+            }
+            Value::Stack(value) => {
+                Value::Stack(StackValue(value.0 + member_offset))
+            }
+            Value::RefInStack { value, offset } => {
+                Value::RefInStack { value, offset: offset + member_offset }
+            }
+            Value::Tuple(ref fields) => {
+                // We assume the tuple is the correct size, which we can do because of type
+                // checking (or at least, should be able to do.
+                // @Speed: This is slow because of the clone, I don't know if we can fix this.
+                // Ultimately, I'd like to get rid of allocations in Value to begin with.
+                fields[member_number].0.clone()
+            }
+            _ => {
+                // Worst case scenario is we just have to flush the value and get the member that way.
+                let stack_value = self.flush_value(value, value_layout);
+                Value::Stack(StackValue(stack_value.0 + member_offset))
+            }
         }
     }
 
@@ -1267,7 +1294,7 @@ impl Context<'_, '_> {
         if layout.size != 0 {
             let temp = self.create_reg_with_layout(Layout::PTR);
             self.instr.push(Instr::RefGlobal { to_ptr: temp, global });
-            self.instr.push(Instr::Dereference { to, from_ptr: temp, size: layout.size });
+            self.instr.push(Instr::Dereference { to, from_ptr: temp, offset: 0, size: layout.size });
         }
     }
 
@@ -1307,7 +1334,7 @@ impl Context<'_, '_> {
 
     fn emit_dereference(&mut self, to: StackValue, from_ptr: StackValue, layout: Layout) {
         if layout.size != 0 {
-            self.instr.push(Instr::Dereference { to, from_ptr, size: layout.size });
+            self.instr.push(Instr::Dereference { to, from_ptr, offset: 0, size: layout.size });
         }
     }
 
@@ -1336,6 +1363,7 @@ impl Context<'_, '_> {
             self.instr.push(Instr::IndirectMove {
                 to_ptr,
                 from,
+                offset: 0,
                 size: layout.size,
             });
         }

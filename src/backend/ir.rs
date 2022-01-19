@@ -90,11 +90,19 @@ pub fn print_instr(mut out: impl Write, instr: &Instr) {
         Instr::MoveImm { to, from, size } => {
             writeln!(out, "\tmove {}, {:?} /{}", to, &from[..*size], size).unwrap();
         }
-        Instr::Dereference { to, from_ptr, size } => {
-            writeln!(out, "\tderef {}, {} /{}", to, from_ptr, size).unwrap();
+        Instr::Dereference { to, from_ptr, offset, size } => {
+            if *offset == 0 {
+                writeln!(out, "\tderef {}, {} /{}", to, from_ptr, size).unwrap();
+            } else {
+                writeln!(out, "\tderef {}, {} + {} /{}", to, from_ptr, offset, size).unwrap();
+            }
         }
-        Instr::IndirectMove { to_ptr, from, size } => {
-            writeln!(out, "\tmove_indirect {}, {} /{}", to_ptr, from, size).unwrap();
+        Instr::IndirectMove { to_ptr, from, offset, size } => {
+            if *offset == 0 {
+                writeln!(out, "\tmove_indirect {}, {} /{}", to_ptr, from, size).unwrap();
+            } else {
+                writeln!(out, "\tmove_indirect {}, {} + {} /{}", to_ptr, from, offset, size).unwrap();
+            }
         }
         Instr::ConvertNum { to, from, to_number, from_number } => {
             writeln!(out, "\tconvert {}({:?}), {}({:?})", to, to_number, from, from_number).unwrap();

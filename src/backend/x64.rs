@@ -1107,7 +1107,7 @@ fn emit_routine(
                 ctx.reg_written_to(reg);
                 ctx.write_stack_value(reg, to_ptr, 8)?;
             }
-            Instr::IndirectMove { to_ptr, from, size } => {
+            Instr::IndirectMove { to_ptr, from, offset, size } => {
                 ctx.flush_all()?;
 
                 // TODO: Think about if we can improve this somehow, but I'm not sure we can, because we don't know
@@ -1117,10 +1117,10 @@ fn emit_routine(
                 for split in split_into_powers_of_two(size) {
                     let reg_name = Register::Rcx.name(split.size);
                     writeln!(ctx.out, "\tmov {}, {} {}", reg_name, name_of_size(split.size), ctx.stack.value_with_offset(&from, split.offset))?;
-                    writeln!(ctx.out, "\tmov {} [rax+{}], {}", name_of_size(split.size), split.offset, reg_name)?;
+                    writeln!(ctx.out, "\tmov {} [rax+{}], {}", name_of_size(split.size), split.offset + offset, reg_name)?;
                 }
             }
-            Instr::Dereference { to, from_ptr, size } => {
+            Instr::Dereference { to, from_ptr, offset, size } => {
                 ctx.push_all_changes()?;
 
                 let ptr_reg = ctx.alloc_reg()?;
@@ -1131,7 +1131,7 @@ fn emit_routine(
                 for split in split_into_powers_of_two(size) {
                     let temp_reg = ctx.alloc_reg()?;
                     ctx.push_reg_changes(temp_reg)?;
-                    writeln!(ctx.out, "\tmov {}, {} [{}+{}]", temp_reg.name(split.size), name_of_size(split.size), ptr_reg.name(8), split.offset)?;
+                    writeln!(ctx.out, "\tmov {}, {} [{}+{}]", temp_reg.name(split.size), name_of_size(split.size), ptr_reg.name(8), split.offset + offset)?;
                     ctx.reg_written_to(temp_reg);
 
                     ctx.write_stack_value(temp_reg, StackValue(to.0 + split.offset), split.size)?;
