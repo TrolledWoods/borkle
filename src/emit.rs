@@ -542,16 +542,8 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, mut node: NodeView<'a>) -> (Value, T
             if let Some(type_infer::Type { kind: type_infer::TypeKind::Reference, args }) = ctx.types.get(of_type_id).kind {
                 of_type_id = args.as_ref().unwrap()[0];
 
-                if let Value::Stack(of_stack) = of {
-                    of = Value::RefInStack { value: of_stack, offset: 0 };
-                    of_layout = ctx.get_typed_layout(of_type_id);
-                } else {
-                    let of_flushed = ctx.flush_value(&of, of_layout);
-                    let (new_reg, layout) = ctx.create_reg_and_typed_layout(of_type_id);
-                    ctx.emit_dereference(new_reg, of_flushed, layout.layout);
-                    of = Value::Stack(new_reg);
-                    of_layout = layout;
-                }
+                of = ctx.reference_value(&of, of_layout);
+                of_layout = ctx.get_typed_layout(of_type_id);
             }
 
             let of_type = ctx.types.value_to_compiler_type(of_type_id);
@@ -1114,6 +1106,18 @@ impl Context<'_, '_> {
         }
     }
 
+    fn reference_value(&mut self, value: &Value, value_layout: TypedLayout) -> Value {
+        match *value {
+            Value::Stack(stack_value) => {
+                Value::RefInStack { value: stack_value, offset: 0 }
+            }
+            _ => {
+                let stack_value = self.flush_value(value, value_layout);
+                Value::RefInStack { value: stack_value, offset: 0 }
+            }
+        }
+    }
+
     fn get_member_of_value(&mut self, value: &Value, value_layout: TypedLayout, member_number: usize, member_offset: usize) -> Value {
         match *value {
             Value::Zeroed => Value::Zeroed,
@@ -1141,6 +1145,8 @@ impl Context<'_, '_> {
         }
     }
 
+    // TODO: Do we want to do something different from flush_value_to here, because we can in theory just return the original stack value
+    // for stack values. Depends on if it should be mutated or not.
     fn flush_value(&mut self, from: &Value, layout: TypedLayout) -> StackValue {
         let temp = self.create_reg_with_layout(layout.layout);
         self.flush_value_to(temp, from, layout);

@@ -1,13 +1,3 @@
-/*#no_base:
-
-#entry fn() {
-    let thing = (1 : u32, 2 : u32);
-
-    let thing_ptr = &thing;
-
-    let (x, y) = (thing_ptr._1, thing_ptr._0);
-};*/
-
 library "windows.bo";
 import "tests/main.bo";
 
