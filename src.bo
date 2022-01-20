@@ -1,14 +1,3 @@
-/*
-#no_base:
-
-#entry fn() {
-    let thing = (3 : u32, 7 : u64);
-    let pthing = &thing;
-
-    (pthing._0, pthing._1) = (1, 2);
-};
-*/
-
 library "windows.bo";
 import "tests/main.bo";
 

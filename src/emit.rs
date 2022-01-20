@@ -541,12 +541,12 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, mut node: NodeView<'a>) -> (Value, T
             let (mut of, mut of_layout) = emit_node(ctx, of);
             if let Some(type_infer::Type { kind: type_infer::TypeKind::Reference, args }) = ctx.types.get(of_type_id).kind {
                 of_type_id = args.as_ref().unwrap()[0];
-
-                // TODO: This could be done better probably.
+                let new_of = ctx.flush_value(&of, of_layout);
                 of_layout = ctx.get_typed_layout(of_type_id);
-                let new_of = ctx.create_reg_with_layout(of_layout.layout);
-                ctx.flush_value_to_indirect(new_of, &of, of_layout);
-                of = Value::Stack(new_of);
+                of = Value::PointerInStack {
+                    stack_value: new_of,
+                    offset: 0,
+                };
             }
 
             let of_type = ctx.types.value_to_compiler_type(of_type_id);
@@ -1117,6 +1117,7 @@ impl Context<'_, '_> {
                 }
             }
 
+            self.last_location = Some(loc);
             self.instr.push(Instr::DebugLocation(loc));
         }
     }
@@ -1253,12 +1254,9 @@ impl Context<'_, '_> {
                 let to_value = self.lvalue_as_value(to);
                 let to_ptr = self.flush_value(&to_value, layout);
 
-                if offset == 0 {
-                    self.emit_move(to_ptr, stack_value, layout.layout);
-                } else {
-                    self.emit_move(to_ptr, stack_value, layout.layout);
-                    self.emit_binary_imm_u64(BinaryOp::Add, to_ptr, to_ptr, offset as u64);
-                }
+                let from = self.create_reg_with_layout(layout.layout);
+                self.emit_dereference_with_offset(from, stack_value, offset, layout.layout);
+                self.emit_indirect_move(to_ptr, from, layout.layout);
             }
             (_, &Value::Tuple(ref fields)) => {
                 // TODO: Later, we want a "flush value offset", that lets you flush to an offset of something.
@@ -1425,6 +1423,12 @@ impl Context<'_, '_> {
 
     fn emit_reference(&mut self, to: StackValue, from: StackValue) {
         self.instr.push(Instr::StackPtr { to, take_pointer_to: from });
+    }
+
+    fn emit_dereference_with_offset(&mut self, to: StackValue, from_ptr: StackValue, offset: usize, layout: Layout) {
+        if layout.size != 0 {
+            self.instr.push(Instr::Dereference { to, from_ptr, offset, size: layout.size });
+        }
     }
 
     fn emit_dereference(&mut self, to: StackValue, from_ptr: StackValue, layout: Layout) {

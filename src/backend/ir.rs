@@ -52,7 +52,9 @@ fn print_instr_list(out: &mut String, function_id: FunctionId, routine: &UserDef
 
 pub fn print_instr(mut out: impl Write, instr: &Instr) {
     match instr {
-        Instr::DebugLocation(_) => {},
+        Instr::DebugLocation(loc) => {
+            writeln!(out, "# {}, {}", loc.line, loc.file).unwrap();
+        },
         Instr::Call { to, pointer, args, loc: _ } => {
             write!(out, "\tcall {}, {}, (", to.0, pointer).unwrap();
 
@@ -101,7 +103,7 @@ pub fn print_instr(mut out: impl Write, instr: &Instr) {
             if *offset == 0 {
                 writeln!(out, "\tmove_indirect {}, {} /{}", to_ptr, from, size).unwrap();
             } else {
-                writeln!(out, "\tmove_indirect {}, {} + {} /{}", to_ptr, from, offset, size).unwrap();
+                writeln!(out, "\tmove_indirect {} + {}, {} /{}", to_ptr, offset, from, size).unwrap();
             }
         }
         Instr::ConvertNum { to, from, to_number, from_number } => {

@@ -10,7 +10,7 @@ use super::{Formatter, function_symbol, global_symbol};
 use std::cmp::{Ord, Ordering};
 use ustr::{UstrSet, UstrMap};
 
-const DEBUG_SPAM: bool = false;
+const DEBUG_SPAM: bool = true;
 
 #[derive(Default)]
 struct FileEmitter {
@@ -538,6 +538,7 @@ impl Context<'_> {
             }
         }
 
+        // TODO: I want heuristics to help with this
         if let Some(existing) = existing {
             if !existing_in_use {
                 // self.push_reg_changes(existing);

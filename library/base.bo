@@ -582,7 +582,7 @@ const write.(Args) = fn(writer: typeof Writer.(u8), format_str: [] u8, #var_args
     let splits = split(format_str, fn(v) v == PERCENT);
 
     let written = 0;
-    let sub_str = #0;
+    let sub_str = "hi";
     for #const: args {
         assert(splits.next(&splits.state, &sub_str));
         written = written + write_buf(writer, sub_str);
