@@ -495,7 +495,7 @@ pub struct ValueWrapper {
     next_in_structure_group: ValueId,
 }
 
-#[derive(Debug, Default, Clone, Copy)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub struct Layout {
     pub size: usize,
     // An align of zero means that the size hasn't been calculated yet, and the number is how many children types

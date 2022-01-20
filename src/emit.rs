@@ -542,8 +542,11 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, mut node: NodeView<'a>) -> (Value, T
             if let Some(type_infer::Type { kind: type_infer::TypeKind::Reference, args }) = ctx.types.get(of_type_id).kind {
                 of_type_id = args.as_ref().unwrap()[0];
 
-                of = ctx.reference_value(&of, of_layout);
+                // TODO: This could be done better probably.
                 of_layout = ctx.get_typed_layout(of_type_id);
+                let new_of = ctx.create_reg_with_layout(of_layout.layout);
+                ctx.flush_value_to_indirect(new_of, &of, of_layout);
+                of = Value::Stack(new_of);
             }
 
             let of_type = ctx.types.value_to_compiler_type(of_type_id);
@@ -626,7 +629,8 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, mut node: NodeView<'a>) -> (Value, T
         NodeKind::Reference => {
             let [operand] = node.children.as_array();
             let to_layout = ctx.get_typed_layout(node_type_id);
-            (Value::Stack(emit_lvalue(ctx, true, operand)), to_layout)
+            let lvalue = emit_lvalue(ctx, true, operand);
+            (ctx.lvalue_as_value(&lvalue), to_layout)
         }
         NodeKind::Unary {
             op: UnaryOp::Dereference,
@@ -874,8 +878,7 @@ fn emit_declarative_lvalue<'a>(
 
             let to = emit_lvalue(ctx, false, node);
             let layout = ctx.get_typed_layout(node_type_id);
-            let from = ctx.flush_value(&from, layout);
-            ctx.emit_indirect_move(to, from, layout.layout);
+            ctx.flush_value_to_lvalue(&to, from, layout);
         }
         NodeKind::Binary { op: BinaryOp::BitAnd } => {
             let [left, right] = node.children.into_array();
@@ -982,13 +985,15 @@ fn emit_lvalue<'a>(
     ctx: &mut Context<'a, '_>,
     can_reference_temporaries: bool,
     mut node: NodeView<'a>,
-) -> StackValue {
+    // We don't return a typed layout, because we know it's going to be a pointer.
+) -> LValue {
     ctx.emit_debug(node.loc);
 
+    let node_type_id = TypeId::Node(ctx.variant_id, node.id);
     // @TODO: Creating all these types suck, maybe we should remove the damn `Global` thing from registers,
     // and instead let them just be pointers to values? These pointers wouldn't even be considered pointers from
     // the language, but just registers that need to point to things.
-    let ref_type_id = ctx.types.add_type(type_infer::TypeKind::Reference, Args([(TypeId::Node(ctx.variant_id, node.id), Reason::temp_zero())]), ());
+    let ref_type_id = ctx.types.add_type(type_infer::TypeKind::Reference, Args([(node_type_id, Reason::temp_zero())]), ());
 
     match &node.kind {
         NodeKind::Member { name } => {
@@ -998,8 +1003,9 @@ fn emit_lvalue<'a>(
             let (base_type, parent_value) = if let Some(type_infer::Type { kind: type_infer::TypeKind::Reference, args }) = ctx.types.get(TypeId::Node(ctx.variant_id, of.id)).kind {
                 let arg = args.as_ref().unwrap()[0];
                 let (of, of_layout) = emit_node(ctx, of);
-                let of = ctx.flush_value(&of, of_layout);
-                (ctx.types.value_to_compiler_type(arg), of)
+                let of_lvalue = ctx.value_as_lvalue(&of);
+                debug_assert_eq!(of_layout, TypedLayout::PTR);
+                (ctx.types.value_to_compiler_type(arg), of_lvalue)
             } else {
                 let parent_value = emit_lvalue(ctx, can_reference_temporaries, of.clone());
                 (ctx.types.value_to_compiler_type(TypeId::Node(ctx.variant_id, of.id)), parent_value)
@@ -1007,29 +1013,24 @@ fn emit_lvalue<'a>(
 
             let member = base_type.member(*name).expect("This should have already been made sure to exist in the typer");
 
-            let to = ctx.create_reg(ref_type_id);
-
-            ctx.emit_binary_imm_u64(BinaryOp::Add, to, parent_value, member.byte_offset as u64);
-            to
+            ctx.get_member_of_lvalue(&parent_value, member.byte_offset)
         }
         NodeKind::Unary {
             op: UnaryOp::Dereference,
         } => {
             let [operand] = node.children.as_array();
-            let (value, layout) = emit_node(ctx, operand);
-            ctx.flush_value(&value, layout)
+            let (value, _) = emit_node(ctx, operand);
+            ctx.value_as_lvalue(&value)
         }
         NodeKind::Local { local_id, .. } => {
-            let to = ctx.create_reg(ref_type_id);
             let from = ctx.locals.get(*local_id).value.unwrap();
-            ctx.emit_reference(to, from);
-            to
+            LValue::Specific(from)
         }
         NodeKind::ResolvedGlobal(id, _) => {
             let to = ctx.create_reg(ref_type_id);
             let (from_ref, from_type) = ctx.program.get_member_value(*id);
             ctx.emit_ref_to_global(to, from_ref, from_type);
-            to
+            LValue::Pointer { pointer: to, offset: 0 }
         }
         NodeKind::Parenthesis => {
             let [value] = node.children.as_array();
@@ -1041,11 +1042,8 @@ fn emit_lvalue<'a>(
         }
         kind => {
             if can_reference_temporaries {
-                let to = ctx.create_reg(ref_type_id);
-                let (from, from_layout) = emit_node(ctx, node);
-                let from = ctx.flush_value(&from, from_layout);
-                ctx.emit_reference(to, from);
-                to
+                let (from, _) = emit_node(ctx, node);
+                ctx.value_as_lvalue(&from)
             } else {
                 unreachable!(
                     "{:?} is not an lvalue. This is just something I haven't implemented checking for in the compiler yet",
@@ -1056,7 +1054,19 @@ fn emit_lvalue<'a>(
     }
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
+enum LValue {
+    // The lvalue is referencing a specific stack value
+    Specific(StackValue),
+    // A pointer on the stack
+    Pointer {
+        pointer: StackValue,
+        // The offset to the value behind the pointer.
+        offset: usize,
+    },
+}
+
+#[derive(Debug, Clone)]
 enum Value {
     Immediate([u8; 8]),
     Zeroed,
@@ -1066,8 +1076,13 @@ enum Value {
         offset: usize,
     },
     Stack(StackValue),
-    RefInStack {
-        value: StackValue,
+    // A pointer to a stack value, but the pointer is only imaginary.
+    // Once flushes the pointer would get pushed to the stack, though.
+    PointerToStack(StackValue),
+    // A pointer in the stack, that is pointing to the value we want (though the value
+    // we actually want is also offset by an offset).
+    PointerInStack {
+        stack_value: StackValue,
         offset: usize,
     },
     Tuple(Vec<(Value, TypedLayout)>),
@@ -1106,15 +1121,53 @@ impl Context<'_, '_> {
         }
     }
 
-    fn reference_value(&mut self, value: &Value, value_layout: TypedLayout) -> Value {
+    // Converts a value (has to be a pointer),
+    // into an lvalue
+    fn value_as_lvalue(&mut self, value: &Value) -> LValue {
         match *value {
-            Value::Stack(stack_value) => {
-                Value::RefInStack { value: stack_value, offset: 0 }
+            Value::PointerToStack(stack_value) => {
+                LValue::Specific(stack_value)
+            }
+            Value::Stack(pointer) => {
+                LValue::Pointer {
+                    pointer,
+                    offset: 0,
+                }
             }
             _ => {
-                let stack_value = self.flush_value(value, value_layout);
-                Value::RefInStack { value: stack_value, offset: 0 }
+                let pointer = self.flush_value(value, TypedLayout::PTR);
+                LValue::Pointer {
+                    pointer,
+                    offset: 0,
+                }
             }
+        }
+    }
+
+    // Converts an lvalue into a value.
+    fn lvalue_as_value(&mut self, lvalue: &LValue) -> Value {
+        match *lvalue {
+            LValue::Specific(stack_value) => Value::PointerToStack(stack_value),
+            LValue::Pointer { pointer, offset } => {
+                // TODO: I want to have some way to speficy that you have an at most
+                // 64 bit stack primitive, with an immediate addition to it, which
+                // could encode this kind of thing.
+                if offset == 0 {
+                    Value::Stack(pointer)
+                } else {
+                    let temp = self.create_reg_with_layout(Layout::PTR);
+                    self.emit_move(temp, pointer, Layout::PTR);
+                    self.emit_binary_imm_u64(BinaryOp::Add, temp, temp, offset as u64);
+                    Value::Stack(temp)
+                }
+            }
+        }
+    }
+
+    fn get_member_of_lvalue(&mut self, value: &LValue, member_offset: usize) -> LValue {
+        match *value {
+            LValue::Specific(stack_value) => LValue::Specific(StackValue(stack_value.0 + member_offset)),
+            LValue::Pointer { pointer, offset } => LValue::Pointer { pointer, offset: offset + member_offset },
         }
     }
 
@@ -1127,15 +1180,16 @@ impl Context<'_, '_> {
             Value::Stack(value) => {
                 Value::Stack(StackValue(value.0 + member_offset))
             }
-            Value::RefInStack { value, offset } => {
-                Value::RefInStack { value, offset: offset + member_offset }
-            }
+            Value::PointerToStack(_) => unreachable!("Pointers don't have members"),
             Value::Tuple(ref fields) => {
                 // We assume the tuple is the correct size, which we can do because of type
                 // checking (or at least, should be able to do.
                 // @Speed: This is slow because of the clone, I don't know if we can fix this.
                 // Ultimately, I'd like to get rid of allocations in Value to begin with.
                 fields[member_number].0.clone()
+            }
+            Value::PointerInStack { stack_value, offset } => {
+                Value::PointerInStack { stack_value, offset: offset + member_offset }
             }
             _ => {
                 // Worst case scenario is we just have to flush the value and get the member that way.
@@ -1153,42 +1207,64 @@ impl Context<'_, '_> {
         temp
     }
 
-    fn flush_value_to_indirect(&mut self, to_ptr: StackValue, from: &Value, layout: TypedLayout) {
+    fn flush_value_to_lvalue(&mut self, to: &LValue, from: &Value, layout: TypedLayout) {
         if layout.size == 0 { return; }
 
-        match *from {
-            Value::Immediate(num) => {
+        match (to, from) {
+            (&LValue::Specific(to_stack), &Value::Immediate(num)) => {
+                self.emit_move_imm(to_stack, num, layout.layout);
+            }
+            (&LValue::Pointer { pointer, offset }, &Value::Immediate(num)) => {
                 let temp = self.create_reg_with_layout(layout.layout);
                 self.emit_move_imm(temp, num, layout.layout);
-                self.emit_indirect_move(to_ptr, temp, layout.layout);
+                self.emit_indirect_move_with_offset(pointer, offset, temp, layout.layout);
             }
-            Value::Constant { constant, offset } => {
-                // TODO: This can be done more efficiently if RefGlobal allows an offset.
-                self.instr.push(Instr::RefGlobal { to_ptr, global: constant });
-                if offset != 0 {
-                    self.emit_binary_imm_u64(BinaryOp::Add, to_ptr, to_ptr, offset as u64);
-                }
+            (_, &Value::Constant { constant, offset }) => {
+                let to_value = self.lvalue_as_value(to);
+                let to_ptr = self.flush_value(&to_value, layout);
+
+                let temp_ptr = self.create_reg_with_layout(Layout::PTR);
+                let temp_value = self.create_reg_with_layout(layout.layout);
+                self.instr.push(Instr::RefGlobal { to_ptr: temp_ptr, global: constant });
+                self.emit_dereference(temp_value, temp_ptr, layout.layout);
+                self.emit_indirect_move_with_offset(to_ptr, offset, temp_value, layout.layout);
             }
-            Value::Stack(value) => {
+            (_, &Value::Stack(value)) => {
+                let to_value = self.lvalue_as_value(to);
+                let to_ptr = self.flush_value(&to_value, layout);
                 self.emit_indirect_move(to_ptr, value, layout.layout);
             }
-            Value::Zeroed => {
+            (_, &Value::Zeroed) => {
+                let to_value = self.lvalue_as_value(to);
+                let to_ptr = self.flush_value(&to_value, layout);
                 let temp = self.create_reg_with_layout(layout.layout);
                 self.emit_set_to_zero(temp, layout.layout);
                 self.emit_indirect_move(to_ptr, temp, layout.layout);
             }
-            Value::Uninit => {}
-            Value::RefInStack { value, offset } => {
+            (_, &Value::Uninit) => {}
+            (_, &Value::PointerToStack(stack_value)) => {
+                let to_value = self.lvalue_as_value(to);
+                let to_ptr = self.flush_value(&to_value, layout);
+                let temp = self.create_reg_with_layout(Layout::PTR);
+                self.emit_reference(temp, stack_value);
+                self.emit_indirect_move(to_ptr, temp, layout.layout);
+            }
+            (_, &Value::PointerInStack { stack_value, offset }) => {
+                let to_value = self.lvalue_as_value(to);
+                let to_ptr = self.flush_value(&to_value, layout);
+
                 if offset == 0 {
-                    self.emit_move(to_ptr, value, layout.layout);
+                    self.emit_move(to_ptr, stack_value, layout.layout);
                 } else {
-                    self.emit_move(to_ptr, value, layout.layout);
+                    self.emit_move(to_ptr, stack_value, layout.layout);
                     self.emit_binary_imm_u64(BinaryOp::Add, to_ptr, to_ptr, offset as u64);
                 }
             }
-            Value::Tuple(ref fields) => {
+            (_, &Value::Tuple(ref fields)) => {
                 // TODO: Later, we want a "flush value offset", that lets you flush to an offset of something.
                 let temp = self.create_reg_with_layout(Layout::PTR);
+                let to_value = self.lvalue_as_value(to);
+                self.flush_value_to(temp, &to_value, layout);
                 let mut tuple_layout = StructLayout::new(0);
                 let mut prev_offset = 0;
                 for &(ref field, field_layout) in fields {
@@ -1199,6 +1275,10 @@ impl Context<'_, '_> {
                 }
             }
         }
+    }
+
+    fn flush_value_to_indirect(&mut self, to_ptr: StackValue, from: &Value, layout: TypedLayout) {
+        self.flush_value_to_lvalue(&LValue::Specific(to_ptr), from, layout);
     }
 
     fn flush_value_to(&mut self, to: StackValue, from: &Value, layout: TypedLayout) {
@@ -1222,13 +1302,16 @@ impl Context<'_, '_> {
                 self.emit_set_to_zero(to, layout.layout);
             }
             Value::Uninit => {}
-            Value::RefInStack { value, offset } => {
+            Value::PointerToStack(stack_value) => {
+                self.emit_reference(to, stack_value);
+            }
+            Value::PointerInStack { stack_value, offset } => {
                 if offset == 0 {
-                    self.emit_dereference(to, value, layout.layout);
+                    self.emit_dereference(to, stack_value, layout.layout);
                 } else {
                     // TODO: This can be done more efficiently if Dereference allows an offset.
                     let temp = self.create_reg_with_layout(Layout::PTR);
-                    self.emit_move(temp, value, Layout::PTR);
+                    self.emit_move(temp, stack_value, Layout::PTR);
                     self.emit_binary_imm_u64(BinaryOp::Add, temp, temp, offset as u64);
                     self.emit_dereference(to, temp, layout.layout);
                 }
@@ -1365,6 +1448,17 @@ impl Context<'_, '_> {
             self.instr.push(Instr::Move {
                 to,
                 from,
+                size: layout.size,
+            });
+        }
+    }
+
+    fn emit_indirect_move_with_offset(&mut self, to_ptr: StackValue, offset: usize, from: StackValue, layout: Layout) {
+        if layout.size != 0 {
+            self.instr.push(Instr::IndirectMove {
+                to_ptr,
+                from,
+                offset,
                 size: layout.size,
             });
         }

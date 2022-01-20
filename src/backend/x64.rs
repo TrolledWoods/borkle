@@ -391,8 +391,12 @@ impl Context<'_> {
                 let new = self.alloc_reg_with_stack_value(value, size)?;
                 if let Some(reg) = new {
                     Ok(DataHandle::Reg(reg, size))
-                } else if allowed_data & ALLOWED_DATA_FLAG_INDIRECT > 0 {
-                    Ok(DataHandle::Stack(value, size))
+                // TODO: This should be reenabled later, but I don't have good enough heuristics
+                // to tell what benefits from going in a register or not, and this is just circumstancial,
+                // which is pretty bad, so I just don't enable it.
+                //
+                // } else if allowed_data & ALLOWED_DATA_FLAG_INDIRECT > 0 {
+                //  Ok(DataHandle::Stack(value, size))
                 } else {
                     let stack_offset = self.stack.get_stack_offset(&value);
                     let reg = self.alloc_reg()?;

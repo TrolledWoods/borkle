@@ -6,7 +6,7 @@ use crate::types::{to_align};
 use std::fmt;
 use ustr::Ustr;
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(u8)]
 pub enum PrimitiveType {
     Bool,
@@ -41,7 +41,7 @@ impl PrimitiveType {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct TypedLayout {
     pub primitive: Option<PrimitiveType>,
     pub layout: Layout,
