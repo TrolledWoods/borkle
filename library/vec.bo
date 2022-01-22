@@ -1,28 +1,28 @@
-const Vec.(T) = #0 : {
+type Vec.(T) = {
     ptr: &T;
     len: usize;
     capacity: usize;
 };
 
-const vec_new.(T) = fn() -> typeof Vec.(T)  #0;
+const vec_new.(T) = fn() -> Vec.(T)  #0;
 
 const INITIAL_SIZE = 16 : usize;
 
-const vec_as_buf.(T) = fn(vec: &typeof Vec.(T)) -> [] T {
+const vec_as_buf.(T) = fn(vec: &Vec.(T)) -> [] T {
     let buf = #0;
     buf.ptr = vec.ptr;
     buf.len = vec.len;
     buf
 };
 
-const vec_unused_memory.(T) = fn(vec: &typeof Vec.(T)) -> [] T {
+const vec_unused_memory.(T) = fn(vec: &Vec.(T)) -> [] T {
     let buf = #0;
     buf.ptr = vec.ptr + vec.len;
     buf.len = vec.capacity - vec.len;
     buf
 };
 
-const vec_reserve.(T) = fn(vec: &typeof Vec.(T), requested: usize) {
+const vec_reserve.(T) = fn(vec: &Vec.(T), requested: usize) {
     if requested > vec.capacity {
         if vec.capacity == 0 {
             let buffer = alloc(INITIAL_SIZE);
@@ -49,7 +49,7 @@ const vec_reserve.(T) = fn(vec: &typeof Vec.(T), requested: usize) {
     };
 };
 
-const vec_free.(T) = fn(vec: typeof Vec.(T)) {
+const vec_free.(T) = fn(vec: Vec.(T)) {
     if vec.capacity > 0 {
         let buf = #uninit : [] T;
         buf.ptr = vec.ptr;
@@ -58,23 +58,23 @@ const vec_free.(T) = fn(vec: typeof Vec.(T)) {
     };
 };
 
-const vec_get.(T) = fn(vec: &typeof Vec.(T), index: usize) -> &T {
+const vec_get.(T) = fn(vec: &Vec.(T), index: usize) -> &T {
     vec.ptr + index
 };
 
-const vec_push.(T) = fn(vec: &typeof Vec.(T), element: T) {
+const vec_push.(T) = fn(vec: &Vec.(T), element: T) {
     vec_reserve(vec, vec.len + 1);
     *(vec.ptr + vec.len) = element;
     vec.len = vec.len + 1;
 };
 
-const vec_push_arr.(T, N) = fn(vec: &typeof Vec.(T), buf: [N] T) {
+const vec_push_arr.(T, N) = fn(vec: &Vec.(T), buf: [N] T) {
     vec_reserve(vec, vec.len + N);
     copy_nonoverlapping(vec.ptr + vec.len, cast &buf._0, N);
     vec.len = vec.len + N;
 };
 
-const vec_push_buf.(T) = fn(vec: &typeof Vec.(T), buf: [] T) {
+const vec_push_buf.(T) = fn(vec: &Vec.(T), buf: [] T) {
     vec_reserve(vec, vec.len + buf.len);
     copy_nonoverlapping(vec.ptr + vec.len, buf.ptr, buf.len);
     vec.len = vec.len + buf.len;

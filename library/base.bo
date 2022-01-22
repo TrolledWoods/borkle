@@ -361,16 +361,16 @@ const buf_writer.(T) = fn(buf: &[] T) -> Writer.(T) {
     writer
 };
 
-const vec_writer.(T) = fn(vec: &typeof Vec.(T)) -> Writer.(T) {
+const vec_writer.(T) = fn(vec: &Vec.(T)) -> Writer.(T) {
     let writer = #0;
     writer.state = cast vec;
     writer.write_buf = fn(vec_ptr, buffer) {
-        let vec = cast vec_ptr : &typeof Vec.(T);
+        let vec = cast vec_ptr : &Vec.(T);
         vec_push_buf(vec, buffer);
         buffer.len
     };
     writer.write_single = fn(vec_ptr, single) {
-        let vec = cast vec_ptr : &typeof Vec.(T);
+        let vec = cast vec_ptr : &Vec.(T);
         vec_push(vec, single);
         1
     };
@@ -419,7 +419,7 @@ const PAD_RIGHT  = 2 : u8;
 
 const FMT_FLAGS_RAW = 1 : u8;
 
-const Format.(T) = #0 : {
+type Format.(T) = {
     value: T;
     pad: usize;
     pad_char: u8;
@@ -488,7 +488,7 @@ const write_u64 = fn(to: Writer.(u8), num: u64, base: u64) -> usize { 'func
     written
 };
 
-const write_fmt_no_padding.(T) = fn(to: Writer.(u8), fmt_val: typeof Format.(T)) -> usize {
+const write_fmt_no_padding.(T) = fn(to: Writer.(u8), fmt_val: Format.(T)) -> usize {
     let value = if #const: T is &_ {
         *fmt_val.value
     } else {
@@ -501,12 +501,6 @@ const write_fmt_no_padding.(T) = fn(to: Writer.(u8), fmt_val: typeof Format.(T))
     } else if #const: typeof value is i8 || typeof value is i16 || typeof value is i32 || typeof value is i64 || typeof value is isize {
         let base = if fmt_val.base == 0 { 10 } else { fmt_val.base };
         write_i64(to, cast value, cast base)
-    } else if #const: typeof value is typeof Vec.(u8) {
-        if (fmt_val.flags & FMT_FLAGS_RAW) > 0 {
-            write_buf(to, vec_as_buf(&value))
-        } else {
-            write_escaped_string(to, vec_as_buf(&value))
-        }
     } else if #const: typeof value is bool {
         if value == false {
             write_buf(to, "false")
@@ -529,7 +523,7 @@ const write_fmt_no_padding.(T) = fn(to: Writer.(u8), fmt_val: typeof Format.(T))
     }
 };
 
-const write_fmt.(T) = fn(to: Writer.(u8), val: typeof Format.(T)) -> usize {
+const write_fmt.(T) = fn(to: Writer.(u8), val: Format.(T)) -> usize {
     // pad left doesn't need any pre-computation
     let written = 0;
     if val.pad != 0 && val.pad_dir != PAD_LEFT {
@@ -559,7 +553,7 @@ const write_fmt.(T) = fn(to: Writer.(u8), val: typeof Format.(T)) -> usize {
     written
 };
 
-const fmt.(T) = fn(val: T) -> typeof Format {
+const fmt.(T) = fn(val: T) -> Format {
     // @TODO: Once we have actual type aliases, `is` should just work with them.
     if #const: T is { value: _; pad: usize; pad_char: u8; pad_dir: u8; base: u8; flags: u8; } {
         val
@@ -570,13 +564,13 @@ const fmt.(T) = fn(val: T) -> typeof Format {
     }
 };
 
-const raw_text.(T) = fn(value: T) -> typeof Format {
+const raw_text.(T) = fn(value: T) -> Format {
     let format = fmt(value);
     format.flags = format.flags | FMT_FLAGS_RAW;
     format
 };
 
-const pad.(T) = fn(value: T, pad: usize, pad_dir: u8, pad_char: u8) -> typeof Format {
+const pad.(T) = fn(value: T, pad: usize, pad_dir: u8, pad_char: u8) -> Format {
     let format = fmt(value);
     format.pad = pad;
     format.pad_dir = pad_dir;
@@ -584,7 +578,7 @@ const pad.(T) = fn(value: T, pad: usize, pad_dir: u8, pad_char: u8) -> typeof Fo
     format
 };
 
-const base.(T) = fn(value: T, base: u8) -> typeof Format {
+const base.(T) = fn(value: T, base: u8) -> Format {
     let format = fmt(value);
     format.base = base;
     format

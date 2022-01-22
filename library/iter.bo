@@ -1,6 +1,6 @@
 library "vec.bo";
 
-const Iterator.(State, Item) = #0 : {
+type Iterator.(State, Item) = {
     state: State;
     next: fn(&State, &Item) -> bool;
 };
@@ -9,7 +9,7 @@ const Iterator.(State, Item) = #0 : {
 // -- Creation --
 //
 
-const array_iter.(N, T) = fn(array: [N] T) -> typeof Iterator.(_, type T) {
+const array_iter.(N, T) = fn(array: [N] T) -> Iterator.(_, T) {
     let stream = #0;
     stream.state : { array: _; index: _; };
     stream.state.array = array;
@@ -27,15 +27,15 @@ const array_iter.(N, T) = fn(array: [N] T) -> typeof Iterator.(_, type T) {
     stream
 };
 
-const vec_iter.(T) = fn(vec: &typeof Vec.(T)) -> typeof Iterator.(_, type &T) {
+const vec_iter.(T) = fn(vec: &Vec.(T)) -> Iterator.(_, type &T) {
     buf_iter(vec_as_buf(vec))
 };
 
-const buf_iter.(T) = fn(buffer: [] T) -> typeof Iterator.(_, type &T) {
+const buf_iter.(T) = fn(buffer: [] T) -> Iterator.(_, type &T) {
     range(buffer.ptr, buffer.ptr + buffer.len)
 };
 
-const split.(T) = fn(buffer: [] T, split_if: fn(T) -> bool) -> typeof Iterator.(_, type [] T) {
+const split.(T) = fn(buffer: [] T, split_if: fn(T) -> bool) -> Iterator.(_, type [] T) {
     let stream = #0;
     stream.state : { buffer: [] T; split_if: fn(T) -> bool; };
     stream.state.buffer = buffer;
@@ -69,7 +69,7 @@ const split.(T) = fn(buffer: [] T, split_if: fn(T) -> bool) -> typeof Iterator.(
     stream
 };
 
-const range.(T) = fn(start: T, end: T) -> typeof Iterator.(_, type T) {
+const range.(T) = fn(start: T, end: T) -> Iterator.(_, type T) {
     let stream = #0;
     stream.state : { start: T; end: T; };
     stream.state.start = start;
@@ -92,7 +92,7 @@ const range.(T) = fn(start: T, end: T) -> typeof Iterator.(_, type T) {
 // -- Manipulation --
 //
 
-const take_while.(State, Item) = fn(inner: typeof Iterator.(State, Item), will_continue: fn(&Item) -> bool) -> typeof Iterator.(_, Item) {
+const take_while.(State, Item) = fn(inner: Iterator.(State, Item), will_continue: fn(&Item) -> bool) -> Iterator.(_, Item) {
     let stream = #uninit;
     stream.state : { inner: _; running: bool; will_continue: _; };
     stream.state.inner = inner;
@@ -121,11 +121,11 @@ const take_while.(State, Item) = fn(inner: typeof Iterator.(State, Item), will_c
     stream
 };
 
-const by_value.(State, Item) = fn(a: typeof Iterator.(State, type &Item)) -> typeof Iterator.(_, Item) {
+const by_value.(State, Item) = fn(a: Iterator.(State, type &Item)) -> Iterator.(_, Item) {
     map(a, fn(v) *v)
 };
 
-const zip.(StateA, ItemA, StateB, ItemB) = fn(a: typeof Iterator.(StateA, ItemA), b: typeof Iterator.(StateB, ItemB)) -> typeof Iterator.(_, type { a: ItemA; b: ItemB; }) {
+const zip.(StateA, ItemA, StateB, ItemB) = fn(a: Iterator.(StateA, ItemA), b: Iterator.(StateB, ItemB)) -> Iterator.(_, type { a: ItemA; b: ItemB; }) {
     let stream = #uninit;
     stream.state : { a: _; b: _; };
     stream.state.a = a;
@@ -140,7 +140,7 @@ const zip.(StateA, ItemA, StateB, ItemB) = fn(a: typeof Iterator.(StateA, ItemA)
     stream
 };
 
-const scan.(Scanner, State, FromItem, ToItem) = fn(scanner: Scanner, from_stream: typeof Iterator.(State, FromItem), mapper: fn(&Scanner, FromItem) -> ToItem) -> typeof Iterator.(_, ToItem) {
+const scan.(Scanner, State, FromItem, ToItem) = fn(scanner: Scanner, from_stream: Iterator.(State, FromItem), mapper: fn(&Scanner, FromItem) -> ToItem) -> Iterator.(_, ToItem) {
     let stream = #uninit;
     stream.state : {
         scanner: _;
@@ -164,7 +164,7 @@ const scan.(Scanner, State, FromItem, ToItem) = fn(scanner: Scanner, from_stream
     stream
 };
 
-const map.(State, FromItem, ToItem) = fn(from_stream: typeof Iterator.(State, FromItem), mapper: fn(FromItem) -> ToItem) -> typeof Iterator.(_, ToItem) {
+const map.(State, FromItem, ToItem) = fn(from_stream: Iterator.(State, FromItem), mapper: fn(FromItem) -> ToItem) -> Iterator.(_, ToItem) {
     let stream = #uninit;
     stream.state : {
         inner: _;
@@ -186,7 +186,7 @@ const map.(State, FromItem, ToItem) = fn(from_stream: typeof Iterator.(State, Fr
     stream
 };
 
-const filter.(State, Item) = fn(inner: typeof Iterator.(State, Item), filter: fn(&Item) -> bool) -> typeof Iterator.(_, Item) {
+const filter.(State, Item) = fn(inner: Iterator.(State, Item), filter: fn(&Item) -> bool) -> Iterator.(_, Item) {
     let stream = #uninit;
     stream.state : { inner: _; filter: _; };
     stream.state.inner = inner;
@@ -215,13 +215,13 @@ const filter.(State, Item) = fn(inner: typeof Iterator.(State, Item), filter: fn
 // -- Collection --
 //
 
-const fold.(State, IterState, Item) = fn(stream: typeof Iterator.(IterState, Item), state: State, folder: fn(State, Item) -> State) -> State {
+const fold.(State, IterState, Item) = fn(stream: Iterator.(IterState, Item), state: State, folder: fn(State, Item) -> State) -> State {
     let temp = #uninit;
     while stream.next(&stream.state, &temp)  state = folder(state, temp);
     state
 };
 
-const count.(State, Item) = fn(stream: typeof Iterator.(State, Item)) -> usize {
+const count.(State, Item) = fn(stream: Iterator.(State, Item)) -> usize {
     let count = 0;
     let temp = #uninit;
     while stream.next(&stream.state, &temp)  count = count + 1;
@@ -229,14 +229,14 @@ const count.(State, Item) = fn(stream: typeof Iterator.(State, Item)) -> usize {
     count
 };
 
-const vec_from_iter.(State, Item) = fn(stream: typeof Iterator.(State, Item)) -> typeof Vec.(Item) {
+const vec_from_iter.(State, Item) = fn(stream: Iterator.(State, Item)) -> Vec.(Item) {
     let vec = vec_new();
     let item = #uninit;
     while stream.next(&stream.state, &item)  vec_push(&vec, item);
     vec
 };
 
-const array_from_iter.(State, Item, N) = fn(stream: typeof Iterator.(State, Item)) -> [N] Item {
+const array_from_iter.(State, Item, N) = fn(stream: Iterator.(State, Item)) -> [N] Item {
     let array = #uninit;
     for &array  assert(stream.next(&stream.state, v));
     array
