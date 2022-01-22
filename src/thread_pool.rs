@@ -3,7 +3,7 @@ use crate::errors::ErrorCtx;
 use crate::location::Location;
 use crate::type_infer::{AstVariantId, ValueId as TypeId};
 use crate::backend::BackendEmitters;
-use crate::program::{Program, ScopeId, Task};
+use crate::program::{Program, ScopeId, Task, MemberKind};
 use bumpalo::Bump;
 // use crossbeam::queue::SegQueue;
 use parking_lot::Mutex;
@@ -112,10 +112,10 @@ fn worker<'a>(alloc: &'a mut Bump, program: &'a Program) -> (ThreadContext<'a>, 
                     profile::profile!("Parse");
                     parse_file(&mut errors, program, &file, meta_data);
                 }
-                Task::TypePolyMember { member_id, ast, locals, mut dependencies, poly_args } => {
+                Task::TypePolyMember { member_id, ast, member_kind, locals, mut dependencies, poly_args } => {
                     profile::profile!("Task::TypePolyMember");
 
-                    let (mut yield_data, meta_data) = crate::typer::begin(&mut errors, &mut thread_context, program, locals, ast, poly_args);
+                    let (mut yield_data, meta_data) = crate::typer::begin(&mut errors, &mut thread_context, program, locals, ast, poly_args, member_kind);
                     crate::typer::solve(&mut errors, &mut thread_context, program, &mut yield_data);
 
                     program.set_yield_data_of_poly_member(member_id, yield_data);
@@ -127,18 +127,20 @@ fn worker<'a>(alloc: &'a mut Bump, program: &'a Program) -> (ThreadContext<'a>, 
                     ));
                     program.flag_poly_member_type(member_id, meta_data);
 
-                    // TODO: We should read the deps from the typer instead, it should know what the deps are after `begin`.
-                    dependencies.set_minimum_member_dep(MemberDep::ValueAndCallableIfFunction);
-                    program.queue_task(
-                        dependencies,
-                        Task::FlagPolyMember(
-                            member_id,
-                            MemberDep::ValueAndCallableIfFunction,
-                            DependencyList::new(), // Since the next thing ignores its dependencies anyway, we don't care to pass it. This might change later though
-                        ),
-                    );
+                    if member_kind == MemberKind::Const {
+                        // TODO: We should read the deps from the typer instead, it should know what the deps are after `begin`.
+                        dependencies.set_minimum_member_dep(MemberDep::ValueAndCallableIfFunction);
+                        program.queue_task(
+                            dependencies,
+                            Task::FlagPolyMember(
+                                member_id,
+                                MemberDep::ValueAndCallableIfFunction,
+                                DependencyList::new(), // Since the next thing ignores its dependencies anyway, we don't care to pass it. This might change later though
+                            ),
+                        );
+                    }
                 }
-                Task::TypeMember { member_id, ast, locals } => {
+                Task::TypeMember { member_id, member_kind, ast, locals } => {
                     // If it's a polymorphic thing this task could have been scheduled twice, so we have to do this check.
                     if !program.member_is_typed(member_id) {
                         profile::profile!("Task::TypeMember");
@@ -149,6 +151,7 @@ fn worker<'a>(alloc: &'a mut Bump, program: &'a Program) -> (ThreadContext<'a>, 
                             program,
                             locals,
                             ast,
+                            member_kind,
                         ) {
                             Ok((Ok((dependencies, locals, types, ast, additional_info)), meta_data)) => {
                                 let type_ = types.value_to_compiler_type(TypeId::Node(AstVariantId::root(), ast.root().id));
@@ -162,10 +165,13 @@ fn worker<'a>(alloc: &'a mut Bump, program: &'a Program) -> (ThreadContext<'a>, 
                                     ));
 
                                     program.set_type_of_member(member_id, type_, meta_data);
-                                    program.queue_task(
-                                        dependencies,
-                                        Task::EmitMember(member_id, locals, types, additional_info, ast),
-                                    );
+
+                                    if member_kind == MemberKind::Const {
+                                        program.queue_task(
+                                            dependencies,
+                                            Task::EmitMember(member_id, locals, types, additional_info, ast),
+                                        );
+                                    }
                                 } else {
                                     errors.error(ast.root().loc, format!("'{}' cannot be stored in a constant, because it contains types that the compiler cannot reason about properly, such as '&any', '[] any', or similar", type_));
                                 }

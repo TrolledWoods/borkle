@@ -4,7 +4,7 @@ use crate::literal::Literal;
 use crate::locals::{Local, LocalVariables, LabelId, LocalId};
 use crate::location::Location;
 use crate::operators::{BinaryOp, Operator, UnaryOp};
-use crate::program::{Program, ScopeId, Task, BuiltinFunction, constant::ConstantRef, MemberMetaData, MemberId};
+use crate::program::{Program, ScopeId, Task, BuiltinFunction, constant::ConstantRef, MemberMetaData, MemberId, MemberKind};
 use std::sync::Arc;
 use crate::types::{Type, TypeKind};
 use context::{DataContext, ImperativeContext};
@@ -96,9 +96,13 @@ pub fn process_string(
         let token = token.clone();
 
         match token.kind {
+            TokenKind::Keyword(Keyword::Type) => {
+                context.tokens.next();
+                type_declaration(&mut context)?;
+            }
             TokenKind::Keyword(Keyword::Const) => {
                 context.tokens.next();
-                constant(&mut context)?
+                constant(&mut context)?;
             }
             TokenKind::Keyword(Keyword::Library) => {
                 context.tokens.next();
@@ -139,10 +143,11 @@ pub fn process_string(
                     token.loc,
                     None,
                     "<entry_point>".into(),
+                    MemberKind::Const,
                 )?;
                 context.program.queue_task(
                     dependencies,
-                    Task::TypeMember { member_id: id, locals, ast: tree },
+                    Task::TypeMember { member_id: id, locals, ast: tree, member_kind: MemberKind::Const },
                 );
 
                 let mut entry_point = context.program.entry_point.lock();
@@ -193,11 +198,11 @@ pub fn process_string(
 
                 let id = context
                     .program
-                    .define_member(context.errors, token.loc, None, "<anonymous>".into())?;
+                    .define_member(context.errors, token.loc, None, "<anonymous>".into(), MemberKind::Const)?;
 
                 context.program.queue_task(
                     dependencies,
-                    Task::TypeMember { member_id: id, locals, ast: tree },
+                    Task::TypeMember { member_id: id, locals, ast: tree, member_kind: MemberKind::Const },
                 );
 
                 context
@@ -206,6 +211,65 @@ pub fn process_string(
             }
         }
     }
+
+    Ok(())
+}
+
+fn type_declaration(global: &mut DataContext<'_>) -> Result<(), ()> {
+    let (loc, name) = global.tokens.expect_identifier(global.errors)?;
+    let poly_args = maybe_parse_polymorphic_arguments(global)?;
+
+    if global.tokens.try_consume_operator_string("=").is_none() {
+        global.error(loc, "Expected '=' after type".to_string());
+        return Err(());
+    }
+
+    let mut buffer = AstBuilder::new();
+
+    let mut dependencies = DependencyList::new();
+    let mut locals = LocalVariables::new();
+    let mut imperative = ImperativeContext::new(
+        &mut dependencies,
+        &mut locals,
+        false,
+        &poly_args,
+    );
+    type_(global, &mut imperative, buffer.add())?;
+    let tree = Ast::from_builder(name, buffer);
+
+    if poly_args.is_empty() {
+        let id = global
+            .program
+            .define_member(global.errors, loc, Some(global.scope), name, MemberKind::Type)?;
+        global.program.queue_task(
+            dependencies,
+            Task::TypeMember { member_id: id, locals, ast: tree, member_kind: MemberKind::Type },
+        );
+    } else {
+        let id = global.program.define_polymorphic_member(
+            global.errors,
+            loc,
+            global.scope,
+            name,
+            poly_args.len(),
+            MemberKind::Type,
+        )?;
+        global.program.queue_task(
+            dependencies.clone(),
+            Task::TypePolyMember {
+                member_id: id,
+                locals,
+                ast: tree,
+                dependencies,
+                poly_args,
+                member_kind: MemberKind::Type,
+            },
+        );
+    }
+
+    global
+        .tokens
+        .expect_next_is(global.errors, &TokenKind::SemiColon)?;
 
     Ok(())
 }
@@ -236,10 +300,10 @@ fn constant(global: &mut DataContext<'_>) -> Result<(), ()> {
         if poly_args.is_empty() {
             let id = global
                 .program
-                .define_member(global.errors, token.loc, Some(global.scope), name)?;
+                .define_member(global.errors, token.loc, Some(global.scope), name, MemberKind::Const)?;
             global.program.queue_task(
                 dependencies,
-                Task::TypeMember { member_id: id, locals, ast: tree },
+                Task::TypeMember { member_id: id, locals, ast: tree, member_kind: MemberKind::Const },
             );
         } else {
             let id = global.program.define_polymorphic_member(
@@ -248,6 +312,7 @@ fn constant(global: &mut DataContext<'_>) -> Result<(), ()> {
                 global.scope,
                 name,
                 poly_args.len(),
+                MemberKind::Const,
             )?;
             global.program.queue_task(
                 dependencies.clone(),
@@ -257,6 +322,7 @@ fn constant(global: &mut DataContext<'_>) -> Result<(), ()> {
                     ast: tree,
                     dependencies,
                     poly_args,
+                    member_kind: MemberKind::Const,
                 },
             );
         }

@@ -1,15 +1,29 @@
 library "windows.bo";
 import "tests/main.bo";
 
+type Vec2 = { x: i64; y: i64 };
+type Vec3.(T) = { x: T; y: T };
+
 #entry fn() {
+    let thing = #0 : typeof Vec2;
+    thing.x = 99;
+    thing.y = 42;
+    print("Hello, x: %, y: %\n", thing.x, thing.y);
+
+    /*
     let timer = start_timer();
 
     run_tests();
 
     print("Took % nanos\n", read_timer_nanos(timer));
+    */
 
     ExitProcess(99);
 };
+
+// type keyword:
+// * A new kind of member that is a type.
+// * We should have `is` work for them (probably not complete, it probably will never monomorphise the thing, but will at least work for most things).
 
 // IR emission improvements
 //

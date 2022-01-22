@@ -120,7 +120,7 @@ impl Program {
                     let member = &members[member_id];
                     if member.type_.to_option().is_none() {
                         errors.global_error(format!("'{}' cannot be computed", name));
-                    } else if member.value.to_option().is_none() {
+                    } else if member.kind == MemberKind::Const && member.value.to_option().is_none() {
                         errors.global_error(format!("'{}' cannot be computed(value)", name));
                     }
                 }
@@ -649,12 +649,13 @@ impl Program {
         scope_id: ScopeId,
         name: Ustr,
         num_args: usize,
+        kind: MemberKind,
     ) -> Result<PolyMemberId, ()> {
         profile::profile!("program::define_polymorphic_member");
         let id = self
             .poly_members
             .write()
-            .push(PolyMember::new(loc, name, num_args));
+            .push(PolyMember::new(loc, name, num_args, kind));
 
         self.bind_member_to_name(errors, scope_id, name, loc, PolyOrMember::Poly(id), true)?;
         Ok(id)
@@ -698,10 +699,12 @@ impl Program {
             }
         }
 
+        let member_kind = poly_members[id].kind;
+
         // Create a member to host the monomorphised thing, or grab one from the cached
         let member_id = member_id.unwrap_or_else(|| {
             let poly_member = &poly_members[id];
-            let member_id = self.members.write().push(Member::new(poly_member.loc, poly_member.name, true));
+            let member_id = self.members.write().push(Member::new(poly_member.loc, poly_member.name, true, member_kind));
             poly_members[id]
                 .cached
                 .push((poly_args.to_vec(), member_id));
@@ -732,7 +735,7 @@ impl Program {
         // FIXME: Calculate the member meta data here.
         self.set_type_of_member(member_id, types.value_to_compiler_type(TypeId::Node(AstVariantId::root(), typed_ast.root_id())), MemberMetaData::None);
 
-        if wanted_dep < MemberDep::Value {
+        if wanted_dep < MemberDep::Value && member_kind == MemberKind::Const {
             self.queue_task(
                 dependency_list,
                 Task::EmitMember(
@@ -784,8 +787,9 @@ impl Program {
         loc: Location,
         scope_id: Option<ScopeId>,
         name: Ustr,
+        kind: MemberKind,
     ) -> Result<MemberId, ()> {
-        let id = self.members.write().push(Member::new(loc, name, false));
+        let id = self.members.write().push(Member::new(loc, name, false, kind));
 
         if let Some(scope_id) = scope_id {
             self.bind_member_to_name(errors, scope_id, name, loc, PolyOrMember::Member(id), true)?;
@@ -1082,9 +1086,16 @@ impl Function {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MemberKind {
+    Type,
+    Const,
+}
+
 struct PolyMember {
     name: Ustr,
 
+    kind: MemberKind,
     loc: Location,
     yield_data: Option<Arc<crate::typer::YieldData>>,
     num_args: usize,
@@ -1106,8 +1117,11 @@ impl PolyMember {
         loc: Location,
         name: Ustr,
         num_args: usize,
+        kind: MemberKind,
     ) -> Self {
         Self {
+            kind,
+
             loc,
             name,
             num_args,
@@ -1133,10 +1147,14 @@ impl PolyMember {
 struct Member {
     is_monomorphised: bool,
 
+    kind: MemberKind,
     #[allow(unused)]
     loc: Location,
     name: Ustr,
     type_: DependableOption<(Type, Arc<MemberMetaData>)>,
+
+    // None if the member is a type,
+    // Some if it's a value.
     value: DependableOption<ConstantRef>,
 
     /// So this is pretty confusing, and needs some writing up to both help me now and in the
@@ -1161,9 +1179,10 @@ struct Member {
 }
 
 impl Member {
-    fn new(loc: Location, name: Ustr, is_monomorphised: bool) -> Self {
+    fn new(loc: Location, name: Ustr, is_monomorphised: bool, kind: MemberKind) -> Self {
         Self {
             is_monomorphised,
+            kind,
             loc,
             name,
             type_: DependableOption::None(default()),
@@ -1262,6 +1281,7 @@ pub enum Task {
         locals: crate::locals::LocalVariables,
         dependencies: DependencyList,
         poly_args: Vec<(Location, Ustr)>,
+        member_kind: MemberKind,
     },
     FlagPolyMember(PolyMemberId, MemberDep, DependencyList),
 
@@ -1270,6 +1290,7 @@ pub enum Task {
         member_id: MemberId,
         ast: Ast,
         locals: crate::locals::LocalVariables,
+        member_kind: MemberKind,
     },
     EmitMember(MemberId, crate::locals::LocalVariables, crate::type_infer::TypeSystem, crate::typer::AdditionalInfo, crate::typer::Ast),
     EvaluateMember(MemberId, crate::ir::UserDefinedRoutine),

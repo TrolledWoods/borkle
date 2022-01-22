@@ -8,7 +8,7 @@ use crate::locals::LocalVariables;
 use crate::operators::{BinaryOp, UnaryOp};
 pub use crate::parser::{LocalUsage, Node, NodeKind, Ast, NodeView};
 use crate::ast::{NodeId, GenericChildIterator};
-use crate::program::{PolyOrMember, PolyMemberId, Program, Task, constant::ConstantRef, BuiltinFunction, MemberId, MemberMetaData, FunctionId, ScopeId, FunctionMetaData, FunctionArgumentInfo};
+use crate::program::{PolyOrMember, PolyMemberId, Program, Task, constant::ConstantRef, BuiltinFunction, MemberId, MemberMetaData, FunctionId, ScopeId, FunctionMetaData, FunctionArgumentInfo, MemberKind};
 use crate::thread_pool::ThreadContext;
 use crate::type_infer::{self, AstVariantId, ValueId as TypeId, Args, TypeSystem, ValueSetId, TypeKind, Reason, ReasonKind};
 use crate::types::{self, IntTypeKind};
@@ -128,8 +128,9 @@ pub fn process_ast<'a>(
     program: &'a Program,
     locals: LocalVariables,
     ast: Ast,
+    member_kind: MemberKind,
 ) -> Result<(Result<(DependencyList, LocalVariables, TypeSystem, Ast, AdditionalInfo), (DependencyList, YieldData)>, MemberMetaData), ()> {
-    let (mut yield_data, meta_data) = begin(errors, thread_context, program, locals, ast, Vec::new());
+    let (mut yield_data, meta_data) = begin(errors, thread_context, program, locals, ast, Vec::new(), member_kind);
     solve(errors, thread_context, program, &mut yield_data);
     finish(errors, yield_data).map(|v| (v, meta_data))
 }
@@ -141,6 +142,7 @@ pub fn begin<'a>(
     mut locals: LocalVariables,
     ast: Ast,
     poly_params: Vec<(Location, Ustr)>,
+    member_kind: MemberKind,
 ) -> (YieldData, MemberMetaData) {
     let mut emit_deps = DependencyList::new();
     let mut infer = TypeSystem::new(ast.structure.len());
@@ -198,7 +200,11 @@ pub fn begin<'a>(
             (node_type_id, MemberMetaData::Function(meta_data))
         }
         _ => (
-            build_constraints(&mut ctx, node, root_set_id),
+            if member_kind == MemberKind::Type {
+                build_type(&mut ctx, node, root_set_id)
+            } else {
+                build_constraints(&mut ctx, node, root_set_id)
+            },
             MemberMetaData::None,
         )
     };
