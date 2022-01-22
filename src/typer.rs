@@ -1454,8 +1454,13 @@ fn build_type(
             ctx.inside_type_comparison = old_inside_type_comparison;
             ctx.infer.set_equal(node_type_id, type_, Reason::new(node_loc, ReasonKind::TypeOf));
         }
+        NodeKind::Local { local_id } => {
+            ctx.errors.info(ctx.locals.get(local_id).loc, "Defined here".to_string());
+            ctx.errors.error(node_loc, "Cannot use a local as a type, did you intend to put a `typeof` before the local?".to_string());
+            ctx.infer.value_sets.get_mut(set).has_errors = true;
+        }
         _ => {
-            ctx.errors.error(node_loc, "Expected a type".to_string());
+            ctx.errors.error(node_loc, format!("Expected a type, got {:?}", node.kind));
             ctx.infer.value_sets.get_mut(set).has_errors = true;
         }
     }

@@ -1,16 +1,7 @@
 library "windows.bo";
 import "tests/main.bo";
 
-type Vec2.(T) = { x: T; y: T };
-
 #entry fn() {
-    let vec = #0 : Vec2;
-    vec.x = 99 : i64;
-    vec.y = 42;
-    print("x: %, y: %\n", vec.x, vec.y);
-};
-
-    /*
     let timer = start_timer();
 
     run_tests();
@@ -19,11 +10,8 @@ type Vec2.(T) = { x: T; y: T };
 
     ExitProcess(99);
 };
-*/
 
 // type keyword:
-// * Disallow using normal members in type expressions, those should have `typeof`.
-// * Make sure the value of type members can't be attempted to be accessed from code.
 // * We should have `is` work for them (probably not complete, it probably will never monomorphise the thing, but will at least work for most things).
 
 // IR emission improvements

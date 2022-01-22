@@ -447,9 +447,12 @@ fn type_(
                         match token.kind {
                             TokenKind::Open(Bracket::Round) => {
                                 let old_evaluate_at_typing = imperative.evaluate_at_typing;
+                                let old_declarative_lvalue = imperative.in_declarative_lvalue;
                                 imperative.evaluate_at_typing = true;
+                                imperative.in_declarative_lvalue = false;
                                 let count = function_arguments(global, imperative, &mut muncher)?;
                                 imperative.evaluate_at_typing = old_evaluate_at_typing;
+                                imperative.in_declarative_lvalue = old_declarative_lvalue;
 
                                 muncher.munch(count + 1, Node::new(loc, NodeKind::PolymorphicArgs));
                             }

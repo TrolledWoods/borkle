@@ -311,7 +311,7 @@ const is_digit = fn(c: u8) -> bool {
 
 const PERCENT = *"%".ptr;
 
-const Writer.(T) = #0 : {
+type Writer.(T) = {
     state: &u8;
     write_buf : fn(&u8, [] T) -> usize;
     write_single : fn(&u8, T) -> usize;
@@ -321,7 +321,7 @@ const Writer.(T) = #0 : {
 
 // Writer that does nothing, except pretends everything went smoothly. This means you can read how many bytes were "written" without
 // allocating a buffer to write into.
-const count_writer.(T) = fn() -> typeof Writer.(T) {
+const count_writer.(T) = fn() -> Writer.(T) {
     let writer = #0;
     writer.discarding = true;
     writer.write_buf    = fn(_, buffer) buffer.len;
@@ -332,7 +332,7 @@ const count_writer.(T) = fn() -> typeof Writer.(T) {
 // @HACK: Right now, it takes a reference to `buf`, and will modify it. Hence, if you write
 // to a buffer, make sure to copy the buffer to a temporary variable first, before you
 // reference it, so it doesn't remove your original buffer.
-const buf_writer.(T) = fn(buf: &[] T) -> typeof Writer.(T) {
+const buf_writer.(T) = fn(buf: &[] T) -> Writer.(T) {
     let writer = #0;
     writer.state = cast buf;
     writer.write_buf = fn(buf_ptr, from) {
@@ -361,7 +361,7 @@ const buf_writer.(T) = fn(buf: &[] T) -> typeof Writer.(T) {
     writer
 };
 
-const vec_writer.(T) = fn(vec: &typeof Vec.(T)) -> typeof Writer.(T) {
+const vec_writer.(T) = fn(vec: &typeof Vec.(T)) -> Writer.(T) {
     let writer = #0;
     writer.state = cast vec;
     writer.write_buf = fn(vec_ptr, buffer) {
@@ -377,7 +377,7 @@ const vec_writer.(T) = fn(vec: &typeof Vec.(T)) -> typeof Writer.(T) {
     writer
 };
 
-const stderr_writer = fn() -> typeof Writer.(u8) {
+const stderr_writer = fn() -> Writer.(u8) {
     let writer = #0;
     writer.write_buf = fn(_, buffer) {
         let written = 0;
@@ -391,7 +391,7 @@ const stderr_writer = fn() -> typeof Writer.(u8) {
     writer
 };
 
-const stdout_writer = fn() -> typeof Writer.(u8) {
+const stdout_writer = fn() -> Writer.(u8) {
     let writer = #0;
     writer.write_buf = fn(_, buffer) {
         let written = 0;
@@ -405,11 +405,11 @@ const stdout_writer = fn() -> typeof Writer.(u8) {
     writer
 };
 
-const write_buf.(T) = fn(to: typeof Writer.(T), buf: [] T) -> usize {
+const write_buf.(T) = fn(to: Writer.(T), buf: [] T) -> usize {
     to.write_buf(to.state, buf)
 };
 
-const write_single.(T) = fn(to: typeof Writer.(T), value: T) -> usize {
+const write_single.(T) = fn(to: Writer.(T), value: T) -> usize {
     to.write_single(to.state, value)
 };
 
@@ -428,7 +428,7 @@ const Format.(T) = #0 : {
     flags: u8;
 };
 
-const write_i64 = fn(to: typeof Writer.(u8), num: i64, base: u64) -> usize { 'func
+const write_i64 = fn(to: Writer.(u8), num: i64, base: u64) -> usize { 'func
     let written = 0;
     if num < 0 {
         written = written + write_single(to, NEGATIVE_SIGN);
@@ -440,7 +440,7 @@ const write_i64 = fn(to: typeof Writer.(u8), num: i64, base: u64) -> usize { 'fu
     written
 };
 
-const write_escaped_string = fn(to: typeof Writer.(u8), string: [] u8) -> usize {
+const write_escaped_string = fn(to: Writer.(u8), string: [] u8) -> usize {
     let written = 0;
 
     written = written + write_single(to, DOUBLE_QUOTE);
@@ -464,7 +464,7 @@ const write_escaped_string = fn(to: typeof Writer.(u8), string: [] u8) -> usize 
     written
 };
 
-const write_u64 = fn(to: typeof Writer.(u8), num: u64, base: u64) -> usize { 'func
+const write_u64 = fn(to: Writer.(u8), num: u64, base: u64) -> usize { 'func
     if num == 0 {
         break 'func write_single(to, DIGIT0);
     };
@@ -488,7 +488,7 @@ const write_u64 = fn(to: typeof Writer.(u8), num: u64, base: u64) -> usize { 'fu
     written
 };
 
-const write_fmt_no_padding.(T) = fn(to: typeof Writer.(u8), fmt_val: typeof Format.(T)) -> usize {
+const write_fmt_no_padding.(T) = fn(to: Writer.(u8), fmt_val: typeof Format.(T)) -> usize {
     let value = if #const: T is &_ {
         *fmt_val.value
     } else {
@@ -529,7 +529,7 @@ const write_fmt_no_padding.(T) = fn(to: typeof Writer.(u8), fmt_val: typeof Form
     }
 };
 
-const write_fmt.(T) = fn(to: typeof Writer.(u8), val: typeof Format.(T)) -> usize {
+const write_fmt.(T) = fn(to: Writer.(u8), val: typeof Format.(T)) -> usize {
     // pad left doesn't need any pre-computation
     let written = 0;
     if val.pad != 0 && val.pad_dir != PAD_LEFT {
@@ -590,7 +590,7 @@ const base.(T) = fn(value: T, base: u8) -> typeof Format {
     format
 };
 
-const write.(Args) = fn(writer: typeof Writer.(u8), format_str: [] u8, #var_args: args: Args) -> usize {
+const write.(Args) = fn(writer: Writer.(u8), format_str: [] u8, #var_args: args: Args) -> usize {
     let splits = split(format_str, fn(v) v == PERCENT);
 
     let written = 0;
