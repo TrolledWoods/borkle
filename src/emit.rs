@@ -700,8 +700,8 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, mut node: NodeView<'a>) -> (Value, T
                 emit_node(ctx, content);
             }
 
-            let (from, from_layout) = emit_node(ctx, children.next().unwrap());
-            ctx.flush_value_to(to, &from, from_layout);
+            let (from, _) = emit_node(ctx, children.next().unwrap());
+            ctx.flush_value_to(to, &from, to_layout);
 
             for (i, defer_index) in (num_defers_at_start..ctx.defers.len()).enumerate().rev() {
                 if let Some(label) = *label {
@@ -1049,8 +1049,9 @@ fn emit_lvalue<'a>(
         }
         kind => {
             if can_reference_temporaries {
-                let (from, _) = emit_node(ctx, node);
-                ctx.value_as_lvalue(&from)
+                let (from, from_layout) = emit_node(ctx, node);
+                let flushed = ctx.flush_value(&from, from_layout);
+                LValue::Specific(flushed)
             } else {
                 unreachable!(
                     "{:?} is not an lvalue. This is just something I haven't implemented checking for in the compiler yet",

@@ -714,10 +714,10 @@ fn build_constraints(
             ctx.infer.value_sets.add_node_to_set(set, ctx.ast_variant_id, on.id);
             ctx.infer.set_equal(TypeId::Node(ctx.ast_variant_id, on.id), node_type_id, Reason::temp(node_loc));
 
-            build_global(ctx, node.id, node.node, scope, name, Some(children), set, MemberKind::Const);
+            build_global(ctx, node.id, node.node, node.loc, scope, name, Some(children), set, MemberKind::Const);
         }
         NodeKind::Global { scope, name } => {
-            build_global(ctx, node.id, node.node, scope, name, None, set, MemberKind::Const);
+            build_global(ctx, node.id, node.node, node.loc, scope, name, None, set, MemberKind::Const);
         }
         NodeKind::While {
             label,
@@ -1356,13 +1356,13 @@ fn build_type(
 
             let old_runs = ctx.runs;
             ctx.runs = ExecutionTime::Never;
-            build_global(ctx, node.id, node.node, scope, name, Some(children), set, MemberKind::Type);
+            build_global(ctx, node.id, node.node, node.loc, scope, name, Some(children), set, MemberKind::Type);
             ctx.runs = old_runs;
         }
         NodeKind::Global { scope, name } => {
             let old_runs = ctx.runs;
             ctx.runs = ExecutionTime::Never;
-            build_global(ctx, node.id, node.node, scope, name, None, set, MemberKind::Type);
+            build_global(ctx, node.id, node.node, node.loc, scope, name, None, set, MemberKind::Type);
             ctx.runs = old_runs;
         }
         NodeKind::PolymorphicArgument(index) => {
@@ -1704,7 +1704,8 @@ fn build_inferrable_constant_value(
         }
         NodeKind::ImplicitType => {
             if ctx.inside_type_comparison {
-                ctx.infer.add_type(TypeKind::CompareUnspecified, Args([]), set)
+                let unspecified = ctx.infer.add_type(TypeKind::CompareUnspecified, Args([]), set);
+                ctx.infer.add_type(TypeKind::Constant, Args([(node_type_id, Reason::temp(node_loc)), (unspecified, Reason::temp(node_loc))]), set)
             } else {
                 // Nothing at all is known about it, _except_ that the type of this node is equal to the
                 // value.
@@ -1775,11 +1776,11 @@ fn build_with_metadata(
             ctx.infer.value_sets.add_node_to_set(set, ctx.ast_variant_id, on.id);
             ctx.infer.set_equal(TypeId::Node(ctx.ast_variant_id, on.id), node_type_id, Reason::temp(node_loc));
 
-            Some(build_global(ctx, node.id, node.node, scope, name, Some(children), set, MemberKind::Const))
+            Some(build_global(ctx, node.id, node.node, node.loc, scope, name, Some(children), set, MemberKind::Const))
         }
         // @Cleanup: We could unify these two nodes probably
         NodeKind::Global { scope, name } => {
-            Some(build_global(ctx, node.id, node.node, scope, name, None, set, MemberKind::Const))
+            Some(build_global(ctx, node.id, node.node, node.loc, scope, name, None, set, MemberKind::Const))
         }
         _ => {
             build_constraints(ctx, node, set);
@@ -1792,12 +1793,15 @@ fn build_global<'a>(
     ctx: &mut Context<'_, '_>,
     node_id: NodeId,
     node: &Node,
+    node_loc: Location,
     scope: ScopeId,
     name: Ustr,
     children: Option<GenericChildIterator<'a, &'a [Node]>>,
     set: ValueSetId,
     expected_member_kind: MemberKind,
 ) -> Arc<MemberMetaData> {
+    debug_assert!(!(ctx.inside_type_comparison && expected_member_kind == MemberKind::Const));
+
     let id = ctx.program.get_member_id(scope, name).expect("The dependency system should have made sure that this is defined");
     let node_type_id = TypeId::Node(ctx.ast_variant_id, node_id);
 
@@ -1846,9 +1850,24 @@ fn build_global<'a>(
                 }
             } else {
                 for (i, other_poly_arg) in other_yield_data.poly_params.iter().enumerate() {
-                    let type_id = ctx.infer.add_unknown_type_with_set(sub_set);
-                    param_values.push(type_id);
-                    param_reasons.push((type_id, other_poly_arg.value_id, Reason::new(node.loc, ReasonKind::PolyParam(i))));
+                    if ctx.inside_type_comparison {
+                        // @Copypasta
+                        if other_poly_arg.is_type() {
+                            let type_id = ctx.infer.add_type(TypeKind::CompareUnspecified, Args([]), sub_set);
+                            param_values.push(type_id);
+                            param_reasons.push((type_id, other_poly_arg.value_id, Reason::new(node_loc, ReasonKind::PolyParam(i))));
+                        } else {
+                            let unknown = ctx.infer.add_unknown_type_with_set(sub_set);
+                            let unspecified = ctx.infer.add_type(TypeKind::CompareUnspecified, Args([]), sub_set);
+                            let type_id = ctx.infer.add_type(TypeKind::Constant, Args([(unknown, Reason::temp(node_loc)), (unspecified, Reason::temp(node_loc))]), sub_set);
+                            param_values.push(type_id);
+                            param_reasons.push((type_id, other_poly_arg.value_id, Reason::new(node_loc, ReasonKind::PolyParam(i))));
+                        }
+                    } else {
+                        let type_id = ctx.infer.add_unknown_type_with_set(sub_set);
+                        param_values.push(type_id);
+                        param_reasons.push((type_id, other_poly_arg.value_id, Reason::new(node.loc, ReasonKind::PolyParam(i))));
+                    }
                 }
             }
 
@@ -1864,14 +1883,16 @@ fn build_global<'a>(
 
             ctx.infer.value_sets.lock(set);
 
-            ctx.infer.set_waiting_on_value_set(sub_set, WaitingOnTypeInferrence::MonomorphiseMember {
-                node_id: node_id,
-                poly_member_id: id,
-                when_needed: ctx.runs,
-                params: param_values,
-                parent_set: set,
-                ast_variant_id: ctx.ast_variant_id,
-            });
+            if !ctx.inside_type_comparison {
+                ctx.infer.set_waiting_on_value_set(sub_set, WaitingOnTypeInferrence::MonomorphiseMember {
+                    node_id: node_id,
+                    poly_member_id: id,
+                    when_needed: ctx.runs,
+                    params: param_values,
+                    parent_set: set,
+                    ast_variant_id: ctx.ast_variant_id,
+                });
+            }
         }
         PolyOrMember::Member(id) => {
             if children.map_or(0, |v| v.len()) > 0 {

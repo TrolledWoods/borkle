@@ -120,7 +120,7 @@ pub enum TypeKind {
 
     /// no fields
     ConstantValue(ConstantRef),
-    /// type, constant_ref(has to be a ConstantValue)
+    /// type, constant_ref(has to be a ConstantValue, or a compare unspecified)
     /// * layout is the layout of the type of the constant, even though a constant having a layout doesn't make sense
     Constant,
 

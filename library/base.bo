@@ -338,8 +338,6 @@ const buf_writer.(T) = fn(buf: &[] T) -> Writer.(T) {
     writer.write_buf = fn(buf_ptr, from) {
         let buf = cast buf_ptr : &[] T;
         let writing = min(buf.len, from.len);
-        assert(bit_cast buf.ptr : u64 > 0xffffff);
-        assert(bit_cast from.ptr : u64 > 0xffffff);
 
         copy_nonoverlapping(buf.ptr, from.ptr, writing);
         buf.len = buf.len - writing;
@@ -454,6 +452,9 @@ const write_escaped_string = fn(to: Writer.(u8), string: [] u8) -> usize {
             written = written + write_buf(to, "\\t");
         } else if v == NEW_LINE {
             written = written + write_buf(to, "\\n");
+        } else if v < 31 {
+            written = written + write_buf(to, "\\x");
+            written = written + write_u64(to, cast v, 10);
         } else {
             written = written + write_single(to, v);
         };
@@ -462,6 +463,10 @@ const write_escaped_string = fn(to: Writer.(u8), string: [] u8) -> usize {
     written = written + write_single(to, DOUBLE_QUOTE);
 
     written
+};
+
+const print_u64 = fn(num: u64, base: u64) -> usize {
+    write_u64(stdout_writer(), num, base)
 };
 
 const write_u64 = fn(to: Writer.(u8), num: u64, base: u64) -> usize { 'func
@@ -554,8 +559,7 @@ const write_fmt.(T) = fn(to: Writer.(u8), val: Format.(T)) -> usize {
 };
 
 const fmt.(T) = fn(val: T) -> Format {
-    // @TODO: Once we have actual type aliases, `is` should just work with them.
-    if #const: T is { value: _; pad: usize; pad_char: u8; pad_dir: u8; base: u8; flags: u8; } {
+    if #const: T is Format {
         val
     } else {
         let thing = #0;
