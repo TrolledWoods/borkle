@@ -338,6 +338,8 @@ const buf_writer.(T) = fn(buf: &[] T) -> typeof Writer.(T) {
     writer.write_buf = fn(buf_ptr, from) {
         let buf = cast buf_ptr : &[] T;
         let writing = min(buf.len, from.len);
+        assert(bit_cast buf.ptr : u64 > 0xffffff);
+        assert(bit_cast from.ptr : u64 > 0xffffff);
 
         copy_nonoverlapping(buf.ptr, from.ptr, writing);
         buf.len = buf.len - writing;
@@ -504,6 +506,16 @@ const write_fmt_no_padding.(T) = fn(to: typeof Writer.(u8), fmt_val: typeof Form
             write_buf(to, vec_as_buf(&value))
         } else {
             write_escaped_string(to, vec_as_buf(&value))
+        }
+    } else if #const: typeof value is bool {
+        if value == false {
+            write_buf(to, "false")
+        } else if value == true {
+            write_buf(to, "true")
+        } else {
+            write_buf(to, "bool(")
+            + write_u64(to, cast (bit_cast value : u8), 10)
+            + write_buf(to, ")")
         }
     } else if #const: typeof value is [] u8 {
         if (fmt_val.flags & FMT_FLAGS_RAW) > 0 {

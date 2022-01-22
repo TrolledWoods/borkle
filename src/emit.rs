@@ -541,12 +541,19 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, mut node: NodeView<'a>) -> (Value, T
             let (mut of, mut of_layout) = emit_node(ctx, of);
             if let Some(type_infer::Type { kind: type_infer::TypeKind::Reference, args }) = ctx.types.get(of_type_id).kind {
                 of_type_id = args.as_ref().unwrap()[0];
-                let new_of = ctx.flush_value(&of, of_layout);
+
+                let old_value = ctx.flush_value(&of, of_layout);
+                of_layout = ctx.get_typed_layout(of_type_id);
+                let new_of = ctx.create_reg_with_layout(of_layout.layout);
+                ctx.emit_dereference(new_of, old_value, of_layout.layout);
+                of = Value::Stack(new_of);
+
+                /*let new_of = ctx.flush_value(&of, of_layout);
                 of_layout = ctx.get_typed_layout(of_type_id);
                 of = Value::PointerInStack {
                     stack_value: new_of,
                     offset: 0,
-                };
+                };*/
             }
 
             let of_type = ctx.types.value_to_compiler_type(of_type_id);
@@ -1222,7 +1229,7 @@ impl Context<'_, '_> {
             }
             (_, &Value::Constant { constant, offset }) => {
                 let to_value = self.lvalue_as_value(to);
-                let to_ptr = self.flush_value(&to_value, layout);
+                let to_ptr = self.flush_value(&to_value, TypedLayout::PTR);
 
                 let temp_ptr = self.create_reg_with_layout(Layout::PTR);
                 let temp_value = self.create_reg_with_layout(layout.layout);
@@ -1232,12 +1239,12 @@ impl Context<'_, '_> {
             }
             (_, &Value::Stack(value)) => {
                 let to_value = self.lvalue_as_value(to);
-                let to_ptr = self.flush_value(&to_value, layout);
+                let to_ptr = self.flush_value(&to_value, TypedLayout::PTR);
                 self.emit_indirect_move(to_ptr, value, layout.layout);
             }
             (_, &Value::Zeroed) => {
                 let to_value = self.lvalue_as_value(to);
-                let to_ptr = self.flush_value(&to_value, layout);
+                let to_ptr = self.flush_value(&to_value, TypedLayout::PTR);
                 let temp = self.create_reg_with_layout(layout.layout);
                 self.emit_set_to_zero(temp, layout.layout);
                 self.emit_indirect_move(to_ptr, temp, layout.layout);
@@ -1245,14 +1252,14 @@ impl Context<'_, '_> {
             (_, &Value::Uninit) => {}
             (_, &Value::PointerToStack(stack_value)) => {
                 let to_value = self.lvalue_as_value(to);
-                let to_ptr = self.flush_value(&to_value, layout);
+                let to_ptr = self.flush_value(&to_value, TypedLayout::PTR);
                 let temp = self.create_reg_with_layout(Layout::PTR);
                 self.emit_reference(temp, stack_value);
                 self.emit_indirect_move(to_ptr, temp, layout.layout);
             }
             (_, &Value::PointerInStack { stack_value, offset }) => {
                 let to_value = self.lvalue_as_value(to);
-                let to_ptr = self.flush_value(&to_value, layout);
+                let to_ptr = self.flush_value(&to_value, TypedLayout::PTR);
 
                 let from = self.create_reg_with_layout(layout.layout);
                 self.emit_dereference_with_offset(from, stack_value, offset, layout.layout);
@@ -1262,7 +1269,7 @@ impl Context<'_, '_> {
                 // TODO: Later, we want a "flush value offset", that lets you flush to an offset of something.
                 let temp = self.create_reg_with_layout(Layout::PTR);
                 let to_value = self.lvalue_as_value(to);
-                self.flush_value_to(temp, &to_value, layout);
+                self.flush_value_to(temp, &to_value, TypedLayout::PTR);
                 let mut tuple_layout = StructLayout::new(0);
                 let mut prev_offset = 0;
                 for &(ref field, field_layout) in fields {

@@ -69,10 +69,10 @@ const aoc_day3_part2 = fn() -> u64 {
     while not(empty(&input)) {
         let number = take_u64_with_base(&input, 2);
         take_whitespace(&input);
-        let entry = numbers.ptr + i;
-        (*entry).number = cast number;
-        (*entry).consider_for_a_rate = true;
-        (*entry).consider_for_b_rate = true;
+        let entry: &_ = numbers.ptr + i;
+        entry.number = cast number;
+        entry.consider_for_a_rate = true;
+        entry.consider_for_b_rate = true;
     };
 
     let a_rate = 0;
