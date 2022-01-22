@@ -346,6 +346,20 @@ impl Program {
         members[id].type_.unwrap().0
     }
 
+    pub fn get_member_meta_data_and_kind(&self, id: PolyOrMember) -> (Arc<MemberMetaData>, MemberKind) {
+        profile::profile!("program::get_member_meta_data_and_kind");
+        match id {
+            PolyOrMember::Member(id) => {
+                let members = self.members.read();
+                (members[id].type_.unwrap().1.clone(), members[id].kind)
+            }
+            PolyOrMember::Poly(id) => {
+                let members = self.poly_members.read();
+                (members[id].type_.unwrap().clone(), members[id].kind)
+            }
+        }
+    }
+
     pub fn get_member_meta_data(&self, id: PolyOrMember) -> Arc<MemberMetaData> {
         profile::profile!("program::get_member_meta_data");
         match id {

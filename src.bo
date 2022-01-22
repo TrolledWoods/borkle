@@ -1,14 +1,14 @@
 library "windows.bo";
 import "tests/main.bo";
 
-type Vec2 = { x: i64; y: i64 };
-type Vec3.(T) = { x: T; y: T };
+type Vec2.(T) = { x: T; y: T };
 
 #entry fn() {
-    let thing = #0 : Vec3.(i64);
-    thing.x = 99;
-    thing.y = 42;
-    print("Hello, x: %, y: %\n", thing.x, thing.y);
+    let vec = #0 : Vec2;
+    vec.x = 99 : i64;
+    vec.y = 42;
+    print("x: %, y: %\n", vec.x, vec.y);
+};
 
     /*
     let timer = start_timer();
@@ -16,13 +16,14 @@ type Vec3.(T) = { x: T; y: T };
     run_tests();
 
     print("Took % nanos\n", read_timer_nanos(timer));
-    */
 
     ExitProcess(99);
 };
+*/
 
 // type keyword:
-// * A new kind of member that is a type.
+// * Disallow using normal members in type expressions, those should have `typeof`.
+// * Make sure the value of type members can't be attempted to be accessed from code.
 // * We should have `is` work for them (probably not complete, it probably will never monomorphise the thing, but will at least work for most things).
 
 // IR emission improvements

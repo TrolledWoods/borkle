@@ -714,10 +714,10 @@ fn build_constraints(
             ctx.infer.value_sets.add_node_to_set(set, ctx.ast_variant_id, on.id);
             ctx.infer.set_equal(TypeId::Node(ctx.ast_variant_id, on.id), node_type_id, Reason::temp(node_loc));
 
-            build_global(ctx, node.id, node.node, scope, name, Some(children), set);
+            build_global(ctx, node.id, node.node, scope, name, Some(children), set, MemberKind::Const);
         }
         NodeKind::Global { scope, name } => {
-            build_global(ctx, node.id, node.node, scope, name, None, set);
+            build_global(ctx, node.id, node.node, scope, name, None, set, MemberKind::Const);
         }
         NodeKind::While {
             label,
@@ -1356,13 +1356,13 @@ fn build_type(
 
             let old_runs = ctx.runs;
             ctx.runs = ExecutionTime::Never;
-            build_global(ctx, node.id, node.node, scope, name, Some(children), set);
+            build_global(ctx, node.id, node.node, scope, name, Some(children), set, MemberKind::Type);
             ctx.runs = old_runs;
         }
         NodeKind::Global { scope, name } => {
             let old_runs = ctx.runs;
             ctx.runs = ExecutionTime::Never;
-            build_global(ctx, node.id, node.node, scope, name, None, set);
+            build_global(ctx, node.id, node.node, scope, name, None, set, MemberKind::Type);
             ctx.runs = old_runs;
         }
         NodeKind::PolymorphicArgument(index) => {
@@ -1770,11 +1770,11 @@ fn build_with_metadata(
             ctx.infer.value_sets.add_node_to_set(set, ctx.ast_variant_id, on.id);
             ctx.infer.set_equal(TypeId::Node(ctx.ast_variant_id, on.id), node_type_id, Reason::temp(node_loc));
 
-            Some(build_global(ctx, node.id, node.node, scope, name, Some(children), set))
+            Some(build_global(ctx, node.id, node.node, scope, name, Some(children), set, MemberKind::Const))
         }
         // @Cleanup: We could unify these two nodes probably
         NodeKind::Global { scope, name } => {
-            Some(build_global(ctx, node.id, node.node, scope, name, None, set))
+            Some(build_global(ctx, node.id, node.node, scope, name, None, set, MemberKind::Const))
         }
         _ => {
             build_constraints(ctx, node, set);
@@ -1791,11 +1791,24 @@ fn build_global<'a>(
     name: Ustr,
     children: Option<GenericChildIterator<'a, &'a [Node]>>,
     set: ValueSetId,
+    expected_member_kind: MemberKind,
 ) -> Arc<MemberMetaData> {
     let id = ctx.program.get_member_id(scope, name).expect("The dependency system should have made sure that this is defined");
     let node_type_id = TypeId::Node(ctx.ast_variant_id, node_id);
 
-    let meta_data = ctx.program.get_member_meta_data(id);
+    let (meta_data, member_kind) = ctx.program.get_member_meta_data_and_kind(id);
+
+    if member_kind != expected_member_kind {
+        match member_kind {
+            MemberKind::Const => {
+                ctx.errors.error(node.loc, format!("Cannot use `const` values in a type expression, did you intend to add a `typeof` in front?"));
+            }
+            MemberKind::Type => {
+                ctx.errors.error(node.loc, format!("Cannot use `type` values as expressions, they are only allowed in types."));
+            }
+        }
+        ctx.infer.value_sets.get_mut(set).has_errors |= true;
+    }
 
     match id {
         PolyOrMember::Poly(id) => {
