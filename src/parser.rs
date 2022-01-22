@@ -407,24 +407,63 @@ fn type_(
         TokenKind::Identifier(name) => {
             global.tokens.next();
 
-            if let Some(index) = imperative
+            let mut muncher = slot.into_muncher();
+
+            if let Some(local_id) = imperative.get_local(name) {
+                // This is not allowed in a type expression, but we deal with it in the typer to get more error reporting,
+                // since it's not really a hard parsing error.
+                let local = imperative.locals.get_mut(local_id);
+                local.num_uses += 1;
+                local.uses.push(loc);
+                muncher.add().finish(Node::new(loc, NodeKind::Local { local_id }));
+            } else if let Some(index) = imperative
                 .poly_args
                 .iter()
                 .position(|(_, arg)| *arg == name)
             {
-                Ok(slot.finish(Node::new(loc, NodeKind::PolymorphicArgument(index))))
+                muncher.add().finish(Node::new(loc, NodeKind::PolymorphicArgument(index)));
             } else {
                 imperative.dependencies.add(
                     loc,
                     DepKind::MemberByName(
                         global.scope,
                         name,
-                        MemberDep::ValueAndCallableIfFunction,
+                        MemberDep::Type,
                     ),
                 );
-
-                Ok(slot.finish(Node::new(loc, NodeKind::Global { scope: global.scope, name })))
+                muncher.add().finish(Node::new(
+                    loc,
+                    NodeKind::Global { scope: global.scope, name },
+                ));
             }
+
+            // @Copypasta from value_without_unaries.
+            while let Some(&Token { ref kind, loc, .. }) = global.tokens.peek() {
+                match kind {
+                    TokenKind::Operator(string) if string.as_str() == "." => {
+                        global.tokens.next();
+
+                        let token = global.tokens.expect_next(global.errors)?;
+                        match token.kind {
+                            TokenKind::Open(Bracket::Round) => {
+                                let old_evaluate_at_typing = imperative.evaluate_at_typing;
+                                imperative.evaluate_at_typing = true;
+                                let count = function_arguments(global, imperative, &mut muncher)?;
+                                imperative.evaluate_at_typing = old_evaluate_at_typing;
+
+                                muncher.munch(count + 1, Node::new(loc, NodeKind::PolymorphicArgs));
+                            }
+                            _ => {
+                                global.error(token.loc, "Expected a generic argument list".to_string());
+                                return Err(());
+                            }
+                        }
+                    }
+                    _ => break,
+                }
+            }
+
+            Ok(muncher.finish())
         }
         TokenKind::Keyword(Keyword::Underscore) => {
             global.tokens.next();

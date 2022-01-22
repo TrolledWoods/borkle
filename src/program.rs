@@ -735,7 +735,13 @@ impl Program {
         // FIXME: Calculate the member meta data here.
         self.set_type_of_member(member_id, types.value_to_compiler_type(TypeId::Node(AstVariantId::root(), typed_ast.root_id())), MemberMetaData::None);
 
-        if wanted_dep < MemberDep::Value && member_kind == MemberKind::Const {
+        if member_kind == MemberKind::Type {
+            debug_assert!(wanted_dep <= MemberDep::Type);
+
+            return Ok(member_id);
+        }
+
+        if wanted_dep < MemberDep::Value {
             self.queue_task(
                 dependency_list,
                 Task::EmitMember(

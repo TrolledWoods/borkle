@@ -716,7 +716,6 @@ fn build_constraints(
 
             build_global(ctx, node.id, node.node, scope, name, Some(children), set);
         }
-        // @Cleanup: We could unify these two nodes probably
         NodeKind::Global { scope, name } => {
             build_global(ctx, node.id, node.node, scope, name, None, set);
         }
@@ -1344,6 +1343,28 @@ fn build_type(
                 ctx.infer.set_type(node_type_id, TypeKind::CompareUnspecified, Args([]), set);
             }
         },
+        NodeKind::PolymorphicArgs => {
+            let mut children = node.children.into_iter();
+            let on = children.next().unwrap();
+            let &NodeKind::Global { scope, name } = &on.kind else {
+                todo!("Handling of the case where you pass polymorphic args to something that shouldn't have it");
+            };
+
+            ctx.infer.set_value_set(TypeId::Node(ctx.ast_variant_id, on.id), set);
+            ctx.infer.value_sets.add_node_to_set(set, ctx.ast_variant_id, on.id);
+            ctx.infer.set_equal(TypeId::Node(ctx.ast_variant_id, on.id), node_type_id, Reason::temp(node_loc));
+
+            let old_runs = ctx.runs;
+            ctx.runs = ExecutionTime::Never;
+            build_global(ctx, node.id, node.node, scope, name, Some(children), set);
+            ctx.runs = old_runs;
+        }
+        NodeKind::Global { scope, name } => {
+            let old_runs = ctx.runs;
+            ctx.runs = ExecutionTime::Never;
+            build_global(ctx, node.id, node.node, scope, name, None, set);
+            ctx.runs = old_runs;
+        }
         NodeKind::PolymorphicArgument(index) => {
             let poly_param = &mut ctx.poly_params[index];
             poly_param.used_as_type.get_or_insert(node_loc);

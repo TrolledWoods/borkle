@@ -5,7 +5,7 @@ type Vec2 = { x: i64; y: i64 };
 type Vec3.(T) = { x: T; y: T };
 
 #entry fn() {
-    let thing = #0 : typeof Vec2;
+    let thing = #0 : Vec3.(i64);
     thing.x = 99;
     thing.y = 42;
     print("Hello, x: %, y: %\n", thing.x, thing.y);
