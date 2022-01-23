@@ -12,7 +12,7 @@ const aoc_day2_part_1 = fn (parse: [] u8) -> i64 {
     let pos   = 0;
 
     take_whitespace(&parse);
-    while not(empty(&parse)) {
+    while !empty(&parse) {
         let command = take_word(&parse);
         take_whitespace(&parse);
         let number = take_u64(&parse);
@@ -41,7 +41,7 @@ const aoc_day2_part_2 = fn(parse: [] u8) -> i64 {
     let aim = 0;
 
     take_whitespace(&parse);
-    while not(empty(&parse)) {
+    while !empty(&parse) {
         let command = take_word(&parse);
         take_whitespace(&parse);
         let number = take_u64(&parse);

@@ -233,7 +233,7 @@ const filter.(State, Item) = fn(inner: Iterator.(State, Item), filter: fn(&Item)
     stream.next = fn(state, out) { 'func
         let temp = #uninit;
         while true {
-            if not((*state).inner.next(&state.inner.state, &temp)) {
+            if !state.inner.next(&state.inner.state, &temp) {
                 break 'func false;
             };
 

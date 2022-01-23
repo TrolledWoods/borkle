@@ -1,8 +1,8 @@
 # borkle
 A compiler/interpreter for a homemade programming language.
-It can compile to c code, or run the program in an interpreted mode.
+It can compile to x86 assembly, or run the program in an interpreted mode.
 
-This is not stable software, and it might have very bad bugs and change at any time.
+This is not stable software, and it might have very bad bugs or change at any time.
 
 ## Building
 Just build with cargo, like any other rust program.

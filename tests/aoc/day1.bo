@@ -11,7 +11,7 @@ const aoc_day1_part_1 = fn(parse: [] u8) -> u64 {
     let old_number = take_u64(&parse);
     take_whitespace(&parse);
     let count = 0;
-    while not(empty(&parse)) {
+    while !empty(&parse) {
         let number = take_u64(&parse);
         if number > old_number  count = count + 1;
 
@@ -29,7 +29,7 @@ const aoc_day1_part_2 = fn(parse: [] u8) -> u64 {
     let old_c = take_u64(&parse);
     take_whitespace(&parse);
     let count = 0;
-    while not(empty(&parse)) {
+    while !empty(&parse){
         let number = take_u64(&parse);
         take_whitespace(&parse);
 

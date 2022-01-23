@@ -139,9 +139,6 @@ const NEGATIVE_SIGN = *"-".ptr : u8;
 const LETTER_A = *"A".ptr : u8;
 const DIGIT0 = *"0".ptr : u8;
 
-// TEMPORARY until not operator is done a gain
-const not = fn(v: bool) -> bool  if v false else true;
-
 const cmp_strings = fn(a: [] u8, b: [] u8) -> bool { 'function
     if a.len != b.len  break 'function false;
 
@@ -195,7 +192,7 @@ const take_u64_with_base = fn(string: &[] u8, base: u64) -> u64 {
     let number = 0;
     while string.len > 0 {
         let c = *string.ptr;
-        if not(is_digit(c))  break;
+        if !is_digit(c)  break;
         number = number * base + cast (c - DIGIT0) : u64;
         advance(string);
     };
@@ -206,7 +203,7 @@ const take_u64 = fn(string: &[] u8) -> u64 {
     let number = 0;
     while string.len > 0 {
         let c = *string.ptr;
-        if not(is_digit(c))  break;
+        if !is_digit(c)  break;
         number = number * 10 + cast (c - DIGIT0) : u64;
         advance(string);
     };
@@ -220,7 +217,7 @@ const skip_num = fn(string: &[] u8) -> [] u8 {
 
     while 'loop string.len > 0 {
         advance(string);
-        if not(is_digit(*string.ptr))  break 'loop;
+        if !is_digit(*string.ptr)  break 'loop;
         new.len = new.len + 1;
     };
 
@@ -232,10 +229,7 @@ const take_word = fn(string: &[] u8) -> [] u8 {
     let length = 0;
     let start = string.ptr;
     while string.len > 0 {
-        if not(
-            is_alpha(
-                *string.ptr
-            )) break;
+        if !is_alpha(*string.ptr) break;
         length = length + 1;
         advance(string);
     };
@@ -253,7 +247,7 @@ const trim_whitespace = fn(string: &[] u8) {
 
 const take_whitespace = fn(string: &[] u8) {
     while string.len > 0 {
-        if not(is_whitespace(*string.ptr)) break;
+        if !is_whitespace(*string.ptr) break;
         advance(string);
     };
 };

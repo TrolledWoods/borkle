@@ -20,7 +20,7 @@ const aoc_day7 = fn() -> { part_1: u64; part_2: u64 } {
     take_whitespace(&parse);
     let min = 99999999999999;
     let max = 0;
-    while not(empty(&parse)) {
+    while !empty(&parse) {
         let number = take_u64(&parse);
         *(crabs.ptr + i) = number;
         if number < min  min = number;

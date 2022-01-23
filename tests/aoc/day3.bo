@@ -17,7 +17,7 @@ const aoc_day3_part1 = fn() -> u64 {
 
     // Both of these are backward, but the backwardness cancels out :)
     take_whitespace(&input);
-    while not(empty(&input)) {
+    while !empty(&input) {
         for &one_counts {
             if take_char(&input) == one {
                 *v = *v + 1;
@@ -53,7 +53,7 @@ const aoc_day3_part2 = fn() -> u64 {
     // Count the number of lines in the input
     let lines = 0;
     take_whitespace(&input);
-    while not(empty(&input)) {
+    while !empty(&input) {
         take_u64_with_base(&input, 2);
         take_whitespace(&input);
         lines = lines + 1;
@@ -66,7 +66,7 @@ const aoc_day3_part2 = fn() -> u64 {
 
     let input = INPUT;
     take_whitespace(&input);
-    while not(empty(&input)) {
+    while !empty(&input) {
         let number = take_u64_with_base(&input, 2);
         take_whitespace(&input);
         let entry: &_ = numbers.ptr + i;

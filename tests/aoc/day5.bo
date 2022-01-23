@@ -14,7 +14,7 @@ const aoc_day5 = fn(include_diagonals: bool) -> u64 {
     let maxx = 0;
     let maxy = 0;
     take_whitespace(&parse);
-    while not(empty(&parse)) { 'continue
+    while !empty(&parse) { 'continue
         let x1 = take_u64(&parse);
         advance(&parse);
         let y1 = take_u64(&parse);
@@ -24,7 +24,7 @@ const aoc_day5 = fn(include_diagonals: bool) -> u64 {
         let y2 = take_u64(&parse);
         take_whitespace(&parse);
 
-        if not(x1 == x2 || y1 == y2)  break 'continue;
+        if !(x1 == x2 || y1 == y2)  break 'continue;
 
         if x1 > maxx  maxx = x1;
         if x2 > maxx  maxx = x2;
@@ -45,7 +45,7 @@ const aoc_day5 = fn(include_diagonals: bool) -> u64 {
     let parse = INPUT;
     take_whitespace(&parse);
     let overlapping = 0;
-    while not(empty(&parse)) { 'continue
+    while !empty(&parse) { 'continue
         let x1 = take_u64(&parse);
         advance(&parse);
         let y1 = take_u64(&parse);
@@ -55,7 +55,7 @@ const aoc_day5 = fn(include_diagonals: bool) -> u64 {
         let y2 = take_u64(&parse);
         take_whitespace(&parse);
 
-        if x1 != x2 && y1 != y2 && not(include_diagonals)  break 'continue;
+        if x1 != x2 && y1 != y2 && !include_diagonals  break 'continue;
 
         let x_cell = x1 / 32;
         let bit = (x1 % 32) * 2;
