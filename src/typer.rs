@@ -561,7 +561,7 @@ fn subset_was_completed(ctx: &mut Context<'_, '_>, ast: &mut Ast, waiting_on: Wa
                                 node_id,
                                 type_,
                                 function_id,
-                                AstVariantId::root(),
+                                ast_variant_id,
                             ),
                         );
                     }
@@ -571,13 +571,14 @@ fn subset_was_completed(ctx: &mut Context<'_, '_>, ast: &mut Ast, waiting_on: Wa
                             ctx.program,
                             ctx.locals,
                             ctx.infer,
-                            ast,
+                            ast.get(node_id),
                             ctx.additional_info,
                             node_id,
-                            AstVariantId::root(),
+                            ast_variant_id,
                             type_,
                             node_loc,
                             function_id,
+                            true,
                         );
                     }
                 }

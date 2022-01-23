@@ -1,24 +1,11 @@
-import "tests/main.bo";
-library "vec.bo";
 library "iter.bo";
-library "timer.bo";
 
 #entry fn() {
-    let timer = start_timer();
-    let thing = range(0, 1_000_000 : u64)->map(fn(x) x * 2)->collect_vec();
-    defer vec_free(thing);
-    print("collect vec time: % microseconds\n", timer->get_micros());
+    let array: [{
+        range(1, 4)->fold(0, fn(a, b) a + b)
+    }] u32 = #0;
 
-    let timer = start_timer();
-    let vec = vec_new();
-    (&vec)->reserve(1_000_000);
-    (&vec)->extend(range(0, 1_000_000 : u64)->map(fn(x) x * 2));
-    defer vec_free(vec);
-    print("preallocated vec time: % microseconds\n", timer->get_micros());
-
-    let timer = start_timer();
-    range(0, 1_000_000 : u64)->map(fn(x) x * 2)->count();
-    print("no vec time: % microseconds\n", timer->get_micros());
+    for array print("%\n", v);
 };
 
 // IR emission improvements

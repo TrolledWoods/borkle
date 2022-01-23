@@ -177,7 +177,7 @@ impl Program {
         function_id: FunctionId,
         calling: Vec<FunctionId>,
         routine: Routine,
-    ) {
+    ) -> bool {
         profile::profile!("Set routine of function");
         let mut functions = self.functions.write();
         let old = std::mem::replace(
@@ -204,8 +204,11 @@ impl Program {
 
                 self.modify_dependency_count(dependant, num_deps);
             }
+
+            true
         } else {
-            unreachable!("This should not happen bro");
+            self.logger.log(format_args!("Redundant routine emission!"));
+            false
         }
     }
 
@@ -773,7 +776,7 @@ impl Program {
         assert_ne!(wanted_dep, MemberDep::Value, "Depending on just the value shouldn't really happen in this place, because either you go full on callable or you depend on the type. If you need to depend on the value it monomorphises it by depending on the type and then calculates the type on the value individually.");
 
         // @HACK: Here we assume that stack frame id number 0 is the parent one.
-        let (_, routine) = crate::emit::emit(thread_context, self, &mut locals, &mut types, &typed_ast, &additional_info, typed_ast.root_id(), AstVariantId::root());
+        let (_, routine) = crate::emit::emit(thread_context, self, &mut locals, &mut types, &typed_ast, &additional_info, typed_ast.root_id(), AstVariantId::root(), true);
         let mut stack = crate::interp::Stack::new(2048);
 
         let mut call_stack = Vec::new();
@@ -790,7 +793,9 @@ impl Program {
 
         self.set_value_of_member(member_id, value);
         self.flag_member_callable(member_id);
-
+        
+        /* TODO: Think about if this is necessary.
+        */
         for function_id in unsafe { type_.get_function_ids(value.as_ptr()) } {
             self.flag_function_callable(function_id);
         }
@@ -929,6 +934,10 @@ impl Program {
     /// * ``non_ready_tasks`` write
     /// * ``functions`` write
     pub fn queue_task(&self, deps: DependencyList, task: Task) {
+        self.logger.log(format_args!(
+            "queuing task {:?} with dependencies {:?}", task, deps,
+        ));
+
         // We start at this instead of zero so that even if some dependencies are resolved while we
         // are adding them, the count doesn't ever reach zero again. This is important, so that the
         // task isn't deployed before it's ready.

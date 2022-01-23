@@ -22,6 +22,7 @@ pub fn emit<'a>(
     additional_info: &AdditionalInfo,
     node: NodeId,
     variant_id: AstVariantId,
+    emit_inner_function_declarations: bool,
 ) -> (Vec<FunctionId>, UserDefinedRoutine) {
     let mut ctx = Context {
         thread_context,
@@ -35,6 +36,7 @@ pub fn emit<'a>(
         last_location: None,
         variant_id,
         additional_info,
+        emit_inner_function_declarations,
 
         defers: Vec::new(),
     };
@@ -68,14 +70,20 @@ pub fn emit_function_declaration<'a>(
     program: &'a Program,
     locals: &mut LocalVariables,
     types: &mut TypeSystem,
-    ast: &Ast,
+    node: NodeView<'_>,
     additional_info: &AdditionalInfo,
     node_id: NodeId,
     variant_id: AstVariantId,
     type_: Type,
     loc: Location,
     function_id: FunctionId,
+    emit_inner_function_declarations: bool,
 ) {
+    // If it's already there, don't emit it.
+    if program.get_routine(function_id).is_some() {
+        return;
+    }
+
     let mut ctx = Context {
         thread_context,
         instr: Vec::new(),
@@ -89,6 +97,7 @@ pub fn emit_function_declaration<'a>(
         calling: Vec::new(),
         last_location: None,
         additional_info,
+        emit_inner_function_declarations,
     };
 
     let function_type = ctx.types.get(TypeId::Node(ctx.variant_id, node_id));
@@ -102,7 +111,6 @@ pub fn emit_function_declaration<'a>(
         ctx.create_reg_and_typed_layout(v)
     }).collect();
 
-    let node = ast.get(node_id);
     let mut children = node.children.into_iter();
     for &(passed_as, _) in args.iter() {
         let child = children.next().unwrap();
@@ -118,14 +126,9 @@ pub fn emit_function_declaration<'a>(
 
     let result = ctx.flush_value(&result, result_layout);
 
-    /*println!("The instructions are: ");
-    for instr in &ctx.instr {
-        println!("{:?}", instr);
-    }*/
-
     let routine = Routine::UserDefined(UserDefinedRoutine {
         loc,
-        name: ast.name,
+        name: "temp".into(),
         label_locations: ctx.label_locations,
         instr: ctx.instr,
         stack: ctx.registers,
@@ -134,12 +137,12 @@ pub fn emit_function_declaration<'a>(
         result_layout,
     });
 
-    let TypeKind::Function { args, returns } = type_.kind() else { unreachable!() };
-    ctx.thread_context.emitters.emit_routine(ctx.program, function_id, &routine, args, *returns);
+    if ctx.program.set_routine_of_function(function_id, ctx.calling, routine) {
+        let TypeKind::Function { args, returns } = type_.kind() else { unreachable!() };
 
-    ctx
-        .program
-        .set_routine_of_function(function_id, ctx.calling, routine);
+        let routine = ctx.program.get_routine(function_id);
+        ctx.thread_context.emitters.emit_routine(ctx.program, function_id, &routine.unwrap(), args, *returns);
+    }
 }
 
 fn emit_node<'a>(ctx: &mut Context<'a, '_>, mut node: NodeView<'a>) -> (Value, TypedLayout) {
@@ -917,14 +920,42 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, mut node: NodeView<'a>) -> (Value, T
             (Value::Constant { constant: ptr, offset: 0 }, layout)
         }
         NodeKind::BuiltinFunction(_) | NodeKind::FunctionDeclaration { .. } => {
-            let &AdditionalInfoKind::Function(id) = &ctx.additional_info[&(ctx.variant_id, node.id)] else { panic!() };
+            if ctx.emit_inner_function_declarations {
+                let &AdditionalInfoKind::Function(id) = &ctx.additional_info[&(ctx.variant_id, node.id)] else { panic!() };
 
-            let inner_type = TypeId::Node(ctx.variant_id, node.id);
-            let compiler_type = ctx.types.value_to_compiler_type(inner_type);
-            let constant_ref = ctx.program.insert_buffer(compiler_type, &id as *const _ as *const u8);
+                let inner_type = TypeId::Node(ctx.variant_id, node.id);
+                let compiler_type = ctx.types.value_to_compiler_type(inner_type);
+                let constant_ref = ctx.program.insert_buffer(compiler_type, &id as *const _ as *const u8);
 
-            let layout = ctx.get_typed_layout(node_type_id);
-            (Value::Constant { constant: constant_ref, offset: 0 }, layout)
+                // Emit the function itself
+                emit_function_declaration(
+                    ctx.thread_context,
+                    ctx.program,
+                    ctx.locals,
+                    ctx.types,
+                    node,
+                    ctx.additional_info,
+                    node.id,
+                    ctx.variant_id,
+                    compiler_type,
+                    node.loc,
+                    id,
+                    true,
+                );
+
+
+                let layout = ctx.get_typed_layout(node_type_id);
+                (Value::Constant { constant: constant_ref, offset: 0 }, layout)
+            } else {
+                let &AdditionalInfoKind::Function(id) = &ctx.additional_info[&(ctx.variant_id, node.id)] else { panic!() };
+
+                let inner_type = TypeId::Node(ctx.variant_id, node.id);
+                let compiler_type = ctx.types.value_to_compiler_type(inner_type);
+                let constant_ref = ctx.program.insert_buffer(compiler_type, &id as *const _ as *const u8);
+
+                let layout = ctx.get_typed_layout(node_type_id);
+                (Value::Constant { constant: constant_ref, offset: 0 }, layout)
+            }
         }
         NodeKind::Is => {
             let &AdditionalInfoKind::IsExpression(comparison_id) = &ctx.additional_info[&(ctx.variant_id, node.id)] else { panic!() };
@@ -1199,6 +1230,7 @@ pub struct Context<'a, 'b> {
     pub last_location: Option<Location>,
     pub variant_id: AstVariantId,
     pub additional_info: &'a AdditionalInfo,
+    pub emit_inner_function_declarations: bool,
 
     pub defers: Vec<NodeView<'a>>,
 }

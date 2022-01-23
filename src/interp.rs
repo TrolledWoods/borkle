@@ -32,6 +32,7 @@ pub fn emit_and_run<'a>(
         additional_info,
         node,
         variant_id,
+        true,
     );
     let mut stack = Stack::new(2048);
     let result = interp(program, &mut stack, &routine, call_stack)?;

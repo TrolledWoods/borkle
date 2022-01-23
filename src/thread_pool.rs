@@ -92,8 +92,6 @@ fn worker<'a>(alloc: &'a mut Bump, program: &'a Program) -> (ThreadContext<'a>, 
             match task {
                 Task::FlagPolyMember(_, MemberDep::Type, _) => {
                     unreachable!("Can't flag poly member as type, should use Task::TypePolyMember instead");
-                    profile::profile!("Task::FlagPolyMember Type");
-
                 }
                 Task::FlagPolyMember(_, MemberDep::Value, _) => {
                     unreachable!("Flag poly member with just a value should never happen");
@@ -138,6 +136,10 @@ fn worker<'a>(alloc: &'a mut Bump, program: &'a Program) -> (ThreadContext<'a>, 
                                 DependencyList::new(), // Since the next thing ignores its dependencies anyway, we don't care to pass it. This might change later though
                             ),
                         );
+                    } else {
+                        // OMEGA HACK!!!! To work with type expressions
+                        program.flag_poly_member_value(member_id);
+                        program.flag_poly_member_value_and_callable_if_function(member_id);
                     }
                 }
                 Task::TypeMember { member_id, member_kind, ast, locals } => {
@@ -171,6 +173,10 @@ fn worker<'a>(alloc: &'a mut Bump, program: &'a Program) -> (ThreadContext<'a>, 
                                             dependencies,
                                             Task::EmitMember(member_id, locals, types, additional_info, ast),
                                         );
+                                    } else {
+                                        // OMEGA HACK!!!! To work with type expressions
+                                        program.set_value_of_member(member_id, crate::program::constant::ConstantRef::dangling());
+                                        program.flag_member_callable(member_id);
                                     }
                                 } else {
                                     errors.error(ast.root().loc, format!("'{}' cannot be stored in a constant, because it contains types that the compiler cannot reason about properly, such as '&any', '[] any', or similar", type_));
@@ -210,6 +216,7 @@ fn worker<'a>(alloc: &'a mut Bump, program: &'a Program) -> (ThreadContext<'a>, 
                             &additional_info,
                             ast.root_id(),
                             AstVariantId::root(),
+                            false,
                         );
 
                         let mut dependencies = DependencyList::new();
@@ -278,13 +285,14 @@ fn worker<'a>(alloc: &'a mut Bump, program: &'a Program) -> (ThreadContext<'a>, 
                         program,
                         &mut locals,
                         &mut types,
-                        &ast,
+                        ast.get(node_id),
                         &additional_info,
                         node_id,
                         ast_variant_id,
                         type_,
                         loc,
                         function_id,
+                        false,
                     );
                 }
             }
