@@ -4,7 +4,7 @@ use crate::program::Program;
 use crate::errors::ErrorCtx;
 use crate::location::Location;
 use crate::operators::BinaryOp;
-use crate::types::{self, IntTypeKind};
+use crate::types::{self, IntTypeKind, UniqueTypeMarker};
 use crate::ast::{NodeId as AstNodeId};
 use std::collections::HashMap;
 use std::mem;
@@ -117,6 +117,8 @@ pub enum TypeKind {
     Struct(Box<[Ustr]>),
     /// (type, type, type, ..)
     Tuple,
+    /// inner type
+    Unique(UniqueTypeMarker),
 
     /// no fields
     ConstantValue(ConstantRef),
@@ -137,6 +139,7 @@ impl TypeKind {
             TypeKind::Array => children,
             TypeKind::Struct(_) => children,
             TypeKind::Tuple => children,
+            TypeKind::Unique(_) => children,
             // A constant pretends to care about the actual ConstantValue for the layout as well. This is not
             // because it "needs" to itself, but because things that need the constant, like the arrays layout,
             // does actually care about the value, so if it isn't required we get problems.
@@ -165,6 +168,7 @@ fn compute_type_layout(kind: &TypeKind, structures: &Structures, values: &Values
             };
             Layout { size: size_bytes, align: size_bytes }
         }
+        TypeKind::Unique(_) => *get_value(structures, values, children[0]).layout.unwrap(),
         TypeKind::IntSize(_) => Layout { size: 1, align: 1 },
         TypeKind::IntSigned(_) => Layout { size: 1, align: 1 },
         TypeKind::Bool => Layout { size: 1, align: 1 },
@@ -1104,6 +1108,14 @@ impl TypeSystem {
             }
             TypeKind::Bool => types::Type::new(types::TypeKind::Bool),
             TypeKind::Empty => types::Type::new(types::TypeKind::Empty),
+            TypeKind::Unique(marker) => {
+                let [inner] = &**type_args else {
+                    unreachable!("Invalid unique type")
+                };
+                let inner = self.value_to_compiler_type(*inner);
+
+                types::Type::new(types::TypeKind::Unique { inner, marker })
+            }
             TypeKind::Function => {
                 let [return_type, arg_types @ ..] = &**type_args else {
                     unreachable!("Invalid function type")
@@ -1347,6 +1359,10 @@ impl TypeSystem {
             Some(Type { kind: TypeKind::IntSigned(s), .. }) => format!("int sign {}", s),
             Some(Type { kind: TypeKind::ConstantValue(_), .. }) => "<constant value>".to_string(),
             None => "_".to_string(),
+            Some(Type { kind: TypeKind::Unique(marker), args: _ }) => {
+                // TODO: We want to print the generic parameters too, somehow.
+                marker.name.to_string()
+            }
             Some(Type { kind: TypeKind::Constant, args: Some(c) }) => match &**c {
                 [type_, value] => {
                     let value = match &self.get(*value).kind {

@@ -231,6 +231,9 @@ impl Display for TypeKind {
                 write!(fmt, "}}")?;
                 Ok(())
             }
+            Self::Unique { marker, inner } => {
+                write!(fmt, "{}({})", marker.name, inner)
+            }
         }
     }
 }
@@ -259,6 +262,10 @@ pub enum TypeKind {
     Function { args: Vec<Type>, returns: Type },
     Struct(Vec<(Ustr, Type)>),
     Tuple(Vec<Type>),
+    Unique {
+        marker: UniqueTypeMarker,
+        inner: Type,
+    },
 }
 
 impl TypeKind {
@@ -276,6 +283,7 @@ impl TypeKind {
             TypeKind::Buffer { pointee: inner, .. }
             | TypeKind::Array(inner, _)
             | TypeKind::Range(inner)
+            | TypeKind::Unique { inner, .. }
             | TypeKind::Reference { pointee: inner, .. } => on_inner(*inner),
             TypeKind::Function { args, returns, .. } => {
                 for arg in args {
@@ -380,6 +388,7 @@ impl TypeKind {
             Self::AnyPtr | Self::VoidBuffer | Self::Buffer { .. } => (16, 8),
             Self::F32 => (4, 4),
             Self::Bool => (1, 1),
+            Self::Unique { inner, .. } => inner.kind().calculate_size_align(),
             Self::Range(inner) => {
                 let size = array_size(inner.size(), inner.align(), 2);
                 (size, inner.align())
@@ -495,6 +504,11 @@ impl TypeKind {
                     }
                 }
             }
+            Self::Unique { inner, .. } => {
+                for &(field_pointer, ref field_pointer_type) in inner.pointers() {
+                    pointers.push((field_pointer, field_pointer_type.clone()));
+                }
+            }
         }
     }
 }
@@ -586,6 +600,12 @@ impl Debug for IntTypeKind {
             Self::U8 => write!(fmt, "u8"),
         }
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct UniqueTypeMarker {
+    pub loc: Location,
+    pub name: Ustr,
 }
 
 #[repr(C)]

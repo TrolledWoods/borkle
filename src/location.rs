@@ -1,7 +1,7 @@
 use ustr::Ustr;
 use std::fmt;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Location {
     pub file: Ustr,
     pub line: u32,

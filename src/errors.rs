@@ -1,7 +1,7 @@
 use crate::location::Location;
 use ustr::{Ustr, UstrMap};
 use std::sync::Arc;
-use ansi_term::Colour::{Red, White, Cyan};
+use ansi_term::Colour::{Red, Cyan};
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub struct ErrorId(usize);
