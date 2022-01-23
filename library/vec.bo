@@ -1,4 +1,4 @@
-type Vec.(T) = {
+type #alias: Vec.(T) = {
     ptr: &T;
     len: usize;
     capacity: usize;
@@ -8,7 +8,7 @@ const vec_new.(T) = fn() -> Vec.(T)  #0;
 
 const INITIAL_SIZE = 16 : usize;
 
-const vec_as_buf.(T) = fn(vec: &Vec.(T)) -> [] T {
+const as_buf.(T) = fn(vec: Vec.(T)) -> [] T {
     let buf = #0;
     buf.ptr = vec.ptr;
     buf.len = vec.len;

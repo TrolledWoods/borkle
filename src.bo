@@ -1,13 +1,27 @@
 import "tests/main.bo";
+library "vec.bo";
+library "iter.bo";
 
 #entry fn() {
-    run_tests();
+    let thing = [1, 2, 3 : u32]
+        ->iter_arr()
+        ->map(fn(x) x * 2)
+        ->chain([3, 2, 1, 0]->iter_arr())
+        ->zip(range(0, 99 : u64))
+        ->collect_vec();
+    defer vec_free(thing);
+
+    for thing->as_buf() {
+        print("Thing at % is %, %\n", i, v._0, v._1);
+    }
 };
 
 // IR emission improvements
 //
 // - Swapping variables using destructuring, for example, (x, y) = (y, x), is broken with the current system, this should be fixed!
 // - Arrays need a `Value` as well.
+
+// Removing the `type` on Chain in library\iter causes a compiler lockup
 
 // Roadmap for full(and decent) x64 support:
 //

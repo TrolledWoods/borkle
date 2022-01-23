@@ -114,9 +114,9 @@ fn print_loc(prev_file: &mut Option<Ustr>, loc: Location, message: &str, file_co
                 }
             }
             if prefix.len() + message.len() <= 80 {
-                println!("{}{} ", Red.paint("^"), message);
+                println!("{} {}", Red.paint("^"), message);
             } else {
-                println!("{}^", Red.paint("^"));
+                println!("{}", Red.paint("^"));
                 println!("{}{}", " ".repeat(prefix.len() - 2), message);
             }
         } else {

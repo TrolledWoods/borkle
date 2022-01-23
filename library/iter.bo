@@ -9,7 +9,11 @@ type Iterator.(State, Item) = {
 // -- Creation --
 //
 
-const array_iter.(N, T) = fn(array: [N] T) -> Iterator.(_, T) {
+const iter_arr_by_ref.(N, T) = fn(array: &[N] T) -> Iterator.(_, type &T) {
+    range(&array._0, &array._0 + N)
+};
+
+const iter_arr.(N, T) = fn(array: [N] T) -> Iterator.(_, T) {
     let stream = #0;
     stream.state : { array: _; index: _; };
     stream.state.array = array;
@@ -27,12 +31,12 @@ const array_iter.(N, T) = fn(array: [N] T) -> Iterator.(_, T) {
     stream
 };
 
-const vec_iter.(T) = fn(vec: &Vec.(T)) -> Iterator.(_, type &T) {
-    buf_iter(vec_as_buf(vec))
+const iter_vec.(Item) = fn(from: Vec.(Item)) -> Iterator.(_, type Item) {
+    range(from.ptr, from.ptr + from.len)
 };
 
-const buf_iter.(T) = fn(buffer: [] T) -> Iterator.(_, type &T) {
-    range(buffer.ptr, buffer.ptr + buffer.len)
+const iter_buf.(Item) = fn(from: [] Item) -> Iterator.(_, type Item) {
+    range(from.ptr, from.ptr + from.len)
 };
 
 const split.(T) = fn(buffer: [] T, split_if: fn(T) -> bool) -> Iterator.(_, type [] T) {
@@ -125,15 +129,49 @@ const by_value.(State, Item) = fn(a: Iterator.(State, type &Item)) -> Iterator.(
     map(a, fn(v) *v)
 };
 
-const zip.(StateA, ItemA, StateB, ItemB) = fn(a: Iterator.(StateA, ItemA), b: Iterator.(StateB, ItemB)) -> Iterator.(_, type { a: ItemA; b: ItemB; }) {
+const repeat.(Item) = fn(value: Item) -> Iterator.(_, Item) {
+    let stream = #uninit;
+    stream.state = value;
+    stream.next = fn(state, out) {
+        *out = *state;
+        true
+    };
+    stream
+};
+
+type Chain.(A, B) = {
+    on_second: bool;
+    a: A;
+    b: B;
+};
+
+const chain.(StateA, StateB, Item) = fn(a: Iterator.(StateA, Item), b: Iterator.(StateB, Item)) -> Iterator.(type Chain.(_, _), Item) {
+    let stream = #uninit;
+    stream.state.on_second = false;
+    stream.state.a = a;
+    stream.state.b = b;
+
+    stream.next = fn(state, out) { 'func
+        if !state.on_second {
+            if state.a.next(&state.a.state, out)  break 'func true;
+            state.on_second = true;
+        };
+
+        state.b.next(&state.b.state, out)
+    };
+
+    stream
+};
+
+const zip.(StateA, ItemA, StateB, ItemB) = fn(a: Iterator.(StateA, ItemA), b: Iterator.(StateB, ItemB)) -> Iterator.(_, type (ItemA, ItemB)) {
     let stream = #uninit;
     stream.state : { a: _; b: _; };
     stream.state.a = a;
     stream.state.b = b;
 
     stream.next = fn(state, out) {
-        let a_success = (*state).a.next(&(*state).a.state, &(*out).a);
-        let b_success = (*state).b.next(&(*state).b.state, &(*out).b);
+        let a_success = (*state).a.next(&(*state).a.state, &(*out)._0);
+        let b_success = (*state).b.next(&(*state).b.state, &(*out)._1);
         a_success && b_success
     };
 
@@ -229,15 +267,16 @@ const count.(State, Item) = fn(stream: Iterator.(State, Item)) -> usize {
     count
 };
 
-const vec_from_iter.(State, Item) = fn(stream: Iterator.(State, Item)) -> Vec.(Item) {
+const collect_vec.(State, Item) = fn(stream: Iterator.(State, Item)) -> Vec.(Item) {
     let vec = vec_new();
     let item = #uninit;
     while stream.next(&stream.state, &item)  vec_push(&vec, item);
     vec
 };
 
-const array_from_iter.(State, Item, N) = fn(stream: Iterator.(State, Item)) -> [N] Item {
+const collect_array.(N, State, Item) = fn(stream: Iterator.(State, Item)) -> [N] Item {
     let array = #uninit;
     for &array  assert(stream.next(&stream.state, v));
     array
 };
+

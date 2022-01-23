@@ -1105,6 +1105,27 @@ fn value_without_unaries(
 
     while let Some(&Token { ref kind, loc, .. }) = global.tokens.peek() {
         match kind {
+            TokenKind::Operator(string) if string.as_str() == "->" => {
+                global.tokens.next();
+
+                let (global_loc, name) = global.tokens.expect_identifier(global.errors)?;
+                // TODO: We want to support generic arguments on the identifier
+
+                muncher.add().finish(Node::new(global_loc, NodeKind::Global { scope: global.scope, name }));
+
+                imperative.dependencies.add(
+                    token.loc,
+                    DepKind::MemberByName(
+                        global.scope,
+                        name,
+                        if imperative.evaluate_at_typing { MemberDep::ValueAndCallableIfFunction } else { MemberDep::Type },
+                    ),
+                );
+
+                global.tokens.expect_next_is(global.errors, &TokenKind::Open(Bracket::Round))?;
+                let count = function_arguments(global, imperative, &mut muncher)?;
+                muncher.munch(count + 2, Node::new(loc, NodeKind::ExpressiveFunctionCall));
+            }
             TokenKind::Operator(string) if string.as_str() == "." => {
                 global.tokens.next();
 
@@ -1563,6 +1584,8 @@ pub enum NodeKind {
     ResolvedFunctionCall {
         arg_indices: Vec<usize>,
     },
+    /// [ first_argument, calling, ..args ]
+    ExpressiveFunctionCall,
     /// [ .. contents ]
     Block {
         label: Option<LabelId>,

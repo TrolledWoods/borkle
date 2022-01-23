@@ -958,154 +958,42 @@ fn build_constraints(
         NodeKind::FunctionDeclaration { .. } => {
             build_function_declaration(ctx, node, set, None);
         }
-        NodeKind::FunctionCall => {
+        NodeKind::ExpressiveFunctionCall => {
             let mut children = node.children.into_iter();
-            let calling = children.next().unwrap();
+            let first_arg = children.next().unwrap();
 
+            let calling = children.next().unwrap();
             let calling_type_id = TypeId::Node(ctx.ast_variant_id, calling.id);
             let meta_data = build_with_metadata(ctx, calling, set);
 
-            if let Some(MemberMetaData::Function(FunctionMetaData { arguments })) = meta_data.as_deref() {
-                #[derive(Clone)]
-                enum ArgDefinedAs {
-                    None,
-                    Literal(Location, TypeId),
-                    VarArgs(Location, Vec<(TypeId, Reason)>),
-                }
+            build_function_call(
+                ctx,
+                node.id,
+                node_type_id,
+                node_loc,
+                calling_type_id,
+                meta_data,
+                std::iter::once(first_arg).chain(children),
+                set,
+            );
+        }
+        NodeKind::FunctionCall => {
+            let mut children = node.children.into_iter();
 
-                let mut arg_defined = vec![ArgDefinedAs::None; arguments.len()];
-                let mut function_arg_usage = Vec::with_capacity(children.len());
-                let mut anonymous_index = 0;
-                for mut arg in children.clone() {
-                    let name = match arg.kind {
-                        NodeKind::Binary { op: BinaryOp::Assign, .. } => {
-                            let [left, right] = arg.children.into_array();
+            let calling = children.next().unwrap();
+            let calling_type_id = TypeId::Node(ctx.ast_variant_id, calling.id);
+            let meta_data = build_with_metadata(ctx, calling, set);
 
-                            if let NodeKind::AnonymousMember { name } = left.kind {
-                                arg = right;
-                                Some((left.loc, name))
-                            } else {
-                                None
-                            }
-                        }
-                        _ => None,
-                    };
-
-                    let index = match name {
-                        Some((name_loc, name)) => {
-                            match arguments.iter().position(|v| v.name.map(|v| v.0) == Some(name)) {
-                                Some(index) => index,
-                                None => {
-                                    ctx.errors.error(name_loc, format!("Invalid argument name, `{}`", name));
-                                    ctx.infer.value_sets.get_mut(set).has_errors |= true;
-                                    continue;
-                                }
-                            }
-                        }
-                        None => {
-                            anonymous_index
-                        }
-                    };
-
-                    let arg_id = build_constraints(ctx, arg, set);
-
-                    let Some(arg_info) = arguments.get(index) else {
-                        ctx.errors.error(arg.loc, "Too many arguments passed to function".to_string());
-                        ctx.infer.value_sets.get_mut(set).has_errors |= true;
-                        break;
-                    };
-
-                    let arg_defined_as = &mut arg_defined[index];
-                    match *arg_info {
-                        FunctionArgumentInfo { var_args: Some(var_args_loc), .. } if name.is_none() => {
-                            match *arg_defined_as {
-                                ArgDefinedAs::None => {
-                                    *arg_defined_as = ArgDefinedAs::VarArgs(arg.loc, vec![(arg_id, Reason::temp(arg.loc))]);
-                                    function_arg_usage.push(FunctionArgUsage::TupleElement { function_arg: index, field: 0 });
-                                }
-                                ArgDefinedAs::Literal(prev_loc, _) => {
-                                    ctx.errors.info(var_args_loc, "Defined as a var_arg here".to_string());
-                                    ctx.errors.info(prev_loc, "Assigned literally here".to_string());
-                                    ctx.errors.error(arg.loc, "Cannot pass something both as a var_arg and as a literal value at once".to_string());
-                                    ctx.infer.value_sets.get_mut(set).has_errors |= true;
-                                    return node_type_id;
-                                }
-                                ArgDefinedAs::VarArgs(_, ref mut usages) => {
-                                    function_arg_usage.push(FunctionArgUsage::TupleElement { function_arg: index, field: usages.len() });
-                                    usages.push((arg_id, Reason::temp(arg.loc)));
-                                }
-                            }
-                        }
-                        _ => {
-                            match *arg_defined_as {
-                                ArgDefinedAs::None => {
-                                    *arg_defined_as = ArgDefinedAs::Literal(arg.loc, arg_id);
-                                    if name.is_some() {
-                                        function_arg_usage.push(FunctionArgUsage::ValueOfAssign { function_arg: index });
-                                    } else {
-                                        function_arg_usage.push(FunctionArgUsage::Value { function_arg: index });
-                                    }
-                                }
-                                ArgDefinedAs::Literal(prev_loc, _) | ArgDefinedAs::VarArgs(prev_loc, _) => {
-                                    ctx.errors.info(prev_loc, "Previously defined here".to_string());
-                                    ctx.errors.error(arg.loc, "Argument defined twice".to_string());
-                                    ctx.infer.value_sets.get_mut(set).has_errors |= true;
-                                    return node_type_id;
-                                }
-                            }
-
-                            if name.is_none() {
-                                anonymous_index += 1;
-                            }
-                        }
-                    }
-                }
-
-                let mut typer_args = Vec::with_capacity(children.len());
-                typer_args.push((node_type_id, Reason::new(node_loc, ReasonKind::FunctionCallReturn)));
-
-                for (i, (defined, defined_arg)) in arg_defined.into_iter().zip(arguments).enumerate() {
-                    match defined {
-                        ArgDefinedAs::None => {
-                            if defined_arg.var_args.is_some() {
-                                let tuple_type = ctx.infer.add_type(TypeKind::Tuple, Args([]), set);
-                                typer_args.push((tuple_type, Reason::temp(node_loc)));
-                            } else {
-                                ctx.errors.error(node_loc, format!("Argument `{}` not defined", i));
-                                return node_type_id;
-                            }
-                        }
-                        ArgDefinedAs::Literal(node_loc, type_id) => {
-                            typer_args.push((type_id, Reason::temp(node_loc)));
-                        }
-                        ArgDefinedAs::VarArgs(node_loc, type_id) => {
-                            let tuple_type = ctx.infer.add_type(TypeKind::Tuple, Args(type_id), set);
-                            typer_args.push((tuple_type, Reason::temp(node_loc)));
-                        }
-                    }
-                }
-
-                // Specify that the caller has to be a function type
-                let type_id = ctx.infer.add_type(TypeKind::Function, Args(typer_args), set);
-                ctx.additional_info.insert((ctx.ast_variant_id, node.id), AdditionalInfoKind::FunctionCall(function_arg_usage));
-                ctx.infer
-                    .set_equal(calling_type_id, type_id, Reason::new(node_loc, ReasonKind::FunctionCall));
-            } else {
-                let mut typer_args = Vec::with_capacity(children.len());
-                typer_args.push((node_type_id, Reason::new(node_loc, ReasonKind::FunctionCallReturn)));
-
-                for arg in children {
-                    let function_arg_type_id = ctx.infer.add_unknown_type();
-                    let arg_type_id = build_constraints(ctx, arg, set);
-                    ctx.infer.set_equal(function_arg_type_id, arg_type_id, Reason::new(node_loc, ReasonKind::Passed));
-                    typer_args.push((function_arg_type_id, Reason::new(node_loc, ReasonKind::FunctionCallArgument)));
-                }
-
-                // Specify that the caller has to be a function type
-                let type_id = ctx.infer.add_type(TypeKind::Function, Args(typer_args), set);
-                ctx.infer
-                    .set_equal(calling_type_id, type_id, Reason::new(node_loc, ReasonKind::FunctionCall));
-            }
+            build_function_call(
+                ctx,
+                node.id,
+                node_type_id,
+                node_loc,
+                calling_type_id,
+                meta_data,
+                children,
+                set,
+            );
         }
         NodeKind::Binary {
             op: BinaryOp::Assign,
@@ -1816,7 +1704,6 @@ fn build_with_metadata(
 
             Some(build_global(ctx, node.id, node.node, node.loc, scope, name, Some(children), set, false))
         }
-        // @Cleanup: We could unify these two nodes probably
         NodeKind::Global { scope, name } => {
             Some(build_global(ctx, node.id, node.node, node.loc, scope, name, None, set, false))
         }
@@ -1824,6 +1711,159 @@ fn build_with_metadata(
             build_constraints(ctx, node, set);
             None
         }
+    }
+}
+
+fn build_function_call<'a>(
+    ctx: &mut Context<'_, '_>,
+    node_id: NodeId,
+    node_type_id: TypeId,
+    node_loc: Location,
+    calling_type_id: TypeId,
+    meta_data: Option<Arc<MemberMetaData>>,
+    children: impl Iterator<Item = NodeView<'a>> + Clone + 'a,
+    set: ValueSetId,
+) {
+    if let Some(MemberMetaData::Function(FunctionMetaData { arguments })) = meta_data.as_deref() {
+        #[derive(Clone)]
+        enum ArgDefinedAs {
+            None,
+            Literal(Location, TypeId),
+            VarArgs(Location, Vec<(TypeId, Reason)>),
+        }
+
+        let mut arg_defined = vec![ArgDefinedAs::None; arguments.len()];
+        let mut function_arg_usage = Vec::with_capacity(children.size_hint().0);
+        let mut anonymous_index = 0;
+        for mut arg in children.clone() {
+            let name = match arg.kind {
+                NodeKind::Binary { op: BinaryOp::Assign, .. } => {
+                    let [left, right] = arg.children.into_array();
+
+                    if let NodeKind::AnonymousMember { name } = left.kind {
+                        arg = right;
+                        Some((left.loc, name))
+                    } else {
+                        None
+                    }
+                }
+                _ => None,
+            };
+
+            let index = match name {
+                Some((name_loc, name)) => {
+                    match arguments.iter().position(|v| v.name.map(|v| v.0) == Some(name)) {
+                        Some(index) => index,
+                        None => {
+                            ctx.errors.error(name_loc, format!("Invalid argument name, `{}`", name));
+                            ctx.infer.value_sets.get_mut(set).has_errors |= true;
+                            continue;
+                        }
+                    }
+                }
+                None => {
+                    anonymous_index
+                }
+            };
+
+            let arg_id = build_constraints(ctx, arg, set);
+
+            let Some(arg_info) = arguments.get(index) else {
+                ctx.errors.error(arg.loc, "Too many arguments passed to function".to_string());
+                ctx.infer.value_sets.get_mut(set).has_errors |= true;
+                break;
+            };
+
+            let arg_defined_as = &mut arg_defined[index];
+            match *arg_info {
+                FunctionArgumentInfo { var_args: Some(var_args_loc), .. } if name.is_none() => {
+                    match *arg_defined_as {
+                        ArgDefinedAs::None => {
+                            *arg_defined_as = ArgDefinedAs::VarArgs(arg.loc, vec![(arg_id, Reason::temp(arg.loc))]);
+                            function_arg_usage.push(FunctionArgUsage::TupleElement { function_arg: index, field: 0 });
+                        }
+                        ArgDefinedAs::Literal(prev_loc, _) => {
+                            ctx.errors.info(var_args_loc, "Defined as a var_arg here".to_string());
+                            ctx.errors.info(prev_loc, "Assigned literally here".to_string());
+                            ctx.errors.error(arg.loc, "Cannot pass something both as a var_arg and as a literal value at once".to_string());
+                            ctx.infer.value_sets.get_mut(set).has_errors |= true;
+                            return;
+                        }
+                        ArgDefinedAs::VarArgs(_, ref mut usages) => {
+                            function_arg_usage.push(FunctionArgUsage::TupleElement { function_arg: index, field: usages.len() });
+                            usages.push((arg_id, Reason::temp(arg.loc)));
+                        }
+                    }
+                }
+                _ => {
+                    match *arg_defined_as {
+                        ArgDefinedAs::None => {
+                            *arg_defined_as = ArgDefinedAs::Literal(arg.loc, arg_id);
+                            if name.is_some() {
+                                function_arg_usage.push(FunctionArgUsage::ValueOfAssign { function_arg: index });
+                            } else {
+                                function_arg_usage.push(FunctionArgUsage::Value { function_arg: index });
+                            }
+                        }
+                        ArgDefinedAs::Literal(prev_loc, _) | ArgDefinedAs::VarArgs(prev_loc, _) => {
+                            ctx.errors.info(prev_loc, "Previously defined here".to_string());
+                            ctx.errors.error(arg.loc, "Argument defined twice".to_string());
+                            ctx.infer.value_sets.get_mut(set).has_errors |= true;
+                            return;
+                        }
+                    }
+
+                    if name.is_none() {
+                        anonymous_index += 1;
+                    }
+                }
+            }
+        }
+
+        let mut typer_args = Vec::with_capacity(children.size_hint().0);
+        typer_args.push((node_type_id, Reason::new(node_loc, ReasonKind::FunctionCallReturn)));
+
+        for (i, (defined, defined_arg)) in arg_defined.into_iter().zip(arguments).enumerate() {
+            match defined {
+                ArgDefinedAs::None => {
+                    if defined_arg.var_args.is_some() {
+                        let tuple_type = ctx.infer.add_type(TypeKind::Tuple, Args([]), set);
+                        typer_args.push((tuple_type, Reason::temp(node_loc)));
+                    } else {
+                        ctx.errors.error(node_loc, format!("Argument `{}` not defined", i));
+                        return;
+                    }
+                }
+                ArgDefinedAs::Literal(node_loc, type_id) => {
+                    typer_args.push((type_id, Reason::temp(node_loc)));
+                }
+                ArgDefinedAs::VarArgs(node_loc, type_id) => {
+                    let tuple_type = ctx.infer.add_type(TypeKind::Tuple, Args(type_id), set);
+                    typer_args.push((tuple_type, Reason::temp(node_loc)));
+                }
+            }
+        }
+
+        // Specify that the caller has to be a function type
+        let type_id = ctx.infer.add_type(TypeKind::Function, Args(typer_args), set);
+        ctx.additional_info.insert((ctx.ast_variant_id, node_id), AdditionalInfoKind::FunctionCall(function_arg_usage));
+        ctx.infer
+            .set_equal(calling_type_id, type_id, Reason::new(node_loc, ReasonKind::FunctionCall));
+    } else {
+        let mut typer_args = Vec::with_capacity(children.size_hint().0);
+        typer_args.push((node_type_id, Reason::new(node_loc, ReasonKind::FunctionCallReturn)));
+
+        for arg in children {
+            let function_arg_type_id = ctx.infer.add_unknown_type();
+            let arg_type_id = build_constraints(ctx, arg, set);
+            ctx.infer.set_equal(function_arg_type_id, arg_type_id, Reason::new(node_loc, ReasonKind::Passed));
+            typer_args.push((function_arg_type_id, Reason::new(node_loc, ReasonKind::FunctionCallArgument)));
+        }
+
+        // Specify that the caller has to be a function type
+        let type_id = ctx.infer.add_type(TypeKind::Function, Args(typer_args), set);
+        ctx.infer
+            .set_equal(calling_type_id, type_id, Reason::new(node_loc, ReasonKind::FunctionCall));
     }
 }
 
@@ -1868,7 +1908,7 @@ fn build_global<'a>(
 
             if let Some(children) = children {
                 if num_args != children.len() {
-                    ctx.errors.error(node.loc, format!("Passed {} arguments to polymorphic value, but the polymorphic value needs {} values", children.len(), num_args));
+                    ctx.errors.error(node_loc, format!("Passed {} arguments to polymorphic value, but the polymorphic value needs {} values", children.len(), num_args));
                     // @Cleanup: This should probably just be a function on TypeSystem
                     ctx.infer.value_sets.get_mut(set).has_errors |= true;
                     return meta_data;

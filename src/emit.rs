@@ -746,6 +746,62 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, mut node: NodeView<'a>) -> (Value, T
 
             (Value::Constant { constant: ptr, offset: 0 }, to_layout)
         }
+        NodeKind::ExpressiveFunctionCall => {
+            let mut children = node.children.into_iter();
+            let first_arg = children.next().unwrap();
+            let calling_node = children.next().unwrap();
+
+            // @Copypasta from FunctionCall
+            let children = std::iter::once(first_arg).chain(children);
+
+            let (to, to_layout) = ctx.create_reg_and_typed_layout(TypeId::Node(ctx.variant_id, node.id));
+            let (calling, calling_layout) = emit_node(ctx, calling_node.clone());
+            let calling = ctx.flush_value(&calling, calling_layout);
+            let calling_type = ctx.types.get(TypeId::Node(ctx.variant_id, calling_node.id));
+            // @Performance
+            let output_args = calling_type.args().to_vec().into_iter().skip(1).map(|v| {
+                ctx.create_reg_and_typed_layout(v)
+            }).collect::<Vec<_>>();
+
+            if let Some(AdditionalInfoKind::FunctionCall(args)) = ctx.additional_info.get(&(ctx.variant_id, node.id)) {
+                for (arg, node) in args.iter().zip(children) {
+                    match *arg {
+                        FunctionArgUsage::ValueOfAssign { function_arg } => {
+                            let [_, right] = node.children.into_array();
+                            let (given, _) = emit_node(ctx, right);
+
+                            let (to, to_layout) = output_args[function_arg];
+                            ctx.flush_value_to(to, &given, to_layout);
+                        }
+                        FunctionArgUsage::Value { function_arg } => {
+                            let (given, given_layout) = emit_node(ctx, node);
+
+                            let (to, _) = output_args[function_arg];
+                            ctx.flush_value_to(to, &given, given_layout);
+                        }
+                        FunctionArgUsage::TupleElement { function_arg, field } => {
+                            let (given, given_layout) = emit_node(ctx, node);
+
+                            let calling_type = ctx.types.get(TypeId::Node(ctx.variant_id, calling_node.id));
+                            let arg_type_id = calling_type.args()[function_arg + 1];
+                            let (_, offset, _) = ctx.types.value_to_compiler_type(arg_type_id).0.members[field];
+
+                            let (to, _) = output_args[function_arg];
+                            ctx.flush_value_to(get_member(to, offset), &given, given_layout);
+                        }
+                    }
+                }
+            } else {
+                for (&(to, _), node) in output_args.iter().zip(children) {
+                    let (given, given_layout) = emit_node(ctx, node);
+                    ctx.flush_value_to(to, &given, given_layout);
+                }
+            }
+
+            ctx.emit_call((to, to_layout), calling, output_args, calling_node.loc);
+
+            (Value::Stack(to), to_layout)
+        }
         NodeKind::FunctionCall => {
             let mut children = node.children.into_iter();
             let calling_node = children.next().unwrap();
