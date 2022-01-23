@@ -259,6 +259,13 @@ const fold.(State, IterState, Item) = fn(stream: Iterator.(IterState, Item), sta
     state
 };
 
+const sum.(IterState, Item) = fn(stream: Iterator.(IterState, Item)) -> Item {
+    let temp = #uninit;
+    let state = 0;
+    while stream.next(&stream.state, &temp)  state = state + temp;
+    state
+};
+
 const count.(State, Item) = fn(stream: Iterator.(State, Item)) -> usize {
     let count = 0;
     let temp = #uninit;

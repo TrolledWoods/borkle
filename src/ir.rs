@@ -1,7 +1,7 @@
 use crate::layout::Layout;
 use crate::operators::{BinaryOp, UnaryOp};
 use crate::location::Location;
-use crate::program::{constant::ConstantRef, BuiltinFunction};
+use crate::program::{constant::ConstantRef, BuiltinFunction, FunctionId};
 use crate::types::{to_align};
 use std::fmt;
 use ustr::Ustr;
@@ -85,6 +85,13 @@ impl TypedLayout {
 #[allow(non_camel_case_types)]
 pub enum Instr {
     DebugLocation(Location),
+    CallImm {
+        to: (StackValue, TypedLayout),
+        function_id: FunctionId,
+        // FIXME: We don't really want a vector here, we want a more efficient datastructure
+        args: Vec<(StackValue, TypedLayout)>,
+        loc: Location,
+    },
     Call {
         to: (StackValue, TypedLayout),
         pointer: StackValue,

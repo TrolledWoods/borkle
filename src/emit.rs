@@ -761,7 +761,6 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, mut node: NodeView<'a>) -> (Value, T
 
             let (to, to_layout) = ctx.create_reg_and_typed_layout(TypeId::Node(ctx.variant_id, node.id));
             let (calling, calling_layout) = emit_node(ctx, calling_node.clone());
-            let calling = ctx.flush_value(&calling, calling_layout);
             let calling_type = ctx.types.get(TypeId::Node(ctx.variant_id, calling_node.id));
             // @Performance
             let output_args = calling_type.args().to_vec().into_iter().skip(1).map(|v| {
@@ -803,7 +802,16 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, mut node: NodeView<'a>) -> (Value, T
                 }
             }
 
-            ctx.emit_call((to, to_layout), calling, output_args, calling_node.loc);
+            match calling {
+                Value::Constant { constant, offset } => {
+                    let function_id = unsafe { *constant.as_ptr().add(offset).cast::<FunctionId>() };
+                    ctx.emit_call_imm((to, to_layout), function_id, output_args, calling_node.loc);
+                }
+                _ => {
+                    let calling = ctx.flush_value(&calling, calling_layout);
+                    ctx.emit_call((to, to_layout), calling, output_args, calling_node.loc);
+                }
+            }
 
             (Value::Stack(to), to_layout)
         }
@@ -813,7 +821,6 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, mut node: NodeView<'a>) -> (Value, T
 
             let (to, to_layout) = ctx.create_reg_and_typed_layout(TypeId::Node(ctx.variant_id, node.id));
             let (calling, calling_layout) = emit_node(ctx, calling_node.clone());
-            let calling = ctx.flush_value(&calling, calling_layout);
             let calling_type = ctx.types.get(TypeId::Node(ctx.variant_id, calling_node.id));
             // @Performance
             let output_args = calling_type.args().to_vec().into_iter().skip(1).map(|v| {
@@ -856,7 +863,16 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, mut node: NodeView<'a>) -> (Value, T
                 }
             }
 
-            ctx.emit_call((to, to_layout), calling, output_args, calling_node.loc);
+            match calling {
+                Value::Constant { constant, offset } => {
+                    let function_id = unsafe { *constant.as_ptr().add(offset).cast::<FunctionId>() };
+                    ctx.emit_call_imm((to, to_layout), function_id, output_args, calling_node.loc);
+                }
+                _ => {
+                    let calling = ctx.flush_value(&calling, calling_layout);
+                    ctx.emit_call((to, to_layout), calling, output_args, calling_node.loc);
+                }
+            }
 
             (Value::Stack(to), to_layout)
         }
@@ -1604,6 +1620,10 @@ impl Context<'_, '_> {
                 size: layout.size,
             });
         }
+    }
+
+    fn emit_call_imm(&mut self, to: (StackValue, TypedLayout), function_id: FunctionId, args: Vec<(StackValue, TypedLayout)>, loc: Location) {
+        self.instr.push(Instr::CallImm { to, function_id, args, loc });
     }
 
     fn emit_call(&mut self, to: (StackValue, TypedLayout), pointer: StackValue, args: Vec<(StackValue, TypedLayout)>, loc: Location) {

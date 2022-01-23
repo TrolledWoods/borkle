@@ -1,8 +1,8 @@
-use crate::ir::{Instr, Routine, UserDefinedRoutine, PrimitiveType};
+use crate::ir::{Instr, Routine, UserDefinedRoutine, PrimitiveType, StackValue, TypedLayout};
 use crate::location::Location;
 use crate::operators::{BinaryOp, UnaryOp};
 use crate::program::constant::ConstantRef;
-use crate::program::{BuiltinFunction, Program};
+use crate::program::{BuiltinFunction, Program, FunctionId};
 use crate::types::BufferRepr;
 use crate::type_infer::{TypeSystem, ValueId as TypeId, AstVariantId};
 use crate::typer::AdditionalInfo;
@@ -79,6 +79,16 @@ fn interp_internal(program: &Program, stack: &mut StackFrame<'_>, routine: &User
             Instr::Jump { to } => {
                 instr_pointer = routine.label_locations[to.0];
             }
+            Instr::CallImm {
+                to,
+                function_id,
+                ref args,
+                loc,
+            } => {
+                call_stack.push(loc);
+                interp_function_call(program, stack, function_id, to, args, call_stack)?;
+                call_stack.pop();
+            }
             Instr::Call {
                 to,
                 pointer,
@@ -86,103 +96,7 @@ fn interp_internal(program: &Program, stack: &mut StackFrame<'_>, routine: &User
                 loc,
             } => {
                 call_stack.push(loc);
-
-                let calling = program
-                    .get_routine(unsafe { stack.get(pointer).read() })
-                    .expect("Invalid function pointer. There are two reasons this could happen; you bit_casted some number into a function pointer, or there is a bug in the compilers dependency system.");
-
-                match &*calling {
-                    Routine::Extern(_) => {
-                        return Err(std::mem::take(call_stack).into_boxed_slice());
-                    }
-                    Routine::Builtin(BuiltinFunction::Assert) => unsafe {
-                        let condition = stack.get(args[0].0).read::<u8>();
-                        if condition == 0 {
-                            return Err(std::mem::take(call_stack).into_boxed_slice());
-                        }
-                    }
-                    Routine::Builtin(BuiltinFunction::StdoutWrite) => unsafe {
-                        use std::io::Write;
-                        let buffer = stack.get(args[0].0).read::<BufferRepr>();
-
-                        let output = std::io::stdout()
-                            .write(std::slice::from_raw_parts(buffer.ptr, buffer.length))
-                            .unwrap_or(0);
-
-                        stack.get_mut(to.0).write::<usize>(output);
-                    },
-                    Routine::Builtin(BuiltinFunction::StdoutFlush) => {
-                        use std::io::Write;
-                        let _ = std::io::stdout().lock().flush();
-                    }
-                    Routine::Builtin(BuiltinFunction::StdinRead) => unsafe {
-                        let buffer = stack.get(args[0].0).read::<BufferRepr>();
-                        let slice = std::slice::from_raw_parts_mut(buffer.ptr, buffer.length);
-
-                        use std::io::Read;
-                        let num_read = std::io::stdin().lock().read(slice).unwrap();
-                        stack.get_mut(to.0).write(num_read);
-                    },
-                    Routine::Builtin(BuiltinFunction::Alloc) => unsafe {
-                        use std::alloc::{alloc, Layout};
-                        let ptr = alloc(Layout::from_size_align_unchecked(
-                            stack.get(args[0].0).read::<usize>(),
-                            8,
-                        ));
-                        stack.get_mut(to.0).write(ptr);
-                    },
-                    Routine::Builtin(BuiltinFunction::Dealloc) => unsafe {
-                        use std::alloc::{dealloc, Layout};
-                        let buffer = stack.get(args[0].0).read::<BufferRepr>();
-                        dealloc(
-                            buffer.ptr,
-                            Layout::from_size_align_unchecked(buffer.length, 8),
-                        );
-                    },
-                    Routine::Builtin(BuiltinFunction::MemCopy) => unsafe {
-                        std::ptr::copy(
-                            stack.get(args[0].0).read::<*const u8>(),
-                            stack.get_mut(args[1].0).read::<*mut u8>(),
-                            stack.get(args[2].0).read::<usize>(),
-                        );
-                    },
-                    Routine::Builtin(BuiltinFunction::MemCopyNonOverlapping) => unsafe {
-                        std::ptr::copy_nonoverlapping(
-                            stack.get(args[0].0).read::<*const u8>(),
-                            stack.get_mut(args[1].0).read::<*mut u8>(),
-                            stack.get(args[2].0).read::<usize>(),
-                        );
-                    },
-                    Routine::UserDefined(calling) => {
-                        let (mut old_stack, mut new_stack) = stack.split(&calling.stack);
-
-                        // Put the arguments on top of the new stack frame
-                        for (&(old, field_layout), new) in args.iter().zip(&calling.stack.values) {
-                            if field_layout.size() > 0 {
-                                unsafe {
-                                    std::ptr::copy_nonoverlapping(
-                                        old_stack.get(old).as_ptr(),
-                                        new_stack.get_mut(new.value()).as_mut_ptr(),
-                                        field_layout.size(),
-                                    );
-                                }
-                            }
-                        }
-
-                        interp_internal(program, &mut new_stack, calling, call_stack)?;
-
-                        if to.1.size() > 0 {
-                            unsafe {
-                                std::ptr::copy_nonoverlapping(
-                                    new_stack.get(calling.result).as_ptr(),
-                                    old_stack.get_mut(to.0).as_mut_ptr(),
-                                    to.1.size(),
-                                );
-                            }
-                        }
-                    }
-                }
-
+                interp_function_call(program, stack, unsafe { stack.get(pointer).read() }, to, args, call_stack)?;
                 call_stack.pop();
             }
             Instr::IncrPtr { to, amount, scale } => unsafe {
@@ -252,6 +166,113 @@ fn interp_internal(program: &Program, stack: &mut StackFrame<'_>, routine: &User
     }
 
     // println!("\tRET");
+
+    Ok(())
+}
+
+fn interp_function_call(
+    program: &Program,
+    stack: &mut StackFrame<'_>,
+    function_id: FunctionId,
+    to: (StackValue, TypedLayout),
+    args: &[(StackValue, TypedLayout)],
+    call_stack: &mut Vec<Location>,
+) -> Result<(), Box<[Location]>> {
+    let calling = program
+        .get_routine(function_id)
+        .expect("Invalid function pointer. There are two reasons this could happen; you bit_casted some number into a function pointer, or there is a bug in the compilers dependency system.");
+    
+    match &*calling {
+        Routine::Extern(_) => {
+            return Err(std::mem::take(call_stack).into_boxed_slice());
+        }
+        Routine::Builtin(BuiltinFunction::Assert) => unsafe {
+            let condition = stack.get(args[0].0).read::<u8>();
+            if condition == 0 {
+                return Err(std::mem::take(call_stack).into_boxed_slice());
+            }
+        }
+        Routine::Builtin(BuiltinFunction::StdoutWrite) => unsafe {
+            use std::io::Write;
+            let buffer = stack.get(args[0].0).read::<BufferRepr>();
+
+            let output = std::io::stdout()
+                .write(std::slice::from_raw_parts(buffer.ptr, buffer.length))
+                .unwrap_or(0);
+
+            stack.get_mut(to.0).write::<usize>(output);
+        },
+        Routine::Builtin(BuiltinFunction::StdoutFlush) => {
+            use std::io::Write;
+            let _ = std::io::stdout().lock().flush();
+        }
+        Routine::Builtin(BuiltinFunction::StdinRead) => unsafe {
+            let buffer = stack.get(args[0].0).read::<BufferRepr>();
+            let slice = std::slice::from_raw_parts_mut(buffer.ptr, buffer.length);
+
+            use std::io::Read;
+            let num_read = std::io::stdin().lock().read(slice).unwrap();
+            stack.get_mut(to.0).write(num_read);
+        },
+        Routine::Builtin(BuiltinFunction::Alloc) => unsafe {
+            use std::alloc::{alloc, Layout};
+            let ptr = alloc(Layout::from_size_align_unchecked(
+                stack.get(args[0].0).read::<usize>(),
+                8,
+            ));
+            stack.get_mut(to.0).write(ptr);
+        },
+        Routine::Builtin(BuiltinFunction::Dealloc) => unsafe {
+            use std::alloc::{dealloc, Layout};
+            let buffer = stack.get(args[0].0).read::<BufferRepr>();
+            dealloc(
+                buffer.ptr,
+                Layout::from_size_align_unchecked(buffer.length, 8),
+            );
+        },
+        Routine::Builtin(BuiltinFunction::MemCopy) => unsafe {
+            std::ptr::copy(
+                stack.get(args[0].0).read::<*const u8>(),
+                stack.get_mut(args[1].0).read::<*mut u8>(),
+                stack.get(args[2].0).read::<usize>(),
+            );
+        },
+        Routine::Builtin(BuiltinFunction::MemCopyNonOverlapping) => unsafe {
+            std::ptr::copy_nonoverlapping(
+                stack.get(args[0].0).read::<*const u8>(),
+                stack.get_mut(args[1].0).read::<*mut u8>(),
+                stack.get(args[2].0).read::<usize>(),
+            );
+        },
+        Routine::UserDefined(calling) => {
+            let (mut old_stack, mut new_stack) = stack.split(&calling.stack);
+
+            // Put the arguments on top of the new stack frame
+            for (&(old, field_layout), new) in args.iter().zip(&calling.stack.values) {
+                if field_layout.size() > 0 {
+                    unsafe {
+                        std::ptr::copy_nonoverlapping(
+                            old_stack.get(old).as_ptr(),
+                            new_stack.get_mut(new.value()).as_mut_ptr(),
+                            field_layout.size(),
+                        );
+                    }
+                }
+            }
+
+            interp_internal(program, &mut new_stack, calling, call_stack)?;
+
+            if to.1.size() > 0 {
+                unsafe {
+                    std::ptr::copy_nonoverlapping(
+                        new_stack.get(calling.result).as_ptr(),
+                        old_stack.get_mut(to.0).as_mut_ptr(),
+                        to.1.size(),
+                    );
+                }
+            }
+        }
+    }
 
     Ok(())
 }

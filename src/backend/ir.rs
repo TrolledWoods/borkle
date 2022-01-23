@@ -55,6 +55,16 @@ pub fn print_instr(mut out: impl Write, instr: &Instr) {
         Instr::DebugLocation(loc) => {
             writeln!(out, "# {}, {}", loc.line, loc.file).unwrap();
         },
+        Instr::CallImm { to, function_id, args, loc: _ } => {
+            write!(out, "\tcall {}, function_{}, (", to.0, usize::from(*function_id)).unwrap();
+
+            for (i, &(arg, _)) in args.iter().enumerate() {
+                if i > 0 { write!(out, ", ").unwrap(); }
+                write!(out, "{}", arg).unwrap();
+            }
+
+            writeln!(out, ")").unwrap();
+        }
         Instr::Call { to, pointer, args, loc: _ } => {
             write!(out, "\tcall {}, {}, (", to.0, pointer).unwrap();
 

@@ -1,11 +1,8 @@
 library "iter.bo";
+import "tests/main.bo";
 
 #entry fn() {
-    let array: [{
-        range(1, 4)->fold(0, fn(a, b) a + b)
-    }] u32 = #0;
-
-    for array print("%\n", v);
+    run_tests();
 };
 
 // IR emission improvements
@@ -23,9 +20,11 @@ library "iter.bo";
 // - Defer to typechecking improvement to allow for implicit casts again -> `cfg` tag to do some form of conditional compilation; will not be like C preprocessor directives though, since we both run at compile-time and at runtime, so that isn't good enough
 
 // TODO:
+
+// - Monomorphisation doesn't work 100% of the time in constant expressions, specifically, it doesn't work when the function you monomorphised itself calls another polymorphic function, (probably only applies to those that depend on its generic parameters).
+
 // - Make [ptr + usize -> _] also infer to [ptr + usize -> ptr] (maybe similar for other operators too?)
 // - "This is imported twice" error should show where it was imported (even if implicit)
-// - `!` operator should work properly for booleans
 
 
 // -- For being able to build this again once I forget
