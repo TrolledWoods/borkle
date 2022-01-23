@@ -100,6 +100,8 @@ const alloc.(T) = fn(count: usize) -> [] T {
     }
 };
 
+const is_null.(T) = fn(pointer: &T) -> bool  pointer == #0 : &T;
+
 const dealloc.(T) = fn(buf: [] T) {
     if buf.len > 0 {
         VirtualFree(cast buf.ptr, buf.len * sizeof T, MEM_DECOMMIT);

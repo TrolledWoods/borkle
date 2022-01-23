@@ -29,6 +29,8 @@ mod types;
 fn main() {
     profile::begin();
 
+    let _ = enable_ansi_support::enable_ansi_support();
+
     let time = std::time::Instant::now();
     let logger = logging::Logger::new();
 

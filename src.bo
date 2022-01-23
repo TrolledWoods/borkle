@@ -2,10 +2,6 @@ library "windows.bo";
 import "tests/main.bo";
 
 #entry fn() {
-    let message = sprint("Hello, \n");
-    defer dealloc(message);
-    print("The message is %\n", message);
-
     let timer = start_timer();
 
     run_tests();
@@ -14,9 +10,6 @@ import "tests/main.bo";
 
     ExitProcess(99);
 };
-
-// type keyword:
-// * We should have `is` work for them (probably not complete, it probably will never monomorphise the thing, but will at least work for most things).
 
 // IR emission improvements
 //

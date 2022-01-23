@@ -1,11 +1,7 @@
 use crate::location::Location;
 use ustr::{Ustr, UstrMap};
 use std::sync::Arc;
-
-const ANSI_RED:     &str = "\x1b[31m";
-const ANSI_DEFAULT: &str = "\x1b[39m";
-const ANSI_DIM: &str = "\x1b[2m";
-const ANSI_RESET_DIM: &str = "\x1b[22m";
+use ansi_term::Colour::{Red, White, Cyan};
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub struct ErrorId(usize);
@@ -38,7 +34,7 @@ impl ErrorCtx {
     pub fn print(&self, file_contents: &UstrMap<Arc<String>>) -> bool {
         for &(loc, ref message, ref info) in &self.notes {
             let mut prev_file = None;
-            println!("NOTE: ");
+            println!("{}", Cyan.paint("NOTE: "));
             print_loc(&mut prev_file, loc, message, file_contents);
 
             for &(info_loc, ref info_message) in info {
@@ -50,7 +46,7 @@ impl ErrorCtx {
 
         for &(loc, ref message, ref info) in &self.errors {
             let mut prev_file = None;
-            print!("{}ERROR: {}", ANSI_RED, ANSI_DEFAULT);
+            print!("{}", Red.paint("ERROR: "));
             if let Some(loc) = loc {
                 print_loc(&mut prev_file, loc, message, file_contents);
             } else {
@@ -102,12 +98,12 @@ fn print_loc(prev_file: &mut Option<Ustr>, loc: Location, message: &str, file_co
 
             // Only print the file name if we're in a new file
             if prev_file.as_ref().map_or(true, |v| *v != loc.file) {
-                println!("{}in {}:{}", ANSI_DIM, file, ANSI_RESET_DIM);
+                println!("in {}:", file);
             } else {
                 println!();
             }
 
-            println!("{}{}{}{}", ANSI_DIM, prefix, ANSI_RESET_DIM, line);
+            println!("{}{}", prefix, line);
 
             print!("{}", " ".repeat(prefix.len()));
             for c in line.chars().take(loc.character as usize - 1) {
@@ -118,9 +114,9 @@ fn print_loc(prev_file: &mut Option<Ustr>, loc: Location, message: &str, file_co
                 }
             }
             if prefix.len() + message.len() <= 80 {
-                println!("{}^{} {}", ANSI_RED, ANSI_DEFAULT, message);
+                println!("{}{} ", Red.paint("^"), message);
             } else {
-                println!("{}^{}", ANSI_RED, ANSI_DEFAULT);
+                println!("{}^", Red.paint("^"));
                 println!("{}{}", " ".repeat(prefix.len() - 2), message);
             }
         } else {

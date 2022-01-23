@@ -19,7 +19,14 @@ const is_invalid_handle_value = fn(handle: &u8) -> bool {
     bit_cast handle : isize == -1
 };
 
-const VirtualAlloc = fn(address: &u8, size: usize, allocation_type: u32, protection: u32) -> &u8 extern "VirtualAlloc";
+const VirtualAlloc = fn(
+    address: &u8,
+    size: usize,
+    allocation_type: u32,
+    protection: u32
+) -> &u8
+extern "VirtualAlloc";
+
 const VirtualFree = fn(address: &u8, size: usize, free_type: u32) -> i32 extern "VirtualFree";
 
 const MEM_COMMIT   = 0x00001000 : u32;
@@ -59,3 +66,70 @@ const GetAsyncKeyState = fn(
 extern "GetAsyncKeyState";
 
 const Sleep = fn(millis: u32) -> ()  extern "Sleep";
+
+const CS_VREDRAW = 0x0001 : u16;
+const CS_HREDRAW = 0x0002 : u16;
+const CS_OWNDC   = 0x0020 : u16;
+
+const WM_ACTIVATEAPP = 0x001C : u32;
+const WM_CLOSE        = 0x0010 : u32;
+const WM_DESTROY      = 0x0002 : u32;
+const WM_SIZE         = 0x0005 : u32;
+
+const WS_OVERLAPPED_WINDOW = 0x00C00000 | 0x00080000 | 0x00040000 | 0x00020000 | 0x00010000 : i32;
+const WS_VISIBLE = 0x10000000 : i32;
+
+const CW_USEDEFAULT = -1 : i32;
+
+type HWND = HANDLE;
+type HANDLE = &u8;
+type HICON  = &u8;
+type HBRUSH = HANDLE;
+type LPCSTR = &u8;
+type HCURSOR = HICON;
+type LONG_PTR = usize;
+type UINT_PTR = usize;
+type LRESULT = LONG_PTR;
+type WPARAM = UINT_PTR;
+type LPARAM = LONG_PTR;
+type ATOM = u16;
+type HINSTANCE = HANDLE;
+type HMENU = HANDLE;
+type LPVOID = &u8;
+
+type WNDCLASS = {
+    style: u32;
+    lpfnWndProc: WNDPROC;
+    cbClsExtra: i32;
+    cbWndExtra: i32;
+    hInstance: HANDLE;
+    hIcon: HICON;
+    hCursor: HCURSOR;
+    hbrBackground: HBRUSH;
+    lpszMenuName: LPCSTR;
+    lpszClassName: LPCSTR;
+};
+
+const RegisterClass = fn(class: &WNDCLASS) -> ATOM  extern "RegisterClassA";
+
+type WNDPROC = fn(HWND, u32, WPARAM, LPARAM) -> LRESULT;
+const DefWindowProc = fn(hwnd: HWND, message: u32, w_param: WPARAM, l_param: LPARAM) -> LRESULT  extern "DefWindowProcA";
+
+const GetModuleHandle = fn(handle: LPCSTR) -> HANDLE extern "GetModuleHandleA";
+
+const CreateWindowEx = fn(
+    dwExStyle: i32,
+    lpClassName: LPCSTR,
+    lpWindowName: LPCSTR,
+    dwStyle: i32,
+    X: i32,
+    Y: i32,
+    nWidth: i32,
+    nHeight: i32,
+    hWndParent: HWND,
+    hMenu: HMENU,
+    hInstance: HINSTANCE,
+    lpParam: LPVOID,
+) -> HWND
+extern "CreateWindowExA";
+

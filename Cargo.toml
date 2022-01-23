@@ -25,3 +25,5 @@ lazy_static = "1.4.0"
 # libloading = "0.6.5"
 # libffi-sys = { version = "1.1.0" }
 crossbeam = "0.8.0"
+ansi_term = "0.12.1"
+enable-ansi-support = "0.1.2"
