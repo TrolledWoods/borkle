@@ -66,11 +66,12 @@ pub enum Keyword {
     Bool,
     Import,
     Library,
-    Alias,
     BuiltinFunction,
     TypeOf,
     SizeOf,
     Extern,
+    Pack,
+    Unpack,
 }
 
 pub fn process_string(errors: &mut ErrorCtx, file: Ustr, string: &str) -> Result<TokenStream, ()> {
@@ -126,7 +127,6 @@ pub fn process_string(errors: &mut ErrorCtx, file: Ustr, string: &str) -> Result
                     "entry" => TokenKind::Keyword(Keyword::Entry),
                     "uninit" => TokenKind::Keyword(Keyword::Uninit),
                     "0" => TokenKind::Keyword(Keyword::Zeroed),
-                    "alias" => TokenKind::Keyword(Keyword::Alias),
                     "builtin_function" => TokenKind::Keyword(Keyword::BuiltinFunction),
                     _ => TokenKind::Tag(tag_name.into()),
                 }
@@ -163,6 +163,8 @@ pub fn process_string(errors: &mut ErrorCtx, file: Ustr, string: &str) -> Result
                     "import" => TokenKind::Keyword(Keyword::Import),
                     "library" => TokenKind::Keyword(Keyword::Library),
                     "extern" => TokenKind::Keyword(Keyword::Extern),
+                    "pack" => TokenKind::Keyword(Keyword::Pack),
+                    "unpack" => TokenKind::Keyword(Keyword::Unpack),
                     "_" => TokenKind::Keyword(Keyword::Underscore),
 
                     "f32" => TokenKind::Type(Type::new(TypeKind::F32)),

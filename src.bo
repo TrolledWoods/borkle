@@ -1,14 +1,10 @@
 library "windows.bo";
 import "tests/main.bo";
 
+type StrongTypedefTest = u32;
+
 #entry fn() {
-    let timer = start_timer();
-
-    run_tests();
-
-    print("Took % nanos\n", read_timer_nanos(timer));
-
-    ExitProcess(99);
+    let thing = #0 : StrongTypedefTest;
 };
 
 // IR emission improvements

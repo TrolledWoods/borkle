@@ -313,7 +313,7 @@ const is_digit = fn(c: u8) -> bool {
 
 const PERCENT = *"%".ptr;
 
-type Writer.(T) = {
+type #alias: Writer.(T) = {
     state: &u8;
     write_buf : fn(&u8, [] T) -> usize;
     write_single : fn(&u8, T) -> usize;
@@ -419,7 +419,7 @@ const PAD_RIGHT  = 2 : u8;
 
 const FMT_FLAGS_RAW = 1 : u8;
 
-type Format.(T) = {
+type #alias: Format.(T) = {
     value: T;
     pad: usize;
     pad_char: u8;

@@ -749,7 +749,7 @@ impl Program {
         // FIXME: Calculate the member meta data here.
         self.set_type_of_member(member_id, types.value_to_compiler_type(TypeId::Node(AstVariantId::root(), typed_ast.root_id())), MemberMetaData::None);
 
-        if member_kind == MemberKind::Type {
+        if matches!(member_kind, MemberKind::Type { .. }) {
             debug_assert!(wanted_dep <= MemberDep::Type);
 
             return Ok(member_id);
@@ -1108,7 +1108,7 @@ impl Function {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MemberKind {
-    Type,
+    Type { is_aliased: bool },
     Const,
 }
 

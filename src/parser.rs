@@ -216,6 +216,9 @@ pub fn process_string(
 }
 
 fn type_declaration(global: &mut DataContext<'_>) -> Result<(), ()> {
+    let mut is_aliased = None;
+    parse_tags(global, "type declaration", &mut [("alias".into(), &mut is_aliased)])?;
+
     let (loc, name) = global.tokens.expect_identifier(global.errors)?;
     let poly_args = maybe_parse_polymorphic_arguments(global)?;
 
@@ -240,10 +243,10 @@ fn type_declaration(global: &mut DataContext<'_>) -> Result<(), ()> {
     if poly_args.is_empty() {
         let id = global
             .program
-            .define_member(global.errors, loc, Some(global.scope), name, MemberKind::Type)?;
+            .define_member(global.errors, loc, Some(global.scope), name, MemberKind::Type { is_aliased: is_aliased.is_some() })?;
         global.program.queue_task(
             dependencies,
-            Task::TypeMember { member_id: id, locals, ast: tree, member_kind: MemberKind::Type },
+            Task::TypeMember { member_id: id, locals, ast: tree, member_kind: MemberKind::Type { is_aliased: is_aliased.is_some() }},
         );
     } else {
         let id = global.program.define_polymorphic_member(
@@ -252,7 +255,7 @@ fn type_declaration(global: &mut DataContext<'_>) -> Result<(), ()> {
             global.scope,
             name,
             poly_args.len(),
-            MemberKind::Type,
+            MemberKind::Type { is_aliased: is_aliased.is_some() },
         )?;
         global.program.queue_task(
             dependencies.clone(),
@@ -262,7 +265,7 @@ fn type_declaration(global: &mut DataContext<'_>) -> Result<(), ()> {
                 ast: tree,
                 dependencies,
                 poly_args,
-                member_kind: MemberKind::Type,
+                member_kind: MemberKind::Type { is_aliased: is_aliased.is_some() },
             },
         );
     }
