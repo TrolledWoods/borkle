@@ -1,54 +1,17 @@
 library "iter.bo";
 import "tests/main.bo";
 
-type Complex = {
-    real: f64;
-    imag: f64;
-};
-
-const complex = fn(real: f64, imag: f64) -> Complex {
-    let result = #uninit;
-    result.real = real;
-    result.imag = imag;
-    result
-};
-
-const add_c = fn(a: Complex, b: Complex) -> Complex {
-    let result = #uninit;
-    result.real = a.real + b.real;
-    result.imag = a.imag + b.imag;
-    result
-};
-
-const square_c = fn(a: Complex) -> Complex {
-    let result = #uninit;
-    result.real = a.real * a.real - a.imag * a.imag;
-    result.imag = 2.0 * a.real * a.imag;
-    result
-};
-
-const magnitude_sqr = fn(a: Complex) -> f64 {
-    a.real * a.real + a.imag * a.imag
-};
+type Inner = u32;
+type Thing = Inner;
 
 #entry fn() {
-    let y = 0.0 - 2.0 : f64;
-    while y < 2.0 {
-        let x = 0.0 - 2.0 : f64;
-        while x < 2.0 {
-            let z = complex(0.0, 0.0);
-            let c = complex(x, y);
-            let char = while i < 100 {
-                z = add_c(square_c(z), c);
-                if magnitude_sqr(z) >= 4.0  break *".".ptr;
-            } else *"#".ptr;
-            put_char(char);
-            x = x + 0.025;
-        };
+    let a: Thing = pack 42;
+    let b: Thing = pack 42;
 
-        put_string("\n");
-
-        y = y + 0.05;
+    if a == b {
+        print("a is b!\n");
+    } else {
+        print("a is not b!\n");
     };
 };
 
@@ -59,7 +22,8 @@ const magnitude_sqr = fn(a: Complex) -> f64 {
 
 // Roadmap for full(and decent) x64 support:
 //
-// - Handle floats
+// - Handle floats(in calling convention)
+// - Support xmm registers in register allocator, it gets more confusing however since the registers are no longer general purpose at that point.
 // - Support multiple calling conventions; for one, we can do one that's better than the windows one, and, linux/mac probably don't use the same one anyway, so we need this logic
 // - Generalize moving memory from one place to another(basically memcpy intrinsic)
 // - Defer to typechecking improvement to allow for implicit casts again -> `cfg` tag to do some form of conditional compilation; will not be like C preprocessor directives though, since we both run at compile-time and at runtime, so that isn't good enough

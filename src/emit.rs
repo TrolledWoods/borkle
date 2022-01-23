@@ -606,6 +606,7 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, mut node: NodeView<'a>) -> (Value, T
             let type_ = ctx.types.get(type_id);
             let r_type_id = TypeId::Node(ctx.variant_id, right.id);
             let r_type = ctx.types.get(r_type_id);
+
             if let (type_infer::TypeKind::Reference, type_infer::TypeKind::Int) = (type_.kind(), r_type.kind()) {
                 let pointee_id = type_.args()[0];
                 let pointee_layout = *ctx.types.get(pointee_id).layout.unwrap();
@@ -1659,6 +1660,10 @@ impl Context<'_, '_> {
     fn to_number_type(&self, type_id: TypeId) -> Option<PrimitiveType> {
         let type_ = self.types.get(type_id);
         match type_.kind() {
+            type_infer::TypeKind::Unique(_) => {
+                let arg = type_.args()[0];
+                self.to_number_type(arg)
+            }
             type_infer::TypeKind::Int => {
                 let Some(&type_infer::Type { kind: type_infer::TypeKind::IntSigned(signed), .. }) = self.types.get(type_.args()[0]).kind else { panic!() };
                 let Some(&type_infer::Type { kind: type_infer::TypeKind::IntSize(size), .. }) = self.types.get(type_.args()[1]).kind else { panic!() };

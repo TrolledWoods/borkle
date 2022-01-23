@@ -1746,6 +1746,18 @@ impl TypeSystem {
                     }
                     (
                         BinaryOp::Equals | BinaryOp::NotEquals | BinaryOp::LargerThanEquals | BinaryOp::LargerThan | BinaryOp::LessThanEquals | BinaryOp::LessThan,
+                        (Some(TypeKind::Unique(a_marker)), Some(TypeKind::Unique(b_marker)), _),
+                    ) if a_marker == b_marker => {
+                        if let (Some(Some(args_a)), Some(Some(args_b))) = (a.as_ref().map(|v| v.args.as_ref()), b.as_ref().map(|v| v.args.as_ref())) {
+                            let inner_a = args_a[0];
+                            let inner_b = args_b[0];
+                            self.set_op_equal(op, inner_a, inner_b, result_id, constraint.reason);
+                        } else {
+                            return;
+                        }
+                    }
+                    (
+                        BinaryOp::Equals | BinaryOp::NotEquals | BinaryOp::LargerThanEquals | BinaryOp::LargerThan | BinaryOp::LessThanEquals | BinaryOp::LessThan,
                         (Some(TypeKind::Int), Some(TypeKind::Int), _) | (Some(TypeKind::Reference), Some(TypeKind::Reference), _) | (Some(TypeKind::Bool), Some(TypeKind::Bool), _) | (Some(TypeKind::Float), Some(TypeKind::Float), _)
                     ) => {
                         let id = self.add_type(TypeKind::Bool, Args([]), ());
