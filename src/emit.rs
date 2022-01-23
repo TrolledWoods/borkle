@@ -539,21 +539,30 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, mut node: NodeView<'a>) -> (Value, T
 
             let mut of_type_id = TypeId::Node(ctx.variant_id, of.id);
             let (mut of, mut of_layout) = emit_node(ctx, of);
-            if let Some(type_infer::Type { kind: type_infer::TypeKind::Reference, args }) = ctx.types.get(of_type_id).kind {
-                of_type_id = args.as_ref().unwrap()[0];
 
-                let old_value = ctx.flush_value(&of, of_layout);
-                of_layout = ctx.get_typed_layout(of_type_id);
-                let new_of = ctx.create_reg_with_layout(of_layout.layout);
-                ctx.emit_dereference(new_of, old_value, of_layout.layout);
-                of = Value::Stack(new_of);
+            loop {
+                match ctx.types.get(of_type_id).kind.as_ref().unwrap() {
+                    type_infer::Type { kind: type_infer::TypeKind::Reference, args } => {
+                        of_type_id = args.as_ref().unwrap()[0];
 
-                /*let new_of = ctx.flush_value(&of, of_layout);
-                of_layout = ctx.get_typed_layout(of_type_id);
-                of = Value::PointerInStack {
-                    stack_value: new_of,
-                    offset: 0,
-                };*/
+                        let old_value = ctx.flush_value(&of, of_layout);
+                        of_layout = ctx.get_typed_layout(of_type_id);
+                        let new_of = ctx.create_reg_with_layout(of_layout.layout);
+                        ctx.emit_dereference(new_of, old_value, of_layout.layout);
+                        of = Value::Stack(new_of);
+
+                        /*let new_of = ctx.flush_value(&of, of_layout);
+                        of_layout = ctx.get_typed_layout(of_type_id);
+                        of = Value::PointerInStack {
+                            stack_value: new_of,
+                            offset: 0,
+                        };*/
+                    }
+                    type_infer::Type { kind: type_infer::TypeKind::Unique(_), args } => {
+                        of_type_id = args.as_ref().unwrap()[0];
+                    }
+                    _ => break,
+                }
             }
 
             let of_type = ctx.types.value_to_compiler_type(of_type_id);
@@ -1006,17 +1015,33 @@ fn emit_lvalue<'a>(
         NodeKind::Member { name } => {
             let [of] = node.children.as_array();
 
-            // If `of` is a reference, we need to do stuff.
-            let (base_type, parent_value) = if let Some(type_infer::Type { kind: type_infer::TypeKind::Reference, args }) = ctx.types.get(TypeId::Node(ctx.variant_id, of.id)).kind {
-                let arg = args.as_ref().unwrap()[0];
-                let (of, of_layout) = emit_node(ctx, of);
-                let of_lvalue = ctx.value_as_lvalue(&of);
-                debug_assert_eq!(of_layout, TypedLayout::PTR);
-                (ctx.types.value_to_compiler_type(arg), of_lvalue)
-            } else {
-                let parent_value = emit_lvalue(ctx, can_reference_temporaries, of.clone());
-                (ctx.types.value_to_compiler_type(TypeId::Node(ctx.variant_id, of.id)), parent_value)
-            };
+            let mut of_type_id = TypeId::Node(ctx.variant_id, of.id);
+            let mut parent_value = emit_lvalue(ctx, can_reference_temporaries, of.clone());
+
+            loop {
+                match ctx.types.get(of_type_id).kind.as_ref().unwrap() {
+                    type_infer::Type { kind: type_infer::TypeKind::Reference, args } => {
+                        let new_of = args.as_ref().unwrap()[0];
+                        match parent_value {
+                            LValue::Specific(pointer) => {
+                                parent_value = LValue::Pointer { pointer, offset: 0 };
+                            }
+                            LValue::Pointer { .. } => {
+                                let value = ctx.lvalue_as_value(&parent_value);
+                                let pointer = ctx.flush_value(&value, TypedLayout::PTR);
+                                parent_value = LValue::Pointer { pointer, offset: 0 };
+                            }
+                        }
+                        of_type_id = new_of;
+                    }
+                    type_infer::Type { kind: type_infer::TypeKind::Unique(_), args } => {
+                        of_type_id = args.as_ref().unwrap()[0];
+                    }
+                    _ => break,
+                }
+            }
+
+            let base_type = ctx.types.value_to_compiler_type(of_type_id);
 
             let member = base_type.member(*name).expect("This should have already been made sure to exist in the typer");
 

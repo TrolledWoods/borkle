@@ -1,12 +1,7 @@
-type StronglyTyped = {
-    x: u64;
-    y: u64;
-};
+import "tests/main.bo";
 
 #entry fn() {
-    let thing: StronglyTyped = pack #0;
-    (unpack thing).x = 42;
-    print("The value is %\n", (unpack thing).x);
+    run_tests();
 };
 
 // IR emission improvements

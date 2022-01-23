@@ -1780,6 +1780,28 @@ impl TypeSystem {
 
                 match &a.kind {
                     None => return,
+                    Some(Type { kind: TypeKind::Unique(_), args, .. }) => {
+                        // TODO: This could cause infinite recursion...
+                        if let Some(args) = args {
+                            let inner = args[0];
+                            let reason = constraint.reason;
+                            insert_active_constraint(
+                                &mut self.constraints,
+                                &mut self.available_constraints,
+                                &mut self.queued_constraints,
+                                Constraint {
+                                    kind: ConstraintKind::EqualNamedField {
+                                        values: [inner, b_id],
+                                        index: field_name,
+                                        hidden_subdivisions,
+                                    },
+                                    reason,
+                                    applied: false,
+                                },
+                            );
+                            self.constraints[constraint_id].applied = true;
+                        }
+                    }
                     Some(Type { kind: TypeKind::Reference, args, .. }) if hidden_subdivisions < 1 => {
                         if let Some(args) = args {
                             let inner = args[0];

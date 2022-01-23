@@ -1,4 +1,4 @@
-type #alias: Vec.(T) = {
+type Vec.(T) = {
     ptr: &T;
     len: usize;
     capacity: usize;

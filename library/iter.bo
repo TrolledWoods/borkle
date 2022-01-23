@@ -1,6 +1,6 @@
 library "vec.bo";
 
-type #alias: Iterator.(State, Item) = {
+type Iterator.(State, Item) = {
     state: State;
     next: fn(&State, &Item) -> bool;
 };
