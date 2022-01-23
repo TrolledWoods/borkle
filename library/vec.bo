@@ -1,4 +1,4 @@
-type #alias: Vec.(T) = {
+type Vec.(T) = {
     ptr: &T;
     len: usize;
     capacity: usize;
@@ -15,14 +15,14 @@ const as_buf.(T) = fn(vec: Vec.(T)) -> [] T {
     buf
 };
 
-const vec_unused_memory.(T) = fn(vec: &Vec.(T)) -> [] T {
+const unused_memory.(T) = fn(vec: &Vec.(T)) -> [] T {
     let buf = #0;
     buf.ptr = vec.ptr + vec.len;
     buf.len = vec.capacity - vec.len;
     buf
 };
 
-const vec_reserve.(T) = fn(vec: &Vec.(T), requested: usize) {
+const reserve.(T) = fn(vec: &Vec.(T), requested: usize) {
     if requested > vec.capacity {
         if vec.capacity == 0 {
             let buffer = alloc(INITIAL_SIZE);
@@ -63,19 +63,19 @@ const vec_get.(T) = fn(vec: &Vec.(T), index: usize) -> &T {
 };
 
 const vec_push.(T) = fn(vec: &Vec.(T), element: T) {
-    vec_reserve(vec, vec.len + 1);
+    vec->reserve(vec.len + 1);
     *(vec.ptr + vec.len) = element;
     vec.len = vec.len + 1;
 };
 
 const vec_push_arr.(T, N) = fn(vec: &Vec.(T), buf: [N] T) {
-    vec_reserve(vec, vec.len + N);
+    vec->reserve(vec.len + N);
     copy_nonoverlapping(vec.ptr + vec.len, cast &buf._0, N);
     vec.len = vec.len + N;
 };
 
 const vec_push_buf.(T) = fn(vec: &Vec.(T), buf: [] T) {
-    vec_reserve(vec, vec.len + buf.len);
+    vec->reserve(vec.len + buf.len);
     copy_nonoverlapping(vec.ptr + vec.len, buf.ptr, buf.len);
     vec.len = vec.len + buf.len;
 };

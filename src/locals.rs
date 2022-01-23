@@ -55,7 +55,7 @@ pub struct Label {
     pub defer_depth: usize,
     pub num_defers: usize,
     pub first_break_location: Option<Location>,
-    pub type_infer_value_id: crate::type_infer::ValueId,
+    pub declared_at: Option<NodeId>,
     pub stack_frame_id: crate::type_infer::ValueSetId,
     pub type_: Option<Type>,
     pub value: Option<crate::ir::StackValue>,

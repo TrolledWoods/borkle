@@ -185,7 +185,9 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, mut node: NodeView<'a>) -> (Value, T
             let end_label = ctx.create_label();
 
             let (to, _to_layout) = ctx.create_reg_and_layout(TypeId::Node(ctx.variant_id, node.id));
-            ctx.locals.get_label_mut(*label).value = Some(to);
+            let label = ctx.locals.get_label_mut(*label);
+            label.value = Some(to);
+            label.ir_labels = Some(vec![end_label]);
 
             // Set up iterator values
             let i_value = ctx.create_reg(TypeId::Node(ctx.variant_id, i_value_decl.id));

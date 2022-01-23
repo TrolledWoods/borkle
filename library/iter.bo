@@ -267,6 +267,11 @@ const count.(State, Item) = fn(stream: Iterator.(State, Item)) -> usize {
     count
 };
 
+const extend.(State, Item) = fn(vec: &Vec.(Item), stream: Iterator.(State, Item)) {
+    let item = #uninit;
+    while stream.next(&stream.state, &item)  vec_push(vec, item);
+};
+
 const collect_vec.(State, Item) = fn(stream: Iterator.(State, Item)) -> Vec.(Item) {
     let vec = vec_new();
     let item = #uninit;

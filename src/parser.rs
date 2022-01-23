@@ -1113,6 +1113,16 @@ fn value_without_unaries(
 
                 muncher.add().finish(Node::new(global_loc, NodeKind::Global { scope: global.scope, name }));
 
+                if global.tokens.try_consume_operator_string(".").is_some() {
+                    global.tokens.expect_next_is(global.errors, &TokenKind::Open(Bracket::Round))?;
+                    let old_evaluate_at_typing = imperative.evaluate_at_typing;
+                    imperative.evaluate_at_typing = true;
+                    let count = function_arguments(global, imperative, &mut muncher)?;
+                    imperative.evaluate_at_typing = old_evaluate_at_typing;
+
+                    muncher.munch(count + 1, Node::new(loc, NodeKind::PolymorphicArgs));
+                }
+
                 imperative.dependencies.add(
                     token.loc,
                     DepKind::MemberByName(
@@ -1361,7 +1371,7 @@ fn parse_default_label(
             loc,
             defer_depth: imperative.defer_depth,
             first_break_location: None,
-            type_infer_value_id: crate::type_infer::ValueId::NONE,
+            declared_at: None,
             stack_frame_id: 0,
             num_defers: 0,
             type_: None,
@@ -1385,7 +1395,7 @@ fn maybe_parse_label(
                 loc,
                 defer_depth: imperative.defer_depth,
                 first_break_location: None,
-                type_infer_value_id: crate::type_infer::ValueId::NONE,
+                declared_at: None,
                 stack_frame_id: 0,
                 num_defers: 0,
                 type_: None,

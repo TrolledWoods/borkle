@@ -28,30 +28,6 @@ const abort = fn() {
     4 / 0 : u8;
 };
 
-const start_timer = fn() -> u64 {
-    let timer = 0;
-    QueryPerformanceCounter(&timer);
-    timer
-};
-
-const read_timer_nanos = fn(start_time: u64) -> u64 {
-    let end_time = 0;
-    QueryPerformanceCounter(&end_time);
-
-    let freq = 0;
-    QueryPerformanceFrequency(&freq);
-    ((end_time - start_time) * 1_000_000_000) / freq
-};
-
-const read_timer_micros = fn(start_time: u64) -> u64 {
-    let end_time = 0;
-    QueryPerformanceCounter(&end_time);
-
-    let freq = 0;
-    QueryPerformanceFrequency(&freq);
-    ((end_time - start_time) * 1_000_000) / freq
-};
-
 const array_ptr   .(N, T) = fn(array: &[N] T) ->   &T    cast array;
 const array_to_buf.(N, T) = fn(array: &[N] T) -> [] T    cast array;
 

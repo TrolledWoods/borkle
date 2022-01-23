@@ -10,7 +10,7 @@ use super::{Formatter, function_symbol, global_symbol};
 use std::cmp::{Ord, Ordering};
 use ustr::{UstrSet, UstrMap};
 
-const DEBUG_SPAM: bool = true;
+const DEBUG_SPAM: bool = false;
 
 #[derive(Default)]
 struct FileEmitter {

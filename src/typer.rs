@@ -162,12 +162,6 @@ pub fn begin<'a>(
         })
         .collect();
 
-    // Create type inference variables for all variables and nodes, so that there's a way to talk about
-    // all of them.
-    for label in locals.iter_labels_mut() {
-        label.type_infer_value_id = infer.add_unknown_type();
-    }
-
     let mut needs_explaining = Vec::new();
     let mut additional_info = Default::default();
     let mut ctx = Context {
@@ -738,13 +732,15 @@ fn build_constraints(
             build_global(ctx, node.id, node.node, node.loc, scope, name, None, set, false);
         }
         NodeKind::While {
-            label,
+            label: label_id,
         } => {
             let [iteration_var, condition, body, else_body] = node.children.into_array();
 
             let iteration_var_id = build_declarative_lvalue(ctx, iteration_var, set, true);
 
-            ctx.locals.get_label_mut(label).stack_frame_id = set;
+            let label = ctx.locals.get_label_mut(label_id);
+            label.stack_frame_id = set;
+            label.declared_at = Some(else_body.id);
 
             ctx.infer.set_int(iteration_var_id, IntTypeKind::Usize, set);
 
@@ -752,24 +748,23 @@ fn build_constraints(
             let bool_type = ctx.infer.add_type(TypeKind::Bool, Args([]), set);
             ctx.infer.set_equal(condition_type_id, bool_type, Reason::new(node_loc, ReasonKind::IsOfType));
 
-            let label_type_infer_id = ctx.locals.get_label(label).type_infer_value_id;
-
             build_constraints(ctx, body, set);
 
             let else_type = build_constraints(ctx, else_body, set);
-            ctx.infer.set_equal(label_type_infer_id, else_type, Reason::new(node_loc, ReasonKind::Passed));
 
-            ctx.infer.set_equal(node_type_id, label_type_infer_id, Reason::new(node_loc, ReasonKind::Passed));
+            ctx.infer.set_equal(node_type_id, else_type, Reason::new(node_loc, ReasonKind::Passed));
         }
         NodeKind::For {
             is_const: Some(_),
-            label,
+            label: label_id,
         } => {
             let [iterating, i_value, _inner, else_body] = node.children.into_array();
 
             let iteration_var_id = build_declarative_lvalue(ctx, i_value, set, true);
 
-            ctx.locals.get_label_mut(label).stack_frame_id = set;
+            let label = ctx.locals.get_label_mut(label_id);
+            label.stack_frame_id = set;
+            label.declared_at = Some(else_body.id);
 
             let usize_id = ctx.infer.add_int(IntTypeKind::Usize, set);
             ctx.infer.set_equal(iteration_var_id, usize_id, Reason::temp(node_loc));
@@ -789,15 +784,12 @@ fn build_constraints(
 
             ctx.infer.value_sets.lock(set);
 
-            let label_type_infer_id = ctx.locals.get_label(label).type_infer_value_id;
-
             let else_type = build_constraints(ctx, else_body, set);
             ctx.infer.set_equal(node_type_id, else_type, Reason::new(node_loc, ReasonKind::Passed));
-            ctx.infer.set_equal(node_type_id, label_type_infer_id, Reason::new(node_loc, ReasonKind::Passed));
         }
         NodeKind::For {
             is_const: None,
-            label,
+            label: label_id,
         } => {
             let [iterating, iteration_var, inner, else_body] = node.children.into_array();
             let [iterator, body] = inner.children.into_array();
@@ -805,7 +797,9 @@ fn build_constraints(
             let iteration_var_id = build_declarative_lvalue(ctx, iteration_var, set, true);
             let iterator_id = build_declarative_lvalue(ctx, iterator, set, true);
 
-            ctx.locals.get_label_mut(label).stack_frame_id = set;
+            let label = ctx.locals.get_label_mut(label_id);
+            label.stack_frame_id = set;
+            label.declared_at = Some(else_body.id);
 
             let usize_id = ctx.infer.add_int(IntTypeKind::Usize, set);
             ctx.infer.set_equal(iteration_var_id, usize_id, Reason::temp(node_loc));
@@ -815,14 +809,11 @@ fn build_constraints(
 
             build_constraints(ctx, body, set);
 
-            let label_type_infer_id = ctx.locals.get_label(label).type_infer_value_id;
-
             ctx.infer.set_for_relation(iterator_id, iterating_type_id, Reason::temp(node_loc));
 
             let else_type = build_constraints(ctx, else_body, set);
-            ctx.infer.set_equal(label_type_infer_id, else_type, Reason::new(node_loc, ReasonKind::Passed));
 
-            ctx.infer.set_equal(node_type_id, label_type_infer_id, Reason::new(node_loc, ReasonKind::Passed));
+            ctx.infer.set_equal(node_type_id, else_type, Reason::new(node_loc, ReasonKind::Passed));
         }
         NodeKind::Literal(Literal::Float(_)) => {
             ctx.infer.set_type(node_type_id, TypeKind::Float, (), set);
@@ -1030,13 +1021,12 @@ fn build_constraints(
         NodeKind::Block {
             label,
         } => {
-            if let Some(label) = label {
-                let label = ctx.locals.get_label_mut(label);
-                ctx.infer.set_equal(label.type_infer_value_id, node_type_id, Reason::temp(node_loc));
+            if let Some(label_id) = label {
+                let label = ctx.locals.get_label_mut(label_id);
                 label.stack_frame_id = set;
+                label.declared_at = node.children.into_iter().last().map(|v| v.id);
             }
 
-            // @Performance: This isn't very fast, but it's fine for now
             let mut children = node.children.into_iter();
             let children_len = children.len();
             for statement_id in children.by_ref().take(children_len - 1) {
@@ -1059,7 +1049,7 @@ fn build_constraints(
                 ctx.infer.value_sets.get_mut(set).has_errors = true;
             }
 
-            let label_type_id = label.type_infer_value_id;
+            let label_type_id = TypeId::Node(ctx.ast_variant_id, label.declared_at.unwrap());
 
             let value_type_id = build_constraints(ctx, value, set);
             ctx.infer.set_equal(value_type_id, label_type_id, Reason::temp(node_loc));

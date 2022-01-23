@@ -1,0 +1,28 @@
+library "windows.bo";
+
+type Timer = u64;
+
+const start_timer = fn() -> Timer {
+    let timer = 0;
+    QueryPerformanceCounter(&timer);
+    pack timer
+};
+
+const get_nanos = fn(start_time: Timer) -> u64 {
+    let end_time = 0;
+    QueryPerformanceCounter(&end_time);
+
+    let freq = 0;
+    QueryPerformanceFrequency(&freq);
+    ((end_time - unpack start_time) * 1_000_000_000) / freq
+};
+
+const get_micros = fn(start_time: Timer) -> u64 {
+    let end_time = 0;
+    QueryPerformanceCounter(&end_time);
+
+    let freq = 0;
+    QueryPerformanceFrequency(&freq);
+    ((end_time - unpack start_time) * 1_000_000) / freq
+};
+
