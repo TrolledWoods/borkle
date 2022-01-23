@@ -158,6 +158,12 @@ enum Register {
     R13,
     R14,
     R15,
+    XMM0,
+    XMM1,
+    XMM2,
+    XMM3,
+    XMM4,
+    XMM5,
     RegCount,
 }
 
@@ -1231,16 +1237,20 @@ fn emit_routine(
                 emit_unary(&mut ctx, op, type_, to, Data::Stack(from, size), size)?;
             }
             Instr::Binary { to, a, b, op, type_ } => {
-                assert!(!type_.is_float(), "Float operations not handled yet in x64 backend");
-
                 let size = type_.size();
-                emit_binary(&mut ctx, op, type_, to, Data::Stack(a, size), Data::Stack(b, size), size)?;
+                if type_.is_float() {
+                    emit_float_binary(&mut ctx, op, to, Data::Stack(a, size), Data::Stack(b, size), size)?;
+                } else {
+                    emit_binary(&mut ctx, op, type_, to, Data::Stack(a, size), Data::Stack(b, size), size)?;
+                }
             }
             Instr::BinaryImm { to, a, b, op, type_ } => {
-                assert!(!type_.is_float(), "Float operations not handled yet in x64 backend");
-
                 let size = type_.size();
-                emit_binary(&mut ctx, op, type_, to, Data::Stack(a, size), Data::Imm(b, size), size)?;
+                if type_.is_float() {
+                    emit_float_binary(&mut ctx, op, to, Data::Stack(a, size), Data::Imm(b, size), size)?;
+                } else {
+                    emit_binary(&mut ctx, op, type_, to, Data::Stack(a, size), Data::Imm(b, size), size)?;
+                }
             }
             Instr::JumpIfZero { condition, to } => {
                 // We don't know what the thing at the other end is going to want,
@@ -1492,6 +1502,68 @@ fn emit_unary(ctx: &mut Context<'_>, op: UnaryOp, type_: PrimitiveType, to: Stac
     Ok(())
 }
 
+fn emit_float_binary(ctx: &mut Context<'_>, op: BinaryOp, to: StackValue, a: Data, b: Data, size: usize) -> fmt::Result {
+    let a = ctx.get_data(a, READ_REG)?;
+    let b = ctx.get_data(b, READ_REG)?;
+
+    if size == 4 {
+        writeln!(ctx.out, "\tmovd xmm0, {}", a.print(&ctx.stack))?;
+        writeln!(ctx.out, "\tmovd xmm1, {}", b.print(&ctx.stack))?;
+    } else {
+        writeln!(ctx.out, "\tmovq xmm0, {}", a.print(&ctx.stack))?;
+        writeln!(ctx.out, "\tmovq xmm1, {}", b.print(&ctx.stack))?;
+    }
+
+    match op {
+        BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mult | BinaryOp::Div | BinaryOp::Modulo => {
+            match (op, size) {
+                (BinaryOp::Add, 4) => writeln!(ctx.out, "\taddss xmm0, xmm1")?,
+                (BinaryOp::Add, 8) => writeln!(ctx.out, "\taddsd xmm0, xmm1")?,
+                (BinaryOp::Sub, 4) => writeln!(ctx.out, "\tsubss xmm0, xmm1")?,
+                (BinaryOp::Sub, 8) => writeln!(ctx.out, "\tsubsd xmm0, xmm1")?,
+                (BinaryOp::Mult, 4) => writeln!(ctx.out, "\tmulss xmm0, xmm1")?,
+                (BinaryOp::Mult, 8) => writeln!(ctx.out, "\tmulsd xmm0, xmm1")?,
+                (BinaryOp::Div, 4) => writeln!(ctx.out, "\tdivss xmm0, xmm1")?,
+                (BinaryOp::Div, 8) => writeln!(ctx.out, "\tdivsd xmm0, xmm1")?,
+                _ => unreachable!(),
+            }
+
+            let reg = ctx.alloc_reg()?;
+            ctx.push_reg_changes(reg)?;
+            if size == 4 {
+                writeln!(ctx.out, "\tmovd {}, xmm0", reg.name(size))?;
+            } else {
+                writeln!(ctx.out, "\tmovq {}, xmm0", reg.name(size))?;
+            }
+            ctx.reg_written_to(reg);
+            ctx.write_stack_value(reg, to, size)?;
+        }
+        BinaryOp::Equals | BinaryOp::NotEquals | BinaryOp::LargerThan | BinaryOp::LargerThanEquals | BinaryOp::LessThan | BinaryOp::LessThanEquals => {
+            if size == 4 {
+                writeln!(ctx.out, "\tcomiss xmm0, xmm1")?;
+            } else {
+                writeln!(ctx.out, "\tcomisd xmm0, xmm1")?;
+            }
+
+            let out = ctx.alloc_reg()?;
+            match op {
+                BinaryOp::Equals => ctx.emit_write("sete", out, 1)?,
+                BinaryOp::NotEquals => ctx.emit_write("setne", out, 1)?,
+                BinaryOp::LargerThan => ctx.emit_write("seta", out, 1)?,
+                BinaryOp::LargerThanEquals => ctx.emit_write("setae", out, 1)?,
+                BinaryOp::LessThan => ctx.emit_write("setb", out, 1)?,
+                BinaryOp::LessThanEquals => ctx.emit_write("setbe", out, 1)?,
+                _ => unreachable!(),
+            }
+
+            ctx.write_stack_value(out, to, 1)?;
+        }
+        _ => unreachable!(),
+    }
+
+    Ok(())
+}
+
 fn emit_binary(ctx: &mut Context<'_>, op: BinaryOp, type_: PrimitiveType, to: StackValue, a: Data, b: Data, size: usize) -> fmt::Result {
     match op {
         BinaryOp::Add => {
@@ -1628,75 +1700,56 @@ fn emit_binary(ctx: &mut Context<'_>, op: BinaryOp, type_: PrimitiveType, to: St
             ctx.emit_write_dat("sar", a, size, DataHandle::Reg(cl, 1))?;
             ctx.write_stack_value(a, to, size)?;
         }
-        BinaryOp::Equals => {
+        BinaryOp::Equals | BinaryOp::NotEquals | BinaryOp::LargerThan | BinaryOp::LargerThanEquals | BinaryOp::LessThan | BinaryOp::LessThanEquals => {
             let out = ctx.alloc_reg()?;
             let a = ctx.get_data(a, READ)?;
             let b = ctx.get_data(b, READ_NO_INDIRECT)?;
 
             ctx.emit_dat_dat("cmp", a, b)?;
-            ctx.emit_write("sete", out, 1)?;
-            ctx.write_stack_value(out, to, 1)?;
-        }
-        BinaryOp::NotEquals => {
-            let out = ctx.alloc_reg()?;
-            let a = ctx.get_data(a, READ)?;
-            let b = ctx.get_data(b, READ_NO_INDIRECT)?;
 
-            ctx.emit_dat_dat("cmp", a, b)?;
-            ctx.emit_write("setne", out, 1)?;
-            ctx.write_stack_value(out, to, 1)?;
-        }
-        BinaryOp::LargerThan => {
-            let out = ctx.alloc_reg()?;
-            let a = ctx.get_data(a, READ)?;
-            let b = ctx.get_data(b, READ_NO_INDIRECT)?;
-
-            ctx.emit_dat_dat("cmp", a, b)?;
-            if type_.signed() {
-                ctx.emit_write("setg", out, 1)?;
-            } else {
-                ctx.emit_write("seta", out, 1)?;
+            match op {
+                BinaryOp::Equals => {
+                    ctx.emit_write("sete", out, 1)?;
+                    ctx.write_stack_value(out, to, 1)?;
+                }
+                BinaryOp::NotEquals => {
+                    ctx.emit_write("setne", out, 1)?;
+                    ctx.write_stack_value(out, to, 1)?;
+                }
+                BinaryOp::LargerThan => {
+                    if type_.signed() {
+                        ctx.emit_write("setg", out, 1)?;
+                    } else {
+                        ctx.emit_write("seta", out, 1)?;
+                    }
+                    ctx.write_stack_value(out, to, 1)?;
+                }
+                BinaryOp::LargerThanEquals => {
+                    if type_.signed() {
+                        ctx.emit_write("setge", out, 1)?;
+                    } else {
+                        ctx.emit_write("setae", out, 1)?;
+                    }
+                    ctx.write_stack_value(out, to, 1)?;
+                }
+                BinaryOp::LessThan => {
+                    if type_.signed() {
+                        ctx.emit_write("setl", out, 1)?;
+                    } else {
+                        ctx.emit_write("setb", out, 1)?;
+                    }
+                    ctx.write_stack_value(out, to, 1)?;
+                }
+                BinaryOp::LessThanEquals => {
+                    if type_.signed() {
+                        ctx.emit_write("setle", out, 1)?;
+                    } else {
+                        ctx.emit_write("setbe", out, 1)?;
+                    }
+                    ctx.write_stack_value(out, to, 1)?;
+                }
+                _ => unreachable!(),
             }
-            ctx.write_stack_value(out, to, 1)?;
-        }
-        BinaryOp::LargerThanEquals => {
-            let out = ctx.alloc_reg()?;
-            let a = ctx.get_data(a, READ)?;
-            let b = ctx.get_data(b, READ_NO_INDIRECT)?;
-
-            ctx.emit_dat_dat("cmp", a, b)?;
-            if type_.signed() {
-                ctx.emit_write("setge", out, 1)?;
-            } else {
-                ctx.emit_write("setae", out, 1)?;
-            }
-            ctx.write_stack_value(out, to, 1)?;
-        }
-        BinaryOp::LessThan => {
-            let out = ctx.alloc_reg()?;
-            let a = ctx.get_data(a, READ)?;
-            let b = ctx.get_data(b, READ_NO_INDIRECT)?;
-
-            ctx.emit_dat_dat("cmp", a, b)?;
-            if type_.signed() {
-                ctx.emit_write("setl", out, 1)?;
-            } else {
-                ctx.emit_write("setb", out, 1)?;
-            }
-            ctx.write_stack_value(out, to, 1)?;
-        }
-        BinaryOp::LessThanEquals => {
-            let out = ctx.alloc_reg()?;
-            let a = ctx.get_data(a, READ)?;
-            let b = ctx.get_data(b, READ_NO_INDIRECT)?;
-
-            ctx.emit_dat_dat("cmp", a, b)?;
-            if type_.signed() {
-                ctx.emit_write("setle", out, 1)?;
-            } else {
-                ctx.emit_write("setbe", out, 1)?;
-            }
-            ctx.write_stack_value(out, to, 1)?;
         }
         BinaryOp::And | BinaryOp::BitAnd => {
             let a = ctx.get_data_as_reg(a)?;

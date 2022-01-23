@@ -152,7 +152,7 @@ fn compute_type_layout(kind: &TypeKind, structures: &Structures, values: &Values
     match kind {
         TypeKind::CompareUnspecified => Layout { size: 1, align: 0 },
         TypeKind::Float => {
-            let Some(&Type { kind: TypeKind::IntSize(size_value), .. }) = get_value(structures, values, children[1]).kind else { panic!() };
+            let Some(&Type { kind: TypeKind::IntSize(size_value), .. }) = get_value(structures, values, children[0]).kind else { panic!() };
             let size_bytes = size_value as usize;
             Layout { size: size_bytes, align: size_bytes }
         }

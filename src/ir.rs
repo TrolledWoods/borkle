@@ -24,7 +24,7 @@ pub enum PrimitiveType {
 
 impl PrimitiveType {
     pub fn signed(&self) -> bool {
-        matches!(self, Self::I8 | Self::I16 | Self::I32 | Self::I64)
+        matches!(self, Self::I8 | Self::I16 | Self::I32 | Self::I64 | Self::F32 | Self::F64)
     }
 
     pub fn size(&self) -> usize {

@@ -1,16 +1,61 @@
 library "iter.bo";
 import "tests/main.bo";
 
+type Complex = {
+    real: f64;
+    imag: f64;
+};
+
+const complex = fn(real: f64, imag: f64) -> Complex {
+    let result = #uninit;
+    result.real = real;
+    result.imag = imag;
+    result
+};
+
+const add_c = fn(a: Complex, b: Complex) -> Complex {
+    let result = #uninit;
+    result.real = a.real + b.real;
+    result.imag = a.imag + b.imag;
+    result
+};
+
+const square_c = fn(a: Complex) -> Complex {
+    let result = #uninit;
+    result.real = a.real * a.real - a.imag * a.imag;
+    result.imag = 2.0 * a.real * a.imag;
+    result
+};
+
+const magnitude_sqr = fn(a: Complex) -> f64 {
+    a.real * a.real + a.imag * a.imag
+};
+
 #entry fn() {
-    run_tests();
+    let y = 0.0 - 2.0 : f64;
+    while y < 2.0 {
+        let x = 0.0 - 2.0 : f64;
+        while x < 2.0 {
+            let z = complex(0.0, 0.0);
+            let c = complex(x, y);
+            let char = while i < 100 {
+                z = add_c(square_c(z), c);
+                if magnitude_sqr(z) >= 4.0  break *".".ptr;
+            } else *"#".ptr;
+            put_char(char);
+            x = x + 0.025;
+        };
+
+        put_string("\n");
+
+        y = y + 0.05;
+    };
 };
 
 // IR emission improvements
 //
 // - Swapping variables using destructuring, for example, (x, y) = (y, x), is broken with the current system, this should be fixed!
 // - Arrays need a `Value` as well.
-
-// Removing the `type` on Chain in library\iter causes a compiler lockup
 
 // Roadmap for full(and decent) x64 support:
 //

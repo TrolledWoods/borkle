@@ -145,7 +145,7 @@ type Chain.(A, B) = {
     b: B;
 };
 
-const chain.(StateA, StateB, Item) = fn(a: Iterator.(StateA, Item), b: Iterator.(StateB, Item)) -> Iterator.(type Chain.(_, _), Item) {
+const chain.(StateA, StateB, Item) = fn(a: Iterator.(StateA, Item), b: Iterator.(StateB, Item)) -> Iterator.(Chain.(_, _), Item) {
     let stream = #uninit;
     stream.state.on_second = false;
     stream.state.a = a;
