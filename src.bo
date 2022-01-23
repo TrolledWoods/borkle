@@ -1,10 +1,12 @@
-library "windows.bo";
-import "tests/main.bo";
-
-type StrongTypedefTest = u32;
+type StronglyTyped = {
+    x: u64;
+    y: u64;
+};
 
 #entry fn() {
-    let thing = #0 : StrongTypedefTest;
+    let thing: StronglyTyped = pack #0;
+    (unpack thing).x = 42;
+    print("The value is %\n", (unpack thing).x);
 };
 
 // IR emission improvements

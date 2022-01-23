@@ -3,7 +3,6 @@ use crate::dependencies::{DepKind, DependencyList, MemberDep};
 use crate::errors::ErrorCtx;
 use crate::backend::Backends;
 use crate::id::{Id, IdVec};
-use crate::type_infer::ValueId as TypeId;
 use crate::ir::Routine;
 use crate::location::Location;
 use crate::logging::Logger;
@@ -741,13 +740,13 @@ impl Program {
         let mut yield_data = (*yield_data).clone();
         yield_data.insert_poly_params(self, poly_args);
         crate::typer::solve(errors, thread_context, self, &mut yield_data);
-        let (dependency_list, mut locals, mut types, typed_ast, additional_info) = match crate::typer::finish(errors, yield_data)? {
+        let (dependency_list, mut locals, mut types, typed_ast, root_value_id, additional_info) = match crate::typer::finish(errors, yield_data)? {
             Ok(v) => v,
             Err(_) => todo!("Not done!"),
         };
 
         // FIXME: Calculate the member meta data here.
-        self.set_type_of_member(member_id, types.value_to_compiler_type(TypeId::Node(AstVariantId::root(), typed_ast.root_id())), MemberMetaData::None);
+        self.set_type_of_member(member_id, types.value_to_compiler_type(root_value_id), MemberMetaData::None);
 
         if matches!(member_kind, MemberKind::Type { .. }) {
             debug_assert!(wanted_dep <= MemberDep::Type);

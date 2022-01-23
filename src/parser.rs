@@ -757,6 +757,24 @@ fn value_without_unaries(
                 NodeKind::BuiltinFunction(builtin_kind),
             ))
         }
+        TokenKind::Keyword(Keyword::Pack) => {
+            // TODO: I probably want an expression here, but I need a way to define these kinds of
+            // "unary" operations to use expressions without going crazy, so we need some check to
+            // make sure these themselves aren't inside of an expression.
+            value(global, imperative, slot.add())?;
+            slot.finish(Node::new(
+                token.loc,
+                NodeKind::Pack,
+            ))
+        }
+        TokenKind::Keyword(Keyword::Unpack) => {
+            // TODO: See `Pack`
+            value(global, imperative, slot.add())?;
+            slot.finish(Node::new(
+                token.loc,
+                NodeKind::Unpack,
+            ))
+        }
         TokenKind::Keyword(Keyword::Const) => {
             // @TODO: Prevent cross-referencing of variable values here!!!!!!!!!!!
             // Could probably do it just by looking at what scope_id local reads/writes have,
@@ -1447,6 +1465,11 @@ pub enum NodeKind {
         scope: ScopeId,
         name: Ustr,
     },
+
+    /// [ inner ]
+    Pack,
+    /// [ inner ]
+    Unpack,
 
     /// [ of, ..args ]
     PolymorphicArgs,

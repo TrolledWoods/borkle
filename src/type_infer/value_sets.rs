@@ -61,6 +61,22 @@ impl ValueSets {
     pub fn get_mut(&mut self, set: ValueSetId) -> &mut ValueSet {
         &mut self.sets[set]
     }
+
+    pub fn make_erroneous(&mut self, set: &ValueSetHandles) {
+        if let Some(set) = set.sets {
+            self.sets[set].has_errors = true;
+        }
+    }
+
+    pub fn is_erroneous(&self, set: &ValueSetHandles) -> bool {
+        if let Some(set) = set.sets {
+            if self.sets[set].has_errors {
+                return true;
+            }
+        }
+
+        false
+    }
 }
 
 #[derive(Clone)]

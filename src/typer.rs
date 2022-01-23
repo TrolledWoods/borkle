@@ -129,7 +129,7 @@ pub fn process_ast<'a>(
     locals: LocalVariables,
     ast: Ast,
     member_kind: MemberKind,
-) -> Result<(Result<(DependencyList, LocalVariables, TypeSystem, Ast, AdditionalInfo), (DependencyList, YieldData)>, MemberMetaData), ()> {
+) -> Result<(Result<(DependencyList, LocalVariables, TypeSystem, Ast, TypeId, AdditionalInfo), (DependencyList, YieldData)>, MemberMetaData), ()> {
     let (mut yield_data, meta_data) = begin(errors, thread_context, program, locals, ast, Vec::new(), member_kind);
     solve(errors, thread_context, program, &mut yield_data);
     finish(errors, yield_data).map(|v| (v, meta_data))
@@ -297,7 +297,7 @@ pub fn solve<'a>(
 pub fn finish<'a>(
     errors: &mut ErrorCtx,
     mut from: YieldData,
-) -> Result<Result<(DependencyList, LocalVariables, TypeSystem, Ast, AdditionalInfo), (DependencyList, YieldData)>, ()> {
+) -> Result<Result<(DependencyList, LocalVariables, TypeSystem, Ast, TypeId, AdditionalInfo), (DependencyList, YieldData)>, ()> {
     for (node_id, needs_explaining) in from.needs_explaining {
         for chain in type_infer::get_reasons(needs_explaining, &from.infer, &from.ast) {
             chain.output(errors, &from.ast, &from.infer);
@@ -324,7 +324,7 @@ pub fn finish<'a>(
 
     let emit_deps = from.infer.value_sets.get_mut(from.root_set_id).emit_deps.take().unwrap();
 
-    Ok(Ok((emit_deps, from.locals, from.infer, from.ast, from.additional_info)))
+    Ok(Ok((emit_deps, from.locals, from.infer, from.ast, from.root_value_id, from.additional_info)))
 }
 
 fn subset_was_completed(ctx: &mut Context<'_, '_>, ast: &mut Ast, waiting_on: WaitingOnTypeInferrence, set: ValueSetId) {
@@ -686,6 +686,16 @@ fn build_constraints(
             let inner = build_constraints(ctx, inner, set);
             ctx.infer.set_equal(node_type_id, inner, Reason::new(node_loc, ReasonKind::Passed));
             ctx.needs_explaining.push((node.id, inner));
+        }
+        NodeKind::Pack => {
+            let [inner] = node.children.into_array();
+            let inner_type = build_constraints(ctx, inner, set);
+            ctx.infer.set_pack(node_type_id, inner_type, Reason::temp(node_loc));
+        }
+        NodeKind::Unpack => {
+            let [inner] = node.children.into_array();
+            let inner_type = build_constraints(ctx, inner, set);
+            ctx.infer.set_pack(inner_type, node_type_id, Reason::temp(node_loc));
         }
         NodeKind::SizeOf => {
             let [inner] = node.children.into_array();
@@ -1510,6 +1520,16 @@ fn build_declarative_lvalue(
             let inner = build_declarative_lvalue(ctx, inner, set, true);
             ctx.infer.set_equal(node_type_id, inner, Reason::temp(node_loc));
         }
+        NodeKind::Pack => {
+            let [inner] = node.children.into_array();
+            let inner_type = build_constraints(ctx, inner, set);
+            ctx.infer.set_pack(node_type_id, inner_type, Reason::temp(node_loc));
+        }
+        NodeKind::Unpack => {
+            let [inner] = node.children.into_array();
+            let inner_type = build_constraints(ctx, inner, set);
+            ctx.infer.set_pack(inner_type, node_type_id, Reason::temp(node_loc));
+        }
         NodeKind::Local{ local_id } => {
             if is_declaring {
                 let local = ctx.locals.get_mut(local_id);
@@ -1641,6 +1661,16 @@ fn build_lvalue(
             let [value] = node.children.into_array();
             let inner = build_lvalue(ctx, value, set, can_reference_temporaries);
             ctx.infer.set_equal(node_type_id, inner, Reason::temp(node_loc));
+        }
+        NodeKind::Pack => {
+            let [inner] = node.children.into_array();
+            let inner_type = build_constraints(ctx, inner, set);
+            ctx.infer.set_pack(node_type_id, inner_type, Reason::temp(node_loc));
+        }
+        NodeKind::Unpack => {
+            let [inner] = node.children.into_array();
+            let inner_type = build_constraints(ctx, inner, set);
+            ctx.infer.set_pack(inner_type, node_type_id, Reason::temp(node_loc));
         }
         NodeKind::TypeBound => {
             let [value, bound] = node.children.into_array();

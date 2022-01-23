@@ -516,7 +516,7 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, mut node: NodeView<'a>) -> (Value, T
 
             (Value::Stack(to), to_layout)
         }
-        NodeKind::BitCast => {
+        NodeKind::BitCast | NodeKind::Pack | NodeKind::Unpack => {
             let [value] = node.children.as_array();
             // TODO: This may not always be correct, if the typed layout doesn't match.
             emit_node(ctx, value)
@@ -971,7 +971,7 @@ fn emit_declarative_lvalue<'a>(
                 ctx.flush_value_to(to, from, node_layout);
             }
         }
-        NodeKind::Parenthesis => {
+        NodeKind::Parenthesis | NodeKind::Pack | NodeKind::Unpack => {
             let [value] = node.children.as_array();
             emit_declarative_lvalue(ctx, value, from, is_declaring);
         }
@@ -1021,6 +1021,10 @@ fn emit_lvalue<'a>(
             let member = base_type.member(*name).expect("This should have already been made sure to exist in the typer");
 
             ctx.get_member_of_lvalue(&parent_value, member.byte_offset)
+        }
+        NodeKind::Pack | NodeKind::Unpack => {
+            let [operand] = node.children.as_array();
+            emit_lvalue(ctx, can_reference_temporaries, operand)
         }
         NodeKind::Unary {
             op: UnaryOp::Dereference,

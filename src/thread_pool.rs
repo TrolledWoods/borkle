@@ -153,8 +153,8 @@ fn worker<'a>(alloc: &'a mut Bump, program: &'a Program) -> (ThreadContext<'a>, 
                             ast,
                             member_kind,
                         ) {
-                            Ok((Ok((dependencies, locals, types, ast, additional_info)), meta_data)) => {
-                                let type_ = types.value_to_compiler_type(TypeId::Node(AstVariantId::root(), ast.root().id));
+                            Ok((Ok((dependencies, locals, types, ast, root_type_id, additional_info)), meta_data)) => {
+                                let type_ = types.value_to_compiler_type(root_type_id);
 
                                 if type_.can_be_stored_in_constant() {
                                     program.logger.log(format_args!(

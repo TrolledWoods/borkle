@@ -220,6 +220,7 @@ struct Constraint {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 enum Relation {
+    Pack,
     Cast,
     BufferEqualsArray,
     ForIterator { by_reference: bool },
@@ -292,6 +293,7 @@ impl Error {
 
 #[derive(Debug, Clone)]
 pub enum ErrorKind {
+    PackingNonUnique,
     IncompatibleTypes,
     IndexOutOfBounds(usize),
     NonexistantName(Ustr),
@@ -984,6 +986,10 @@ impl TypeSystem {
 
     pub fn output_incompleteness_errors(&self, errors: &mut ErrorCtx, ast: &crate::parser::Ast) {
         for id in ast.root().iter_all_ids() {
+            if self.value_sets.is_erroneous(&self.values.get(ValueId::Node(AstVariantId::root(), id)).value.value_sets) {
+                continue;
+            }
+            
             // @Correctness: This won't generate all incompleteness errors, and will have some duds!
             // We need to fix this for real later on
             let value = get_value(&self.structures, &self.values, ValueId::Node(AstVariantId::root(), id));
@@ -1009,6 +1015,12 @@ impl TypeSystem {
                         errors.info(loc, format!("Here"));
                     }
                     errors.global_error(format!("Field '{}' doesn't exist on type {}", name, self.value_to_str(a, 0)));
+                }
+                Error { a, b: _, kind: ErrorKind::PackingNonUnique } => {
+                    if let Some(loc) = get_loc_of_value(ast, a) {
+                        errors.info(loc, format!("Here"));
+                    }
+                    errors.global_error(format!("To pack or unpack, you need to actually have a strongly typed type declaration."));
                 }
                 Error { a, b, kind: ErrorKind::IncompatibleTypes } => {
                     let a_id = a;
@@ -1191,6 +1203,19 @@ impl TypeSystem {
                 reason,
                 applied: false,
             },
+        );
+    }
+
+    pub fn set_pack(&mut self, to: ValueId, from: ValueId, reason: Reason) {
+        insert_active_constraint(
+            &mut self.constraints,
+            &mut self.available_constraints,
+            &mut self.queued_constraints,
+            Constraint {
+                kind: ConstraintKind::Relation { kind: Relation::Pack, values: [to, from] },
+                applied: false,
+                reason,
+            }
         );
     }
 
@@ -1557,6 +1582,29 @@ impl TypeSystem {
 
                 match (kind, to.kind, from.kind) {
                     (
+                        Relation::Pack,
+                        Some(Type { kind: TypeKind::Unique(_), args: Some(to_args) }),
+                        _,
+                    ) => {
+                        let to_arg = to_args[0];
+                        self.set_equal(to_arg, from_id, constraint.reason);
+                    }
+                    (
+                        Relation::Pack,
+                        Some(Type { kind: _, args: _ }),
+                        _,
+                    ) => {
+                        self.errors.push(Error {
+                            a: to_id,
+                            b: from_id,
+                            kind: ErrorKind::PackingNonUnique,
+                        });
+                        self.constraints[constraint_id].applied = true;
+                        self.make_erroneous(to_id);
+                        self.make_erroneous(from_id);
+                        return;
+                    }
+                    (
                         Relation::Cast,
                         Some(Type { kind: TypeKind::Buffer, args: Some(_) }),
                         Some(Type { kind: TypeKind::Reference, args: Some(from_args), .. }),
@@ -1787,6 +1835,8 @@ impl TypeSystem {
                                     b_id,
                                     ErrorKind::NonexistantName(field_name),
                                 ));
+                                self.make_erroneous(a_id);
+                                self.make_erroneous(b_id);
                                 return;
                             }
                         }
@@ -1813,6 +1863,8 @@ impl TypeSystem {
                                 b_id,
                                 ErrorKind::NonexistantName(field_name),
                             ));
+                            self.make_erroneous(a_id);
+                            self.make_erroneous(b_id);
                             return;
                         }
                     }
@@ -1838,6 +1890,8 @@ impl TypeSystem {
                                 b_id,
                                 ErrorKind::NonexistantName(field_name),
                             ));
+                            self.make_erroneous(a_id);
+                            self.make_erroneous(b_id);
                             return;
                         }
                     }
@@ -1864,6 +1918,8 @@ impl TypeSystem {
                                 b_id,
                                 ErrorKind::NonexistantName(field_name),
                             ));
+                            self.make_erroneous(a_id);
+                            self.make_erroneous(b_id);
                             return;
                         }
                     }
@@ -1873,6 +1929,8 @@ impl TypeSystem {
                             b_id,
                             ErrorKind::NonexistantName(field_name),
                         ));
+                        self.make_erroneous(a_id);
+                        self.make_erroneous(b_id);
                         return;
                     }
                 }
@@ -1902,6 +1960,8 @@ impl TypeSystem {
                                 b_id,
                                 ErrorKind::IndexOutOfBounds(field_index),
                             ));
+                            self.make_erroneous(a_id);
+                            self.make_erroneous(b_id);
                             return;
                         }
 
@@ -1981,6 +2041,8 @@ impl TypeSystem {
                         if a_type.kind != b_type.kind {
                             self.errors.push(Error { a: a_id, b: b_id, kind: ErrorKind::IncompatibleTypes });
                             self.constraints[constraint_id].applied = true;
+                            self.make_erroneous(a_id);
+                            self.make_erroneous(b_id);
                             return;
                         } else {
                             match (&a_type.args, &b_type.args) {
@@ -1991,6 +2053,8 @@ impl TypeSystem {
                                     if a_args.len() != b_args.len() {
                                         self.errors.push(Error { a: a_id, b: b_id, kind: ErrorKind::IncompatibleTypes });
                                         self.constraints[constraint_id].applied = true;
+                                        self.make_erroneous(a_id);
+                                        self.make_erroneous(b_id);
                                         return;
                                     } else {
                                         for (a_arg, b_arg) in a_args.iter().zip(b_args.iter()) {
@@ -2032,6 +2096,11 @@ impl TypeSystem {
         }
     }
 
+    pub fn make_erroneous(&mut self, id: ValueId) {
+        let value = self.values.get(id);
+        self.value_sets.make_erroneous(&value.value.value_sets);
+    }
+
     /// Adds a value set to a value. This value has to be an unknown type, otherwise it will panic
     /// in debug mode. It also cannot be an alias. This is solely intended for use by the building
     /// process of the typer.
@@ -2058,6 +2127,7 @@ impl TypeSystem {
 
     pub fn set_compiler_type(&mut self, program: &Program, id: ValueId, type_: types::Type, set: impl IntoValueSet + Clone) -> ValueId {
         match *type_.kind() {
+            // types::TypeKind::Unique { member: 
             types::TypeKind::Function { ref args, returns } => {
                 let mut new_args = Vec::with_capacity(args.len() + 1);
 
@@ -2127,6 +2197,10 @@ impl TypeSystem {
                     .map(|&(_, v)| (self.add_compiler_type(program, v, set.clone()), Reason::temp_zero()))
                     .collect();
                 self.set_type(id, TypeKind::Struct(field_names), Args(field_types), set.clone())
+            }
+            types::TypeKind::Unique { marker, inner } => {
+                let inner = self.add_compiler_type(program, inner, set.clone());
+                self.set_type(id, TypeKind::Unique(marker), Args([(inner, Reason::temp_zero())]), set.clone())
             }
             _ => todo!("This compiler type is not done yet"),
         }
