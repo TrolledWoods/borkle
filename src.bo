@@ -8,6 +8,8 @@ type Hello = enum u16 {
 };
 
 #entry fn() {
+    let thing = #0 : Hello;
+
     run_tests();
 };
 

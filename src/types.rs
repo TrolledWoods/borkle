@@ -1,5 +1,5 @@
 use crate::location::Location;
-use crate::program::FunctionId;
+use crate::program::{FunctionId, constant::ConstantRef};
 use lazy_static::lazy_static;
 use parking_lot::Mutex;
 use std::fmt::{self, Debug, Display};
@@ -220,6 +220,14 @@ impl Display for TypeKind {
                 write!(fmt, ")")?;
                 Ok(())
             }
+            Self::Enum { base, fields } => {
+                write!(fmt, "enum {} {{ ", base)?;
+                for (i, &(field_name, _)) in fields.iter().enumerate() {
+                    if i > 0 { write!(fmt, ", ")?; }
+                    write!(fmt, "{}", field_name)?;
+                }
+                write!(fmt, " }}")
+            }
             Self::Struct(members) => {
                 write!(fmt, "{{")?;
                 for (i, (name, member)) in members.iter().enumerate() {
@@ -262,6 +270,10 @@ pub enum TypeKind {
     Function { args: Vec<Type>, returns: Type },
     Struct(Vec<(Ustr, Type)>),
     Tuple(Vec<Type>),
+    Enum {
+        base: Type,
+        fields: Vec<(Ustr, ConstantRef)>,
+    },
     Unique {
         marker: UniqueTypeMarker,
         inner: Type,
@@ -283,6 +295,7 @@ impl TypeKind {
             TypeKind::Buffer { pointee: inner, .. }
             | TypeKind::Array(inner, _)
             | TypeKind::Range(inner)
+            | TypeKind::Enum { base: inner, .. }
             | TypeKind::Unique { inner, .. }
             | TypeKind::Reference { pointee: inner, .. } => on_inner(*inner),
             TypeKind::Function { args, returns, .. } => {
@@ -366,6 +379,8 @@ impl TypeKind {
 
     fn can_be_stored_in_constant(&self) -> bool {
         match self {
+            // TODO: Think about removing this array special case, or make a replacement that lets
+            // you mark something as not storable in a constant.
             TypeKind::Array(_, 0) | TypeKind::Function { .. } => true,
             TypeKind::VoidPtr | TypeKind::VoidBuffer => false,
             _ => {
@@ -393,6 +408,7 @@ impl TypeKind {
                 let size = array_size(inner.size(), inner.align(), 2);
                 (size, inner.align())
             }
+            Self::Enum { base, .. } => (base.size(), base.align()),
             Self::Array(internal, length) => {
                 let member_size = internal.size();
                 let align = internal.align();
@@ -504,7 +520,7 @@ impl TypeKind {
                     }
                 }
             }
-            Self::Unique { inner, .. } => {
+            Self::Unique { inner, .. } | Self::Enum { base: inner, .. } => {
                 for &(field_pointer, ref field_pointer_type) in inner.pointers() {
                     pointers.push((field_pointer, field_pointer_type.clone()));
                 }

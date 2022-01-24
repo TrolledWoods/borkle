@@ -1084,9 +1084,6 @@ impl TypeSystem {
             TypeKind::Constant | TypeKind::ConstantValue(_) => unreachable!("Constants aren't concrete types, cannot use them as node types"),
             TypeKind::IntSize(_) => unreachable!("Int sizes are a hidden type for now, the user shouldn't be able to access them"),
             TypeKind::IntSigned(_) => unreachable!("Int signs are a hidden type for now, the user shouldn't be able to access them"),
-            TypeKind::Enum { .. } => {
-                todo!("Enums!");
-            }
             TypeKind::Float => {
                 let [size] = &**type_args else {
                     unreachable!("Invalid float size")
@@ -1186,6 +1183,13 @@ impl TypeSystem {
                     .map(|&v| self.value_to_compiler_type(v))
                     .collect::<Vec<_>>();
                 types::Type::new(types::TypeKind::Tuple(fields))
+            }
+            TypeKind::Enum(ref field_names) => {
+                let mut args = type_args.iter();
+                let base = self.value_to_compiler_type(*args.next().unwrap());
+                let fields = args.zip(field_names.iter()).map(|(&v, &field_name)| (field_name, self.extract_constant_temp(v).unwrap())).collect();
+
+                types::Type::new(types::TypeKind::Enum { base, fields })
             }
             TypeKind::Struct(ref fields) => {
                 let fields = fields
@@ -2177,7 +2181,20 @@ impl TypeSystem {
 
     pub fn set_compiler_type(&mut self, program: &Program, id: ValueId, type_: types::Type, set: impl IntoValueSet + Clone) -> ValueId {
         match *type_.kind() {
-            // types::TypeKind::Unique { member: 
+            types::TypeKind::Enum { base, ref fields } => {
+                let mut new_args = Vec::with_capacity(fields.len() + 1);
+                let mut field_names = Vec::with_capacity(fields.len());
+                let base_type_id = self.add_compiler_type(program, base, set.clone());
+                new_args.push((base_type_id, Reason::temp_zero()));
+                for &(field_name, field_constant) in fields {
+                    let constant_ref = self.add_type(TypeKind::ConstantValue(field_constant), Args([]), set.clone());
+                    let constant_id = self.add_type(TypeKind::Constant, Args([(base_type_id, Reason::temp_zero()), (constant_ref, Reason::temp_zero())]), set.clone());
+                    new_args.push((constant_id, Reason::temp_zero()));
+                    field_names.push(field_name);
+                }
+
+                self.set_type(id, TypeKind::Enum(field_names.into_boxed_slice()), Args(new_args), set)
+            }
             types::TypeKind::Function { ref args, returns } => {
                 let mut new_args = Vec::with_capacity(args.len() + 1);
 
