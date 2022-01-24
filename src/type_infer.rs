@@ -1626,6 +1626,22 @@ impl TypeSystem {
                     }
                     (
                         Relation::Cast,
+                        Some(Type { kind: TypeKind::Enum(_), args: Some(args) }),
+                        Some(Type { kind: TypeKind::Int, args: _ }),
+                    ) => {
+                        let arg = args[0];
+                        self.set_equal(arg, from_id, constraint.reason);
+                    }
+                    (
+                        Relation::Cast,
+                        Some(Type { kind: TypeKind::Int, args: _ }),
+                        Some(Type { kind: TypeKind::Enum(_), args: Some(args) }),
+                    ) => {
+                        let arg = args[0];
+                        self.set_equal(to_id, arg, constraint.reason);
+                    }
+                    (
+                        Relation::Cast,
                         Some(Type { kind: TypeKind::Buffer, args: Some(_) }),
                         Some(Type { kind: TypeKind::Reference, args: Some(from_args), .. }),
                     ) => {
@@ -1763,6 +1779,19 @@ impl TypeSystem {
                         self.set_equal(bool, a_id, constraint.reason);
                         self.set_equal(bool, b_id, constraint.reason);
                         self.set_equal(bool, result_id, constraint.reason);
+                    }
+                    (
+                        BinaryOp::Equals | BinaryOp::NotEquals | BinaryOp::LargerThanEquals | BinaryOp::LargerThan | BinaryOp::LessThanEquals | BinaryOp::LessThan,
+                        (Some(TypeKind::Enum(a_names)), Some(TypeKind::Enum(b_names)), _),
+                        // @Speed! Comparing the names here is not a good thing
+                    ) if a_names == b_names => {
+                        if let (Some(Some(args_a)), Some(Some(args_b))) = (a.as_ref().map(|v| v.args.as_ref()), b.as_ref().map(|v| v.args.as_ref())) {
+                            let inner_a = args_a[0];
+                            let inner_b = args_b[0];
+                            self.set_op_equal(op, inner_a, inner_b, result_id, constraint.reason);
+                        } else {
+                            return;
+                        }
                     }
                     (
                         BinaryOp::Equals | BinaryOp::NotEquals | BinaryOp::LargerThanEquals | BinaryOp::LargerThan | BinaryOp::LessThanEquals | BinaryOp::LessThan,

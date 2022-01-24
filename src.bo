@@ -1,14 +1,16 @@
 library "iter.bo";
 import "tests/main.bo";
 
-type Hello = enum u16 {
+type #alias: Hello = enum u64 {
     A = 56;
     B = 42;
     C = 99;
 };
 
 #entry fn() {
-    let thing = #0 : Hello;
+    let thing = cast 12 : Hello;
+
+    print("Hello: %\n", cast thing : Int);
 
     run_tests();
 };
