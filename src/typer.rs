@@ -1307,6 +1307,20 @@ fn build_type(
 
             ctx.infer.set_type(node_type_id, TypeKind::Tuple, Args(values), set);
         }
+        NodeKind::EnumType { ref fields } => {
+            let names = fields.to_vec().into_boxed_slice();
+            let mut children = node.children.into_iter();
+            let base_type = children.next().unwrap();
+            let base_type_id = build_type(ctx, base_type, set);
+
+            let fields: Vec<_> = std::iter::once((base_type_id, Reason::temp(node_loc))).chain(children.map(|child| {
+                let (child_type_id, value) = build_inferrable_constant_value(ctx, child, set);
+                ctx.infer.set_equal(child_type_id, base_type_id, Reason::temp(node_loc));
+                (value, Reason::temp(node_loc))
+            })).collect();
+            
+            ctx.infer.set_type(node_type_id, TypeKind::Enum(names), Args(fields), set);
+        }
         NodeKind::StructType { ref fields } => {
             // @Performance: Many allocations
             let names = fields.to_vec().into_boxed_slice();
