@@ -1,18 +1,14 @@
 library "iter.bo";
 import "tests/main.bo";
 
-type Inner = u32;
-type Thing = Inner;
+type Hello = enum u16 {
+    A = 56;
+    B = 42;
+    C = 99;
+};
 
 #entry fn() {
-    let a: Thing = pack 42;
-    let b: Thing = pack 42;
-
-    if a == b {
-        print("a is b!\n");
-    } else {
-        print("a is not b!\n");
-    };
+    run_tests();
 };
 
 // IR emission improvements

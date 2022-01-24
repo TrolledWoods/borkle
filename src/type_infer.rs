@@ -115,6 +115,9 @@ pub enum TypeKind {
     Buffer,
     /// (type, type, type, type), in the same order as the strings.
     Struct(Box<[Ustr]>),
+    /// base_type, (const, const, const, const) in the same order as the strings.
+    Enum(Box<[Ustr]>),
+
     /// (type, type, type, ..)
     Tuple,
     /// inner type
@@ -134,6 +137,7 @@ impl TypeKind {
     fn get_needed_children_for_layout<'a>(&self, children: &'a [ValueId]) -> &'a [ValueId] {
         match self {
             TypeKind::Type | TypeKind::IntSize(_) | TypeKind::IntSigned(_) | TypeKind::Bool | TypeKind::Empty | TypeKind::Function | TypeKind::Reference | TypeKind::Buffer | TypeKind::ConstantValue(_) | TypeKind::CompareUnspecified => &[],
+            TypeKind::Enum { .. } => &children[0..1],
             TypeKind::Float => &children[0..1],
             TypeKind::Int => &children[1..2],
             TypeKind::Array => children,
@@ -168,6 +172,7 @@ fn compute_type_layout(kind: &TypeKind, structures: &Structures, values: &Values
             };
             Layout { size: size_bytes, align: size_bytes }
         }
+        TypeKind::Enum { .. } => *get_value(structures, values, children[0]).layout.unwrap(),
         TypeKind::Unique(_) => *get_value(structures, values, children[0]).layout.unwrap(),
         TypeKind::IntSize(_) => Layout { size: 1, align: 1 },
         TypeKind::IntSigned(_) => Layout { size: 1, align: 1 },
@@ -1079,6 +1084,9 @@ impl TypeSystem {
             TypeKind::Constant | TypeKind::ConstantValue(_) => unreachable!("Constants aren't concrete types, cannot use them as node types"),
             TypeKind::IntSize(_) => unreachable!("Int sizes are a hidden type for now, the user shouldn't be able to access them"),
             TypeKind::IntSigned(_) => unreachable!("Int signs are a hidden type for now, the user shouldn't be able to access them"),
+            TypeKind::Enum { .. } => {
+                todo!("Enums!");
+            }
             TypeKind::Float => {
                 let [size] = &**type_args else {
                     unreachable!("Invalid float size")
@@ -1466,6 +1474,14 @@ impl TypeSystem {
                     .collect::<Vec<_>>()
                     .join(", ");
                 format!("({})", list)
+            }
+            Some(Type { kind: TypeKind::Enum(names), args: Some(_), .. }) => {
+                let list = names
+                    .iter()
+                    .map(|v| &**v)
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                format!("enum {{ {} }}", list)
             }
             Some(Type { kind: TypeKind::Struct(names), args: Some(c), .. }) => {
                 let list = names

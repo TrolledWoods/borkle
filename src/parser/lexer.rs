@@ -49,6 +49,7 @@ pub enum Keyword {
     Break,
     Type,
     Const,
+    Enum,
     In,
     Is,
     Let,
@@ -142,6 +143,7 @@ pub fn process_string(errors: &mut ErrorCtx, file: Ustr, string: &str) -> Result
                 match identifier {
                     "explain" => TokenKind::Keyword(Keyword::Explain),
                     "const" => TokenKind::Keyword(Keyword::Const),
+                    "enum" => TokenKind::Keyword(Keyword::Enum),
                     "type" => TokenKind::Keyword(Keyword::Type),
                     "break" => TokenKind::Keyword(Keyword::Break),
                     "any" => TokenKind::Keyword(Keyword::Any),

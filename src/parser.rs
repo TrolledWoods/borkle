@@ -476,6 +476,51 @@ fn type_(
 
             Ok(slot.finish(Node::new(loc, NodeKind::ImplicitType)))
         }
+        TokenKind::Keyword(Keyword::Enum) => {
+            global.tokens.next();
+
+            type_(global, imperative, slot.add())?;
+
+            global.tokens.expect_next_is(global.errors, &TokenKind::Open(Bracket::Curly))?;
+
+            let mut fields = Vec::new();
+            loop {
+                if global.tokens.try_consume(&TokenKind::Close(Bracket::Curly)) {
+                    break;
+                }
+
+                let identifier_token = global.tokens.expect_next(global.errors)?;
+                let name = if let TokenKind::Identifier(name) = identifier_token.kind {
+                    name
+                } else {
+                    global.error(identifier_token.loc, "Expected identifier".to_string());
+                    return Err(());
+                };
+
+                if global.tokens.try_consume_operator_string("=").is_none() {
+                    global.error(
+                        global.tokens.loc(),
+                        "Expected '=' for enum field value".to_string(),
+                    );
+                    return Err(());
+                }
+
+                expression(global, imperative, slot.add())?;
+                fields.push(name);
+
+                let token = global.tokens.expect_next(global.errors)?;
+                match token.kind {
+                    TokenKind::Close(Bracket::Curly) => break,
+                    TokenKind::SemiColon => {}
+                    _ => {
+                        global.error(token.loc, "Expected ';' or ')'".to_string());
+                        return Err(());
+                    }
+                }
+            }
+
+            Ok(slot.finish(Node::new(loc, NodeKind::EnumType { fields })))
+        }
         TokenKind::Open(Bracket::Curly) => {
             global.tokens.next();
             let mut fields = Vec::new();
@@ -1554,6 +1599,10 @@ pub enum NodeKind {
     ImplicitType,
     /// [ .. fields ]
     StructType {
+        fields: Vec<Ustr>,
+    },
+    /// [ base_type, .. fields ]
+    EnumType {
         fields: Vec<Ustr>,
     },
     /// no children
