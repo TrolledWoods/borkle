@@ -196,9 +196,7 @@ pub fn begin<'a>(
         _ => (
             match member_kind {
                 MemberKind::Type { is_aliased: false } => {
-                    let inner_type = build_type(&mut ctx, node, root_set_id);
-                    let marker = UniqueTypeMarker { name: Some(ast.name), loc: node.loc };
-                    ctx.infer.add_type(TypeKind::Unique(marker), Args([(inner_type, Reason::temp(node.loc))]), root_set_id)
+                    build_unique_type(&mut ctx, node, root_set_id, UniqueTypeMarker { name: Some(ast.name), loc: node.loc })
                 }
                 MemberKind::Type { is_aliased: true } => {
                     build_type(&mut ctx, node, root_set_id)
@@ -1224,6 +1222,46 @@ fn build_function_declaration(
 
     let old_set = ctx.infer.value_sets.get_mut(sub_set).emit_deps.replace(emit_deps);
     debug_assert!(old_set.is_none());
+}
+
+fn build_unique_type(
+    ctx: &mut Context<'_, '_>,
+    node: NodeView<'_>,
+    set: ValueSetId,
+    marker: UniqueTypeMarker,
+) -> type_infer::ValueId {
+    let node_loc = node.loc;
+    let node_type_id = TypeId::Node(ctx.ast_variant_id, node.id);
+
+    match node.kind {
+        NodeKind::EnumType { ref fields }=> {
+            let names = fields.to_vec().into_boxed_slice();
+            let mut children = node.children.into_iter();
+            let base_type = children.next().unwrap();
+            let base_type_id = build_type(ctx, base_type, set);
+
+            let fields: Vec<_> = std::iter::once((base_type_id, Reason::temp(node_loc))).chain(children.map(|child| {
+                let (child_type_id, value) = build_inferrable_constant_value(ctx, child, set);
+                ctx.infer.set_equal(child_type_id, base_type_id, Reason::temp(node_loc));
+                (value, Reason::temp(node_loc))
+            })).collect();
+
+            ctx.infer.set_type(node_type_id, TypeKind::Enum(marker, names), Args(fields), set);
+        }
+        _ => {
+            let inner_type = build_type(ctx, node, set);
+            return ctx.infer.add_type(
+                TypeKind::Unique(marker),
+                Args([(inner_type, Reason::temp(node.loc))]),
+                set,
+            );
+        }
+    }
+
+    ctx.infer.set_value_set(node_type_id, set);
+    ctx.infer.value_sets.add_node_to_set(set, ctx.ast_variant_id, node.id);
+
+    node_type_id
 }
 
 fn build_type(
