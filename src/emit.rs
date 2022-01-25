@@ -517,14 +517,14 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, mut node: NodeView<'a>) -> (Value, T
                     ctx.emit_move(to, from, Layout::PTR);
                 }
                 (
-                    Some(type_infer::Type { kind: type_infer::TypeKind::Enum(_), .. }),
+                    Some(type_infer::Type { kind: type_infer::TypeKind::Enum { .. }, .. }),
                     Some(type_infer::Type { kind: type_infer::TypeKind::Int, .. }),
                 ) => {
                     ctx.emit_move(to, from, Layout::PTR);
                 }
                 (
                     Some(type_infer::Type { kind: type_infer::TypeKind::Int, .. }),
-                    Some(type_infer::Type { kind: type_infer::TypeKind::Enum(_), .. }),
+                    Some(type_infer::Type { kind: type_infer::TypeKind::Enum { .. }, .. }),
                 ) => {
                     ctx.emit_move(to, from, Layout::PTR);
                 }
@@ -575,7 +575,7 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, mut node: NodeView<'a>) -> (Value, T
                             offset: 0,
                         };*/
                     }
-                    type_infer::Type { kind: type_infer::TypeKind::Unique(_) | type_infer::TypeKind::Enum(_), args } => {
+                    type_infer::Type { kind: type_infer::TypeKind::Unique(_) | type_infer::TypeKind::Enum { .. }, args } => {
                         of_type_id = args.as_ref().unwrap()[0];
                     }
                     _ => break,
@@ -1152,7 +1152,7 @@ fn emit_lvalue<'a>(
                         }
                         of_type_id = new_of;
                     }
-                    type_infer::Type { kind: type_infer::TypeKind::Unique(_) | type_infer::TypeKind::Enum(_), args } => {
+                    type_infer::Type { kind: type_infer::TypeKind::Unique(_) | type_infer::TypeKind::Enum { .. }, args } => {
                         of_type_id = args.as_ref().unwrap()[0];
                     }
                     _ => break,
@@ -1672,7 +1672,7 @@ impl Context<'_, '_> {
     fn to_number_type(&self, type_id: TypeId) -> Option<PrimitiveType> {
         let type_ = self.types.get(type_id);
         match type_.kind() {
-            type_infer::TypeKind::Unique(_) | type_infer::TypeKind::Enum(_) => {
+            type_infer::TypeKind::Unique(_) | type_infer::TypeKind::Enum { .. } => {
                 let arg = type_.args()[0];
                 self.to_number_type(arg)
             }

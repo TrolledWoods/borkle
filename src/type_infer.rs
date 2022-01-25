@@ -116,7 +116,7 @@ pub enum TypeKind {
     /// (type, type, type, type), in the same order as the strings.
     Struct(Box<[Ustr]>),
     /// base_type, (const, const, const, const) in the same order as the strings.
-    Enum(Box<[Ustr]>),
+    Enum(UniqueTypeMarker, Box<[Ustr]>),
 
     /// (type, type, type, ..)
     Tuple,
@@ -1186,12 +1186,12 @@ impl TypeSystem {
                     .collect::<Vec<_>>();
                 types::Type::new(types::TypeKind::Tuple(fields))
             }
-            TypeKind::Enum(ref field_names) => {
+            TypeKind::Enum(marker, ref field_names) => {
                 let mut args = type_args.iter();
                 let base = self.value_to_compiler_type(*args.next().unwrap());
                 let fields = args.zip(field_names.iter()).map(|(&v, &field_name)| (field_name, self.extract_constant_temp(v).unwrap())).collect();
 
-                types::Type::new(types::TypeKind::Enum { base, fields })
+                types::Type::new(types::TypeKind::Enum { marker, base, fields })
             }
             TypeKind::Struct(ref fields) => {
                 let fields = fields
@@ -1422,7 +1422,11 @@ impl TypeSystem {
             None => "_".to_string(),
             Some(Type { kind: TypeKind::Unique(marker), args: _ }) => {
                 // TODO: We want to print the generic parameters too, somehow.
-                marker.name.to_string()
+                if let Some(name) = marker.name {
+                    name.to_string()
+                } else {
+                    format!("<anonymous {}>", marker.loc)
+                }
             }
             Some(Type { kind: TypeKind::Constant, args: Some(c) }) => match &**c {
                 [type_, value] => {
@@ -1503,7 +1507,7 @@ impl TypeSystem {
                     .join(", ");
                 format!("({})", list)
             }
-            Some(Type { kind: TypeKind::Enum(names), args: Some(_), .. }) => {
+            Some(Type { kind: TypeKind::Enum(_, names), args: Some(_), .. }) => {
                 let list = names
                     .iter()
                     .map(|v| &**v)
@@ -1635,7 +1639,7 @@ impl TypeSystem {
                     }
                     (
                         Relation::Pack,
-                        Some(Type { kind: TypeKind::Enum(_), args: Some(args) }),
+                        Some(Type { kind: TypeKind::Enum { .. }, args: Some(args) }),
                         _,
                     ) => {
                         let to_arg = args[0];
@@ -1667,7 +1671,7 @@ impl TypeSystem {
                     (
                         Relation::NamedConstField(name),
                         _,
-                        Some(Type { kind: TypeKind::Enum(field_names), args: Some(args) }),
+                        Some(Type { kind: TypeKind::Enum(_, field_names), args: Some(args) }),
                     ) => {
                         if let Some(index) = field_names.iter().position(|v| *v == name) {
                             let from_arg = args[index + 1];
@@ -1843,9 +1847,8 @@ impl TypeSystem {
                     }
                     (
                         BinaryOp::Equals | BinaryOp::NotEquals | BinaryOp::LargerThanEquals | BinaryOp::LargerThan | BinaryOp::LessThanEquals | BinaryOp::LessThan,
-                        (Some(TypeKind::Enum(a_names)), Some(TypeKind::Enum(b_names)), _),
-                        // @Speed! Comparing the names here is not a good thing
-                    ) if a_names == b_names => {
+                        (Some(TypeKind::Enum(a_marker, _)), Some(TypeKind::Enum(b_marker, _)), _),
+                    ) if a_marker == b_marker => {
                         if let (Some(Some(args_a)), Some(Some(args_b))) = (a.as_ref().map(|v| v.args.as_ref()), b.as_ref().map(|v| v.args.as_ref())) {
                             let inner_a = args_a[0];
                             let inner_b = args_b[0];
@@ -2271,7 +2274,7 @@ impl TypeSystem {
 
     pub fn set_compiler_type(&mut self, program: &Program, id: ValueId, type_: types::Type, set: impl IntoValueSet + Clone) -> ValueId {
         match *type_.kind() {
-            types::TypeKind::Enum { base, ref fields } => {
+            types::TypeKind::Enum { marker, base, ref fields } => {
                 let mut new_args = Vec::with_capacity(fields.len() + 1);
                 let mut field_names = Vec::with_capacity(fields.len());
                 let base_type_id = self.add_compiler_type(program, base, set.clone());
@@ -2283,7 +2286,7 @@ impl TypeSystem {
                     field_names.push(field_name);
                 }
 
-                self.set_type(id, TypeKind::Enum(field_names.into_boxed_slice()), Args(new_args), set)
+                self.set_type(id, TypeKind::Enum(marker, field_names.into_boxed_slice()), Args(new_args), set)
             }
             types::TypeKind::Function { ref args, returns } => {
                 let mut new_args = Vec::with_capacity(args.len() + 1);

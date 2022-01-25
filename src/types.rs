@@ -220,13 +220,17 @@ impl Display for TypeKind {
                 write!(fmt, ")")?;
                 Ok(())
             }
-            Self::Enum { base, fields } => {
-                write!(fmt, "enum {} {{ ", base)?;
-                for (i, &(field_name, _)) in fields.iter().enumerate() {
-                    if i > 0 { write!(fmt, ", ")?; }
-                    write!(fmt, "{}", field_name)?;
+            Self::Enum { marker, base, fields } => {
+                if let Some(name) = marker.name {
+                    write!(fmt, "{}", name)
+                } else {
+                    write!(fmt, "enum {} {{ ", base)?;
+                    for (i, &(field_name, _)) in fields.iter().enumerate() {
+                        if i > 0 { write!(fmt, ", ")?; }
+                        write!(fmt, "{}", field_name)?;
+                    }
+                    write!(fmt, " }}")
                 }
-                write!(fmt, " }}")
             }
             Self::Struct(members) => {
                 write!(fmt, "{{")?;
@@ -240,7 +244,7 @@ impl Display for TypeKind {
                 Ok(())
             }
             Self::Unique { marker, inner } => {
-                write!(fmt, "{}({})", marker.name, inner)
+                write!(fmt, "{}({})", marker.name.map_or("<anonymous>", |v| v.as_str()), inner)
             }
         }
     }
@@ -271,6 +275,7 @@ pub enum TypeKind {
     Struct(Vec<(Ustr, Type)>),
     Tuple(Vec<Type>),
     Enum {
+        marker: UniqueTypeMarker,
         base: Type,
         fields: Vec<(Ustr, ConstantRef)>,
     },
@@ -621,7 +626,7 @@ impl Debug for IntTypeKind {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct UniqueTypeMarker {
     pub loc: Location,
-    pub name: Ustr,
+    pub name: Option<Ustr>,
 }
 
 #[repr(C)]

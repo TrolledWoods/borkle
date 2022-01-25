@@ -197,7 +197,7 @@ pub fn begin<'a>(
             match member_kind {
                 MemberKind::Type { is_aliased: false } => {
                     let inner_type = build_type(&mut ctx, node, root_set_id);
-                    let marker = UniqueTypeMarker { name: ast.name, loc: node.loc };
+                    let marker = UniqueTypeMarker { name: Some(ast.name), loc: node.loc };
                     ctx.infer.add_type(TypeKind::Unique(marker), Args([(inner_type, Reason::temp(node.loc))]), root_set_id)
                 }
                 MemberKind::Type { is_aliased: true } => {
@@ -1337,8 +1337,13 @@ fn build_type(
                 ctx.infer.set_equal(child_type_id, base_type_id, Reason::temp(node_loc));
                 (value, Reason::temp(node_loc))
             })).collect();
+
+            let marker = UniqueTypeMarker {
+                name: None,
+                loc: node_loc,
+            };
             
-            ctx.infer.set_type(node_type_id, TypeKind::Enum(names), Args(fields), set);
+            ctx.infer.set_type(node_type_id, TypeKind::Enum(marker, names), Args(fields), set);
         }
         NodeKind::StructType { ref fields } => {
             // @Performance: Many allocations
