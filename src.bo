@@ -1,16 +1,9 @@
 library "iter.bo";
 import "tests/main.bo";
 
-type #alias: Hello = enum u64 {
-    A = 56;
-    B = 42;
-    C = 99;
-};
-
 #entry fn() {
-    let thing = cast 12 : Hello;
-
-    print("Hello: %\n", cast thing : Int);
+    let num = 42 : u32;
+    print("Padded: '%'\n", num->pad(10, .Left));
 
     run_tests();
 };
@@ -35,6 +28,7 @@ type #alias: Hello = enum u64 {
 // - Make [ptr + usize -> _] also infer to [ptr + usize -> ptr] (maybe similar for other operators too?)
 // - "This is imported twice" error should show where it was imported (even if implicit)
 
+// - Enum variants should have the type of the enum itself.
 
 // -- For being able to build this again once I forget
 // nasm output.asm -fwin64

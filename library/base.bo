@@ -383,9 +383,11 @@ const write_single.(T) = fn(to: Writer.(T), value: T) -> usize {
     to.write_single(to.state, value)
 };
 
-const PAD_LEFT   = 0 : u8;
-const PAD_CENTER = 1 : u8;
-const PAD_RIGHT  = 2 : u8;
+type #alias: PadAlign = enum u8 {
+    Left   = 0;
+    Center = 1;
+    Right  = 2;
+};
 
 const FMT_FLAGS_RAW = 1 : u8;
 
@@ -393,7 +395,7 @@ type Format.(T) = {
     value: T;
     pad: usize;
     pad_char: u8;
-    pad_dir: u8;
+    pad_align: PadAlign;
     base: u8;
     flags: u8;
 };
@@ -503,16 +505,16 @@ const write_fmt_no_padding.(T) = fn(to: Writer.(u8), fmt_val: Format.(T)) -> usi
 const write_fmt.(T) = fn(to: Writer.(u8), val: Format.(T)) -> usize {
     // pad left doesn't need any pre-computation
     let written = 0;
-    if val.pad != 0 && val.pad_dir != PAD_LEFT {
+    if val.pad != 0 && val.pad_align != .Left {
         let count = write_fmt_no_padding(count_writer(), val);
         if val.pad > count {
-            let padding = if val.pad_dir == PAD_RIGHT {
+            let padding = if val.pad_align == .Right {
                 val.pad - count
             } else {
                 (val.pad - count) / 2
             };
             while i < padding {
-                written = written + write_single(to, val.pad_char);
+                written = written + write_single(to, if val.pad_char == 0  SPACE else val.pad_char);
             };
         };
     };
@@ -546,11 +548,16 @@ const raw_text.(T) = fn(value: T) -> Format {
     format
 };
 
-const pad.(T) = fn(value: T, pad: usize, pad_dir: u8, pad_char: u8) -> Format {
+const pad_char.(T) = fn(value: T, pad_char: u8) -> Format {
+    let format = fmt(value);
+    format.pad_char = pad_char;
+    format
+};
+
+const pad.(T) = fn(value: T, pad: usize, pad_align: PadAlign) -> Format {
     let format = fmt(value);
     format.pad = pad;
-    format.pad_dir = pad_dir;
-    format.pad_char = pad_char;
+    format.pad_align = pad_align;
     format
 };
 

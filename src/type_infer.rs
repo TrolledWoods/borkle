@@ -225,6 +225,8 @@ struct Constraint {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 enum Relation {
+    NamedConstField(Ustr),
+    InnerConstant,
     Pack,
     Cast,
     BufferEqualsArray,
@@ -1269,6 +1271,28 @@ impl TypeSystem {
         );
     }
 
+    pub fn set_constant_field(
+        &mut self,
+        a: ValueId,
+        field_name: Ustr,
+        b: ValueId,
+        reason: Reason,
+    ) {
+        insert_active_constraint(
+            &mut self.constraints,
+            &mut self.available_constraints,
+            &mut self.queued_constraints,
+            Constraint {
+                kind: ConstraintKind::Relation {
+                    kind: Relation::NamedConstField(field_name),
+                    values: [a, b],
+                },
+                reason,
+                applied: false,
+            },
+        );
+    }
+
     pub fn set_field_name_equal(
         &mut self,
         a: ValueId,
@@ -1611,6 +1635,14 @@ impl TypeSystem {
                     }
                     (
                         Relation::Pack,
+                        Some(Type { kind: TypeKind::Enum(_), args: Some(args) }),
+                        _,
+                    ) => {
+                        let to_arg = args[0];
+                        self.set_equal(to_arg, from_id, constraint.reason);
+                    }
+                    (
+                        Relation::Pack,
                         Some(Type { kind: _, args: _ }),
                         _,
                     ) => {
@@ -1625,20 +1657,49 @@ impl TypeSystem {
                         return;
                     }
                     (
-                        Relation::Cast,
-                        Some(Type { kind: TypeKind::Enum(_), args: Some(args) }),
-                        Some(Type { kind: TypeKind::Int, args: _ }),
+                        Relation::NamedConstField(name),
+                        _,
+                        Some(Type { kind: TypeKind::Unique(_), args: Some(args) }),
                     ) => {
-                        let arg = args[0];
-                        self.set_equal(arg, from_id, constraint.reason);
+                        let from_arg = args[0];
+                        self.set_constant_field(to_id, name, from_arg, constraint.reason);
                     }
                     (
-                        Relation::Cast,
-                        Some(Type { kind: TypeKind::Int, args: _ }),
-                        Some(Type { kind: TypeKind::Enum(_), args: Some(args) }),
+                        Relation::NamedConstField(name),
+                        _,
+                        Some(Type { kind: TypeKind::Enum(field_names), args: Some(args) }),
                     ) => {
-                        let arg = args[0];
-                        self.set_equal(to_id, arg, constraint.reason);
+                        if let Some(index) = field_names.iter().position(|v| *v == name) {
+                            let from_arg = args[index + 1];
+                            insert_active_constraint(
+                                &mut self.constraints,
+                                &mut self.available_constraints,
+                                &mut self.queued_constraints,
+                                Constraint {
+                                    kind: ConstraintKind::Relation { kind: Relation::InnerConstant, values: [to_id, from_arg] },
+                                    applied: false,
+                                    reason: constraint.reason,
+                                }
+                            );
+                        } else {
+                            self.errors.push(Error {
+                                a: to_id,
+                                b: from_id,
+                                kind: ErrorKind::NonexistantName(name),
+                            });
+                            self.constraints[constraint_id].applied = true;
+                            self.make_erroneous(to_id);
+                            self.make_erroneous(from_id);
+                            return;
+                        }
+                    }
+                    (
+                        Relation::InnerConstant,
+                        _,
+                        Some(Type { kind: TypeKind::Constant, args: Some(args) }),
+                    ) => {
+                        let inner = args[1];
+                        self.set_equal(to_id, inner, constraint.reason);
                     }
                     (
                         Relation::Cast,

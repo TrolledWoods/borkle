@@ -650,6 +650,19 @@ fn build_constraints(
                 ast_variant_id: ctx.ast_variant_id,
             });
         }
+        NodeKind::AnonymousMember { name } => {
+            let sub_set = ctx.infer.value_sets.add(WaitingOnTypeInferrence::None);
+            let unknown = ctx.infer.add_unknown_type_with_set(sub_set);
+            let value = ctx.infer.add_type(TypeKind::Constant, Args([(node_type_id, Reason::temp(node_loc)), (unknown, Reason::temp(node_loc))]), sub_set);
+            ctx.infer.set_constant_field(unknown, name, node_type_id, Reason::temp(node_loc));
+            ctx.infer.value_sets.lock(set);
+            ctx.infer.value_sets.add(WaitingOnTypeInferrence::ConstantFromValueId {
+                value_id: value,
+                to: node.id,
+                parent_set: set,
+                ast_variant_id: ctx.ast_variant_id,
+            });
+        }
         NodeKind::Is => {
             let [expr, type_] = node.children.into_array();
 
@@ -1007,6 +1020,12 @@ fn build_constraints(
             let [left, right] = node.children.into_array();
             let left = build_constraints(ctx, left, set);
             let right = build_constraints(ctx, right, set);
+
+            // TODO: This is a massive hack!
+            if op == BinaryOp::Equals || op == BinaryOp::NotEquals {
+                ctx.infer.set_equal(left, right, Reason::temp(node_loc));
+            }
+
             ctx.infer.set_op_equal(op, left, right, node_type_id, Reason::temp(node_loc));
         }
         NodeKind::Reference => {
