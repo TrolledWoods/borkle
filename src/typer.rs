@@ -1235,6 +1235,10 @@ fn build_unique_type(
 
     match node.kind {
         NodeKind::EnumType { ref fields }=> {
+            // TODO: These are ugly
+            ctx.infer.set_value_set(node_type_id, set);
+            ctx.infer.value_sets.add_node_to_set(set, ctx.ast_variant_id, node.id);
+
             let names = fields.to_vec().into_boxed_slice();
             let mut children = node.children.into_iter();
             let base_type = children.next().unwrap();
@@ -1258,9 +1262,6 @@ fn build_unique_type(
             );
         }
     }
-
-    ctx.infer.set_value_set(node_type_id, set);
-    ctx.infer.value_sets.add_node_to_set(set, ctx.ast_variant_id, node.id);
 
     node_type_id
 }

@@ -1,9 +1,21 @@
 library "iter.bo";
 import "tests/main.bo";
 
+type #alias: String = [] u8;
+
+type EnumOne = enum [3] String {
+    A = ["hello", "sir", "hello"];
+    B = ["this", "is", "a"];
+    C = ["this", "bean", "bag"];
+};
+
 #entry fn() {
-    let num = 42 : u32;
-    print("Padded: '%'\n", num->pad(10, .Left));
+    let a: EnumOne = .B;
+    let b: EnumOne = .C;
+
+    if slice_cmp((unpack a)._1, (unpack b)._1) == .Greater {
+        print("Uh oh\n");
+    };
 
     run_tests();
 };

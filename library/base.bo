@@ -96,14 +96,28 @@ const buf_one.(T) = fn(v: &T) -> [] T {
     cast arr_one(v)
 };
 
-const slice_cmp.(T) = fn(a: [] T, b: [] T) -> bool { 'function
-    if a.len != b.len  break 'function false;
+type Ordering = enum u8 {
+    Less = 0;
+    Equal = 1;
+    Greater = 2;
+};
 
-    while i < a.len {
-        if *(a.ptr + i) != *(b.ptr + i)  break 'function false;
-    };
+const slice_cmp.(T) = fn(a: [] T, b: [] T) -> Ordering {
+    while true {
+        if i >= a.len || i >= b.len {
+            break
+                if i >= a.len && i >= b.len { .Equal }
+                else if i >= a.len { .Less }
+                else .Greater;
+        };
 
-    true
+        let av = *(a.ptr + i);
+        let bv = *(b.ptr + i);
+        if av < bv  break .Less;
+        if av > bv  break .Greater;
+    } else {
+        .Equal
+    }
 };
 
 const slice_to_end.(T) = fn(buf: [] T, start: usize) -> [] T {
@@ -383,7 +397,7 @@ const write_single.(T) = fn(to: Writer.(T), value: T) -> usize {
     to.write_single(to.state, value)
 };
 
-type #alias: PadAlign = enum u8 {
+type PadAlign = enum u8 {
     Left   = 0;
     Center = 1;
     Right  = 2;

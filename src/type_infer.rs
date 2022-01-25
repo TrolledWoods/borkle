@@ -1510,13 +1510,12 @@ impl TypeSystem {
                     .join(", ");
                 format!("({})", list)
             }
-            Some(Type { kind: TypeKind::Enum(_, names), args: Some(_), .. }) => {
-                let list = names
-                    .iter()
-                    .map(|v| &**v)
-                    .collect::<Vec<_>>()
-                    .join(", ");
-                format!("enum {{ {} }}", list)
+            Some(Type { kind: TypeKind::Enum(marker, _), args: Some(_), .. }) => {
+                if let Some(name) = marker.name {
+                    format!("{}", name)
+                } else {
+                    format!("<anonymous {}>", marker.loc)
+                }
             }
             Some(Type { kind: TypeKind::Struct(names), args: Some(c), .. }) => {
                 let list = names
