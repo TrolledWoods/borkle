@@ -649,12 +649,12 @@ fn build_constraints(
             });
         }
         NodeKind::AnonymousMember { name } => {
+            ctx.infer.value_sets.lock(set);
             let sub_set = ctx.infer.value_sets.add(WaitingOnTypeInferrence::None);
             let unknown = ctx.infer.add_unknown_type_with_set(sub_set);
             let value = ctx.infer.add_type(TypeKind::Constant, Args([(node_type_id, Reason::temp(node_loc)), (unknown, Reason::temp(node_loc))]), sub_set);
             ctx.infer.set_constant_field(unknown, name, node_type_id, Reason::temp(node_loc));
-            ctx.infer.value_sets.lock(set);
-            ctx.infer.value_sets.add(WaitingOnTypeInferrence::ConstantFromValueId {
+            ctx.infer.set_waiting_on_value_set(sub_set, WaitingOnTypeInferrence::ConstantFromValueId {
                 value_id: value,
                 to: node.id,
                 parent_set: set,

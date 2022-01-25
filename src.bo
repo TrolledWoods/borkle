@@ -1,19 +1,17 @@
 library "iter.bo";
 import "tests/main.bo";
 
-type #alias: String = [] u8;
-
-type EnumOne = enum [3] String {
-    A = ["hello", "sir", "hello"];
-    B = ["this", "is", "a"];
-    C = ["this", "bean", "bag"];
+type EnumOne = enum u8 {
+    A = 0;
+    B = 1;
+    C = 2;
+    D = 3;
 };
 
 #entry fn() {
-    let a: EnumOne = .B;
-    let b: EnumOne = .C;
+    let [a, b, c, d] = [.B : EnumOne, .B, .A, .D];
 
-    if slice_cmp((unpack a)._1, (unpack b)._1) == .Greater {
+    if a == b {
         print("Uh oh\n");
     };
 

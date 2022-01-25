@@ -1017,17 +1017,17 @@ impl TypeSystem {
             has_errors = true;
 
             match *error {
-                Error { a, b: _, kind: ErrorKind::NonexistantName(name) } => {
+                Error { a, b, kind: ErrorKind::NonexistantName(name) } => {
                     if let Some(loc) = get_loc_of_value(ast, a) {
                         errors.info(loc, format!("Here"));
                     }
-                    errors.global_error(format!("Field '{}' doesn't exist on type {}", name, self.value_to_str(a, 0)));
+                    errors.global_error(format!("Field '{}' doesn't exist on `{}`", name, self.value_to_str(b, 0)));
                 }
                 Error { a, b: _, kind: ErrorKind::PackingNonUnique } => {
                     if let Some(loc) = get_loc_of_value(ast, a) {
                         errors.info(loc, format!("Here"));
                     }
-                    errors.global_error(format!("To pack or unpack, you need to actually have a strongly typed type declaration."));
+                    errors.global_error(format!("Cannot pack/unpack a `{}`", self.value_to_str(a, 0)));
                 }
                 Error { a, b, kind: ErrorKind::IncompatibleTypes } => {
                     let a_id = a;
