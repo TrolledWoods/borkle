@@ -1241,9 +1241,10 @@ fn build_unique_type(
             let base_type_id = build_type(ctx, base_type, set);
 
             let fields: Vec<_> = std::iter::once((base_type_id, Reason::temp(node_loc))).chain(children.map(|child| {
-                let (child_type_id, value) = build_inferrable_constant_value(ctx, child, set);
-                ctx.infer.set_equal(child_type_id, base_type_id, Reason::temp(node_loc));
-                (value, Reason::temp(node_loc))
+                let value = build_inferrable_constant_value(ctx, child, set);
+                ctx.infer.set_equal(value.type_, base_type_id, Reason::temp(node_loc));
+
+                (value.constant_value, Reason::temp(node_loc))
             })).collect();
 
             ctx.infer.set_type(node_type_id, TypeKind::Enum(marker, names), Args(fields), set);
@@ -1371,9 +1372,10 @@ fn build_type(
             let base_type_id = build_type(ctx, base_type, set);
 
             let fields: Vec<_> = std::iter::once((base_type_id, Reason::temp(node_loc))).chain(children.map(|child| {
-                let (child_type_id, value) = build_inferrable_constant_value(ctx, child, set);
-                ctx.infer.set_equal(child_type_id, base_type_id, Reason::temp(node_loc));
-                (value, Reason::temp(node_loc))
+                let value = build_inferrable_constant_value(ctx, child, set);
+                ctx.infer.set_equal(value.type_, base_type_id, Reason::temp(node_loc));
+
+                (value.constant_value, Reason::temp(node_loc))
             })).collect();
 
             let marker = UniqueTypeMarker {
@@ -1409,12 +1411,12 @@ fn build_type(
         }
         NodeKind::ArrayType => {
             let [len, members] = node.children.into_array();
-            let (length_type, length_value) = build_inferrable_constant_value(ctx, len, set);
+            let length = build_inferrable_constant_value(ctx, len, set);
             let usize_type = ctx.infer.add_int(IntTypeKind::Usize, set);
-            ctx.infer.set_equal(usize_type, length_type, Reason::temp(node_loc));
+            ctx.infer.set_equal(usize_type, length.type_, Reason::temp(node_loc));
 
             let member_type_id = build_type(ctx, members, set);
-            ctx.infer.set_type(node_type_id, TypeKind::Array, Args([(member_type_id, Reason::temp(node_loc)), (length_value, Reason::temp(node_loc))]), set);
+            ctx.infer.set_type(node_type_id, TypeKind::Array, Args([(member_type_id, Reason::temp(node_loc)), (length.constant, Reason::temp(node_loc))]), set);
         }
         NodeKind::TypeOf => {
             let [inner] = node.children.into_array();
@@ -1674,35 +1676,47 @@ fn build_lvalue(
     node_type_id
 }
 
+struct TypeSystemConstant {
+    type_: TypeId,
+    constant: TypeId,
+    constant_value: TypeId,
+}
+
 // The first return is the type of the constant, the second return is the value id of that constant, where the constant will later be stored.
 fn build_inferrable_constant_value(
     ctx: &mut Context<'_, '_>,
     node: NodeView<'_>,
     set: ValueSetId,
-) -> (type_infer::ValueId, type_infer::ValueId) {
+) -> TypeSystemConstant {
     let node_loc = node.loc;
     let node_id = node.id;
     let node_type_id = TypeId::Node(ctx.ast_variant_id, node.id);
 
-    let value_id = match node.kind {
+    let type_system_constant = match node.kind {
         NodeKind::PolymorphicArgument(index) => {
-            let value_id = ctx.infer.add_value(node_type_id, (), set);
+            let constant_value = ctx.infer.add_unknown_type_with_set(set);
+            let constant = ctx.infer.add_type(TypeKind::Constant, Args([(node_type_id, Reason::temp(node_loc)), (constant_value, Reason::temp(node_loc))]), set);
             let poly_param = &mut ctx.poly_params[index];
             poly_param.used_as_value.get_or_insert(node_loc);
             if poly_param.check_for_dual_purpose(ctx.errors) {
                 ctx.infer.value_sets.get_mut(set).has_errors |= true;
             }
-            ctx.infer.set_equal(poly_param.value_id, value_id, Reason::temp(node_loc));
-            value_id
+            ctx.infer.set_equal(poly_param.value_id, constant, Reason::temp(node_loc));
+            
+            TypeSystemConstant { type_: node_type_id, constant, constant_value }
         }
         NodeKind::ImplicitType => {
             if ctx.inside_type_comparison {
                 let unspecified = ctx.infer.add_type(TypeKind::CompareUnspecified, Args([]), set);
-                ctx.infer.add_type(TypeKind::Constant, Args([(node_type_id, Reason::temp(node_loc)), (unspecified, Reason::temp(node_loc))]), set)
+                let constant = ctx.infer.add_type(TypeKind::Constant, Args([(node_type_id, Reason::temp(node_loc)), (unspecified, Reason::temp(node_loc))]), set);
+
+                TypeSystemConstant { type_: node_type_id, constant_value: unspecified, constant }
             } else {
                 // Nothing at all is known about it, _except_ that the type of this node is equal to the
                 // value.
-                ctx.infer.add_value(node_type_id, (), set)
+                let constant_value = ctx.infer.add_unknown_type_with_set(set);
+                let constant = ctx.infer.add_type(TypeKind::Constant, Args([(node_type_id, Reason::temp(node_loc)), (constant_value, Reason::temp(node_loc))]), set);
+                TypeSystemConstant { type_: node_type_id, constant_value, constant }
             }
         }
         _ => {
@@ -1724,7 +1738,8 @@ fn build_inferrable_constant_value(
             let sub_set = sub_ctx.infer.value_sets.add(WaitingOnTypeInferrence::None);
 
             let constant_type_id = build_constraints(&mut sub_ctx, node, sub_set);
-            let value_id = ctx.infer.add_value(constant_type_id, (), set);
+            let constant_value = ctx.infer.add_unknown_type_with_set(set);
+            let value_id = ctx.infer.add_type(TypeKind::Constant, Args([(constant_type_id, Reason::temp(node_loc)), (constant_value, Reason::temp(node_loc))]), set);
             ctx.infer.set_equal(node_type_id, constant_type_id, Reason::temp(node_loc));
 
             ctx.infer.set_waiting_on_value_set(sub_set, WaitingOnTypeInferrence::ValueIdFromConstantComputation {
@@ -1734,19 +1749,14 @@ fn build_inferrable_constant_value(
             });
 
             // Because the set of the node is already set by build_constraints, we early return type
-            // @HACK because rust lints are BS
-            if (|| true)() {
-                return (node_type_id, value_id);
-            }
-
-            value_id
+            return TypeSystemConstant { type_: node_type_id, constant_value, constant: value_id };
         }
     };
 
     ctx.infer.set_value_set(node_type_id, set);
     ctx.infer.value_sets.add_node_to_set(set, ctx.ast_variant_id, node_id);
 
-    (node_type_id, value_id)
+    type_system_constant
 }
 
 fn build_with_metadata(
@@ -1988,9 +1998,9 @@ fn build_global<'a>(
                         param_values.push(type_id);
                         param_reasons.push((type_id, other_poly_arg.value_id, Reason::new(param_loc, ReasonKind::PolyParam(i))));
                     } else {
-                        let (_, param_value_id) = build_inferrable_constant_value(ctx, param, sub_set);
-                        param_values.push(param_value_id);
-                        param_reasons.push((param_value_id, other_poly_arg.value_id, Reason::new(param_loc, ReasonKind::PolyParam(i))));
+                        let param_value = build_inferrable_constant_value(ctx, param, sub_set);
+                        param_values.push(param_value.constant);
+                        param_reasons.push((param_value.constant, other_poly_arg.value_id, Reason::new(param_loc, ReasonKind::PolyParam(i))));
                     }
                 }
             } else {

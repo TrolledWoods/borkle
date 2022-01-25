@@ -1189,7 +1189,10 @@ impl TypeSystem {
             TypeKind::Enum(marker, ref field_names) => {
                 let mut args = type_args.iter();
                 let base = self.value_to_compiler_type(*args.next().unwrap());
-                let fields = args.zip(field_names.iter()).map(|(&v, &field_name)| (field_name, self.extract_constant_temp(v).unwrap())).collect();
+                let fields = args.zip(field_names.iter()).map(|(&v, &field_name)| {
+                    let Some(Type { kind: TypeKind::ConstantValue(constant_ref), .. }) = get_value(&self.structures, &self.values, v).kind else { panic!() };
+                    (field_name, *constant_ref)
+                }).collect();
 
                 types::Type::new(types::TypeKind::Enum { marker, base, fields })
             }
@@ -1663,28 +1666,11 @@ impl TypeSystem {
                     (
                         Relation::NamedConstField(name),
                         _,
-                        Some(Type { kind: TypeKind::Unique(_), args: Some(args) }),
-                    ) => {
-                        let from_arg = args[0];
-                        self.set_constant_field(to_id, name, from_arg, constraint.reason);
-                    }
-                    (
-                        Relation::NamedConstField(name),
-                        _,
                         Some(Type { kind: TypeKind::Enum(_, field_names), args: Some(args) }),
                     ) => {
                         if let Some(index) = field_names.iter().position(|v| *v == name) {
                             let from_arg = args[index + 1];
-                            insert_active_constraint(
-                                &mut self.constraints,
-                                &mut self.available_constraints,
-                                &mut self.queued_constraints,
-                                Constraint {
-                                    kind: ConstraintKind::Relation { kind: Relation::InnerConstant, values: [to_id, from_arg] },
-                                    applied: false,
-                                    reason: constraint.reason,
-                                }
-                            );
+                            self.set_equal(to_id, from_arg, constraint.reason);
                         } else {
                             self.errors.push(Error {
                                 a: to_id,
@@ -2281,8 +2267,7 @@ impl TypeSystem {
                 new_args.push((base_type_id, Reason::temp_zero()));
                 for &(field_name, field_constant) in fields {
                     let constant_ref = self.add_type(TypeKind::ConstantValue(field_constant), Args([]), set.clone());
-                    let constant_id = self.add_type(TypeKind::Constant, Args([(base_type_id, Reason::temp_zero()), (constant_ref, Reason::temp_zero())]), set.clone());
-                    new_args.push((constant_id, Reason::temp_zero()));
+                    new_args.push((constant_ref, Reason::temp_zero()));
                     field_names.push(field_name);
                 }
 
