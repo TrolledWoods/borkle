@@ -1,5 +1,6 @@
 //! Type inferrence system
 
+use crate::layout::StructLayout;
 use crate::program::Program;
 use crate::errors::ErrorCtx;
 use crate::location::Location;
@@ -491,6 +492,10 @@ impl ValueBorrow<'_> {
     pub fn args(&self) -> &[ValueId] {
         &self.kind.as_ref().unwrap().args.as_ref().unwrap()
     }
+
+    pub fn layout(&self) -> Layout {
+        *self.layout.unwrap()
+    }
 }
 
 pub struct ValueBorrowMut<'a> {
@@ -872,6 +877,100 @@ impl TypeSystem {
             queued_constraints: Vec::new(),
             errors: Vec::new(),
         }
+    }
+
+    pub fn members(&self, type_id: ValueId, mut callback: impl FnMut(MemberInfo) -> bool) {
+        let type_ = self.get(type_id);
+
+        match type_.kind() {
+            TypeKind::Struct(names) => {
+                let mut struct_layout = StructLayout::new(0);
+                for (&name, &arg) in names.iter().zip(type_.args()) {
+                    let arg_type = self.get(arg);
+                    let arg_layout = arg_type.layout();
+                    let offset = struct_layout.next(arg_layout);
+                    
+                    if !callback(MemberInfo { name, offset, layout: arg_layout }) {
+                        break;
+                    }
+                }
+            }
+            TypeKind::Buffer => {
+                if !callback(MemberInfo { name: "ptr".into(), offset: 0, layout: Layout::PTR }) {
+                    return;
+                }
+
+                if !callback(MemberInfo { name: "len".into(), offset: 8, layout: Layout::USIZE }) {
+                    return;
+                }
+            }
+            TypeKind::Tuple => {
+                let mut struct_layout = StructLayout::new(0);
+                for (i, &arg) in type_.args().iter().enumerate() {
+                    let arg_type = self.get(arg);
+                    let arg_layout = arg_type.layout();
+                    let offset = struct_layout.next(arg_layout);
+                    // @Speed!
+                    let name = format!("_{}", i).into();
+                    
+                    if !callback(MemberInfo { name, offset, layout: arg_layout }) {
+                        break;
+                    }
+                }
+            }
+            TypeKind::Array => {
+                let &[element, len] = type_.args() else { panic!() };
+                let element_layout = self.get(element).layout();
+
+                // @Safety: This can be safer with future checks.
+                let length_ptr = self.extract_constant_temp(len).unwrap();
+                let length = unsafe { *length_ptr.as_ptr().cast::<usize>() };
+
+                let mut struct_layout = StructLayout::new(0);
+                for i in 0..length {
+                    // @Speed!
+                    let name = format!("_{}", i).into();
+                    let offset = struct_layout.next(element_layout);
+
+                    if !callback(MemberInfo { name, offset, layout: element_layout }) {
+                        break;
+                    }
+                }
+            }
+            _ => {}
+        };
+    }
+
+    pub fn get_member_by_name(&self, on: ValueId, name: Ustr) -> Option<MemberInfo> {
+        let mut info = None;
+
+        self.members(on, |member_info| {
+            if member_info.name == name {
+                info = Some(member_info);
+                false
+            } else {
+                true
+            }
+        });
+
+        info
+    }
+
+    pub fn get_member_by_index(&self, on: ValueId, index: usize) -> Option<MemberInfo> {
+        let mut info = None;
+
+        let mut i = 0;
+        self.members(on, |member_info| {
+            if i == index {
+                info = Some(member_info);
+                false
+            } else {
+                i += 1;
+                true
+            }
+        });
+
+        info
     }
 
     fn resolve_comparison(&mut self, comparison: ComparisonId, result: bool) {
@@ -2447,4 +2546,11 @@ impl TypeSystem {
         self.set_value(type_id, type_, value, set);
         type_id
     }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct MemberInfo {
+    pub name: Ustr,
+    pub offset: usize,
+    pub layout: Layout,
 }

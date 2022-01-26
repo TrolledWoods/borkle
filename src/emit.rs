@@ -798,10 +798,10 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, mut node: NodeView<'a>) -> (Value, T
 
                             let calling_type = ctx.types.get(TypeId::Node(ctx.variant_id, calling_node.id));
                             let arg_type_id = calling_type.args()[function_arg + 1];
-                            let (_, offset, _) = ctx.types.value_to_compiler_type(arg_type_id).0.members[field];
+                            let member = ctx.types.get_member_by_index(arg_type_id, field).unwrap();
 
                             let (to, _) = output_args[function_arg];
-                            ctx.flush_value_to(get_member(to, offset), &given, given_layout);
+                            ctx.flush_value_to(get_member(to, member.offset), &given, given_layout);
                         }
                     }
                 }
@@ -859,10 +859,10 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, mut node: NodeView<'a>) -> (Value, T
 
                             let calling_type = ctx.types.get(TypeId::Node(ctx.variant_id, calling_node.id));
                             let arg_type_id = calling_type.args()[function_arg + 1];
-                            let (_, offset, _) = ctx.types.value_to_compiler_type(arg_type_id).0.members[field];
+                            let member = ctx.types.get_member_by_index(arg_type_id, field).unwrap();
 
                             let (to, _) = output_args[function_arg];
-                            ctx.flush_value_to(get_member(to, offset), &given, given_layout);
+                            ctx.flush_value_to(get_member(to, member.offset), &given, given_layout);
                         }
                     }
                 }
