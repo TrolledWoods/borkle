@@ -2443,7 +2443,6 @@ impl TypeSystem {
                 let inner = self.add_compiler_type(program, inner, set.clone());
                 self.set_type(id, TypeKind::Unique(marker), Args([(inner, Reason::temp_zero())]), set.clone())
             }
-            _ => todo!("This compiler type is not done yet"),
         }
     }
 

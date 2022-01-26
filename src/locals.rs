@@ -93,14 +93,6 @@ impl LocalVariables {
         self.locals.iter()
     }
 
-    pub fn iter_mut(&mut self) -> impl Iterator<Item = &'_ mut Local> {
-        self.locals.iter_mut()
-    }
-
-    pub fn iter_labels_mut(&mut self) -> impl Iterator<Item = &'_ mut Label> {
-        self.labels.iter_mut()
-    }
-
     pub fn get_label(&self, id: LabelId) -> &Label {
         &self.labels[id.0]
     }

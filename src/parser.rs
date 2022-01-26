@@ -567,18 +567,8 @@ fn type_(
                 TokenKind::Close(Bracket::Square) => {
                     global.tokens.next();
 
-                    if global
-                        .tokens
-                        .try_consume(&TokenKind::Keyword(Keyword::Void))
-                    {
-                        Ok(slot.finish(Node::new(
-                            loc,
-                            NodeKind::LiteralType(TypeKind::VoidBuffer.into()),
-                        )))
-                    } else {
-                        type_(global, imperative, slot.add())?;
-                        Ok(slot.finish(Node::new(loc, NodeKind::BufferType)))
-                    }
+                    type_(global, imperative, slot.add())?;
+                    Ok(slot.finish(Node::new(loc, NodeKind::BufferType)))
                 }
                 _ => {
                     let old_evaluate_at_typing = imperative.evaluate_at_typing;
@@ -654,25 +644,8 @@ fn type_(
         }
         _ => {
             if global.tokens.try_consume_operator_string("&").is_some() {
-                if global
-                    .tokens
-                    .try_consume(&TokenKind::Keyword(Keyword::Void))
-                {
-                    // @TODO: This type should also have pointer permits
-                    Ok(slot.finish(Node::new(
-                        loc,
-                        NodeKind::LiteralType(Type::new(TypeKind::VoidPtr)),
-                    )))
-                } else if global.tokens.try_consume(&TokenKind::Keyword(Keyword::Any)) {
-                    // @TODO: This type should also have pointer permits
-                    Ok(slot.finish(Node::new(
-                        loc,
-                        NodeKind::LiteralType(Type::new(TypeKind::AnyPtr)),
-                    )))
-                } else {
-                    type_(global, imperative, slot.add())?;
-                    Ok(slot.finish(Node::new(loc, NodeKind::ReferenceType)))
-                }
+                type_(global, imperative, slot.add())?;
+                Ok(slot.finish(Node::new(loc, NodeKind::ReferenceType)))
             } else {
                 global.error(
                     loc,

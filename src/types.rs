@@ -79,7 +79,7 @@ impl Type {
         let can_be_stored_in_constant = kind.can_be_stored_in_constant();
 
         let mut pointers = Vec::new();
-        kind.get_pointers(types, &mut pointers);
+        kind.get_pointers(&mut pointers);
 
         let data = TypeData {
             name,
@@ -96,18 +96,6 @@ impl Type {
         let leaked = Box::leak(Box::new(data));
         types.push(leaked);
         Self(leaked)
-    }
-
-    pub fn pointing_to(self) -> Option<Type> {
-        if let TypeKind::Reference { pointee, .. } = *self.kind() {
-            Some(pointee)
-        } else {
-            None
-        }
-    }
-
-    pub fn is_pointer_to_zst(self) -> bool {
-        self.0.is_pointer_to_zst
     }
 
     pub fn can_be_stored_in_constant(self) -> bool {
@@ -144,21 +132,6 @@ impl Type {
     pub const fn kind(self) -> &'static TypeKind {
         &self.0.kind
     }
-
-    pub fn member(self, member_name: Ustr) -> Option<Member> {
-        for (i, &(name, offset, type_)) in self.0.members.iter().enumerate() {
-            if name == member_name {
-                return Some(Member {
-                    index: i,
-                    byte_offset: offset,
-                    indirections: 1,
-                    type_,
-                });
-            }
-        }
-
-        None
-    }
 }
 
 pub struct TypeData {
@@ -181,10 +154,6 @@ pub struct TypeData {
 impl Display for TypeKind {
     fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Range(inner) => write!(fmt, "{0}..{0}", inner),
-            Self::VoidBuffer => write!(fmt, "[] void"),
-            Self::VoidPtr => write!(fmt, "&void"),
-            Self::AnyPtr => write!(fmt, "&any"),
             Self::Type => write!(fmt, "type"),
             Self::Empty => write!(fmt, "()"),
             Self::F64 => write!(fmt, "f64"),
@@ -263,10 +232,6 @@ pub enum TypeKind {
     F64,
     F32,
     Bool,
-    AnyPtr,
-    VoidPtr,
-    VoidBuffer,
-    Range(Type),
     Int(IntTypeKind),
     Array(Type, usize),
     Reference { pointee: Type },
@@ -289,9 +254,6 @@ impl TypeKind {
     fn for_each_child(&self, mut on_inner: impl FnMut(Type)) {
         match self {
             TypeKind::Type
-            | TypeKind::AnyPtr
-            | TypeKind::VoidPtr
-            | TypeKind::VoidBuffer
             | TypeKind::Empty
             | TypeKind::F64
             | TypeKind::F32
@@ -299,7 +261,6 @@ impl TypeKind {
             | TypeKind::Int(_) => {}
             TypeKind::Buffer { pointee: inner, .. }
             | TypeKind::Array(inner, _)
-            | TypeKind::Range(inner)
             | TypeKind::Enum { base: inner, .. }
             | TypeKind::Unique { inner, .. }
             | TypeKind::Reference { pointee: inner, .. } => on_inner(*inner),
@@ -335,16 +296,6 @@ impl TypeKind {
                 let usize_type = Type::new_without_lock(types, TypeKind::Int(IntTypeKind::Usize));
                 vec![("ptr".into(), 0, ptr_type), ("len".into(), 8, usize_type)]
             }
-            TypeKind::AnyPtr => {
-                let ptr_type = Type::new_without_lock(types, TypeKind::VoidPtr);
-                let type_type = Type::new_without_lock(types, TypeKind::Type);
-                vec![("ptr".into(), 0, ptr_type), ("type_".into(), 8, type_type)]
-            }
-            TypeKind::VoidBuffer => {
-                let ptr_type = Type::new_without_lock(types, TypeKind::VoidPtr);
-                let usize_type = Type::new_without_lock(types, TypeKind::Int(IntTypeKind::Usize));
-                vec![("ptr".into(), 0, ptr_type), ("len".into(), 8, usize_type)]
-            }
             TypeKind::Struct(ref members) => {
                 let mut new_members = Vec::new();
                 for (name, offset, type_) in struct_field_offsets(members.iter().copied()) {
@@ -358,16 +309,6 @@ impl TypeKind {
                     new_members.push((name, offset, type_));
                 }
                 new_members
-            }
-            TypeKind::Range(internal) => {
-                vec![
-                    ("start".into(), 0, internal),
-                    (
-                        "end".into(),
-                        to_align(internal.size(), internal.align()),
-                        internal,
-                    ),
-                ]
             }
             TypeKind::Array(inner, length) => {
                 let mut members = Vec::with_capacity(length);
@@ -387,7 +328,6 @@ impl TypeKind {
             // TODO: Think about removing this array special case, or make a replacement that lets
             // you mark something as not storable in a constant.
             TypeKind::Array(_, 0) | TypeKind::Function { .. } => true,
-            TypeKind::VoidPtr | TypeKind::VoidBuffer => false,
             _ => {
                 let mut can_be = true;
                 self.for_each_child(|child| {
@@ -404,15 +344,11 @@ impl TypeKind {
         match self {
             Self::Type => (8, 8),
             Self::Empty => (0, 1),
-            Self::VoidPtr | Self::F64 | Self::Reference { .. } | Self::Function { .. } => (8, 8),
-            Self::AnyPtr | Self::VoidBuffer | Self::Buffer { .. } => (16, 8),
+            Self::F64 | Self::Reference { .. } | Self::Function { .. } => (8, 8),
+            Self::Buffer { .. } => (16, 8),
             Self::F32 => (4, 4),
             Self::Bool => (1, 1),
             Self::Unique { inner, .. } => inner.kind().calculate_size_align(),
-            Self::Range(inner) => {
-                let size = array_size(inner.size(), inner.align(), 2);
-                (size, inner.align())
-            }
             Self::Enum { base, .. } => (base.size(), base.align()),
             Self::Array(internal, length) => {
                 let member_size = internal.size();
@@ -454,7 +390,6 @@ impl TypeKind {
     /// pointers(i.e. pointers behind other pointers).
     fn get_pointers(
         &self,
-        types: &mut Vec<&'static TypeData>,
         pointers: &mut Vec<(usize, PointerInType)>,
     ) {
         match self {
@@ -463,8 +398,6 @@ impl TypeKind {
             | Self::Int(_)
             | Self::F32
             | Self::F64
-            | Self::VoidPtr
-            | Self::AnyPtr
             | Self::Bool => {}
             Self::Reference { pointee, .. }  => {
                 if pointee.size() > 0 {
@@ -474,22 +407,6 @@ impl TypeKind {
             Self::Buffer { pointee, .. } => {
                 if pointee.size() > 0 {
                     pointers.push((0, PointerInType::Buffer(*pointee)));
-                }
-            }
-            Self::VoidBuffer => {
-                pointers.push((
-                    0,
-                    PointerInType::Buffer(Type::new_without_lock(
-                        types,
-                        TypeKind::Int(IntTypeKind::U8),
-                    )),
-                ));
-            }
-            Self::Range(internal) => {
-                let second_element = to_align(internal.size(), internal.align());
-                for (internal_offset, internal_type) in internal.pointers() {
-                    pointers.push((*internal_offset, internal_type.clone()));
-                    pointers.push((second_element + *internal_offset, internal_type.clone()));
                 }
             }
             Self::Array(internal, len) => {
@@ -568,19 +485,6 @@ pub enum IntTypeKind {
 }
 
 impl IntTypeKind {
-    pub fn range(self) -> std::ops::RangeInclusive<i128> {
-        match self {
-            Self::U64 | Self::Usize => u64::MIN.into()..=u64::MAX.into(),
-            Self::I64 | Self::Isize => i64::MIN.into()..=i64::MAX.into(),
-            Self::U32 => u32::MIN.into()..=u32::MAX.into(),
-            Self::I32 => i32::MIN.into()..=i32::MAX.into(),
-            Self::U16 => u16::MIN.into()..=u16::MAX.into(),
-            Self::I16 => i16::MIN.into()..=i16::MAX.into(),
-            Self::U8 => u8::MIN.into()..=u8::MAX.into(),
-            Self::I8 => i8::MIN.into()..=i8::MAX.into(),
-        }
-    }
-
     pub fn signed(self) -> bool {
         match self {
             Self::Usize | Self::U64 | Self::U32 | Self::U16 | Self::U8 => true,
@@ -639,13 +543,6 @@ pub struct BufferRepr {
 pub struct Alias {
     pub name: Ustr,
     pub offset: usize,
-    pub indirections: usize,
-    pub type_: Type,
-}
-
-pub struct Member {
-    pub index: usize,
-    pub byte_offset: usize,
     pub indirections: usize,
     pub type_: Type,
 }
