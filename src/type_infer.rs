@@ -885,35 +885,35 @@ impl TypeSystem {
         match type_.kind() {
             TypeKind::Struct(names) => {
                 let mut struct_layout = StructLayout::new(0);
-                for (&name, &arg) in names.iter().zip(type_.args()) {
+                for (index, (&name, &arg)) in names.iter().zip(type_.args()).enumerate() {
                     let arg_type = self.get(arg);
                     let arg_layout = arg_type.layout();
                     let offset = struct_layout.next(arg_layout);
                     
-                    if !callback(MemberInfo { name, offset, layout: arg_layout }) {
+                    if !callback(MemberInfo { name, index, offset, layout: arg_layout }) {
                         break;
                     }
                 }
             }
             TypeKind::Buffer => {
-                if !callback(MemberInfo { name: "ptr".into(), offset: 0, layout: Layout::PTR }) {
+                if !callback(MemberInfo { name: "ptr".into(), index: 0, offset: 0, layout: Layout::PTR }) {
                     return;
                 }
 
-                if !callback(MemberInfo { name: "len".into(), offset: 8, layout: Layout::USIZE }) {
+                if !callback(MemberInfo { name: "len".into(), index: 1, offset: 8, layout: Layout::USIZE }) {
                     return;
                 }
             }
             TypeKind::Tuple => {
                 let mut struct_layout = StructLayout::new(0);
-                for (i, &arg) in type_.args().iter().enumerate() {
+                for (index, &arg) in type_.args().iter().enumerate() {
                     let arg_type = self.get(arg);
                     let arg_layout = arg_type.layout();
                     let offset = struct_layout.next(arg_layout);
                     // @Speed!
-                    let name = format!("_{}", i).into();
+                    let name = format!("_{}", index).into();
                     
-                    if !callback(MemberInfo { name, offset, layout: arg_layout }) {
+                    if !callback(MemberInfo { name, index, offset, layout: arg_layout }) {
                         break;
                     }
                 }
@@ -927,12 +927,12 @@ impl TypeSystem {
                 let length = unsafe { *length_ptr.as_ptr().cast::<usize>() };
 
                 let mut struct_layout = StructLayout::new(0);
-                for i in 0..length {
+                for index in 0..length {
                     // @Speed!
-                    let name = format!("_{}", i).into();
+                    let name = format!("_{}", index).into();
                     let offset = struct_layout.next(element_layout);
 
-                    if !callback(MemberInfo { name, offset, layout: element_layout }) {
+                    if !callback(MemberInfo { name, index, offset, layout: element_layout }) {
                         break;
                     }
                 }
@@ -959,13 +959,11 @@ impl TypeSystem {
     pub fn get_member_by_index(&self, on: ValueId, index: usize) -> Option<MemberInfo> {
         let mut info = None;
 
-        let mut i = 0;
         self.members(on, |member_info| {
-            if i == index {
+            if member_info.index == index {
                 info = Some(member_info);
                 false
             } else {
-                i += 1;
                 true
             }
         });
@@ -2551,6 +2549,7 @@ impl TypeSystem {
 #[derive(Debug, Clone, Copy)]
 pub struct MemberInfo {
     pub name: Ustr,
+    pub index: usize,
     pub offset: usize,
     pub layout: Layout,
 }

@@ -579,14 +579,9 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, mut node: NodeView<'a>) -> (Value, T
                 }
             }
 
-            let of_type = ctx.types.value_to_compiler_type(of_type_id);
-            let Some(member) = of_type.member(*name) else {
-                unreachable!("Type {} doesn't have member {}, but it got through the typer", of_type, *name)
-            };
+            let member = ctx.types.get_member_by_name(of_type_id, *name).unwrap();
 
-            debug_assert_eq!(member.indirections, 1);
-
-            let member = ctx.get_member_of_value(&of, of_layout, member.index, member.byte_offset);
+            let member = ctx.get_member_of_value(&of, of_layout, member.index, member.offset);
             let layout = ctx.get_typed_layout(node_type_id);
 
             (member, layout)
@@ -1155,11 +1150,9 @@ fn emit_lvalue<'a>(
                 }
             }
 
-            let base_type = ctx.types.value_to_compiler_type(of_type_id);
+            let member = ctx.types.get_member_by_name(of_type_id, *name).unwrap();
 
-            let member = base_type.member(*name).expect("This should have already been made sure to exist in the typer");
-
-            ctx.get_member_of_lvalue(&parent_value, member.byte_offset)
+            ctx.get_member_of_lvalue(&parent_value, member.offset)
         }
         NodeKind::Pack | NodeKind::Unpack => {
             let [operand] = node.children.as_array();
