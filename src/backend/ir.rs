@@ -1,6 +1,5 @@
 use crate::ir::{Instr, UserDefinedRoutine, Routine};
 use crate::program::{Program, FunctionId};
-use crate::types::Type;
 use crate::operators::Operator;
 use std::path::Path;
 use std::fmt::Write;
@@ -16,8 +15,6 @@ impl Emitter {
         _program: &Program,
         function_id: FunctionId,
         routine: &Routine,
-        _args: &[Type],
-        _returns: Type,
     ) {
         if let Routine::UserDefined(routine) = routine {
             print_instr_list(&mut self.text, function_id, routine);

@@ -2,7 +2,6 @@ use crate::ir::{Instr, UserDefinedRoutine, Routine, LabelId, PrimitiveType, Stac
 use crate::layout::{align_to, StructLayout, Layout};
 use crate::program::{Program, FunctionId};
 use crate::types::PointerInType;
-use crate::types::Type;
 use crate::operators::{BinaryOp, UnaryOp};
 use std::path::Path;
 use std::fmt::{self, Write};
@@ -31,8 +30,6 @@ impl Emitter {
         program: &Program,
         function_id: FunctionId,
         routine: &Routine,
-        _args: &[Type],
-        _returns: Type,
     ) {
         match routine {
             Routine::UserDefined(routine) => {

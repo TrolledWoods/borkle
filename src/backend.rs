@@ -1,7 +1,6 @@
 use std::path::PathBuf;
 use crate::program::{Program, FunctionId};
 use crate::ir::Routine;
-use crate::types::Type;
 use std::fmt;
 
 // mod c;
@@ -170,8 +169,6 @@ impl BackendEmitters {
         program: &Program,
         id: FunctionId,
         routine: &Routine,
-        arg_types: &[Type],
-        return_type: Type,
     ) {
         for emitter in &mut self.emitters { 
             match emitter {
@@ -179,10 +176,10 @@ impl BackendEmitters {
                     // v.emit_routine(program, id, routine, arg_types, return_type);
                 }
                 BackendEmitter::Ir(v) => {
-                    v.emit_routine(program, id, routine, arg_types, return_type);
+                    v.emit_routine(program, id, routine);
                 }
                 BackendEmitter::X64(v) => {
-                    v.emit_routine(program, id, routine, arg_types, return_type);
+                    v.emit_routine(program, id, routine);
                 }
             }
         }

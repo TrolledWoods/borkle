@@ -273,7 +273,7 @@ fn worker<'a>(alloc: &'a mut Bump, program: &'a Program) -> (ThreadContext<'a>, 
                         }
                     }
                 }
-                Task::EmitFunction(mut locals, mut types, additional_info, ast, node_id, type_, function_id, ast_variant_id) => {
+                Task::EmitFunction(mut locals, mut types, additional_info, ast, node_id, _, function_id, ast_variant_id) => {
                     program
                         .logger
                         .log(format_args!("emitting function '{:?}'", function_id));
@@ -289,7 +289,6 @@ fn worker<'a>(alloc: &'a mut Bump, program: &'a Program) -> (ThreadContext<'a>, 
                         &additional_info,
                         node_id,
                         ast_variant_id,
-                        type_,
                         loc,
                         function_id,
                         false,

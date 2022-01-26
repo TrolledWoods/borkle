@@ -539,8 +539,7 @@ fn subset_was_completed(ctx: &mut Context<'_, '_>, ast: &mut Ast, waiting_on: Wa
 
                 let routine = Routine::Extern(symbol_name);
 
-                let types::TypeKind::Function { args, returns } = type_.kind() else { unreachable!() };
-                ctx.thread_context.emitters.emit_routine(ctx.program, function_id, &routine, args, *returns);
+                ctx.thread_context.emitters.emit_routine(ctx.program, function_id, &routine);
                 ctx.program.set_routine_of_function(function_id, Vec::new(), routine);
             } else {
                 match time {
@@ -573,7 +572,6 @@ fn subset_was_completed(ctx: &mut Context<'_, '_>, ast: &mut Ast, waiting_on: Wa
                             ctx.additional_info,
                             node_id,
                             ast_variant_id,
-                            type_,
                             node_loc,
                             function_id,
                             true,
@@ -588,14 +586,11 @@ fn subset_was_completed(ctx: &mut Context<'_, '_>, ast: &mut Ast, waiting_on: Wa
         WaitingOnTypeInferrence::BuiltinFunctionInTyping {
             node_id,
             function,
-            type_,
             parent_set,
             ast_variant_id,
         } => {
             let node = ast.get(node_id);
             let node_loc = node.loc;
-
-            let type_ = ctx.infer.value_to_compiler_type(type_);
 
             let function_id = ctx.program.insert_defined_function(
                 node_loc,
@@ -603,10 +598,8 @@ fn subset_was_completed(ctx: &mut Context<'_, '_>, ast: &mut Ast, waiting_on: Wa
                 crate::ir::Routine::Builtin(function),
             );
 
-            let types::TypeKind::Function { args, returns } = type_.kind() else { unreachable!("Defined as a function before, the type inferrence system is busted if this is reached") };
-
             let routine = ctx.program.get_routine(function_id).unwrap();
-            ctx.thread_context.emitters.emit_routine(ctx.program, function_id, &routine, args, *returns);
+            ctx.thread_context.emitters.emit_routine(ctx.program, function_id, &routine);
 
             ctx.additional_info.insert((ast_variant_id, node_id), AdditionalInfoKind::Function(function_id));
             ctx.infer.value_sets.unlock(parent_set);
@@ -852,7 +845,6 @@ fn build_constraints(
             let sub_set = ctx.infer.value_sets.add(WaitingOnTypeInferrence::BuiltinFunctionInTyping {
                 node_id: node.id,
                 function,
-                type_: function_type_id,
                 parent_set: set,
                 ast_variant_id: ctx.ast_variant_id,
             });
@@ -2137,7 +2129,6 @@ pub enum WaitingOnTypeInferrence {
     BuiltinFunctionInTyping {
         node_id: NodeId,
         function: BuiltinFunction,
-        type_: TypeId,
         parent_set: ValueSetId,
         ast_variant_id: AstVariantId,
     },

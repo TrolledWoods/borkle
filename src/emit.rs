@@ -74,7 +74,6 @@ pub fn emit_function_declaration<'a>(
     additional_info: &AdditionalInfo,
     node_id: NodeId,
     variant_id: AstVariantId,
-    type_: Type,
     loc: Location,
     function_id: FunctionId,
     emit_inner_function_declarations: bool,
@@ -138,10 +137,8 @@ pub fn emit_function_declaration<'a>(
     });
 
     if ctx.program.set_routine_of_function(function_id, ctx.calling, routine) {
-        let TypeKind::Function { args, returns } = type_.kind() else { unreachable!() };
-
         let routine = ctx.program.get_routine(function_id);
-        ctx.thread_context.emitters.emit_routine(ctx.program, function_id, &routine.unwrap(), args, *returns);
+        ctx.thread_context.emitters.emit_routine(ctx.program, function_id, &routine.unwrap());
     }
 }
 
@@ -966,7 +963,6 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, mut node: NodeView<'a>) -> (Value, T
                     ctx.additional_info,
                     node.id,
                     ctx.variant_id,
-                    compiler_type,
                     node.loc,
                     id,
                     true,
