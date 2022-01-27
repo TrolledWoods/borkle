@@ -130,6 +130,7 @@ pub fn process_ast<'a>(
     ast: Ast,
     member_kind: MemberKind,
 ) -> Result<(Result<(DependencyList, LocalVariables, TypeSystem, Ast, TypeId, AdditionalInfo), (DependencyList, YieldData)>, MemberMetaData), ()> {
+    profile::profile!("typer::process_ast");
     let (mut yield_data, meta_data) = begin(errors, thread_context, program, locals, ast, Vec::new(), member_kind);
     solve(errors, thread_context, program, &mut yield_data);
     finish(errors, yield_data).map(|v| (v, meta_data))

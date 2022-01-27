@@ -33,6 +33,11 @@ type EnumOne = enum u8 {
 
 // TODO:
 
+// - I want to separate a `TypeSystem` that is being inferred, and a type system that is already completely inferred, because the way you treat them is very different, and the one currently in inferrence
+//   may need more information, such as the reasoning and so one. So, make it more SOA, so that it's possible to remove data that's no longer required, and to make things more cache friendly, and,
+//   we want to figure out a method to say that we know more about something. ( probably `#[repr(C)]` and transmutes/pointer casts!!!!! Hooray :D. Seems bad, but it actually lets me insert all the asserts
+//   into one place in debug mode, so I think it would actually make the code much clearer )
+
 // - Monomorphisation doesn't work 100% of the time in constant expressions, specifically, it doesn't work when the function you monomorphised itself calls another polymorphic function, (probably only applies to those that depend on its generic parameters).
 
 // - Make [ptr + usize -> _] also infer to [ptr + usize -> ptr] (maybe similar for other operators too?)

@@ -52,6 +52,7 @@ impl From<TypeKind> for Type {
 
 impl Type {
     pub fn new(kind: TypeKind) -> Self {
+        profile::profile!("Type::new");
         let mut types = TYPES.lock();
         Self::new_without_lock(&mut *types, kind)
     }
