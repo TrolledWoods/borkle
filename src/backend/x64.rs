@@ -95,10 +95,13 @@ pub fn emit_constants(out: &mut String, program: &Program) {
 
         write!(out, "\t{}: dq ", global_symbol(ptr as usize)).unwrap();
 
-        let mut pointers = constant.type_.pointers().iter().peekable();
+        // @Speed: We could use get_pointers directly here.
+        let mut pointers = Vec::new();
+        constant.type_.get_pointers(|offset, pointer_kind| pointers.push((offset, pointer_kind)));
+        let mut pointers = pointers.into_iter().peekable();
         for i in (0..constant.type_.size()).step_by(8) {
             match pointers.peek() {
-                Some(&(offset, pointer_kind)) if *offset == i => {
+                Some(&(offset, pointer_kind)) if offset == i => {
                     let ptr_num = unsafe { *ptr.add(i).cast::<usize>() };
                     if let PointerInType::Function { .. } = pointer_kind {
                         let function_id = ptr_num.into();

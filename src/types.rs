@@ -1,4 +1,5 @@
 use crate::location::Location;
+use crate::layout::{Layout, StructLayout};
 use crate::program::{FunctionId, constant::ConstantRef};
 use lazy_static::lazy_static;
 use parking_lot::Mutex;
@@ -79,9 +80,6 @@ impl Type {
         let (size, align) = kind.calculate_size_align();
         let can_be_stored_in_constant = kind.can_be_stored_in_constant();
 
-        let mut pointers = Vec::new();
-        kind.get_pointers(&mut pointers);
-
         let data = TypeData {
             name,
             is_unique,
@@ -91,7 +89,6 @@ impl Type {
             size,
             align,
             kind,
-            pointers,
             can_be_stored_in_constant,
         };
         let leaked = Box::leak(Box::new(data));
@@ -106,17 +103,82 @@ impl Type {
     pub unsafe fn get_function_ids(
         self,
         value: *const u8,
-    ) -> impl Iterator<Item = FunctionId> + 'static {
-        self.pointers()
-            .iter()
-            .filter_map(move |(offset, kind)| match kind {
-                PointerInType::Function { .. } => Some(*value.add(*offset).cast::<FunctionId>()),
-                _ => None,
-            })
+        mut add_function_id: impl FnMut(FunctionId),
+    ) {
+        self.get_pointers(|offset, kind| {
+            match kind {
+                PointerInType::Function { .. } => add_function_id(*value.add(offset).cast::<FunctionId>()),
+                _ => {},
+            }
+        });
     }
 
-    pub fn pointers(self) -> &'static [(usize, PointerInType)] {
-        &self.0.pointers
+    #[inline]
+    pub fn get_pointers(&self, mut add_pointer: impl FnMut(usize, PointerInType)) {
+        self.get_pointers_internal(0, &mut add_pointer);
+    }
+
+    fn get_pointers_internal(
+        &self,
+        base_offset: usize,
+        add_pointer: &mut impl FnMut(usize, PointerInType)
+    ) {
+        match *self.kind() {
+            TypeKind::Type
+            | TypeKind::Empty
+            | TypeKind::Int(_)
+            | TypeKind::F32
+            | TypeKind::F64
+            | TypeKind::Bool => {}
+            TypeKind::Reference { pointee, .. }  => {
+                if pointee.size() > 0 {
+                    add_pointer(base_offset, PointerInType::Pointer(pointee));
+                }
+            }
+            TypeKind::Buffer { pointee, .. } => {
+                if pointee.size() > 0 {
+                    add_pointer(base_offset, PointerInType::Buffer(pointee));
+                }
+            }
+            TypeKind::Array(internal, len) => {
+                let element_offset = to_align(internal.size(), internal.align());
+                for i in 0..len {
+                    internal.get_pointers_internal(base_offset + i * element_offset, add_pointer);
+                }
+            }
+            TypeKind::Function { ref args, returns } => {
+                add_pointer(
+                    base_offset,
+                    PointerInType::Function {
+                        args: &**args,
+                        returns,
+                    },
+                );
+            }
+            TypeKind::Tuple(ref fields) => {
+                let mut layout = StructLayout::new(0);
+                for &field in fields {
+                    let offset = layout.next(field.layout());
+                    field.get_pointers_internal(base_offset + offset, add_pointer);
+                }
+            }
+            TypeKind::Struct(ref fields) => {
+                let mut layout = StructLayout::new(0);
+                for &(_, field) in fields {
+                    let offset = layout.next(field.layout());
+                    field.get_pointers_internal(base_offset + offset, add_pointer);
+                }
+            }
+            TypeKind::Unique { inner, .. } | TypeKind::Enum { base: inner, .. } => {
+                inner.get_pointers_internal(base_offset, add_pointer);
+            }
+        }
+    }
+
+    #[inline]
+    pub fn layout(self) -> Layout {
+        // TODO: Types should just store their layout directly instead of size and align
+        Layout { size: self.size(), align: self.align() }
     }
 
     #[inline]
@@ -145,8 +207,6 @@ pub struct TypeData {
 
     pub size: usize,
     align: usize,
-
-    pointers: Vec<(usize, PointerInType)>,
 
     can_be_stored_in_constant: bool,
     pub is_pointer_to_zst: bool,
@@ -386,70 +446,6 @@ impl TypeKind {
             }
         }
     }
-
-    /// Appends all the pointers in this type to a vector, with the offset offsetted by the offset. Does not include indirect
-    /// pointers(i.e. pointers behind other pointers).
-    fn get_pointers(
-        &self,
-        pointers: &mut Vec<(usize, PointerInType)>,
-    ) {
-        match self {
-            Self::Type
-            | Self::Empty
-            | Self::Int(_)
-            | Self::F32
-            | Self::F64
-            | Self::Bool => {}
-            Self::Reference { pointee, .. }  => {
-                if pointee.size() > 0 {
-                    pointers.push((0, PointerInType::Pointer(*pointee)));
-                }
-            }
-            Self::Buffer { pointee, .. } => {
-                if pointee.size() > 0 {
-                    pointers.push((0, PointerInType::Buffer(*pointee)));
-                }
-            }
-            Self::Array(internal, len) => {
-                let element_offset = to_align(internal.size(), internal.align());
-                for i in 0..*len {
-                    for (internal_offset, internal_type) in internal.pointers() {
-                        pointers
-                            .push((i * element_offset + internal_offset, internal_type.clone()));
-                    }
-                }
-            }
-            Self::Function { args, returns } => {
-                pointers.push((
-                    0,
-                    PointerInType::Function {
-                        args: args.clone(),
-                        returns: *returns,
-                    },
-                ));
-            }
-            Self::Tuple(fields) => {
-                let def_field = "".into();
-                for (_, offset, field_type) in struct_field_offsets(fields.iter().copied().map(|v| (def_field, v))) {
-                    for &(field_pointer_offset, ref field_pointer_type) in field_type.pointers() {
-                        pointers.push((offset + field_pointer_offset, field_pointer_type.clone()));
-                    }
-                }
-            }
-            Self::Struct(fields) => {
-                for (_name, offset, field_type) in struct_field_offsets(fields.iter().copied()) {
-                    for &(field_pointer_offset, ref field_pointer_type) in field_type.pointers() {
-                        pointers.push((offset + field_pointer_offset, field_pointer_type.clone()));
-                    }
-                }
-            }
-            Self::Unique { inner, .. } | Self::Enum { base: inner, .. } => {
-                for &(field_pointer, ref field_pointer_type) in inner.pointers() {
-                    pointers.push((field_pointer, field_pointer_type.clone()));
-                }
-            }
-        }
-    }
 }
 
 pub fn struct_field_offsets<'a>(
@@ -463,12 +459,11 @@ pub fn struct_field_offsets<'a>(
     })
 }
 
-#[derive(Clone, Hash, Eq, PartialEq)]
+#[derive(Clone, Copy, Hash, Eq, PartialEq)]
 pub enum PointerInType {
     Pointer(Type),
     Buffer(Type),
-    // FIXME: This 'Vec' here is fairly inefficient
-    Function { args: Vec<Type>, returns: Type },
+    Function { args: &'static [Type], returns: Type },
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]

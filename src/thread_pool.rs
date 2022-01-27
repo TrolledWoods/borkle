@@ -248,8 +248,11 @@ fn worker<'a>(alloc: &'a mut Bump, program: &'a Program) -> (ThreadContext<'a>, 
                                 program.set_value_of_member(member_id, value);
                                 program.flag_member_callable(member_id);
 
-                                for function_id in unsafe { type_.get_function_ids(value.as_ptr()) } {
-                                    program.flag_function_callable(function_id);
+                                
+                                unsafe {
+                                    type_.get_function_ids(value.as_ptr(), |function_id| {
+                                        program.flag_function_callable(function_id);
+                                    });
                                 }
                             }
                             Err(call_stack) => {
@@ -268,8 +271,10 @@ fn worker<'a>(alloc: &'a mut Bump, program: &'a Program) -> (ThreadContext<'a>, 
 
                         let (value, type_) = program.get_member_value(member_id);
 
-                        for function_id in unsafe { type_.get_function_ids(value.as_ptr()) } {
-                            program.flag_function_callable(function_id);
+                        unsafe {
+                            type_.get_function_ids(value.as_ptr(), |function_id| {
+                                program.flag_function_callable(function_id);
+                            });
                         }
                     }
                 }

@@ -379,12 +379,12 @@ impl Program {
     /// Locks
     /// * ``constant_data`` write
     fn insert_sub_buffers(&self, type_: Type, data: *mut u8) {
-        for (offset, ptr) in type_.pointers() {
+        type_.get_pointers(|offset, ptr| {
             match ptr {
                 PointerInType::Pointer(internal) => unsafe {
-                    let ptr = *data.add(*offset).cast::<*const u8>();
+                    let ptr = *data.add(offset).cast::<*const u8>();
                     if !ptr.is_null() {
-                        let sub_buffer = self.insert_buffer(*internal, ptr);
+                        let sub_buffer = self.insert_buffer(internal, ptr);
                         *data.cast::<*const u8>() = sub_buffer.as_ptr();
                     }
                 },
@@ -392,7 +392,7 @@ impl Program {
                     let buffer = unsafe { &mut *data.cast::<crate::types::BufferRepr>() };
 
                     if buffer.length != 0 {
-                        let array_type = Type::new(TypeKind::Array(*internal, buffer.length));
+                        let array_type = Type::new(TypeKind::Array(internal, buffer.length));
                         let sub_buffer = self.insert_buffer(array_type, buffer.ptr);
 
                         buffer.ptr = sub_buffer.as_ptr() as *mut _;
@@ -402,7 +402,7 @@ impl Program {
                 }
                 PointerInType::Function { .. } => {}
             }
-        }
+        });
     }
 
     pub fn add_file(&self, path: impl AsRef<Path>) {
@@ -796,8 +796,10 @@ impl Program {
         
         /* TODO: Think about if this is necessary.
         */
-        for function_id in unsafe { type_.get_function_ids(value.as_ptr()) } {
-            self.flag_function_callable(function_id);
+        unsafe {
+            type_.get_function_ids(value.as_ptr(), |function_id| {
+                self.flag_function_callable(function_id);
+            });
         }
 
         Ok(member_id)
