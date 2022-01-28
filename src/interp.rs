@@ -36,7 +36,7 @@ pub fn emit_and_run<'a>(
     );
     let mut stack = Stack::new(2048);
     let result = interp(program, &mut stack, &routine, call_stack)?;
-    Ok(program.insert_buffer(types.value_to_compiler_type(TypeId::Node(variant_id, node)), result.as_ptr()))
+    Ok(program.insert_buffer(&types.value_to_compiler_type(TypeId::Node(variant_id, node)), result.as_ptr()))
 }
 
 pub fn interp<'a>(

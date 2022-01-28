@@ -238,12 +238,11 @@ fn worker<'a>(alloc: &'a mut Bump, program: &'a Program) -> (ThreadContext<'a>, 
                         match crate::interp::interp(program, &mut stack, &routine, &mut vec![]) {
                             Ok(result) => {
                                 let type_ = program.get_member_type(member_id);
-
-                                let value = program.insert_buffer(type_, result.as_ptr());
+                                let value = program.insert_buffer(&type_, result.as_ptr());
 
                                 program
                                     .logger
-                                    .log(format_args!("value '{}': {}", program.member_name(member_id), crate::program::constant_to_str(type_, value, 0)));
+                                    .log(format_args!("value '{}': {}", program.member_name(member_id), crate::program::constant_to_str(&type_, value, 0)));
 
                                 program.set_value_of_member(member_id, value);
                                 program.flag_member_callable(member_id);

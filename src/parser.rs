@@ -634,7 +634,8 @@ fn type_(
             global.tokens.next();
             Ok(slot.finish(Node::new(loc, NodeKind::LiteralType(TypeKind::Bool.into()))))
         }
-        TokenKind::Type(type_) => {
+        TokenKind::Type(ref type_) => {
+            let type_ = type_.clone();
             global.tokens.next();
             Ok(slot.finish(Node::new(loc, NodeKind::LiteralType(type_))))
         }

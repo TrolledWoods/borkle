@@ -6,12 +6,15 @@ use parking_lot::Mutex;
 use std::fmt::{self, Debug, Display};
 use std::hash::{Hash, Hasher};
 use ustr::Ustr;
+// TODO: Move over TypeKind here, because I think it makes more sense to define generic type stuff
+// in here now.
+// pub use crate::type_infer::{self, TypeKind};
 
 lazy_static! {
     pub static ref TYPES: Mutex<Vec<&'static TypeData>> = Mutex::new(Vec::new());
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 #[repr(transparent)]
 pub struct Type(&'static TypeData);
 
@@ -127,12 +130,12 @@ impl Type {
             | TypeKind::Bool => {}
             TypeKind::Reference { pointee, .. }  => {
                 if pointee.size() > 0 {
-                    add_pointer(base_offset, PointerInType::Pointer(*pointee));
+                    add_pointer(base_offset, PointerInType::Pointer(pointee));
                 }
             }
             TypeKind::Buffer { pointee, .. } => {
                 if pointee.size() > 0 {
-                    add_pointer(base_offset, PointerInType::Buffer(*pointee));
+                    add_pointer(base_offset, PointerInType::Buffer(pointee));
                 }
             }
             TypeKind::Array(internal, len) => {
@@ -146,7 +149,7 @@ impl Type {
                     base_offset,
                     PointerInType::Function {
                         args: &**args,
-                        returns: *returns,
+                        returns,
                     },
                 );
             }
@@ -297,7 +300,7 @@ pub enum TypeKind {
 }
 
 impl TypeKind {
-    fn for_each_child(&self, mut on_inner: impl FnMut(Type)) {
+    fn for_each_child(&self, mut on_inner: impl FnMut(&Type)) {
         match self {
             TypeKind::Type
             | TypeKind::Empty
@@ -309,22 +312,22 @@ impl TypeKind {
             | TypeKind::Array(inner, _)
             | TypeKind::Enum { base: inner, .. }
             | TypeKind::Unique { inner, .. }
-            | TypeKind::Reference { pointee: inner, .. } => on_inner(*inner),
+            | TypeKind::Reference { pointee: inner, .. } => on_inner(inner),
             TypeKind::Function { args, returns, .. } => {
                 for arg in args {
-                    on_inner(*arg);
+                    on_inner(arg);
                 }
 
-                on_inner(*returns);
+                on_inner(returns);
             }
             TypeKind::Tuple(members) => {
                 for member in members {
-                    on_inner(*member);
+                    on_inner(member);
                 }
             }
             TypeKind::Struct(members) => {
                 for (_, member) in members {
-                    on_inner(*member);
+                    on_inner(member);
                 }
             }
         }
@@ -379,9 +382,9 @@ impl TypeKind {
 
 #[derive(Clone, Copy, Hash, Eq, PartialEq)]
 pub enum PointerInType<'a> {
-    Pointer(Type),
-    Buffer(Type),
-    Function { args: &'a [Type], returns: Type },
+    Pointer(&'a Type),
+    Buffer(&'a Type),
+    Function { args: &'a [Type], returns: &'a Type },
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]

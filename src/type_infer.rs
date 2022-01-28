@@ -81,7 +81,7 @@ impl IntoValueSet for ValueSetId {
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 pub struct CompilerType(pub types::Type);
 
 #[derive(Clone, Copy)]
@@ -1165,7 +1165,7 @@ impl TypeSystem {
             Some(_) => {
                 let type_id = self.value_to_compiler_type(value_id);
                 let type_ = types::Type::new(types::TypeKind::Type);
-                let constant_ref = program.insert_buffer(type_, &type_id as *const _ as *const u8);
+                let constant_ref = program.insert_buffer(&type_, &type_id as *const _ as *const u8);
                 (type_, constant_ref)
             }
             _ => unreachable!("Should not have called extract_constant on an incomplete value"),
@@ -1451,7 +1451,7 @@ impl TypeSystem {
     fn constant_to_str(&self, type_: ValueId, value: ConstantRef, rec: usize) -> String {
         match &self.get(type_).kind {
             Some(Type { kind: TypeKind::Type, .. }) => {
-                let compiler_type = unsafe { *value.as_ptr().cast::<types::Type>() };
+                let compiler_type = unsafe { (*value.as_ptr().cast::<types::Type>()).clone() };
                 format!("{}", compiler_type)
             }
             Some(Type { kind: TypeKind::IntSize(size), .. }) => {
@@ -2354,9 +2354,9 @@ impl TypeSystem {
         )
     }
 
-    pub fn set_compiler_type(&mut self, program: &Program, id: ValueId, type_: types::Type, set: impl IntoValueSet + Clone) -> ValueId {
-        match *type_.kind() {
-            types::TypeKind::Enum { marker, base, ref fields } => {
+    pub fn set_compiler_type(&mut self, program: &Program, id: ValueId, type_: &types::Type, set: impl IntoValueSet + Clone) -> ValueId {
+        match type_.kind() {
+            &types::TypeKind::Enum { marker, ref base, ref fields } => {
                 let mut new_args = Vec::with_capacity(fields.len() + 1);
                 let mut field_names = Vec::with_capacity(fields.len());
                 let base_type_id = self.add_compiler_type(program, base, set.clone());
@@ -2375,7 +2375,7 @@ impl TypeSystem {
                 // @TODO: We should append the sub-expression used to the reason as well.
                 new_args.push((self.add_compiler_type(program, returns, set.clone()), Reason::temp_zero()));
 
-                for &arg in args {
+                for arg in args {
                     new_args.push((self.add_compiler_type(program, arg, set.clone()), Reason::temp_zero()));
                 }
 
@@ -2392,7 +2392,7 @@ impl TypeSystem {
                 let size = self.add_type(TypeKind::IntSize(4), Args([]), ());
                 self.set_type(id, TypeKind::Float, Args([(size, Reason::temp_zero())]), set.clone())
             }
-            types::TypeKind::Int(int_type_kind) => {
+            &types::TypeKind::Int(int_type_kind) => {
                 self.set_int(id, int_type_kind, set.clone());
                 id
             }
@@ -2413,11 +2413,11 @@ impl TypeSystem {
 
                 self.set_type(id, TypeKind::Reference, Args([(pointee, Reason::temp_zero())]), set.clone())
             }
-            types::TypeKind::Array(type_, length) => {
+            &types::TypeKind::Array(ref type_, length) => {
                 let inner = self.add_compiler_type(program, type_, set.clone());
                 let usize_type = self.add_int(IntTypeKind::Usize, ());
                 let constant_ref_length = program.insert_buffer(
-                    types::Type::new(types::TypeKind::Int(IntTypeKind::Usize)),
+                    &types::Type::new(types::TypeKind::Int(IntTypeKind::Usize)),
                     &length as *const _ as *const u8,
                 );
                 let length_value = self.add_value(usize_type, constant_ref_length, set.clone());
@@ -2426,7 +2426,7 @@ impl TypeSystem {
             types::TypeKind::Tuple(ref fields) => {
                 let field_types: Vec<_> = fields
                     .iter()
-                    .map(|&v| (self.add_compiler_type(program, v, set.clone()), Reason::temp_zero()))
+                    .map(|v| (self.add_compiler_type(program, v, set.clone()), Reason::temp_zero()))
                     .collect();
                 self.set_type(id, TypeKind::Tuple, Args(field_types), set.clone())
             }
@@ -2435,18 +2435,18 @@ impl TypeSystem {
                 let field_types: Vec<_> = fields
                     .iter()
                     // @TODO: We should append the sub-expression used to the reason as well.
-                    .map(|&(_, v)| (self.add_compiler_type(program, v, set.clone()), Reason::temp_zero()))
+                    .map(|(_, v)| (self.add_compiler_type(program, v, set.clone()), Reason::temp_zero()))
                     .collect();
                 self.set_type(id, TypeKind::Struct(field_names), Args(field_types), set.clone())
             }
-            types::TypeKind::Unique { marker, inner } => {
+            &types::TypeKind::Unique { marker, ref inner } => {
                 let inner = self.add_compiler_type(program, inner, set.clone());
                 self.set_type(id, TypeKind::Unique(marker), Args([(inner, Reason::temp_zero())]), set.clone())
             }
         }
     }
 
-    pub fn add_compiler_type(&mut self, program: &Program, type_: types::Type, set: impl IntoValueSet + Clone) -> ValueId {
+    pub fn add_compiler_type(&mut self, program: &Program, type_: &types::Type, set: impl IntoValueSet + Clone) -> ValueId {
         let id = self.add_unknown_type();
         self.set_compiler_type(program, id, type_, set)
     }

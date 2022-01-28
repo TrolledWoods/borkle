@@ -433,9 +433,11 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, mut node: NodeView<'a>) -> (Value, T
         }
         NodeKind::Literal(Literal::String(data)) => {
             let u8_type = Type::new(TypeKind::Int(IntTypeKind::U8));
+            // @Speed: There should be a global or something for common types, so we don't have
+            // to define them inline like this (slow)
             let type_ = Type::new(TypeKind::Buffer { pointee: u8_type });
             let ptr = ctx.program.insert_buffer(
-                type_,
+                &type_,
                 &crate::types::BufferRepr {
                     ptr: data.as_ptr() as *mut _,
                     length: data.len(),
@@ -937,7 +939,7 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, mut node: NodeView<'a>) -> (Value, T
 
                 let inner_type = TypeId::Node(ctx.variant_id, node.id);
                 let compiler_type = ctx.types.value_to_compiler_type(inner_type);
-                let constant_ref = ctx.program.insert_buffer(compiler_type, &id as *const _ as *const u8);
+                let constant_ref = ctx.program.insert_buffer(&compiler_type, &id as *const _ as *const u8);
 
                 // Emit the function itself
                 emit_function_declaration(
@@ -962,7 +964,7 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, mut node: NodeView<'a>) -> (Value, T
 
                 let inner_type = TypeId::Node(ctx.variant_id, node.id);
                 let compiler_type = ctx.types.value_to_compiler_type(inner_type);
-                let constant_ref = ctx.program.insert_buffer(compiler_type, &id as *const _ as *const u8);
+                let constant_ref = ctx.program.insert_buffer(&compiler_type, &id as *const _ as *const u8);
 
                 let layout = ctx.get_typed_layout(node_type_id);
                 (Value::Constant { constant: constant_ref, offset: 0 }, layout)
@@ -1163,7 +1165,7 @@ fn emit_lvalue<'a>(
         NodeKind::ResolvedGlobal(id, _) => {
             let to = ctx.create_reg(ref_type_id);
             let (from_ref, from_type) = ctx.program.get_member_value(*id);
-            ctx.emit_ref_to_global(to, from_ref, from_type);
+            ctx.emit_ref_to_global(to, from_ref, &from_type);
             LValue::Pointer { pointer: to, offset: 0 }
         }
         NodeKind::Parenthesis => {
@@ -1527,7 +1529,7 @@ impl Context<'_, '_> {
         }
     }
 
-    fn emit_ref_to_global(&mut self, to_ptr: StackValue, global: ConstantRef, type_: crate::types::Type) {
+    fn emit_ref_to_global(&mut self, to_ptr: StackValue, global: ConstantRef, type_: &crate::types::Type) {
         if type_.size() != 0 {
             println!("{}", crate::program::constant_to_str(type_, global, 0));
             self.instr.push(Instr::RefGlobal { to_ptr, global });

@@ -237,7 +237,8 @@ impl Program {
         let members = self.members.read();
         let member = &members[member_id];
 
-        let type_ = member.type_.to_option()?.0;
+        // @Speed: We don't want to clone here!
+        let type_ = member.type_.to_option()?.0.clone();
 
         if let TypeKind::Function { args, returns } = type_.kind() {
             if args.is_empty() && matches!(returns.kind(), TypeKind::Empty) {
@@ -258,7 +259,8 @@ impl Program {
         let members = self.members.read();
         let member = &members[id];
 
-        let type_ = member.type_.to_option().unwrap().0;
+        // @Speed: We don't want to clone here!
+        let type_ = member.type_.to_option().unwrap().0.clone();
         let value_ptr = *member.value.to_option().unwrap();
 
         (value_ptr, type_)
@@ -342,10 +344,12 @@ impl Program {
 
     /// Locks
     /// * ``members`` read
+    // @Speed!!!!! We shouldn't clone the type here! (if types are even expensive to clone in the future,
+    // idk).
     pub fn get_member_type(&self, id: MemberId) -> Type {
         profile::profile!("Get member type");
         let members = self.members.read();
-        members[id].type_.unwrap().0
+        members[id].type_.unwrap().0.clone()
     }
 
     pub fn get_member_meta_data_and_kind(&self, id: PolyOrMember) -> (Arc<MemberMetaData>, MemberKind) {
@@ -378,7 +382,7 @@ impl Program {
 
     /// Locks
     /// * ``constant_data`` write
-    fn insert_sub_buffers(&self, type_: Type, data: *mut u8) {
+    fn insert_sub_buffers(&self, type_: &Type, data: *mut u8) {
         type_.get_pointers(|offset, ptr| {
             match ptr {
                 PointerInType::Pointer(internal) => unsafe {
@@ -392,8 +396,9 @@ impl Program {
                     let buffer = unsafe { &mut *data.cast::<crate::types::BufferRepr>() };
 
                     if buffer.length != 0 {
-                        let array_type = Type::new(TypeKind::Array(internal, buffer.length));
-                        let sub_buffer = self.insert_buffer(array_type, buffer.ptr);
+                        // @Speed: This is not fast.
+                        let array_type = Type::new(TypeKind::Array(internal.clone(), buffer.length));
+                        let sub_buffer = self.insert_buffer(&array_type, buffer.ptr);
 
                         buffer.ptr = sub_buffer.as_ptr() as *mut _;
                     } else {
@@ -434,7 +439,7 @@ impl Program {
     /// * ``constant_data`` write
     pub fn insert_buffer_from_operation(
         &self,
-        type_: Type,
+        type_: &Type,
         get_data: impl FnOnce(*mut u8),
     ) -> ConstantRef {
         profile::profile!("program::insert_buffer_from_operation");
@@ -452,7 +457,7 @@ impl Program {
         let mut constant_data = self.constant_data.lock();
         let slice_version = unsafe { std::slice::from_raw_parts(owned_data, type_.size()) };
         for pre_computed_constant in constant_data.iter() {
-            if pre_computed_constant.type_ == type_
+            if pre_computed_constant.type_ == *type_
                 && pre_computed_constant.as_slice() == slice_version
             {
                 unsafe {
@@ -464,7 +469,7 @@ impl Program {
 
         let constant = Constant {
             ptr: NonNull::new(owned_data).unwrap(),
-            type_,
+            type_: type_.clone(),
         };
 
         let const_ref = constant.as_ref();
@@ -475,7 +480,7 @@ impl Program {
 
     /// # Locks
     /// * ``constant_data`` write
-    pub fn insert_buffer(&self, type_: Type, data: *const u8) -> ConstantRef {
+    pub fn insert_buffer(&self, type_: &Type, data: *const u8) -> ConstantRef {
         self.insert_buffer_from_operation(type_, |buf| unsafe {
             std::ptr::copy(data, buf, type_.size())
         })
@@ -789,7 +794,7 @@ impl Program {
             .log(format_args!("value '{}'", self.member_name(member_id)));
 
         let type_ = self.get_member_type(member_id);
-        let value = self.insert_buffer(type_, result.as_ptr());
+        let value = self.insert_buffer(&type_, result.as_ptr());
 
         self.set_value_of_member(member_id, value);
         self.flag_member_callable(member_id);
@@ -1359,10 +1364,10 @@ fn default<T: Default>() -> T {
     T::default()
 }
 
-pub fn constant_to_str(type_: Type, value: ConstantRef, _rec: usize) -> String {
+pub fn constant_to_str(type_: &Type, value: ConstantRef, _rec: usize) -> String {
     match type_.kind() {
         TypeKind::Type => {
-            let compiler_type = unsafe { *value.as_ptr().cast::<Type>() };
+            let compiler_type = unsafe { (*value.as_ptr().cast::<Type>()).clone() };
             format!("{}", compiler_type)
         }
         TypeKind::Int(int_size) => {

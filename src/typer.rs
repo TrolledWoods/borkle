@@ -88,10 +88,10 @@ impl YieldData {
     pub fn insert_poly_params(&mut self, program: &Program, poly_args: &[(crate::types::Type, ConstantRef)]) {
         let set = self.root_set_id;
 
-        for (param, &(compiler_type, constant)) in self.poly_params.iter().zip(poly_args) {
+        for (param, &(ref compiler_type, constant)) in self.poly_params.iter().zip(poly_args) {
             if param.is_type() {
-                debug_assert_eq!(compiler_type, types::Type::new(types::TypeKind::Type));
-                let type_ = unsafe { *constant.as_ptr().cast::<types::Type>() };
+                debug_assert!(matches!(compiler_type.kind(), types::TypeKind::Type));
+                let type_ = unsafe { &*constant.as_ptr().cast::<types::Type>() };
                 let type_id = self.infer.add_compiler_type(program, type_, set);
 
                 self.infer.set_equal(param.value_id, type_id, Reason::temp_zero());
@@ -464,7 +464,7 @@ fn subset_was_completed(ctx: &mut Context<'_, '_>, ast: &mut Ast, waiting_on: Wa
             if let Ok(member_id) = ctx.program.monomorphise_poly_member(ctx.errors, ctx.thread_context, poly_member_id, &fixed_up_params, wanted_dep) {
                 let type_ = ctx.program.get_member_type(member_id);
 
-                let compiler_type = ctx.infer.add_compiler_type(ctx.program, type_, parent_set);
+                let compiler_type = ctx.infer.add_compiler_type(ctx.program, &type_, parent_set);
                 ctx.infer.set_equal(TypeId::Node(ast_variant_id, node_id), compiler_type, Reason::new(node_loc, ReasonKind::IsOfType));
 
                 ctx.additional_info.insert((ast_variant_id, node_id), AdditionalInfoKind::Monomorphised(member_id));
@@ -863,7 +863,7 @@ fn build_constraints(
             }
 
             let usize = ctx.infer.add_int(IntTypeKind::Usize, set);
-            let length = ctx.program.insert_buffer(types::Type::new(types::TypeKind::Int(IntTypeKind::Usize)), (node.children.len()).to_le_bytes().as_ptr());
+            let length = ctx.program.insert_buffer(&types::Type::new(types::TypeKind::Int(IntTypeKind::Usize)), (node.children.len()).to_le_bytes().as_ptr());
 
             let variable_count = ctx.infer.add_value(
                 usize,
@@ -1313,7 +1313,7 @@ fn build_type(
             ctx.infer
                 .set_equal(inner_type_id, node_type_id, Reason::temp(node_loc));
         }
-        NodeKind::LiteralType(type_) => {
+        NodeKind::LiteralType(ref type_) => {
             ctx.infer.set_compiler_type(ctx.program, node_type_id, type_, set);
         }
         NodeKind::FunctionType => {
@@ -1504,7 +1504,7 @@ fn build_declarative_lvalue(
             }
 
             let usize = ctx.infer.add_int(IntTypeKind::Usize, set);
-            let length = ctx.program.insert_buffer(types::Type::new(types::TypeKind::Int(IntTypeKind::Usize)), (node.children.len()).to_le_bytes().as_ptr());
+            let length = ctx.program.insert_buffer(&types::Type::new(types::TypeKind::Int(IntTypeKind::Usize)), (node.children.len()).to_le_bytes().as_ptr());
 
             let variable_count = ctx.infer.add_value(
                 usize,
@@ -2038,7 +2038,7 @@ fn build_global<'a>(
 
             let type_id = ctx.infer.add_compiler_type(
                 ctx.program,
-                type_,
+                &type_,
                 set,
             );
 
