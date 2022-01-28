@@ -12,8 +12,8 @@ lazy_static! {
 }
 
 #[derive(Clone, Copy)]
-#[repr(C)]
-pub struct Type(pub &'static TypeData);
+#[repr(transparent)]
+pub struct Type(&'static TypeData);
 
 impl Hash for Type {
     fn hash<H: Hasher>(&self, state: &mut H) {
@@ -37,10 +37,6 @@ impl Debug for Type {
 
 impl Display for Type {
     fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
-        if let Some((_, name)) = self.0.name {
-            return write!(fmt, "{}", name);
-        }
-
         self.0.kind.fmt(fmt)
     }
 }
@@ -61,47 +57,46 @@ impl Type {
     fn new_without_lock(types: &mut Vec<&'static TypeData>, kind: TypeKind) -> Self {
         if let Some(content) = types
             .iter()
-            .filter(|c| !c.is_unique)
             .find(|&&c| c.kind == kind)
         {
             Self(content)
         } else {
-            Self::new_unique(types, kind, None, Vec::new(), false)
+            Self::new_unique(types, kind)
         }
     }
 
     fn new_unique(
         types: &mut Vec<&'static TypeData>,
         kind: TypeKind,
-        name: Option<(Location, Ustr)>,
-        aliases: Vec<Alias>,
-        is_unique: bool,
     ) -> Type {
         let (size, align) = kind.calculate_size_align();
-        let can_be_stored_in_constant = kind.can_be_stored_in_constant();
 
         let data = TypeData {
-            name,
-            is_unique,
-            aliases,
-            members: kind.get_members(types),
-            is_pointer_to_zst: matches!(kind, TypeKind::Reference { pointee: inner, .. } | TypeKind::Buffer { pointee: inner, .. } if inner.size() == 0),
-            size,
-            align,
+            layout: Layout { size, align },
             kind,
-            can_be_stored_in_constant,
         };
         let leaked = Box::leak(Box::new(data));
         types.push(leaked);
         Self(leaked)
     }
 
-    pub fn can_be_stored_in_constant(self) -> bool {
-        self.0.can_be_stored_in_constant
+    pub fn can_be_stored_in_constant(&self) -> bool {
+        match self.kind() {
+            TypeKind::Function { .. } => true,
+            _ => {
+                let mut can_be = true;
+                self.kind().for_each_child(|child| {
+                    if !child.can_be_stored_in_constant() {
+                        can_be = false;
+                    }
+                });
+                can_be
+            }
+        }
     }
 
     pub unsafe fn get_function_ids(
-        self,
+        &self,
         value: *const u8,
         mut add_function_id: impl FnMut(FunctionId),
     ) {
@@ -114,16 +109,16 @@ impl Type {
     }
 
     #[inline]
-    pub fn get_pointers(&self, mut add_pointer: impl FnMut(usize, PointerInType)) {
+    pub fn get_pointers<'a>(&'a self, mut add_pointer: impl FnMut(usize, PointerInType<'a>)) {
         self.get_pointers_internal(0, &mut add_pointer);
     }
 
-    fn get_pointers_internal(
-        &self,
+    fn get_pointers_internal<'a>(
+        &'a self,
         base_offset: usize,
-        add_pointer: &mut impl FnMut(usize, PointerInType)
+        add_pointer: &mut impl FnMut(usize, PointerInType<'a>)
     ) {
-        match *self.kind() {
+        match self.kind() {
             TypeKind::Type
             | TypeKind::Empty
             | TypeKind::Int(_)
@@ -132,39 +127,39 @@ impl Type {
             | TypeKind::Bool => {}
             TypeKind::Reference { pointee, .. }  => {
                 if pointee.size() > 0 {
-                    add_pointer(base_offset, PointerInType::Pointer(pointee));
+                    add_pointer(base_offset, PointerInType::Pointer(*pointee));
                 }
             }
             TypeKind::Buffer { pointee, .. } => {
                 if pointee.size() > 0 {
-                    add_pointer(base_offset, PointerInType::Buffer(pointee));
+                    add_pointer(base_offset, PointerInType::Buffer(*pointee));
                 }
             }
             TypeKind::Array(internal, len) => {
                 let element_offset = to_align(internal.size(), internal.align());
-                for i in 0..len {
+                for i in 0..*len {
                     internal.get_pointers_internal(base_offset + i * element_offset, add_pointer);
                 }
             }
-            TypeKind::Function { ref args, returns } => {
+            TypeKind::Function { args, returns } => {
                 add_pointer(
                     base_offset,
                     PointerInType::Function {
                         args: &**args,
-                        returns,
+                        returns: *returns,
                     },
                 );
             }
             TypeKind::Tuple(ref fields) => {
                 let mut layout = StructLayout::new(0);
-                for &field in fields {
+                for field in fields {
                     let offset = layout.next(field.layout());
                     field.get_pointers_internal(base_offset + offset, add_pointer);
                 }
             }
             TypeKind::Struct(ref fields) => {
                 let mut layout = StructLayout::new(0);
-                for &(_, field) in fields {
+                for (_, field) in fields {
                     let offset = layout.next(field.layout());
                     field.get_pointers_internal(base_offset + offset, add_pointer);
                 }
@@ -176,40 +171,30 @@ impl Type {
     }
 
     #[inline]
-    pub fn layout(self) -> Layout {
+    pub fn layout(&self) -> Layout {
         // TODO: Types should just store their layout directly instead of size and align
         Layout { size: self.size(), align: self.align() }
     }
 
     #[inline]
-    pub const fn size(self) -> usize {
-        self.0.size
+    pub const fn size(&self) -> usize {
+        self.0.layout.size
     }
 
     #[inline]
-    pub const fn align(self) -> usize {
-        self.0.align
+    pub const fn align(&self) -> usize {
+        self.0.layout.align
     }
 
     #[inline]
-    pub const fn kind(self) -> &'static TypeKind {
+    pub const fn kind(&self) -> &TypeKind {
         &self.0.kind
     }
 }
 
 pub struct TypeData {
     pub kind: TypeKind,
-    is_unique: bool,
-    pub members: Vec<(Ustr, usize, Type)>,
-    pub aliases: Vec<Alias>,
-
-    pub name: Option<(Location, Ustr)>,
-
-    pub size: usize,
-    align: usize,
-
-    can_be_stored_in_constant: bool,
-    pub is_pointer_to_zst: bool,
+    pub layout: Layout,
 }
 
 impl Display for TypeKind {
@@ -345,62 +330,6 @@ impl TypeKind {
         }
     }
 
-    fn get_members(&self, types: &mut Vec<&'static TypeData>) -> Vec<(Ustr, usize, Type)> {
-        match *self {
-            TypeKind::Buffer { pointee, } => {
-                let ptr_type = Type::new_without_lock(
-                    types,
-                    TypeKind::Reference {
-                        pointee,
-                    },
-                );
-                let usize_type = Type::new_without_lock(types, TypeKind::Int(IntTypeKind::Usize));
-                vec![("ptr".into(), 0, ptr_type), ("len".into(), 8, usize_type)]
-            }
-            TypeKind::Struct(ref members) => {
-                let mut new_members = Vec::new();
-                for (name, offset, type_) in struct_field_offsets(members.iter().copied()) {
-                    new_members.push((name, offset, type_));
-                }
-                new_members
-            }
-            TypeKind::Tuple(ref members) => {
-                let mut new_members = Vec::new();
-                for (name, offset, type_) in struct_field_offsets(members.iter().enumerate().map(|(i, v)| (format!("_{}", i).into(), *v))) {
-                    new_members.push((name, offset, type_));
-                }
-                new_members
-            }
-            TypeKind::Array(inner, length) => {
-                let mut members = Vec::with_capacity(length);
-                let mut pos = 0;
-                for i in 0..length {
-                    members.push((format!("_{}", i).into(), pos, inner));
-                    pos += inner.size();
-                }
-                members
-            }
-            _ => Vec::new(),
-        }
-    }
-
-    fn can_be_stored_in_constant(&self) -> bool {
-        match self {
-            // TODO: Think about removing this array special case, or make a replacement that lets
-            // you mark something as not storable in a constant.
-            TypeKind::Array(_, 0) | TypeKind::Function { .. } => true,
-            _ => {
-                let mut can_be = true;
-                self.for_each_child(|child| {
-                    if !child.can_be_stored_in_constant() {
-                        can_be = false;
-                    }
-                });
-                can_be
-            }
-        }
-    }
-
     fn calculate_size_align(&self) -> (usize, usize) {
         match self {
             Self::Type => (8, 8),
@@ -448,22 +377,11 @@ impl TypeKind {
     }
 }
 
-pub fn struct_field_offsets<'a>(
-    fields: impl Iterator<Item = (Ustr, Type)> + 'a,
-) -> impl Iterator<Item = (Ustr, usize, Type)> + 'a {
-    fields.scan(0, |offset, (name, type_)| {
-        *offset = to_align(*offset, type_.align());
-        let field_offset = *offset;
-        *offset += type_.size();
-        Some((name, field_offset, type_))
-    })
-}
-
 #[derive(Clone, Copy, Hash, Eq, PartialEq)]
-pub enum PointerInType {
+pub enum PointerInType<'a> {
     Pointer(Type),
     Buffer(Type),
-    Function { args: &'static [Type], returns: Type },
+    Function { args: &'a [Type], returns: Type },
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
@@ -534,13 +452,6 @@ pub struct UniqueTypeMarker {
 pub struct BufferRepr {
     pub ptr: *mut u8,
     pub length: usize,
-}
-
-pub struct Alias {
-    pub name: Ustr,
-    pub offset: usize,
-    pub indirections: usize,
-    pub type_: Type,
 }
 
 fn array_size(size: usize, align: usize, num_elements: usize) -> usize {

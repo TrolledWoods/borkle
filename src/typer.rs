@@ -443,9 +443,6 @@ fn subset_was_completed(ctx: &mut Context<'_, '_>, ast: &mut Ast, waiting_on: Wa
             ctx.additional_info.insert((ast_variant_id, to), AdditionalInfoKind::Constant(constant_ref));
             ctx.infer.value_sets.unlock(parent_set);
         }
-        WaitingOnTypeInferrence::TypeAsValue { parent_set } => {
-            ctx.infer.value_sets.unlock(parent_set);
-        }
         WaitingOnTypeInferrence::SizeOf { parent_set } => {
             ctx.infer.value_sets.unlock(parent_set);
         }
@@ -1077,18 +1074,6 @@ fn build_constraints(
             ctx.infer
                 .set_equal(inner_type_id, node_type_id, Reason::new(node_loc, ReasonKind::Passed));
         }
-        NodeKind::TypeAsValue => {
-            let [inner] = node.children.into_array();
-            let old_runs = ctx.runs;
-            ctx.runs = ctx.runs.combine(ExecutionTime::Typing);
-            let subset = ctx.infer.value_sets.add(WaitingOnTypeInferrence::TypeAsValue { parent_set: set });
-            build_type(ctx, inner, subset);
-
-            ctx.infer.value_sets.lock(set);
-            
-            ctx.infer.set_type(node_type_id, TypeKind::Type, Args([]), set);
-            ctx.runs = old_runs;
-        }
         NodeKind::Unary { op: _ } => {
             // @TODO: Make sure the types are valid for the operator
             let [operand] = node.children.into_array();
@@ -1322,9 +1307,6 @@ fn build_type(
             }
             ctx.infer.set_equal(poly_param.value_id, node_type_id, Reason::temp(node_loc));
         }
-        // @Cleanup: I don't really want TypeAsValue here, but since the typer has more information than the parser
-        // the parser might need it as a "hint", so until type expressions and normal values have the same syntax,
-        // this'll have to do.
         NodeKind::Parenthesis | NodeKind::TypeAsValue => {
             let [inner] = node.children.into_array();
             let inner_type_id = build_type(ctx, inner, set);
@@ -2100,9 +2082,6 @@ pub enum WaitingOnTypeInferrence {
         ast_variant_id: AstVariantId,
         runs: ExecutionTime,
         iterator_type: TypeId,
-        parent_set: ValueSetId,
-    },
-    TypeAsValue {
         parent_set: ValueSetId,
     },
     SizeOf {
