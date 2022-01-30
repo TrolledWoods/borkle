@@ -34,13 +34,13 @@ impl Eq for Type {}
 
 impl Debug for Type {
     fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.0.kind.fmt(fmt)
+        self.0.fmt(fmt)
     }
 }
 
 impl Display for Type {
     fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.0.kind.fmt(fmt)
+        self.0.fmt(fmt)
     }
 }
 
@@ -203,19 +203,19 @@ pub struct TypeData {
     pub layout: Layout,
 }
 
-impl Display for TypeKind {
+impl Display for TypeData {
     fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Type => write!(fmt, "type"),
-            Self::Empty => write!(fmt, "()"),
-            Self::F64 => write!(fmt, "f64"),
-            Self::F32 => write!(fmt, "f32"),
-            Self::Int(int) => int.fmt(fmt),
-            Self::Bool => write!(fmt, "bool"),
-            Self::Reference { pointee } => write!(fmt, "&{}", pointee),
-            Self::Buffer { pointee } => write!(fmt, "[] {}", pointee),
-            Self::Array(internal, length) => write!(fmt, "[{}] {}", length, internal),
-            Self::Function { args, returns } => {
+        match &self.kind {
+            TypeKind::Type => write!(fmt, "type"),
+            TypeKind::Empty => write!(fmt, "()"),
+            TypeKind::F64 => write!(fmt, "f64"),
+            TypeKind::F32 => write!(fmt, "f32"),
+            TypeKind::Int(int) => int.fmt(fmt),
+            TypeKind::Bool => write!(fmt, "bool"),
+            TypeKind::Reference { pointee } => write!(fmt, "&{}", pointee),
+            TypeKind::Buffer { pointee } => write!(fmt, "[] {}", pointee),
+            TypeKind::Array(internal, length) => write!(fmt, "[{}] {}", length, internal),
+            TypeKind::Function { args, returns } => {
                 write!(fmt, "fn(")?;
                 for (i, arg) in args.iter().enumerate() {
                     if i > 0 {
@@ -225,12 +225,12 @@ impl Display for TypeKind {
                 }
 
                 write!(fmt, ")")?;
-                if !matches!(returns.kind(), Self::Empty) {
+                if !matches!(returns.kind(), TypeKind::Empty) {
                     write!(fmt, " -> {}", returns)?;
                 }
                 Ok(())
             }
-            Self::Tuple(members) => {
+            TypeKind::Tuple(members) => {
                 write!(fmt, "(")?;
                 for (i, member) in members.iter().enumerate() {
                     if i > 0 {
@@ -241,7 +241,7 @@ impl Display for TypeKind {
                 write!(fmt, ")")?;
                 Ok(())
             }
-            Self::Enum { marker, base, fields } => {
+            TypeKind::Enum { marker, base, fields } => {
                 if let Some(name) = marker.name {
                     write!(fmt, "{}", name)
                 } else {
@@ -253,7 +253,7 @@ impl Display for TypeKind {
                     write!(fmt, " }}")
                 }
             }
-            Self::Struct(members) => {
+            TypeKind::Struct(members) => {
                 write!(fmt, "{{")?;
                 for (i, (name, member)) in members.iter().enumerate() {
                     if i > 0 {
@@ -264,7 +264,7 @@ impl Display for TypeKind {
                 write!(fmt, "}}")?;
                 Ok(())
             }
-            Self::Unique { marker, inner } => {
+            TypeKind::Unique { marker, inner } => {
                 write!(fmt, "{}({})", marker.name.map_or("<anonymous>", |v| v.as_str()), inner)
             }
         }
