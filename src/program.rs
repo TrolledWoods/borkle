@@ -19,6 +19,7 @@ use std::path::{Path, PathBuf};
 use std::ptr::NonNull;
 use std::sync::Arc;
 use ustr::{Ustr, UstrMap, UstrSet};
+use std::sync::atomic::AtomicU64;
 
 pub mod constant;
 
@@ -36,6 +37,9 @@ pub struct Program {
     pub arguments: Arguments,
     pub backends: Backends,
     pub logger: Logger,
+
+    pub lib_lines_of_code: AtomicU64,
+    pub user_lines_of_code: AtomicU64,
 
     members: RwLock<IdVec<MemberId, Member>>,
     poly_members: RwLock<IdVec<PolyMemberId, PolyMember>>,
@@ -68,6 +72,8 @@ impl Program {
             arguments,
             backends,
             logger,
+            lib_lines_of_code: AtomicU64::new(0),
+            user_lines_of_code: AtomicU64::new(0),
             members: default(),
             poly_members: default(),
             external_symbols: default(),
@@ -415,10 +421,14 @@ impl Program {
         });
     }
 
-    pub fn add_file(&self, path: impl AsRef<Path>) {
+    pub fn add_file(&self, path: impl AsRef<Path>, is_library: bool) {
         profile::profile!("program::add_file");
         self.work
-            .enqueue(Task::Parse(None, path.as_ref().to_path_buf()));
+            .enqueue(Task::Parse {
+                imported_at: None,
+                is_library,
+                path: path.as_ref().to_path_buf(),
+            });
     }
 
     /// Locks
@@ -433,11 +443,13 @@ impl Program {
         path: impl AsRef<Path>,
         location: Location,
         from_scope: ScopeId,
+        is_library: bool,
     ) {
-        self.work.enqueue(Task::Parse(
-            Some((location, from_scope)),
-            path.as_ref().to_path_buf(),
-        ));
+        self.work.enqueue(Task::Parse {
+            imported_at: Some((location, from_scope)),
+            is_library,
+            path: path.as_ref().to_path_buf(),
+        });
     }
 
     /// Locks
@@ -1325,7 +1337,11 @@ pub enum Task {
     },
     FlagPolyMember(PolyMemberId, MemberDep, DependencyList),
 
-    Parse(Option<(Location, ScopeId)>, PathBuf),
+    Parse { 
+        imported_at: Option<(Location, ScopeId)>,
+        is_library: bool,
+        path: PathBuf,
+    },
     TypeMember {
         member_id: MemberId,
         ast: Ast,
@@ -1354,7 +1370,7 @@ impl fmt::Debug for Task {
                 write!(f, "flag_member_callable({:?}, {:?})", id, dep_kind)
             }
 
-            Task::Parse(_, buf) => write!(f, "parse({:?})", buf),
+            Task::Parse { path, .. } => write!(f, "parse({})", path.display()),
             Task::TypeMember { member_id, .. } => write!(f, "type_member({:?})", member_id),
             Task::TypePolyMember { member_id, .. } => write!(f, "type_poly_member({:?})", member_id),
             Task::EmitMember(id, ..) => write!(f, "emit_member({:?})", id),

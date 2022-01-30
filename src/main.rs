@@ -62,10 +62,14 @@ fn main() {
             });
         }
 
+        let frontend_timer = std::time::Instant::now();
+
         let mut program = program::Program::new(logger, options.clone(), backend::Backends { backends });
-        program.add_file(&options.file);
+        program.add_file(&options.file, false);
 
         let (backend_emitters, mut errors) = thread_pool::run(&mut program, options.num_threads);
+
+        let frontend_time = frontend_timer.elapsed();
 
         let files = program.file_contents();
         if !errors.print(files) {
@@ -81,11 +85,24 @@ fn main() {
             }
         };
 
+        let backend_timer = std::time::Instant::now();
+
         let backends = std::mem::take(&mut program.backends);
         backends.emit(&program, backend_emitters);
 
+        let backend_time = backend_timer.elapsed();
+
         let elapsed = time.elapsed();
-        println!("Finished in {:.4} seconds", elapsed.as_secs_f32());
+
+        let user_lines = *program.user_lines_of_code.get_mut();
+        let lib_lines  = *program.lib_lines_of_code .get_mut();
+        println!("Compiled {} lines of code", user_lines + lib_lines);
+        println!("      .. {} user code", user_lines);
+        println!("      .. {} libraries", lib_lines);
+
+        println!("Finished in {:.6} seconds", elapsed.as_secs_f32());
+        println!("         .. {:.6} were frontend", frontend_time.as_secs_f32());
+        println!("         .. {:.6} were backend",  backend_time.as_secs_f32());
 
         if options.run {
             let routine = program.get_routine(entry_point).unwrap();

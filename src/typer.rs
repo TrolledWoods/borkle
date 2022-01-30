@@ -1003,8 +1003,8 @@ fn build_constraints(
             let left = build_constraints(ctx, left, set);
             let right = build_constraints(ctx, right, set);
 
-            // TODO: This is a massive hack!
-            if op == BinaryOp::Equals || op == BinaryOp::NotEquals {
+            // TODO: This is a massive hack! We want this to exist in the type inferrer itself probably....
+            if op == BinaryOp::Equals || op == BinaryOp::NotEquals || op == BinaryOp::BitAnd || op == BinaryOp::BitOr {
                 ctx.infer.set_equal(left, right, Reason::temp(node_loc));
             }
 

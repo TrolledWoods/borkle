@@ -119,6 +119,7 @@ impl Backends {
                     command.arg(&path);
                     command.arg("/Fetarget\\output.exe");
                     command.arg("/Zi");
+                    command.arg("/nologo");
                     command.arg("/link");
                     command.arg("/release");
                     command.arg("/incremental:no");
@@ -133,11 +134,7 @@ impl Backends {
                     println!("cl command: {:?}", command);
 
                     match command.output() {
-                        Ok(output) => {
-                            use std::io::Write;
-                            std::io::stdout().write_all(&output.stdout).unwrap();
-                            std::io::stderr().write_all(&output.stderr).unwrap();
-                        }
+                        Ok(_) => {}
                         Err(err) => println!("Failed to link: {:?}", err),
                     }
                 }

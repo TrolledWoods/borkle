@@ -69,10 +69,10 @@ pub fn process_string(
     file: Ustr,
     string: &str,
     scope: ScopeId,
-) -> Result<(), ()> {
+) -> Result<u64, ()> {
     profile::profile!("process_string");
 
-    let mut tokens = lexer::process_string(errors, file, string)?;
+    let (mut tokens, loc) = lexer::process_string(errors, file, string)?;
 
     let mut context = DataContext::new(errors, program, &mut tokens, Path::new(&*file), scope);
 
@@ -88,6 +88,7 @@ pub fn process_string(
             offset_path(&context.program.arguments.lib_path, "base.bo"),
             context.tokens.loc(),
             context.scope,
+            true,
         );
     }
 
@@ -114,7 +115,7 @@ pub fn process_string(
 
                     let path = offset_path(&context.program.arguments.lib_path, &name);
 
-                    program.add_file_from_import(path, token.loc, context.scope);
+                    program.add_file_from_import(path, token.loc, context.scope, true);
                 } else {
                     context.error(
                         name.loc,
@@ -173,7 +174,7 @@ pub fn process_string(
                     path.pop();
                     let path = offset_path(&path, &name);
 
-                    program.add_file_from_import(path, token.loc, context.scope);
+                    program.add_file_from_import(path, token.loc, context.scope, false);
                 } else {
                     context.error(
                         name.loc,
@@ -212,7 +213,7 @@ pub fn process_string(
         }
     }
 
-    Ok(())
+    Ok(loc)
 }
 
 fn type_declaration(global: &mut DataContext<'_>) -> Result<(), ()> {

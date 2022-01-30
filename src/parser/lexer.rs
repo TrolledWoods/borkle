@@ -75,7 +75,7 @@ pub enum Keyword {
     Unpack,
 }
 
-pub fn process_string(errors: &mut ErrorCtx, file: Ustr, string: &str) -> Result<TokenStream, ()> {
+pub fn process_string(errors: &mut ErrorCtx, file: Ustr, string: &str) -> Result<(TokenStream, u64), ()> {
     let mut tokens = Vec::new();
 
     // Create an iterator that iterates over the
@@ -279,7 +279,7 @@ pub fn process_string(errors: &mut ErrorCtx, file: Ustr, string: &str) -> Result
         tokens.push(Token { loc, kind });
     }
 
-    Ok(TokenStream::new(loc, tokens))
+    Ok((TokenStream::new(loc, tokens), loc.line as u64))
 }
 
 fn lex_number(

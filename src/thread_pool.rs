@@ -106,9 +106,9 @@ fn worker<'a>(alloc: &'a mut Bump, program: &'a Program) -> (ThreadContext<'a>, 
                     program.flag_poly_member_value_and_callable_if_function(poly_member);
                 }
 
-                Task::Parse(meta_data, file) => {
+                Task::Parse { imported_at, path, is_library } => {
                     profile::profile!("Parse");
-                    parse_file(&mut errors, program, &file, meta_data);
+                    parse_file(&mut errors, program, &path, imported_at, is_library);
                 }
                 Task::TypePolyMember { member_id, ast, member_kind, locals, mut dependencies, poly_args } => {
                     profile::profile!("Task::TypePolyMember");
@@ -314,6 +314,7 @@ fn parse_file(
     program: &Program,
     file: &Path,
     meta_data: Option<(Location, ScopeId)>,
+    is_library: bool,
 ) {
     let file_name_str = format!("{}", file.display()).into();
 
@@ -338,8 +339,13 @@ fn parse_file(
                 loaded_files.insert(file_name_str, scope);
                 drop(loaded_files);
 
-                let _ =
-                    crate::parser::process_string(errors, program, file_name_str, &string, scope);
+                if let Ok(loc) = crate::parser::process_string(errors, program, file_name_str, &string, scope) {
+                    if is_library {
+                        program.lib_lines_of_code.fetch_add(loc, Ordering::Relaxed);
+                    } else {
+                        program.user_lines_of_code.fetch_add(loc, Ordering::Relaxed);
+                    }
+                }
 
                 program.insert_file_contents(file_name_str, string);
 

@@ -1,19 +1,24 @@
 library "iter.bo";
 import "tests/main.bo";
 
-type EnumOne = enum u8 {
-    A = 0;
-    B = 1;
-    C = 2;
-    D = 3;
+type Flags = enum u8 {
+    A = 0x1;
+    B = 0x2;
+    C = 0x4;
+    D = 0x8;
 };
 
 #entry fn() {
-    let [a, b, c, d] = [.B : EnumOne, .B, .A, .D];
+    let thing: Flags = .A | .B | .C;
 
-    if a == b {
-        print("Yay!\n");
-    };
+    if thing & .A  print("Has A!\n");
+    if thing & .B  print("Has B!\n");
+    if thing & .C  print("Has C!\n");
+    if thing & .D  print("Has D!\n");
+
+    if thing & (.A | .B)       print("Has A and B!\n");
+    if thing & (.A | .B | .C)  print("Has A and B and C!\n");
+    if thing & (.A | .D)       print("Has A and D!\n");
 
     run_tests();
 };

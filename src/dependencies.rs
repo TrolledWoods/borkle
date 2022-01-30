@@ -17,7 +17,6 @@ impl DependencyList {
         self.deps.is_empty()
     }
 
-
     pub fn add(&mut self, loc: Location, new: DepKind) {
         for (_, old) in &mut self.deps {
             match old.combine(new) {

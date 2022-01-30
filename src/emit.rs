@@ -613,15 +613,24 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, mut node: NodeView<'a>) -> (Value, T
             let r_type_id = TypeId::Node(ctx.variant_id, right.id);
             let r_type = ctx.types.get(r_type_id);
 
-            if let (type_infer::TypeKind::Reference, type_infer::TypeKind::Int) = (type_.kind(), r_type.kind()) {
-                let pointee_id = type_.args()[0];
-                let pointee_layout = *ctx.types.get(pointee_id).layout.unwrap();
-                let b_copy = ctx.create_reg_with_layout(Layout::USIZE);
-                ctx.emit_binary_imm_u64(BinaryOp::Mult, b_copy, b, pointee_layout.size as u64);
-                ctx.emit_binary(*op, to, a, b_copy, PrimitiveType::U64);
-            } else {
-                let number_type = ctx.to_number_type(TypeId::Node(ctx.variant_id, left.id)).unwrap();
-                ctx.emit_binary(*op, to, a, b, number_type);
+            match (op, type_.kind(), r_type.kind()) {
+                (BinaryOp::BitAnd, TypeKind::Enum { .. }, TypeKind::Enum { .. }) => {
+                    let temp = ctx.create_reg_with_layout(a_layout.layout);
+                    let number_type = ctx.to_number_type(TypeId::Node(ctx.variant_id, left.id)).unwrap();
+                    ctx.emit_binary(*op, temp, a, b, number_type);
+                    ctx.emit_binary(BinaryOp::Equals, to, temp, b, number_type);
+                }
+                (_, type_infer::TypeKind::Reference, type_infer::TypeKind::Int) => {
+                    let pointee_id = type_.args()[0];
+                    let pointee_layout = *ctx.types.get(pointee_id).layout.unwrap();
+                    let b_copy = ctx.create_reg_with_layout(Layout::USIZE);
+                    ctx.emit_binary_imm_u64(BinaryOp::Mult, b_copy, b, pointee_layout.size as u64);
+                    ctx.emit_binary(*op, to, a, b_copy, PrimitiveType::U64);
+                }
+                _ => {
+                    let number_type = ctx.to_number_type(TypeId::Node(ctx.variant_id, left.id)).unwrap();
+                    ctx.emit_binary(*op, to, a, b, number_type);
+                }
             }
 
             (Value::Stack(to), to_layout)

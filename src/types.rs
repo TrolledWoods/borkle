@@ -8,7 +8,6 @@ use ustr::Ustr;
 // pub use crate::type_infer::{self, TypeKind};
 
 #[derive(Clone, PartialEq, Eq, Hash)]
-#[repr(transparent)]
 pub struct Type(TypeData);
 
 impl Debug for Type {
