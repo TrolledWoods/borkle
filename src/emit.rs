@@ -612,15 +612,16 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, mut node: NodeView<'a>) -> (Value, T
             let type_ = ctx.types.get(type_id);
             let r_type_id = TypeId::Node(ctx.variant_id, right.id);
             let r_type = ctx.types.get(r_type_id);
+            let result_type = ctx.types.get(node_type_id);
 
-            match (op, type_.kind(), r_type.kind()) {
-                (BinaryOp::BitAnd, TypeKind::Enum { .. }, TypeKind::Enum { .. }) => {
+            match (op, type_.kind(), r_type.kind(), result_type.kind()) {
+                (BinaryOp::BitAnd, TypeKind::Enum { .. }, TypeKind::Enum { .. }, TypeKind::Bool) => {
                     let temp = ctx.create_reg_with_layout(a_layout.layout);
                     let number_type = ctx.to_number_type(TypeId::Node(ctx.variant_id, left.id)).unwrap();
                     ctx.emit_binary(*op, temp, a, b, number_type);
                     ctx.emit_binary(BinaryOp::Equals, to, temp, b, number_type);
                 }
-                (_, type_infer::TypeKind::Reference, type_infer::TypeKind::Int) => {
+                (_, type_infer::TypeKind::Reference, type_infer::TypeKind::Int, _) => {
                     let pointee_id = type_.args()[0];
                     let pointee_layout = *ctx.types.get(pointee_id).layout.unwrap();
                     let b_copy = ctx.create_reg_with_layout(Layout::USIZE);

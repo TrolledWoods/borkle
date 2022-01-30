@@ -218,7 +218,8 @@ pub fn process_string(
 
 fn type_declaration(global: &mut DataContext<'_>) -> Result<(), ()> {
     let mut is_aliased = None;
-    parse_tags(global, "type declaration", &mut [("alias".into(), &mut is_aliased)])?;
+    let mut is_builtin = None;
+    parse_tags(global, "type declaration", &mut [("alias".into(), &mut is_aliased), ("builtin".into(), &mut is_builtin)])?;
 
     let (loc, name) = global.tokens.expect_identifier(global.errors)?;
     let poly_args = maybe_parse_polymorphic_arguments(global)?;

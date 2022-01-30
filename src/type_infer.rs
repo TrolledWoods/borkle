@@ -1787,12 +1787,21 @@ impl TypeSystem {
                     }
                     (
                         BinaryOp::BitAnd,
-                        (Some(TypeKind::Enum(_, _)), Some(TypeKind::Enum(_, _)), _),
+                        (Some(TypeKind::Enum(_, _)), Some(TypeKind::Enum(_, _)), Some(TypeKind::Bool)),
                     ) => {
                         self.set_equal(a_id, b_id, constraint.reason);
 
                         let bool = self.add_type(TypeKind::Bool, Args([]), ());
                         self.set_equal(bool, result_id, constraint.reason);
+                    }
+                    (
+                        BinaryOp::BitAnd,
+                        (Some(TypeKind::Enum(_, _)), Some(TypeKind::Enum(_, _)), Some(TypeKind::Enum(_, _))) |
+                        (_, _, Some(TypeKind::Enum(_, _))),
+                    ) => {
+                        // TODO: Type validation!!
+                        self.set_equal(a_id, b_id, constraint.reason);
+                        self.set_equal(a_id, result_id, constraint.reason);
                     }
                     (
                         BinaryOp::Equals | BinaryOp::NotEquals | BinaryOp::LargerThanEquals | BinaryOp::LargerThan | BinaryOp::LessThanEquals | BinaryOp::LessThan,

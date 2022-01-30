@@ -1,26 +1,16 @@
 library "iter.bo";
+library "timer.bo";
 import "tests/main.bo";
 
-type Flags = enum u8 {
-    A = 0x1;
-    B = 0x2;
-    C = 0x4;
-    D = 0x8;
+type #builtin: CallingConvention = enum u8 {
+    Borkle = 0;
+    C      = 1;
 };
 
 #entry fn() {
-    let thing: Flags = .A | .B | .C;
-
-    if thing & .A  print("Has A!\n");
-    if thing & .B  print("Has B!\n");
-    if thing & .C  print("Has C!\n");
-    if thing & .D  print("Has D!\n");
-
-    if thing & (.A | .B)       print("Has A and B!\n");
-    if thing & (.A | .B | .C)  print("Has A and B and C!\n");
-    if thing & (.A | .D)       print("Has A and D!\n");
-
+    let timer = start_timer();
     run_tests();
+    print("Time elapsed(micros): %\n", get_micros(timer));
 };
 
 // IR emission improvements

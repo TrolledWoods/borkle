@@ -50,6 +50,7 @@ pub struct Program {
 
     functions: RwLock<IdVec<FunctionId, Function>>,
     non_ready_tasks: Mutex<Vec<(u32, Option<NonReadyTask>)>>,
+    builtins: [RwLock<BuiltinDefinition>; Builtin::Count as usize],
 
     work: WorkPile,
 
@@ -72,6 +73,7 @@ impl Program {
             arguments,
             backends,
             logger,
+            builtins: [RwLock::new(BuiltinDefinition::Undefined(Vec::new())); Builtin::Count as usize],
             lib_lines_of_code: AtomicU64::new(0),
             user_lines_of_code: AtomicU64::new(0),
             members: default(),
@@ -845,6 +847,64 @@ impl Program {
         Ok(id)
     }
 
+    fn bind_member_to_builtin(
+        &self,
+        errors: &mut ErrorCtx,
+        builtin: Builtin,
+        loc: Location,
+        member_id: PolyOrMember,
+    ) -> Result<(), ()> {
+        let mut builtin_def = self.builtins[builtin as usize].write();
+        let old = std::mem::replace(&mut *builtin_def, BuiltinDefinition::Defined(member_id));
+        drop(builtin_def);
+
+        match old {
+            BuiltinDefinition::Defined(_old_member_id) => {
+                errors.error(loc, format!("`{:?}` is already defined", builtin));
+                Err(())
+            }
+            BuiltinDefinition::Undefined(dependants) => {
+                // @Copypasta: From bind_member_to_name
+                match member_id {
+                    PolyOrMember::Member(member_id) => {
+                        for &(kind, loc, dependant) in &dependants {
+                            let mut members = self.members.write();
+                            let member = &mut members[member_id];
+
+                            self.logger.log(format_args!(
+                                "Dependant at '{}' found definition of '{}', now searches for the {:?} of it",
+                                loc, member.name, kind,
+                            ));
+
+                            if !member.add_dependant(loc, kind, dependant) {
+                                drop(members);
+                                self.resolve_dependency(dependant);
+                            }
+                        }
+                    }
+                    PolyOrMember::Poly(poly_id) => {
+                        for &(kind, loc, dependant) in &dependants {
+                            let mut members = self.poly_members.write();
+                            let member = &mut members[poly_id];
+
+                            self.logger.log(format_args!(
+                                "Dependant at '{}' found definition of '{}', now searches for the {:?} of it",
+                                loc, member.name, kind,
+                            ));
+
+                            if !member.add_dependant(loc, kind, dependant) {
+                                drop(members);
+                                self.resolve_dependency(dependant);
+                            }
+                        }
+                    }
+                }
+
+                Ok(())
+            }
+        }
+    }
+
     /// # Locks
     /// * ``scopes`` write
     /// * ``members`` write
@@ -971,6 +1031,40 @@ impl Program {
         let mut num_deps = 0;
         for (loc, dep_kind) in deps.deps {
             match dep_kind {
+                DepKind::MemberByBuiltin(builtin, dep_kind) => {
+                    let mut builtin_def = self.builtins[builtin as usize].write();
+
+                    match *builtin_def {
+                        BuiltinDefinition::Defined(dep_id) => {
+                            drop(builtin);
+
+                            match dep_id {
+                                PolyOrMember::Poly(dep_id) => {
+                                    let members = self.poly_members.read();
+                                    if members[dep_id].add_dependant(loc, dep_kind, id) {
+                                        num_deps += 1;
+                                    }
+                                }
+                                PolyOrMember::Member(dep_id) => {
+                                    let members = self.members.read();
+                                    if members[dep_id].add_dependant(loc, dep_kind, id) {
+                                        num_deps += 1;
+                                    }
+                                }
+                            }
+                        }
+                        BuiltinDefinition::Undefined(ref mut dependants) => {
+                            num_deps += 1;
+                            self.logger.log(format_args!(
+                                "Undefined builtin '{:?}', wants {:?} of it",
+                                builtin, dep_kind
+                            ));
+
+                            dependants.push((dep_kind, loc, id));
+                        }
+                    }
+                    
+                }
                 DepKind::MemberByName(scope_id, dep_name, dep_kind) => {
                     let scopes = self.scopes.read();
                     let scope = &scopes[scope_id];
@@ -1089,6 +1183,11 @@ fn insert_callable_dependency_recursive(
             }
         }
     }
+}
+
+enum BuiltinDefinition {
+    Defined(PolyOrMember),
+    Undefined(Vec<(MemberDep, Location, TaskId)>),
 }
 
 #[derive(Default)]
@@ -1302,6 +1401,22 @@ impl<T> DependableOption<T> {
         match self {
             Self::Some(value) => Some(value),
             Self::None(_) => None,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[repr(usize)]
+pub enum Builtin {
+    CallingConvention,
+    Count,
+}
+
+impl Builtin {
+    pub fn builtin_type_from_string(name: &str) -> Option<Self> {
+        match name {
+            "CallingConvention" => Some(Self::CallingConvention),
+            _ => None,
         }
     }
 }

@@ -1,5 +1,5 @@
 use crate::location::Location;
-use crate::program::{FunctionId, MemberId, ScopeId};
+use crate::program::{FunctionId, MemberId, ScopeId, Builtin};
 use std::cmp::Ordering;
 use ustr::Ustr;
 
@@ -42,7 +42,7 @@ impl DependencyList {
     pub fn set_minimum_member_dep(&mut self, minimum: MemberDep) {
         for (_, dep) in &mut self.deps {
             match dep {
-                DepKind::Member(_, dep) | DepKind::MemberByName(_, _, dep) => {
+                DepKind::Member(_, dep) | DepKind::MemberByName(_, _, dep) | DepKind::MemberByBuiltin(_, dep) => {
                     dep.combine_and_replace(minimum)
                 }
                 DepKind::Callable(_) => {}
@@ -56,6 +56,7 @@ pub enum DepKind {
     /// This can also be used for polymorphic members, it doesn't matter, both use the same
     /// dependency in this case.
     MemberByName(ScopeId, Ustr, MemberDep),
+    MemberByBuiltin(Builtin, MemberDep),
     Member(MemberId, MemberDep),
     Callable(FunctionId),
 }
@@ -63,6 +64,10 @@ pub enum DepKind {
 impl DepKind {
     fn combine(self, new: Self) -> Combination {
         match (self, new) {
+            (
+                DepKind::MemberByBuiltin(old_builtin, old_dep),
+                DepKind::MemberByBuiltin(new_builtin, new_dep),
+            ) if old_builtin == new_builtin => old_dep.combine(new_dep),
             (
                 DepKind::MemberByName(old_scope, old_name, old_dep),
                 DepKind::MemberByName(new_scope, new_name, new_dep),
