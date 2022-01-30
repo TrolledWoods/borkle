@@ -1177,73 +1177,8 @@ impl TypeSystem {
             panic!("Cannot call value_to_compiler_type on incomplete value")
         };
 
-        match *type_kind {
-            TypeKind::CompareUnspecified => unreachable!("CompareUnspecified should never be converted to a compiler type"),
-            TypeKind::Type => types::Type::new(types::TypeKind::Type),
-            TypeKind::Empty => types::Type::new(types::TypeKind::Empty),
-            TypeKind::Unique(marker) => {
-                let args: Box<[_]> = type_args.iter().map(|&v| self.value_to_compiler_type(v)).collect();
-                types::Type::new_with_args(types::TypeKind::Unique(marker), args)
-            }
-            TypeKind::Array => {
-                let args: Box<[_]> = type_args.iter().map(|&v| self.value_to_compiler_type(v)).collect();
-                types::Type::new_with_args(types::TypeKind::Array, args)
-            }
-            TypeKind::Enum(marker, ref field_names) => {
-                let field_names = field_names.clone();
-                let args: Box<[_]> = type_args.iter().map(|&v| self.value_to_compiler_type(v)).collect();
-                types::Type::new_with_args(types::TypeKind::Enum(marker, field_names), args)
-            }
-            TypeKind::Struct(ref fields) => {
-                let fields = fields.clone();
-                let args: Box<[_]> = type_args.iter().map(|&v| self.value_to_compiler_type(v)).collect();
-                types::Type::new_with_args(types::TypeKind::Struct(fields), args)
-            }
-            TypeKind::Tuple => {
-                let args: Box<[_]> = type_args.iter().map(|&v| self.value_to_compiler_type(v)).collect();
-                types::Type::new_with_args(types::TypeKind::Tuple, args)
-            }
-            TypeKind::Reference => {
-                let args: Box<[_]> = type_args.iter().map(|&v| self.value_to_compiler_type(v)).collect();
-                types::Type::new_with_args(types::TypeKind::Reference, args)
-            }
-            TypeKind::Buffer => {
-                let args: Box<[_]> = type_args.iter().map(|&v| self.value_to_compiler_type(v)).collect();
-                types::Type::new_with_args(types::TypeKind::Buffer, args)
-            }
-            TypeKind::Bool => {
-                let args: Box<[_]> = type_args.iter().map(|&v| self.value_to_compiler_type(v)).collect();
-                types::Type::new_with_args(types::TypeKind::Bool, args)
-            }
-            TypeKind::IntSigned(v) => {
-                let args: Box<[_]> = type_args.iter().map(|&v| self.value_to_compiler_type(v)).collect();
-                types::Type::new_with_args(types::TypeKind::IntSigned(v), args)
-            }
-            TypeKind::IntSize(v) => {
-                let args: Box<[_]> = type_args.iter().map(|&v| self.value_to_compiler_type(v)).collect();
-                types::Type::new_with_args(types::TypeKind::IntSize(v), args)
-            }
-            TypeKind::ConstantValue(v) => {
-                let args: Box<[_]> = type_args.iter().map(|&v| self.value_to_compiler_type(v)).collect();
-                types::Type::new_with_args(types::TypeKind::ConstantValue(v), args)
-            }
-            TypeKind::Constant => {
-                let args: Box<[_]> = type_args.iter().map(|&v| self.value_to_compiler_type(v)).collect();
-                types::Type::new_with_args(types::TypeKind::Constant, args)
-            }
-            TypeKind::Float => {
-                let args: Box<[_]> = type_args.iter().map(|&v| self.value_to_compiler_type(v)).collect();
-                types::Type::new_with_args(types::TypeKind::Float, args)
-            }
-            TypeKind::Int => {
-                let args: Box<[_]> = type_args.iter().map(|&v| self.value_to_compiler_type(v)).collect();
-                types::Type::new_with_args(types::TypeKind::Int, args)
-            }
-            TypeKind::Function => {
-                let args: Box<[_]> = type_args.iter().map(|&v| self.value_to_compiler_type(v)).collect();
-                types::Type::new_with_args(types::TypeKind::Function, args)
-            }
-        }
+        let args: Box<[_]> = type_args.iter().map(|&v| self.value_to_compiler_type(v)).collect();
+        types::Type::new_with_args(type_kind.clone(), args)
     }
     
     pub fn set_op_equal(&mut self, op: BinaryOp, a: ValueId, b: ValueId, result: ValueId, reason: Reason) {
@@ -2297,72 +2232,8 @@ impl TypeSystem {
     }
 
     pub fn set_compiler_type(&mut self, program: &Program, id: ValueId, type_: &types::Type, set: impl IntoValueSet + Clone) -> ValueId {
-        match type_.kind() {
-            types::TypeKind::CompareUnspecified => unreachable!(),
-            &types::TypeKind::Enum(marker, ref field_names) => {
-                let field_names = field_names.clone();
-                let args: Vec<_> = type_.args().iter().map(|v| (self.add_compiler_type(program, v, set.clone()), Reason::temp_zero())).collect();
-                self.set_type(id, TypeKind::Enum(marker, field_names), Args(args), set)
-            }
-            types::TypeKind::Function => {
-                let args: Vec<_> = type_.args().iter().map(|v| (self.add_compiler_type(program, v, set.clone()), Reason::temp_zero())).collect();
-                self.set_type(id, TypeKind::Function, Args(args), set.clone())
-            }
-            types::TypeKind::Type => {
-                self.set_type(id, TypeKind::Type, Args([]), set.clone())
-            }
-            types::TypeKind::Float => {
-                let args: Vec<_> = type_.args().iter().map(|v| (self.add_compiler_type(program, v, set.clone()), Reason::temp_zero())).collect();
-                self.set_type(id, TypeKind::Float, Args(args), set.clone())
-            }
-            types::TypeKind::Int => {
-                let args: Vec<_> = type_.args().iter().map(|v| (self.add_compiler_type(program, v, set.clone()), Reason::temp_zero())).collect();
-                self.set_type(id, TypeKind::Int, Args(args), set.clone())
-            }
-            &types::TypeKind::IntSize(v) => {
-                let args: Vec<_> = type_.args().iter().map(|v| (self.add_compiler_type(program, v, set.clone()), Reason::temp_zero())).collect();
-                self.set_type(id, TypeKind::IntSize(v), Args(args), set.clone())
-            }
-            &types::TypeKind::IntSigned(v) => {
-                let args: Vec<_> = type_.args().iter().map(|v| (self.add_compiler_type(program, v, set.clone()), Reason::temp_zero())).collect();
-                self.set_type(id, TypeKind::IntSigned(v), Args(args), set.clone())
-            }
-            types::TypeKind::Empty => self.set_type(id, TypeKind::Empty, Args([]), set.clone()),
-            types::TypeKind::Bool  => self.set_type(id, TypeKind::Bool, Args([]), set.clone()),
-            types::TypeKind::Buffer => {
-                let args: Vec<_> = type_.args().iter().map(|v| (self.add_compiler_type(program, v, set.clone()), Reason::temp_zero())).collect();
-                self.set_type(id, TypeKind::Buffer, Args(args), set.clone())
-            }
-            types::TypeKind::Reference => {
-                let args: Vec<_> = type_.args().iter().map(|v| (self.add_compiler_type(program, v, set.clone()), Reason::temp_zero())).collect();
-                self.set_type(id, TypeKind::Reference, Args(args), set.clone())
-            }
-            types::TypeKind::Array => {
-                let args: Vec<_> = type_.args().iter().map(|v| (self.add_compiler_type(program, v, set.clone()), Reason::temp_zero())).collect();
-                self.set_type(id, TypeKind::Array, Args(args), set.clone())
-            }
-            &types::TypeKind::ConstantValue(value) => {
-                let args: Vec<_> = type_.args().iter().map(|v| (self.add_compiler_type(program, v, set.clone()), Reason::temp_zero())).collect();
-                self.set_type(id, TypeKind::ConstantValue(value), Args(args), set.clone())
-            }
-            types::TypeKind::Constant => {
-                let args: Vec<_> = type_.args().iter().map(|v| (self.add_compiler_type(program, v, set.clone()), Reason::temp_zero())).collect();
-                self.set_type(id, TypeKind::Constant, Args(args), set.clone())
-            }
-            types::TypeKind::Tuple => {
-                let args: Vec<_> = type_.args().iter().map(|v| (self.add_compiler_type(program, v, set.clone()), Reason::temp_zero())).collect();
-                self.set_type(id, TypeKind::Tuple, Args(args), set.clone())
-            }
-            types::TypeKind::Struct(ref fields) => {
-                let fields = fields.clone();
-                let args: Vec<_> = type_.args().iter().map(|v| (self.add_compiler_type(program, v, set.clone()), Reason::temp_zero())).collect();
-                self.set_type(id, TypeKind::Struct(fields), Args(args), set.clone())
-            }
-            &types::TypeKind::Unique(marker) => {
-                let args: Vec<_> = type_.args().iter().map(|v| (self.add_compiler_type(program, v, set.clone()), Reason::temp_zero())).collect();
-                self.set_type(id, TypeKind::Unique(marker), Args(args), set.clone())
-            }
-        }
+        let args: Vec<_> = type_.args().iter().map(|v| (self.add_compiler_type(program, v, set.clone()), Reason::temp_zero())).collect();
+        self.set_type(id, type_.kind().clone(), Args(args), set)
     }
 
     pub fn add_compiler_type(&mut self, program: &Program, type_: &types::Type, set: impl IntoValueSet + Clone) -> ValueId {

@@ -1,6 +1,6 @@
 use crate::location::Location;
 use crate::layout::{Layout, StructLayout};
-use crate::program::{constant_to_str, FunctionId, constant::ConstantRef};
+use crate::program::{constant_to_str, FunctionId};
 use lazy_static::lazy_static;
 use parking_lot::Mutex;
 use std::fmt::{self, Debug, Display};
@@ -366,32 +366,7 @@ pub fn to_align(value: usize, align: usize) -> usize {
     (value + align - 1) & !(align - 1)
 }
 
-#[derive(Clone, Hash, PartialEq, Eq)]
-pub enum TypeKind {
-    Type,
-    Empty,
-    Bool,
-
-    Float,
-
-    Int,
-    IntSize(u8),
-    IntSigned(bool),
-
-    Array,
-    Reference,
-    Buffer,
-    Function,
-    Struct(Box<[Ustr]>),
-    Tuple,
-    Enum(UniqueTypeMarker, Box<[Ustr]>),
-    Unique(UniqueTypeMarker),
-
-    ConstantValue(ConstantRef),
-    Constant,
-
-    CompareUnspecified,
-}
+pub use crate::type_infer::TypeKind;
 
 impl TypeData {
     fn for_each_child(&self, mut on_inner: impl FnMut(&Type)) {
