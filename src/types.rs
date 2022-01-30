@@ -72,12 +72,15 @@ impl Type {
         types: &mut Vec<&'static TypeData>,
         kind: TypeKind,
     ) -> Type {
-        let (size, align) = kind.calculate_size_align();
-
-        let data = TypeData {
-            layout: Layout { size, align },
+        let mut data = TypeData {
+            // @Cleanup: Temporary value, not that nice
+            layout: Layout { size: 0, align: 0 },
             kind,
         };
+
+        let (size, align) = data.calculate_size_align();
+        data.layout = Layout { size, align };
+
         let leaked = Box::leak(Box::new(data));
         types.push(leaked);
         Self(leaked)
@@ -88,7 +91,7 @@ impl Type {
             TypeKind::Function { .. } => true,
             _ => {
                 let mut can_be = true;
-                self.kind().for_each_child(|child| {
+                self.0.for_each_child(|child| {
                     if !child.can_be_stored_in_constant() {
                         can_be = false;
                     }
@@ -299,9 +302,9 @@ pub enum TypeKind {
     },
 }
 
-impl TypeKind {
+impl TypeData {
     fn for_each_child(&self, mut on_inner: impl FnMut(&Type)) {
-        match self {
+        match &self.kind {
             TypeKind::Type
             | TypeKind::Empty
             | TypeKind::F64
@@ -334,23 +337,23 @@ impl TypeKind {
     }
 
     fn calculate_size_align(&self) -> (usize, usize) {
-        match self {
-            Self::Type => (8, 8),
-            Self::Empty => (0, 1),
-            Self::F64 | Self::Reference { .. } | Self::Function { .. } => (8, 8),
-            Self::Buffer { .. } => (16, 8),
-            Self::F32 => (4, 4),
-            Self::Bool => (1, 1),
-            Self::Unique { inner, .. } => inner.kind().calculate_size_align(),
-            Self::Enum { base, .. } => (base.size(), base.align()),
-            Self::Array(internal, length) => {
+        match &self.kind {
+            TypeKind::Type => (8, 8),
+            TypeKind::Empty => (0, 1),
+            TypeKind::F64 | TypeKind::Reference { .. } | TypeKind::Function { .. } => (8, 8),
+            TypeKind::Buffer { .. } => (16, 8),
+            TypeKind::F32 => (4, 4),
+            TypeKind::Bool => (1, 1),
+            TypeKind::Unique { inner, .. } => inner.0.calculate_size_align(),
+            TypeKind::Enum { base, .. } => (base.size(), base.align()),
+            TypeKind::Array(internal, length) => {
                 let member_size = internal.size();
                 let align = internal.align();
                 let size = array_size(member_size, align, *length);
                 (size, align)
             }
-            Self::Int(kind) => kind.size_align(),
-            Self::Tuple(members) => {
+            TypeKind::Int(kind) => kind.size_align(),
+            TypeKind::Tuple(members) => {
                 let mut size = 0;
                 let mut align = 1;
                 for member in members {
@@ -363,7 +366,7 @@ impl TypeKind {
                 size = to_align(size, align);
                 (size, align)
             }
-            Self::Struct(members) => {
+            TypeKind::Struct(members) => {
                 let mut size = 0;
                 let mut align = 1;
                 for (_, member) in members {

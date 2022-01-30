@@ -12,7 +12,7 @@ type EnumOne = enum u8 {
     let [a, b, c, d] = [.B : EnumOne, .B, .A, .D];
 
     if a == b {
-        print("Uh oh\n");
+        print("Yay!\n");
     };
 
     run_tests();
