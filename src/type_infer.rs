@@ -1183,12 +1183,8 @@ impl TypeSystem {
             TypeKind::Constant | TypeKind::ConstantValue(_) => unreachable!("Constants aren't concrete types, cannot use them as node types"),
             TypeKind::Empty => types::Type::new(types::TypeKind::Empty),
             TypeKind::Unique(marker) => {
-                let [inner] = &**type_args else {
-                    unreachable!("Invalid unique type")
-                };
-                let inner = self.value_to_compiler_type(*inner);
-
-                types::Type::new(types::TypeKind::Unique { inner, marker })
+                let args: Box<[_]> = type_args.iter().map(|&v| self.value_to_compiler_type(v)).collect();
+                types::Type::new_with_args(types::TypeKind::Unique(marker), args)
             }
             TypeKind::Array => {
                 let [element_type, length] = &**type_args else {
@@ -2374,9 +2370,9 @@ impl TypeSystem {
                 let args: Vec<_> = type_.args().iter().map(|v| (self.add_compiler_type(program, v, set.clone()), Reason::temp_zero())).collect();
                 self.set_type(id, TypeKind::Struct(fields), Args(args), set.clone())
             }
-            &types::TypeKind::Unique { marker, ref inner } => {
-                let inner = self.add_compiler_type(program, inner, set.clone());
-                self.set_type(id, TypeKind::Unique(marker), Args([(inner, Reason::temp_zero())]), set.clone())
+            &types::TypeKind::Unique(marker) => {
+                let args: Vec<_> = type_.args().iter().map(|v| (self.add_compiler_type(program, v, set.clone()), Reason::temp_zero())).collect();
+                self.set_type(id, TypeKind::Unique(marker), Args(args), set.clone())
             }
         }
     }

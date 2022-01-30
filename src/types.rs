@@ -198,8 +198,11 @@ impl Type {
                     field.get_pointers_internal(base_offset + offset, add_pointer);
                 }
             }
-            TypeKind::Unique { inner, .. } | TypeKind::Enum { base: inner, .. } => {
+            TypeKind::Enum { base: inner, .. } => {
                 inner.get_pointers_internal(base_offset, add_pointer);
+            }
+            TypeKind::Unique(_) => {
+                self.args()[0].get_pointers_internal(base_offset, add_pointer);
             }
         }
     }
@@ -333,8 +336,8 @@ impl Display for TypeData {
                 write!(fmt, "}}")?;
                 Ok(())
             }
-            TypeKind::Unique { marker, inner } => {
-                write!(fmt, "{}({})", marker.name.map_or("<anonymous>", |v| v.as_str()), inner)
+            TypeKind::Unique(marker) => {
+                write!(fmt, "{}({})", marker.name.map_or("<anonymous>", |v| v.as_str()), &self.args[0])
             }
         }
     }
@@ -369,18 +372,14 @@ pub enum TypeKind {
         base: Type,
         fields: Vec<(Ustr, ConstantRef)>,
     },
-    Unique {
-        marker: UniqueTypeMarker,
-        inner: Type,
-    },
+    Unique(UniqueTypeMarker),
 }
 
 impl TypeData {
     fn for_each_child(&self, mut on_inner: impl FnMut(&Type)) {
         match &self.kind {
             TypeKind::Array(inner, _)
-            | TypeKind::Enum { base: inner, .. }
-            | TypeKind::Unique { inner, .. } => on_inner(inner),
+            | TypeKind::Enum { base: inner, .. } => on_inner(inner),
             _ => {
                 for arg in self.args.iter() {
                     on_inner(arg);
@@ -396,7 +395,7 @@ impl TypeData {
             TypeKind::Reference | TypeKind::Function => (8, 8),
             TypeKind::Buffer => (16, 8),
             TypeKind::Bool => (1, 1),
-            TypeKind::Unique { inner, .. } => inner.0.calculate_size_align(),
+            TypeKind::Unique(_) => self.args[0].0.calculate_size_align(),
             TypeKind::Enum { base, .. } => (base.size(), base.align()),
             TypeKind::Array(internal, length) => {
                 let member_size = internal.size();
