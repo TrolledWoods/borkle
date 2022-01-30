@@ -696,7 +696,7 @@ impl Program {
         errors: &mut ErrorCtx,
         thread_context: &mut ThreadContext<'a>,
         id: PolyMemberId,
-        poly_args: &[(Type, ConstantRef)],
+        poly_args: &[Type],
         wanted_dep: MemberDep,
     ) -> Result<MemberId, ()> {
         profile::profile!("program::monomorphise_poly_member");
@@ -1149,7 +1149,7 @@ struct PolyMember {
     callable: DependableOption<()>,
 
     // cached_variants:
-    cached: Vec<(Vec<(Type, ConstantRef)>, MemberId)>,
+    cached: Vec<(Vec<Type>, MemberId)>,
 }
 
 impl PolyMember {
@@ -1371,10 +1371,6 @@ fn default<T: Default>() -> T {
 
 pub fn constant_to_str(type_: &Type, value: ConstantRef, _rec: usize) -> String {
     match type_.kind() {
-        TypeKind::Type => {
-            let compiler_type = unsafe { (*value.as_ptr().cast::<Type>()).clone() };
-            format!("{}", compiler_type)
-        }
         TypeKind::Int => {
             let args = type_.args();
             let &TypeKind::IntSigned(signed) = args[0].kind() else { unreachable!() };

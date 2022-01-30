@@ -1,36 +1,15 @@
 use crate::location::Location;
 use crate::layout::{Layout, StructLayout};
 use crate::program::{constant_to_str, FunctionId};
-use lazy_static::lazy_static;
-use parking_lot::Mutex;
 use std::fmt::{self, Debug, Display};
-use std::hash::{Hash, Hasher};
 use ustr::Ustr;
 // TODO: Move over TypeKind here, because I think it makes more sense to define generic type stuff
 // in here now.
 // pub use crate::type_infer::{self, TypeKind};
 
-lazy_static! {
-    pub static ref TYPES: Mutex<Vec<&'static TypeData>> = Mutex::new(Vec::new());
-}
-
-#[derive(Clone)]
+#[derive(Clone, PartialEq, Eq, Hash)]
 #[repr(transparent)]
-pub struct Type(&'static TypeData);
-
-impl Hash for Type {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        (self.0 as *const TypeData).hash(state);
-    }
-}
-
-impl PartialEq for Type {
-    fn eq(&self, other: &Self) -> bool {
-        std::ptr::eq(self.0, other.0)
-    }
-}
-
-impl Eq for Type {}
+pub struct Type(TypeData);
 
 impl Debug for Type {
     fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -80,29 +59,15 @@ impl Type {
 
     pub fn new(kind: TypeKind) -> Self {
         profile::profile!("Type::new");
-        let mut types = TYPES.lock();
-        Self::new_without_lock(&mut *types, kind, Box::new([]))
+        Self::new_unique(kind, Box::new([]))
     }
     
     pub fn new_with_args(kind: TypeKind, args: Box<[Type]>) -> Self {
         profile::profile!("Type::new");
-        let mut types = TYPES.lock();
-        Self::new_without_lock(&mut *types, kind, args)
-    }
-
-    fn new_without_lock(types: &mut Vec<&'static TypeData>, kind: TypeKind, args: Box<[Type]>) -> Self {
-        if let Some(content) = types
-            .iter()
-            .find(|&&c| c.kind == kind && c.args == args)
-        {
-            Self(content)
-        } else {
-            Self::new_unique(types, kind, args)
-        }
+        Self::new_unique(kind, args)
     }
 
     fn new_unique(
-        types: &mut Vec<&'static TypeData>,
         kind: TypeKind,
         args: Box<[Type]>,
     ) -> Type {
@@ -116,9 +81,7 @@ impl Type {
         let (size, align) = data.calculate_size_align();
         data.layout = Layout { size, align };
 
-        let leaked = Box::leak(Box::new(data));
-        types.push(leaked);
-        Self(leaked)
+        Self(data)
     }
 
     pub fn can_be_stored_in_constant(&self) -> bool {
@@ -165,8 +128,7 @@ impl Type {
         add_pointer: &mut impl FnMut(usize, PointerInType<'a>)
     ) {
         match self.kind() {
-            TypeKind::Type
-            | TypeKind::Empty
+            TypeKind::Empty
             | TypeKind::Int
             | TypeKind::Float
             | TypeKind::IntSize(_)
@@ -241,6 +203,8 @@ impl Type {
     }
 }
 
+// @Speed: Technically, the layout doesn't need to be part of the comparisons.
+#[derive(Clone, PartialEq, Eq, Hash)]
 pub struct TypeData {
     pub kind: TypeKind,
     pub args: Box<[Type]>,
@@ -251,7 +215,6 @@ impl Display for TypeData {
     fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
         match &self.kind {
             TypeKind::CompareUnspecified => unreachable!(),
-            TypeKind::Type => write!(fmt, "type"),
             TypeKind::Empty => write!(fmt, "()"),
             TypeKind::Float => {
                 let args = &self.args[..];
@@ -382,7 +345,6 @@ impl TypeData {
     fn calculate_size_align(&self) -> (usize, usize) {
         match &self.kind {
             TypeKind::CompareUnspecified => (0, 0),
-            TypeKind::Type => (8, 8),
             TypeKind::Empty => (0, 1),
             TypeKind::Reference | TypeKind::Function => (8, 8),
             TypeKind::Buffer => (16, 8),

@@ -91,7 +91,7 @@ pub struct Var(pub ValueId);
 #[derive(Clone, Copy)]
 pub struct Unknown;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum TypeKind {
     /// bool, int size
     Int,
@@ -104,7 +104,6 @@ pub enum TypeKind {
 
     Bool,
     Empty,
-    Type,
 
     /// return, (arg0, arg1, arg2, ...)
     Function,
@@ -137,7 +136,7 @@ pub enum TypeKind {
 impl TypeKind {
     fn get_needed_children_for_layout<'a>(&self, children: &'a [ValueId]) -> &'a [ValueId] {
         match self {
-            TypeKind::Type | TypeKind::IntSize(_) | TypeKind::IntSigned(_) | TypeKind::Bool | TypeKind::Empty | TypeKind::Function | TypeKind::Reference | TypeKind::Buffer | TypeKind::ConstantValue(_) | TypeKind::CompareUnspecified => &[],
+            TypeKind::IntSize(_) | TypeKind::IntSigned(_) | TypeKind::Bool | TypeKind::Empty | TypeKind::Function | TypeKind::Reference | TypeKind::Buffer | TypeKind::ConstantValue(_) | TypeKind::CompareUnspecified => &[],
             TypeKind::Enum { .. } => &children[0..1],
             TypeKind::Float => &children[0..1],
             TypeKind::Int => &children[1..2],
@@ -180,7 +179,6 @@ fn compute_type_layout(kind: &TypeKind, structures: &Structures, values: &Values
         TypeKind::Bool => Layout { size: 1, align: 1 },
         TypeKind::Empty => Layout { size: 0, align: 1 },
         TypeKind::Buffer => Layout { size: 16, align: 8 },
-        TypeKind::Type => Layout { size: 8, align: 8 },
         TypeKind::Reference | TypeKind::Function => Layout { size: 8, align: 8 },
         TypeKind::Array => {
             // @Correctness: We want to make sure that the type actually is a usize here
@@ -513,7 +511,7 @@ pub struct ValueWrapper {
     next_in_structure_group: ValueId,
 }
 
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Layout {
     pub size: usize,
     // An align of zero means that the size hasn't been calculated yet, and the number is how many children types
@@ -1151,27 +1149,6 @@ impl TypeSystem {
         extract_constant_from_value(&self.structures, &self.values, value_id)
     }
 
-    // @Completeness: This should also support converting type values into constants.
-    pub fn extract_constant(&self, program: &Program, value_id: ValueId) -> (types::Type, ConstantRef) {
-        match &self.get(value_id).kind {
-            Some(Type { kind: TypeKind::Constant, args: Some(type_args) }) => {
-                let &[type_, constant_ref] = &**type_args else { panic!() };
-                let Some(&Type { kind: TypeKind::ConstantValue(constant_ref), .. }) = self.get(constant_ref).kind else { panic!() };
-
-                let type_ = self.value_to_compiler_type(type_);
-
-                (type_, constant_ref)
-            }
-            Some(_) => {
-                let type_id = self.value_to_compiler_type(value_id);
-                let type_ = types::Type::new(types::TypeKind::Type);
-                let constant_ref = program.insert_buffer(&type_, &type_id as *const _ as *const u8);
-                (type_, constant_ref)
-            }
-            _ => unreachable!("Should not have called extract_constant on an incomplete value"),
-        }
-    }
-
     pub fn value_to_compiler_type(&self, value_id: ValueId) -> types::Type {
         let Some(Type { kind: type_kind, args: Some(type_args) }) = &self.get(value_id).kind else {
             panic!("Cannot call value_to_compiler_type on incomplete value")
@@ -1327,10 +1304,6 @@ impl TypeSystem {
 
     fn constant_to_str(&self, type_: ValueId, value: ConstantRef, rec: usize) -> String {
         match &self.get(type_).kind {
-            Some(Type { kind: TypeKind::Type, .. }) => {
-                let compiler_type = unsafe { (*value.as_ptr().cast::<types::Type>()).clone() };
-                format!("{}", compiler_type)
-            }
             Some(Type { kind: TypeKind::IntSize(size), .. }) => {
                 match size {
                     0 => "ptr".to_string(),
@@ -1390,7 +1363,6 @@ impl TypeSystem {
         }
         match &self.get(value).kind {
             Some(Type { kind: TypeKind::CompareUnspecified, .. }) => "_(intentionally unspecified)".to_string(),
-            Some(Type { kind: TypeKind::Type, .. }) => "type".to_string(),
             Some(Type { kind: TypeKind::Bool, .. }) => "bool".to_string(),
             Some(Type { kind: TypeKind::Empty, .. }) => "Empty".to_string(),
             Some(Type { kind: TypeKind::IntSize(s), .. }) => format!("size {}", s),
@@ -1831,15 +1803,6 @@ impl TypeSystem {
                     (
                         BinaryOp::Equals | BinaryOp::NotEquals | BinaryOp::LargerThanEquals | BinaryOp::LargerThan | BinaryOp::LessThanEquals | BinaryOp::LessThan,
                         (Some(TypeKind::Int), Some(TypeKind::Int), _) | (Some(TypeKind::Reference), Some(TypeKind::Reference), _) | (Some(TypeKind::Bool), Some(TypeKind::Bool), _) | (Some(TypeKind::Float), Some(TypeKind::Float), _)
-                    ) => {
-                        let id = self.add_type(TypeKind::Bool, Args([]), ());
-
-                        self.set_equal(result_id, id, constraint.reason);
-                        self.set_equal(a_id, b_id, constraint.reason);
-                    }
-                    (
-                        BinaryOp::Equals | BinaryOp::NotEquals,
-                        (Some(TypeKind::Type), Some(TypeKind::Type), _),
                     ) => {
                         let id = self.add_type(TypeKind::Bool, Args([]), ());
 

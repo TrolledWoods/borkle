@@ -85,21 +85,15 @@ pub struct YieldData {
 }
 
 impl YieldData {
-    pub fn insert_poly_params(&mut self, program: &Program, poly_args: &[(crate::types::Type, ConstantRef)]) {
+    pub fn insert_poly_params(&mut self, program: &Program, poly_args: &[crate::types::Type]) {
         let set = self.root_set_id;
 
-        for (param, &(ref compiler_type, constant)) in self.poly_params.iter().zip(poly_args) {
+        for (param, compiler_type) in self.poly_params.iter().zip(poly_args) {
             if param.is_type() {
-                debug_assert!(matches!(compiler_type.kind(), types::TypeKind::Type));
-                let type_ = unsafe { &*constant.as_ptr().cast::<types::Type>() };
-                let type_id = self.infer.add_compiler_type(program, type_, set);
-
+                let type_id = self.infer.add_compiler_type(program, compiler_type, set);
                 self.infer.set_equal(param.value_id, type_id, Reason::temp_zero());
             } else {
-                let type_ = self.infer.add_compiler_type(program, compiler_type, set);
-                let value = self.infer.add_type(TypeKind::ConstantValue(constant), Args([]), set);
-                let constant = self.infer.add_type(TypeKind::Constant, Args([(type_, Reason::temp_zero()), (value, Reason::temp_zero())]), set);
-
+                let constant = self.infer.add_compiler_type(program, compiler_type, set);
                 self.infer.set_equal(constant, param.value_id, Reason::temp_zero());
             }
         }
@@ -451,7 +445,7 @@ fn subset_was_completed(ctx: &mut Context<'_, '_>, ast: &mut Ast, waiting_on: Wa
             let mut fixed_up_params = Vec::with_capacity(params.len());
 
             for param in params {
-                fixed_up_params.push(ctx.infer.extract_constant(ctx.program, param));
+                fixed_up_params.push(ctx.infer.value_to_compiler_type(param));
             }
 
             let wanted_dep = match when_needed {
