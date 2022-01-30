@@ -398,7 +398,11 @@ impl Program {
 
                     if buffer.length != 0 {
                         // @Speed: This is not fast.
-                        let array_type = Type::new(TypeKind::Array(internal.clone(), buffer.length));
+                        let usize_type = Type::new_int(crate::types::IntTypeKind::Usize);
+                        let length_constant_ptr = self.insert_buffer(&usize_type, &buffer.length as *const usize as *const u8);
+                        let length_constant_value = Type::new(TypeKind::ConstantValue(length_constant_ptr));
+                        let length_constant = Type::new_with_args(TypeKind::Constant, Box::new([usize_type, length_constant_value]));
+                        let array_type = Type::new_with_args(TypeKind::Array, Box::new([internal.clone(), length_constant]));
                         let sub_buffer = self.insert_buffer(&array_type, buffer.ptr);
 
                         buffer.ptr = sub_buffer.as_ptr() as *mut _;

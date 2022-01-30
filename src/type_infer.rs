@@ -1186,17 +1186,8 @@ impl TypeSystem {
                 types::Type::new_with_args(types::TypeKind::Unique(marker), args)
             }
             TypeKind::Array => {
-                let [element_type, length] = &**type_args else {
-                    unreachable!("Invalid array type")
-                };
-
-                let element_type = self.value_to_compiler_type(*element_type);
-
-                let length = self.extract_constant_temp(*length).expect("Array length isn't a value");
-
-                let length = unsafe { usize::from_le_bytes(*length.as_ptr().cast::<[u8; 8]>()) };
-
-                types::Type::new(types::TypeKind::Array(element_type, length))
+                let args: Box<[_]> = type_args.iter().map(|&v| self.value_to_compiler_type(v)).collect();
+                types::Type::new_with_args(types::TypeKind::Array, args)
             }
             TypeKind::Enum(marker, ref field_names) => {
                 let field_names = field_names.clone();
@@ -2307,6 +2298,7 @@ impl TypeSystem {
 
     pub fn set_compiler_type(&mut self, program: &Program, id: ValueId, type_: &types::Type, set: impl IntoValueSet + Clone) -> ValueId {
         match type_.kind() {
+            types::TypeKind::CompareUnspecified => unreachable!(),
             &types::TypeKind::Enum(marker, ref field_names) => {
                 let field_names = field_names.clone();
                 let args: Vec<_> = type_.args().iter().map(|v| (self.add_compiler_type(program, v, set.clone()), Reason::temp_zero())).collect();
@@ -2345,15 +2337,9 @@ impl TypeSystem {
                 let args: Vec<_> = type_.args().iter().map(|v| (self.add_compiler_type(program, v, set.clone()), Reason::temp_zero())).collect();
                 self.set_type(id, TypeKind::Reference, Args(args), set.clone())
             }
-            &types::TypeKind::Array(ref type_, length) => {
-                let inner = self.add_compiler_type(program, type_, set.clone());
-                let usize_type = self.add_int(IntTypeKind::Usize, ());
-                let constant_ref_length = program.insert_buffer(
-                    &types::Type::new_int(IntTypeKind::Usize),
-                    &length as *const _ as *const u8,
-                );
-                let length_value = self.add_value(usize_type, constant_ref_length, set.clone());
-                self.set_type(id, TypeKind::Array, Args([(inner, Reason::temp_zero()), (length_value, Reason::temp_zero())]), set.clone())
+            types::TypeKind::Array => {
+                let args: Vec<_> = type_.args().iter().map(|v| (self.add_compiler_type(program, v, set.clone()), Reason::temp_zero())).collect();
+                self.set_type(id, TypeKind::Array, Args(args), set.clone())
             }
             &types::TypeKind::ConstantValue(value) => {
                 let args: Vec<_> = type_.args().iter().map(|v| (self.add_compiler_type(program, v, set.clone()), Reason::temp_zero())).collect();

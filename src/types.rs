@@ -154,6 +154,11 @@ impl Type {
         self.get_pointers_internal(0, &mut add_pointer);
     }
 
+    unsafe fn read_constant_as_usize(&self) -> usize {
+        let TypeKind::ConstantValue(value) = self.args()[1].kind() else { unreachable!() };
+        *value.as_ptr().cast::<usize>()
+    }
+
     fn get_pointers_internal<'a>(
         &'a self,
         base_offset: usize,
@@ -169,6 +174,7 @@ impl Type {
             | TypeKind::ConstantValue(_) 
             | TypeKind::Constant
             | TypeKind::Bool => {}
+            TypeKind::CompareUnspecified => unreachable!(),
             TypeKind::Reference => {
                 let pointee = &self.args()[0];
                 if pointee.size() > 0 {
@@ -181,9 +187,11 @@ impl Type {
                     add_pointer(base_offset, PointerInType::Buffer(pointee));
                 }
             }
-            TypeKind::Array(internal, len) => {
-                let element_offset = to_align(internal.size(), internal.align());
-                for i in 0..*len {
+            TypeKind::Array => {
+                let internal = &self.args()[0];
+                let len = unsafe { self.args()[1].read_constant_as_usize() };
+                let element_offset = internal.size();
+                for i in 0..len {
                     internal.get_pointers_internal(base_offset + i * element_offset, add_pointer);
                 }
             }
@@ -242,6 +250,7 @@ pub struct TypeData {
 impl Display for TypeData {
     fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
         match &self.kind {
+            TypeKind::CompareUnspecified => unreachable!(),
             TypeKind::Type => write!(fmt, "type"),
             TypeKind::Empty => write!(fmt, "()"),
             TypeKind::Float => {
@@ -282,7 +291,7 @@ impl Display for TypeData {
             TypeKind::Bool => write!(fmt, "bool"),
             TypeKind::Reference => write!(fmt, "&{}", self.args[0]),
             TypeKind::Buffer => write!(fmt, "[] {}", self.args[0]),
-            TypeKind::Array(internal, length) => write!(fmt, "[{}] {}", length, internal),
+            TypeKind::Array => write!(fmt, "[{}] {}", self.args[0], self.args[1]),
             TypeKind::Function => {
                 let args = &self.args[..];
                 let (returns, args) = args.split_first().unwrap();
@@ -369,7 +378,7 @@ pub enum TypeKind {
     IntSize(u8),
     IntSigned(bool),
 
-    Array(Type, usize),
+    Array,
     Reference,
     Buffer,
     Function,
@@ -380,12 +389,13 @@ pub enum TypeKind {
 
     ConstantValue(ConstantRef),
     Constant,
+
+    CompareUnspecified,
 }
 
 impl TypeData {
     fn for_each_child(&self, mut on_inner: impl FnMut(&Type)) {
         match &self.kind {
-            TypeKind::Array(inner, _) => on_inner(inner),
             _ => {
                 for arg in self.args.iter() {
                     on_inner(arg);
@@ -396,16 +406,19 @@ impl TypeData {
 
     fn calculate_size_align(&self) -> (usize, usize) {
         match &self.kind {
+            TypeKind::CompareUnspecified => (0, 0),
             TypeKind::Type => (8, 8),
             TypeKind::Empty => (0, 1),
             TypeKind::Reference | TypeKind::Function => (8, 8),
             TypeKind::Buffer => (16, 8),
             TypeKind::Bool => (1, 1),
             TypeKind::Unique(_) | TypeKind::Enum { .. } => self.args[0].0.calculate_size_align(),
-            TypeKind::Array(internal, length) => {
+            TypeKind::Array => {
+                let internal = &self.args[0];
+                let length = unsafe { self.args[1].read_constant_as_usize() };
                 let member_size = internal.size();
                 let align = internal.align();
-                let size = array_size(member_size, align, *length);
+                let size = array_size(member_size, align, length);
                 (size, align)
             }
             TypeKind::Float => {
