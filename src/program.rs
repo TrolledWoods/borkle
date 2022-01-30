@@ -240,8 +240,9 @@ impl Program {
         // @Speed: We don't want to clone here!
         let type_ = member.type_.to_option()?.0.clone();
 
-        if let TypeKind::Function { args, returns } = type_.kind() {
-            if args.is_empty() && matches!(returns.kind(), TypeKind::Empty) {
+        if let TypeKind::Function = type_.kind() {
+            let args = type_.args();
+            if args.len() == 1 && matches!(args[0].kind(), TypeKind::Empty) {
                 Some(unsafe { *member.value.to_option()?.as_ptr().cast::<FunctionId>() })
             } else {
                 None

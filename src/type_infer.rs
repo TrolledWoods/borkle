@@ -1191,19 +1191,6 @@ impl TypeSystem {
 
                 types::Type::new(types::TypeKind::Unique { inner, marker })
             }
-            TypeKind::Function => {
-                let [return_type, arg_types @ ..] = &**type_args else {
-                    unreachable!("Invalid function type")
-                };
-
-                let returns = self.value_to_compiler_type(*return_type);
-                let args = arg_types
-                    .iter()
-                    .map(|v| self.value_to_compiler_type(*v))
-                    .collect();
-
-                types::Type::new(types::TypeKind::Function { args, returns })
-            }
             TypeKind::Array => {
                 let [element_type, length] = &**type_args else {
                     unreachable!("Invalid array type")
@@ -1265,6 +1252,10 @@ impl TypeSystem {
             TypeKind::Int => {
                 let args: Box<[_]> = type_args.iter().map(|&v| self.value_to_compiler_type(v)).collect();
                 types::Type::new_with_args(types::TypeKind::Int, args)
+            }
+            TypeKind::Function => {
+                let args: Box<[_]> = type_args.iter().map(|&v| self.value_to_compiler_type(v)).collect();
+                types::Type::new_with_args(types::TypeKind::Function, args)
             }
         }
     }
@@ -2334,17 +2325,9 @@ impl TypeSystem {
 
                 self.set_type(id, TypeKind::Enum(marker, field_names.into_boxed_slice()), Args(new_args), set)
             }
-            types::TypeKind::Function { ref args, returns } => {
-                let mut new_args = Vec::with_capacity(args.len() + 1);
-
-                // @TODO: We should append the sub-expression used to the reason as well.
-                new_args.push((self.add_compiler_type(program, returns, set.clone()), Reason::temp_zero()));
-
-                for arg in args {
-                    new_args.push((self.add_compiler_type(program, arg, set.clone()), Reason::temp_zero()));
-                }
-
-                self.set_type(id, TypeKind::Function, Args(new_args), set.clone())
+            types::TypeKind::Function => {
+                let args: Vec<_> = type_.args().iter().map(|v| (self.add_compiler_type(program, v, set.clone()), Reason::temp_zero())).collect();
+                self.set_type(id, TypeKind::Function, Args(args), set.clone())
             }
             types::TypeKind::Type => {
                 self.set_type(id, TypeKind::Type, Args([]), set.clone())

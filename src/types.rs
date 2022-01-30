@@ -185,13 +185,10 @@ impl Type {
                     internal.get_pointers_internal(base_offset + i * element_offset, add_pointer);
                 }
             }
-            TypeKind::Function { args, returns } => {
+            TypeKind::Function => {
                 add_pointer(
                     base_offset,
-                    PointerInType::Function {
-                        args: &**args,
-                        returns,
-                    },
+                    PointerInType::Function(self.args()),
                 );
             }
             TypeKind::Tuple(ref fields) => {
@@ -291,7 +288,10 @@ impl Display for TypeData {
             TypeKind::Reference => write!(fmt, "&{}", self.args[0]),
             TypeKind::Buffer => write!(fmt, "[] {}", self.args[0]),
             TypeKind::Array(internal, length) => write!(fmt, "[{}] {}", length, internal),
-            TypeKind::Function { args, returns } => {
+            TypeKind::Function => {
+                let args = &self.args[..];
+                let (returns, args) = args.split_first().unwrap();
+
                 write!(fmt, "fn(")?;
                 for (i, arg) in args.iter().enumerate() {
                     if i > 0 {
@@ -368,7 +368,7 @@ pub enum TypeKind {
     Array(Type, usize),
     Reference,
     Buffer,
-    Function { args: Vec<Type>, returns: Type },
+    Function,
     Struct(Vec<(Ustr, Type)>),
     Tuple(Vec<Type>),
     Enum {
@@ -388,13 +388,6 @@ impl TypeData {
             TypeKind::Array(inner, _)
             | TypeKind::Enum { base: inner, .. }
             | TypeKind::Unique { inner, .. } => on_inner(inner),
-            TypeKind::Function { args, returns, .. } => {
-                for arg in args {
-                    on_inner(arg);
-                }
-
-                on_inner(returns);
-            }
             TypeKind::Tuple(members) => {
                 for member in members {
                     on_inner(member);
@@ -417,7 +410,7 @@ impl TypeData {
         match &self.kind {
             TypeKind::Type => (8, 8),
             TypeKind::Empty => (0, 1),
-            TypeKind::Reference | TypeKind::Function { .. } => (8, 8),
+            TypeKind::Reference | TypeKind::Function => (8, 8),
             TypeKind::Buffer => (16, 8),
             TypeKind::Bool => (1, 1),
             TypeKind::Unique { inner, .. } => inner.0.calculate_size_align(),
@@ -478,7 +471,7 @@ impl TypeData {
 pub enum PointerInType<'a> {
     Pointer(&'a Type),
     Buffer(&'a Type),
-    Function { args: &'a [Type], returns: &'a Type },
+    Function(&'a [Type]),
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
