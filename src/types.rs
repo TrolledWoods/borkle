@@ -1,6 +1,6 @@
 use crate::location::Location;
 use crate::layout::{Layout, StructLayout};
-use crate::program::{FunctionId, constant::ConstantRef};
+use crate::program::{constant_to_str, FunctionId, constant::ConstantRef};
 use lazy_static::lazy_static;
 use parking_lot::Mutex;
 use std::fmt::{self, Debug, Display};
@@ -166,8 +166,10 @@ impl Type {
             | TypeKind::Float
             | TypeKind::IntSize(_)
             | TypeKind::IntSigned(_)
+            | TypeKind::ConstantValue(_) 
+            | TypeKind::Constant
             | TypeKind::Bool => {}
-            TypeKind::Reference  => {
+            TypeKind::Reference => {
                 let pointee = &self.args()[0];
                 if pointee.size() > 0 {
                     add_pointer(base_offset, PointerInType::Pointer(pointee));
@@ -198,10 +200,7 @@ impl Type {
                     field.get_pointers_internal(base_offset + offset, add_pointer);
                 }
             }
-            TypeKind::Enum { base: inner, .. } => {
-                inner.get_pointers_internal(base_offset, add_pointer);
-            }
-            TypeKind::Unique(_) => {
+            TypeKind::Unique(_) | TypeKind::Enum { .. } => {
                 self.args()[0].get_pointers_internal(base_offset, add_pointer);
             }
         }
@@ -313,12 +312,12 @@ impl Display for TypeData {
                 write!(fmt, ")")?;
                 Ok(())
             }
-            TypeKind::Enum { marker, base, fields } => {
+            TypeKind::Enum(marker, field_names) => {
                 if let Some(name) = marker.name {
                     write!(fmt, "{}", name)
                 } else {
-                    write!(fmt, "enum {} {{ ", base)?;
-                    for (i, &(field_name, _)) in fields.iter().enumerate() {
+                    write!(fmt, "enum {} {{ ", self.args[0])?;
+                    for (i, field_name) in field_names.iter().enumerate() {
                         if i > 0 { write!(fmt, ", ")?; }
                         write!(fmt, "{}", field_name)?;
                     }
@@ -338,6 +337,15 @@ impl Display for TypeData {
             }
             TypeKind::Unique(marker) => {
                 write!(fmt, "{}({})", marker.name.map_or("<anonymous>", |v| v.as_str()), &self.args[0])
+            }
+            TypeKind::ConstantValue(v) => {
+                write!(fmt, "<const value, {:p}", v.as_ptr())
+            }
+            TypeKind::Constant => {
+                let type_ = &self.args[0];
+                let &TypeKind::ConstantValue(value) = self.args[1].kind() else { unreachable!() };
+
+                write!(fmt, "{}", constant_to_str(type_, value, 0))
             }
         }
     }
@@ -367,19 +375,17 @@ pub enum TypeKind {
     Function,
     Struct(Box<[Ustr]>),
     Tuple,
-    Enum {
-        marker: UniqueTypeMarker,
-        base: Type,
-        fields: Vec<(Ustr, ConstantRef)>,
-    },
+    Enum(UniqueTypeMarker, Box<[Ustr]>),
     Unique(UniqueTypeMarker),
+
+    ConstantValue(ConstantRef),
+    Constant,
 }
 
 impl TypeData {
     fn for_each_child(&self, mut on_inner: impl FnMut(&Type)) {
         match &self.kind {
-            TypeKind::Array(inner, _)
-            | TypeKind::Enum { base: inner, .. } => on_inner(inner),
+            TypeKind::Array(inner, _) => on_inner(inner),
             _ => {
                 for arg in self.args.iter() {
                     on_inner(arg);
@@ -395,8 +401,7 @@ impl TypeData {
             TypeKind::Reference | TypeKind::Function => (8, 8),
             TypeKind::Buffer => (16, 8),
             TypeKind::Bool => (1, 1),
-            TypeKind::Unique(_) => self.args[0].0.calculate_size_align(),
-            TypeKind::Enum { base, .. } => (base.size(), base.align()),
+            TypeKind::Unique(_) | TypeKind::Enum { .. } => self.args[0].0.calculate_size_align(),
             TypeKind::Array(internal, length) => {
                 let member_size = internal.size();
                 let align = internal.align();
@@ -409,8 +414,12 @@ impl TypeData {
 
                 (size as usize, size as usize)
             }
-            TypeKind::IntSize(_) => (0, 0),
-            TypeKind::IntSigned(_) => (0, 0),
+            TypeKind::ConstantValue(_) => (0, 1),
+            TypeKind::Constant => {
+                self.args[0].0.calculate_size_align()
+            }
+            TypeKind::IntSize(_) => (1, 1),
+            TypeKind::IntSigned(_) => (1, 1),
             TypeKind::Int => {
                 let &TypeKind::IntSize(mut size) = self.args[1].kind() else { unreachable!() };
                 // @Cleanup: This could be better

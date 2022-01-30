@@ -1180,7 +1180,6 @@ impl TypeSystem {
         match *type_kind {
             TypeKind::CompareUnspecified => unreachable!("CompareUnspecified should never be converted to a compiler type"),
             TypeKind::Type => types::Type::new(types::TypeKind::Type),
-            TypeKind::Constant | TypeKind::ConstantValue(_) => unreachable!("Constants aren't concrete types, cannot use them as node types"),
             TypeKind::Empty => types::Type::new(types::TypeKind::Empty),
             TypeKind::Unique(marker) => {
                 let args: Box<[_]> = type_args.iter().map(|&v| self.value_to_compiler_type(v)).collect();
@@ -1200,14 +1199,9 @@ impl TypeSystem {
                 types::Type::new(types::TypeKind::Array(element_type, length))
             }
             TypeKind::Enum(marker, ref field_names) => {
-                let mut args = type_args.iter();
-                let base = self.value_to_compiler_type(*args.next().unwrap());
-                let fields = args.zip(field_names.iter()).map(|(&v, &field_name)| {
-                    let Some(Type { kind: TypeKind::ConstantValue(constant_ref), .. }) = get_value(&self.structures, &self.values, v).kind else { panic!() };
-                    (field_name, *constant_ref)
-                }).collect();
-
-                types::Type::new(types::TypeKind::Enum { marker, base, fields })
+                let field_names = field_names.clone();
+                let args: Box<[_]> = type_args.iter().map(|&v| self.value_to_compiler_type(v)).collect();
+                types::Type::new_with_args(types::TypeKind::Enum(marker, field_names), args)
             }
             TypeKind::Struct(ref fields) => {
                 let fields = fields.clone();
@@ -1237,6 +1231,14 @@ impl TypeSystem {
             TypeKind::IntSize(v) => {
                 let args: Box<[_]> = type_args.iter().map(|&v| self.value_to_compiler_type(v)).collect();
                 types::Type::new_with_args(types::TypeKind::IntSize(v), args)
+            }
+            TypeKind::ConstantValue(v) => {
+                let args: Box<[_]> = type_args.iter().map(|&v| self.value_to_compiler_type(v)).collect();
+                types::Type::new_with_args(types::TypeKind::ConstantValue(v), args)
+            }
+            TypeKind::Constant => {
+                let args: Box<[_]> = type_args.iter().map(|&v| self.value_to_compiler_type(v)).collect();
+                types::Type::new_with_args(types::TypeKind::Constant, args)
             }
             TypeKind::Float => {
                 let args: Box<[_]> = type_args.iter().map(|&v| self.value_to_compiler_type(v)).collect();
@@ -2305,18 +2307,10 @@ impl TypeSystem {
 
     pub fn set_compiler_type(&mut self, program: &Program, id: ValueId, type_: &types::Type, set: impl IntoValueSet + Clone) -> ValueId {
         match type_.kind() {
-            &types::TypeKind::Enum { marker, ref base, ref fields } => {
-                let mut new_args = Vec::with_capacity(fields.len() + 1);
-                let mut field_names = Vec::with_capacity(fields.len());
-                let base_type_id = self.add_compiler_type(program, base, set.clone());
-                new_args.push((base_type_id, Reason::temp_zero()));
-                for &(field_name, field_constant) in fields {
-                    let constant_ref = self.add_type(TypeKind::ConstantValue(field_constant), Args([]), set.clone());
-                    new_args.push((constant_ref, Reason::temp_zero()));
-                    field_names.push(field_name);
-                }
-
-                self.set_type(id, TypeKind::Enum(marker, field_names.into_boxed_slice()), Args(new_args), set)
+            &types::TypeKind::Enum(marker, ref field_names) => {
+                let field_names = field_names.clone();
+                let args: Vec<_> = type_.args().iter().map(|v| (self.add_compiler_type(program, v, set.clone()), Reason::temp_zero())).collect();
+                self.set_type(id, TypeKind::Enum(marker, field_names), Args(args), set)
             }
             types::TypeKind::Function => {
                 let args: Vec<_> = type_.args().iter().map(|v| (self.add_compiler_type(program, v, set.clone()), Reason::temp_zero())).collect();
@@ -2360,6 +2354,14 @@ impl TypeSystem {
                 );
                 let length_value = self.add_value(usize_type, constant_ref_length, set.clone());
                 self.set_type(id, TypeKind::Array, Args([(inner, Reason::temp_zero()), (length_value, Reason::temp_zero())]), set.clone())
+            }
+            &types::TypeKind::ConstantValue(value) => {
+                let args: Vec<_> = type_.args().iter().map(|v| (self.add_compiler_type(program, v, set.clone()), Reason::temp_zero())).collect();
+                self.set_type(id, TypeKind::ConstantValue(value), Args(args), set.clone())
+            }
+            types::TypeKind::Constant => {
+                let args: Vec<_> = type_.args().iter().map(|v| (self.add_compiler_type(program, v, set.clone()), Reason::temp_zero())).collect();
+                self.set_type(id, TypeKind::Constant, Args(args), set.clone())
             }
             types::TypeKind::Tuple => {
                 let args: Vec<_> = type_.args().iter().map(|v| (self.add_compiler_type(program, v, set.clone()), Reason::temp_zero())).collect();
