@@ -1370,9 +1370,16 @@ pub fn constant_to_str(type_: &Type, value: ConstantRef, _rec: usize) -> String 
             let compiler_type = unsafe { (*value.as_ptr().cast::<Type>()).clone() };
             format!("{}", compiler_type)
         }
-        TypeKind::Int(int_size) => {
-            let size = int_size.size_align().0;
-            let signed = int_size.signed();
+        TypeKind::Int => {
+            let args = type_.args();
+            let &TypeKind::IntSigned(signed) = args[0].kind() else { unreachable!() };
+            let &TypeKind::IntSize(mut size) = args[1].kind() else { unreachable!() };
+
+            // @Cleanup: There should be a function for this.
+            if size == 0 { size = 8; }
+            debug_assert!(size.is_power_of_two() && size <= 8);
+
+            let size = size as usize;
 
             let mut big_int = [0; 16];
             unsafe {

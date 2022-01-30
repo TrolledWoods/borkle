@@ -1181,8 +1181,6 @@ impl TypeSystem {
             TypeKind::CompareUnspecified => unreachable!("CompareUnspecified should never be converted to a compiler type"),
             TypeKind::Type => types::Type::new(types::TypeKind::Type),
             TypeKind::Constant | TypeKind::ConstantValue(_) => unreachable!("Constants aren't concrete types, cannot use them as node types"),
-            TypeKind::IntSize(_) => unreachable!("Int sizes are a hidden type for now, the user shouldn't be able to access them"),
-            TypeKind::IntSigned(_) => unreachable!("Int signs are a hidden type for now, the user shouldn't be able to access them"),
             TypeKind::Float => {
                 let [size] = &**type_args else {
                     unreachable!("Invalid float size")
@@ -1197,30 +1195,6 @@ impl TypeSystem {
                 };
 
                 types::Type::new(type_kind)
-            }
-            TypeKind::Int => {
-                let [signed, size] = &**type_args else {
-                    unreachable!("Invalid int size and sign")
-                };
-
-                let Some(&Type { kind: TypeKind::IntSigned(sign_value), .. }) = self.get(*signed).kind else { panic!() };
-                let Some(&Type { kind: TypeKind::IntSize  (size_value), .. }) = self.get(*size).kind else { panic!() };
-
-                let int_type_kind = match (sign_value, size_value) {
-                    (false, 0) => IntTypeKind::Usize,
-                    (false, 1) => IntTypeKind::U8,
-                    (false, 2) => IntTypeKind::U16,
-                    (false, 4) => IntTypeKind::U32,
-                    (false, 8) => IntTypeKind::U64,
-                    (true, 0) => IntTypeKind::Isize,
-                    (true, 1) => IntTypeKind::I8,
-                    (true, 2) => IntTypeKind::I16,
-                    (true, 4) => IntTypeKind::I32,
-                    (true, 8) => IntTypeKind::I64,
-                    (_, _) => unreachable!("Invalid sign+size combination"),
-                };
-
-                types::Type::new(types::TypeKind::Int(int_type_kind))
             }
             TypeKind::Bool => types::Type::new(types::TypeKind::Bool),
             TypeKind::Empty => types::Type::new(types::TypeKind::Empty),
@@ -1258,24 +1232,6 @@ impl TypeSystem {
 
                 types::Type::new(types::TypeKind::Array(element_type, length))
             }
-            TypeKind::Buffer => {
-                let [pointee] = &**type_args else {
-                    unreachable!("Invalid reference type")
-                };
-
-                let pointee = self.value_to_compiler_type(*pointee);
-
-                types::Type::new(types::TypeKind::Buffer { pointee })
-            }
-            TypeKind::Reference => {
-                let [pointee] = &**type_args else {
-                    unreachable!("Invalid reference type")
-                };
-
-                let pointee = self.value_to_compiler_type(*pointee);
-
-                types::Type::new(types::TypeKind::Reference { pointee })
-            }
             TypeKind::Tuple => {
                 let fields = type_args
                     .iter()
@@ -1300,6 +1256,26 @@ impl TypeSystem {
                     .map(|(&name, &v)| (name, self.value_to_compiler_type(v)))
                     .collect::<Vec<_>>();
                 types::Type::new(types::TypeKind::Struct(fields))
+            }
+            TypeKind::Reference => {
+                let args: Box<[_]> = type_args.iter().map(|&v| self.value_to_compiler_type(v)).collect();
+                types::Type::new_with_args(types::TypeKind::Reference, args)
+            }
+            TypeKind::Buffer => {
+                let args: Box<[_]> = type_args.iter().map(|&v| self.value_to_compiler_type(v)).collect();
+                types::Type::new_with_args(types::TypeKind::Buffer, args)
+            }
+            TypeKind::IntSigned(v) => {
+                let args: Box<[_]> = type_args.iter().map(|&v| self.value_to_compiler_type(v)).collect();
+                types::Type::new_with_args(types::TypeKind::IntSigned(v), args)
+            }
+            TypeKind::IntSize(v) => {
+                let args: Box<[_]> = type_args.iter().map(|&v| self.value_to_compiler_type(v)).collect();
+                types::Type::new_with_args(types::TypeKind::IntSize(v), args)
+            }
+            TypeKind::Int => {
+                let args: Box<[_]> = type_args.iter().map(|&v| self.value_to_compiler_type(v)).collect();
+                types::Type::new_with_args(types::TypeKind::Int, args)
             }
         }
     }
@@ -2392,32 +2368,33 @@ impl TypeSystem {
                 let size = self.add_type(TypeKind::IntSize(4), Args([]), ());
                 self.set_type(id, TypeKind::Float, Args([(size, Reason::temp_zero())]), set.clone())
             }
-            &types::TypeKind::Int(int_type_kind) => {
-                self.set_int(id, int_type_kind, set.clone());
-                id
+            types::TypeKind::Int => {
+                let args: Vec<_> = type_.args().iter().map(|v| (self.add_compiler_type(program, v, set.clone()), Reason::temp_zero())).collect();
+                self.set_type(id, TypeKind::Int, Args(args), set.clone())
+            }
+            &types::TypeKind::IntSize(v) => {
+                let args: Vec<_> = type_.args().iter().map(|v| (self.add_compiler_type(program, v, set.clone()), Reason::temp_zero())).collect();
+                self.set_type(id, TypeKind::IntSize(v), Args(args), set.clone())
+            }
+            &types::TypeKind::IntSigned(v) => {
+                let args: Vec<_> = type_.args().iter().map(|v| (self.add_compiler_type(program, v, set.clone()), Reason::temp_zero())).collect();
+                self.set_type(id, TypeKind::IntSigned(v), Args(args), set.clone())
             }
             types::TypeKind::Empty => self.set_type(id, TypeKind::Empty, Args([]), set.clone()),
             types::TypeKind::Bool  => self.set_type(id, TypeKind::Bool, Args([]), set.clone()),
-            types::TypeKind::Buffer { pointee } => {
-                // @Cleanup: This is ugly!
-                // @Correctness: We want to reintroduce these once the rework is complete
-                // let permits = self.add_access(Some(Access::disallows(!permits.read(), !permits.write())), set);
-                let pointee = self.add_compiler_type(program, pointee, set.clone());
-
-                self.set_type(id, TypeKind::Buffer, Args([(pointee, Reason::temp_zero())]), set.clone())
+            types::TypeKind::Buffer => {
+                let args: Vec<_> = type_.args().iter().map(|v| (self.add_compiler_type(program, v, set.clone()), Reason::temp_zero())).collect();
+                self.set_type(id, TypeKind::Buffer, Args(args), set.clone())
             }
-            types::TypeKind::Reference { pointee } => {
-                // @Correctness: We want to reintroduce permits once the rework is complete
-                // let permits = self.add_access(Some(Access::disallows(!permits.read(), !permits.write())), set);
-                let pointee = self.add_compiler_type(program, pointee, set.clone());
-
-                self.set_type(id, TypeKind::Reference, Args([(pointee, Reason::temp_zero())]), set.clone())
+            types::TypeKind::Reference => {
+                let args: Vec<_> = type_.args().iter().map(|v| (self.add_compiler_type(program, v, set.clone()), Reason::temp_zero())).collect();
+                self.set_type(id, TypeKind::Reference, Args(args), set.clone())
             }
             &types::TypeKind::Array(ref type_, length) => {
                 let inner = self.add_compiler_type(program, type_, set.clone());
                 let usize_type = self.add_int(IntTypeKind::Usize, ());
                 let constant_ref_length = program.insert_buffer(
-                    &types::Type::new(types::TypeKind::Int(IntTypeKind::Usize)),
+                    &types::Type::new_int(IntTypeKind::Usize),
                     &length as *const _ as *const u8,
                 );
                 let length_value = self.add_value(usize_type, constant_ref_length, set.clone());
@@ -2498,7 +2475,6 @@ impl TypeSystem {
             IntTypeKind::Isize => (true,  0),
         };
 
-        // @Performance: We could ignore adding the size_type here
         let size = self.add_type(TypeKind::IntSize(size), Args([]), ());
         let sign = self.add_type(TypeKind::IntSigned(signed), Args([]), ());
 

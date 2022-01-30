@@ -863,7 +863,7 @@ fn build_constraints(
             }
 
             let usize = ctx.infer.add_int(IntTypeKind::Usize, set);
-            let length = ctx.program.insert_buffer(&types::Type::new(types::TypeKind::Int(IntTypeKind::Usize)), (node.children.len()).to_le_bytes().as_ptr());
+            let length = ctx.program.insert_buffer(&types::Type::new_int(IntTypeKind::Usize), (node.children.len()).to_le_bytes().as_ptr());
 
             let variable_count = ctx.infer.add_value(
                 usize,
@@ -1504,7 +1504,7 @@ fn build_declarative_lvalue(
             }
 
             let usize = ctx.infer.add_int(IntTypeKind::Usize, set);
-            let length = ctx.program.insert_buffer(&types::Type::new(types::TypeKind::Int(IntTypeKind::Usize)), (node.children.len()).to_le_bytes().as_ptr());
+            let length = ctx.program.insert_buffer(&types::Type::new_int(IntTypeKind::Usize), (node.children.len()).to_le_bytes().as_ptr());
 
             let variable_count = ctx.infer.add_value(
                 usize,

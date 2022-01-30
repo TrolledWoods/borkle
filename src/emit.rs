@@ -432,10 +432,10 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, mut node: NodeView<'a>) -> (Value, T
             (Value::Stack(to), false_body_layout)
         }
         NodeKind::Literal(Literal::String(data)) => {
-            let u8_type = Type::new(TypeKind::Int(IntTypeKind::U8));
+            let u8_type = Type::new_int(IntTypeKind::U8);
             // @Speed: There should be a global or something for common types, so we don't have
             // to define them inline like this (slow)
-            let type_ = Type::new(TypeKind::Buffer { pointee: u8_type });
+            let type_ = Type::new_with_args(TypeKind::Buffer, Box::new([u8_type]));
             let ptr = ctx.program.insert_buffer(
                 &type_,
                 &crate::types::BufferRepr {

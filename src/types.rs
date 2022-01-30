@@ -51,31 +51,59 @@ impl From<TypeKind> for Type {
 }
 
 impl Type {
+    pub fn new_int(int_kind: IntTypeKind) -> Self {
+        let (signed, size) = match int_kind {
+            IntTypeKind::U8    => (false, 1),
+            IntTypeKind::U16   => (false, 2),
+            IntTypeKind::U32   => (false, 4),
+            IntTypeKind::U64   => (false, 8),
+            IntTypeKind::Usize => (false, 0),
+            IntTypeKind::I8    => (true,  1),
+            IntTypeKind::I16   => (true,  2),
+            IntTypeKind::I32   => (true,  4),
+            IntTypeKind::I64   => (true,  8),
+            IntTypeKind::Isize => (true,  0),
+        };
+
+        let signed = Self::new(TypeKind::IntSigned(signed));
+        let size = Self::new(TypeKind::IntSize(size));
+
+        Self::new_with_args(TypeKind::Int, Box::new([signed, size]))
+    }
+
     pub fn new(kind: TypeKind) -> Self {
         profile::profile!("Type::new");
         let mut types = TYPES.lock();
-        Self::new_without_lock(&mut *types, kind)
+        Self::new_without_lock(&mut *types, kind, Box::new([]))
+    }
+    
+    pub fn new_with_args(kind: TypeKind, args: Box<[Type]>) -> Self {
+        profile::profile!("Type::new");
+        let mut types = TYPES.lock();
+        Self::new_without_lock(&mut *types, kind, args)
     }
 
-    fn new_without_lock(types: &mut Vec<&'static TypeData>, kind: TypeKind) -> Self {
+    fn new_without_lock(types: &mut Vec<&'static TypeData>, kind: TypeKind, args: Box<[Type]>) -> Self {
         if let Some(content) = types
             .iter()
-            .find(|&&c| c.kind == kind)
+            .find(|&&c| c.kind == kind && c.args == args)
         {
             Self(content)
         } else {
-            Self::new_unique(types, kind)
+            Self::new_unique(types, kind, args)
         }
     }
 
     fn new_unique(
         types: &mut Vec<&'static TypeData>,
         kind: TypeKind,
+        args: Box<[Type]>,
     ) -> Type {
         let mut data = TypeData {
             // @Cleanup: Temporary value, not that nice
             layout: Layout { size: 0, align: 0 },
             kind,
+            args,
         };
 
         let (size, align) = data.calculate_size_align();
@@ -127,16 +155,20 @@ impl Type {
         match self.kind() {
             TypeKind::Type
             | TypeKind::Empty
-            | TypeKind::Int(_)
+            | TypeKind::Int
+            | TypeKind::IntSize(_)
+            | TypeKind::IntSigned(_)
             | TypeKind::F32
             | TypeKind::F64
             | TypeKind::Bool => {}
-            TypeKind::Reference { pointee, .. }  => {
+            TypeKind::Reference  => {
+                let pointee = &self.args()[0];
                 if pointee.size() > 0 {
                     add_pointer(base_offset, PointerInType::Pointer(pointee));
                 }
             }
-            TypeKind::Buffer { pointee, .. } => {
+            TypeKind::Buffer => {
+                let pointee = &self.args()[0];
                 if pointee.size() > 0 {
                     add_pointer(base_offset, PointerInType::Buffer(pointee));
                 }
@@ -196,10 +228,16 @@ impl Type {
     pub const fn kind(&self) -> &TypeKind {
         &self.0.kind
     }
+
+    #[inline]
+    pub const fn args(&self) -> &[Type] {
+        &self.0.args
+    }
 }
 
 pub struct TypeData {
     pub kind: TypeKind,
+    pub args: Box<[Type]>,
     pub layout: Layout,
 }
 
@@ -210,10 +248,32 @@ impl Display for TypeData {
             TypeKind::Empty => write!(fmt, "()"),
             TypeKind::F64 => write!(fmt, "f64"),
             TypeKind::F32 => write!(fmt, "f32"),
-            TypeKind::Int(int) => int.fmt(fmt),
+            TypeKind::IntSize(v) => write!(fmt, "<int size {}>", v),
+            TypeKind::IntSigned(v) => write!(fmt, "<int signed {}>", v),
+            TypeKind::Int => {
+                let args = &self.args[..];
+                let &TypeKind::IntSigned(sign) = args[0].kind() else { unreachable!() };
+                let &TypeKind::IntSize(size)   = args[1].kind() else { unreachable!() };
+
+                let string = match (size, sign) {
+                    (0, false) => "usize",
+                    (0, true) => "isize",
+                    (1, false) => "u8",
+                    (1, true)  => "i8",
+                    (2, false) => "u16",
+                    (2, true)  => "i16",
+                    (4, false) => "u32",
+                    (4, true)  => "i32",
+                    (8, false) => "u64",
+                    (8, true)  => "i64",
+                    _ => unreachable!("Invalid int size/align combination: {}, {}", size, sign),
+                };
+
+                write!(fmt, "{}", string)
+            }
             TypeKind::Bool => write!(fmt, "bool"),
-            TypeKind::Reference { pointee } => write!(fmt, "&{}", pointee),
-            TypeKind::Buffer { pointee } => write!(fmt, "[] {}", pointee),
+            TypeKind::Reference => write!(fmt, "&{}", self.args[0]),
+            TypeKind::Buffer => write!(fmt, "[] {}", self.args[0]),
             TypeKind::Array(internal, length) => write!(fmt, "[{}] {}", length, internal),
             TypeKind::Function { args, returns } => {
                 write!(fmt, "fn(")?;
@@ -284,10 +344,14 @@ pub enum TypeKind {
     F64,
     F32,
     Bool,
-    Int(IntTypeKind),
+
+    Int,
+    IntSize(u8),
+    IntSigned(bool),
+
     Array(Type, usize),
-    Reference { pointee: Type },
-    Buffer { pointee: Type },
+    Reference,
+    Buffer,
     Function { args: Vec<Type>, returns: Type },
     Struct(Vec<(Ustr, Type)>),
     Tuple(Vec<Type>),
@@ -305,17 +369,9 @@ pub enum TypeKind {
 impl TypeData {
     fn for_each_child(&self, mut on_inner: impl FnMut(&Type)) {
         match &self.kind {
-            TypeKind::Type
-            | TypeKind::Empty
-            | TypeKind::F64
-            | TypeKind::F32
-            | TypeKind::Bool
-            | TypeKind::Int(_) => {}
-            TypeKind::Buffer { pointee: inner, .. }
-            | TypeKind::Array(inner, _)
+            TypeKind::Array(inner, _)
             | TypeKind::Enum { base: inner, .. }
-            | TypeKind::Unique { inner, .. }
-            | TypeKind::Reference { pointee: inner, .. } => on_inner(inner),
+            | TypeKind::Unique { inner, .. } => on_inner(inner),
             TypeKind::Function { args, returns, .. } => {
                 for arg in args {
                     on_inner(arg);
@@ -333,6 +389,11 @@ impl TypeData {
                     on_inner(member);
                 }
             }
+            _ => {
+                for arg in self.args.iter() {
+                    on_inner(arg);
+                }
+            }
         }
     }
 
@@ -340,8 +401,8 @@ impl TypeData {
         match &self.kind {
             TypeKind::Type => (8, 8),
             TypeKind::Empty => (0, 1),
-            TypeKind::F64 | TypeKind::Reference { .. } | TypeKind::Function { .. } => (8, 8),
-            TypeKind::Buffer { .. } => (16, 8),
+            TypeKind::F64 | TypeKind::Reference | TypeKind::Function { .. } => (8, 8),
+            TypeKind::Buffer => (16, 8),
             TypeKind::F32 => (4, 4),
             TypeKind::Bool => (1, 1),
             TypeKind::Unique { inner, .. } => inner.0.calculate_size_align(),
@@ -352,7 +413,16 @@ impl TypeData {
                 let size = array_size(member_size, align, *length);
                 (size, align)
             }
-            TypeKind::Int(kind) => kind.size_align(),
+            TypeKind::IntSize(_) => (0, 0),
+            TypeKind::IntSigned(_) => (0, 0),
+            TypeKind::Int => {
+                let &TypeKind::IntSize(mut size) = self.args[1].kind() else { unreachable!() };
+                // @Cleanup: This could be better
+                if size == 0 { size = 8; }
+                debug_assert!(size.is_power_of_two() && size <= 8);
+
+                (size as usize, size as usize)
+            }
             TypeKind::Tuple(members) => {
                 let mut size = 0;
                 let mut align = 1;
@@ -426,7 +496,7 @@ impl IntTypeKind {
 
 impl From<IntTypeKind> for Type {
     fn from(int: IntTypeKind) -> Type {
-        Type::new(TypeKind::Int(int))
+        Type::new_int(int)
     }
 }
 
