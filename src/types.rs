@@ -191,16 +191,9 @@ impl Type {
                     PointerInType::Function(self.args()),
                 );
             }
-            TypeKind::Tuple(ref fields) => {
+            TypeKind::Tuple | TypeKind::Struct(_) => {
                 let mut layout = StructLayout::new(0);
-                for field in fields {
-                    let offset = layout.next(field.layout());
-                    field.get_pointers_internal(base_offset + offset, add_pointer);
-                }
-            }
-            TypeKind::Struct(ref fields) => {
-                let mut layout = StructLayout::new(0);
-                for (_, field) in fields {
+                for field in self.args() {
                     let offset = layout.next(field.layout());
                     field.get_pointers_internal(base_offset + offset, add_pointer);
                 }
@@ -306,9 +299,9 @@ impl Display for TypeData {
                 }
                 Ok(())
             }
-            TypeKind::Tuple(members) => {
+            TypeKind::Tuple => {
                 write!(fmt, "(")?;
-                for (i, member) in members.iter().enumerate() {
+                for (i, member) in self.args.iter().enumerate() {
                     if i > 0 {
                         write!(fmt, ", ")?;
                     }
@@ -329,9 +322,9 @@ impl Display for TypeData {
                     write!(fmt, " }}")
                 }
             }
-            TypeKind::Struct(members) => {
+            TypeKind::Struct(names) => {
                 write!(fmt, "{{")?;
-                for (i, (name, member)) in members.iter().enumerate() {
+                for (i, (name, member)) in names.iter().zip(&self.args[..]).enumerate() {
                     if i > 0 {
                         write!(fmt, ", ")?;
                     }
@@ -369,8 +362,8 @@ pub enum TypeKind {
     Reference,
     Buffer,
     Function,
-    Struct(Vec<(Ustr, Type)>),
-    Tuple(Vec<Type>),
+    Struct(Box<[Ustr]>),
+    Tuple,
     Enum {
         marker: UniqueTypeMarker,
         base: Type,
@@ -388,16 +381,6 @@ impl TypeData {
             TypeKind::Array(inner, _)
             | TypeKind::Enum { base: inner, .. }
             | TypeKind::Unique { inner, .. } => on_inner(inner),
-            TypeKind::Tuple(members) => {
-                for member in members {
-                    on_inner(member);
-                }
-            }
-            TypeKind::Struct(members) => {
-                for (_, member) in members {
-                    on_inner(member);
-                }
-            }
             _ => {
                 for arg in self.args.iter() {
                     on_inner(arg);
@@ -437,23 +420,12 @@ impl TypeData {
 
                 (size as usize, size as usize)
             }
-            TypeKind::Tuple(members) => {
+            TypeKind::Tuple | TypeKind::Struct(_) => {
+                let members = &self.args[..];
+
                 let mut size = 0;
                 let mut align = 1;
                 for member in members {
-                    size += member.size();
-                    if member.align() > align {
-                        align = member.align();
-                    }
-                    size = to_align(size, member.align());
-                }
-                size = to_align(size, align);
-                (size, align)
-            }
-            TypeKind::Struct(members) => {
-                let mut size = 0;
-                let mut align = 1;
-                for (_, member) in members {
                     size += member.size();
                     if member.align() > align {
                         align = member.align();
