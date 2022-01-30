@@ -51,6 +51,13 @@ impl From<TypeKind> for Type {
 }
 
 impl Type {
+    pub fn new_float(size: u8) -> Self {
+        debug_assert!(size == 4 || size == 8);
+
+        let size = Self::new(TypeKind::IntSize(size));
+        Self::new_with_args(TypeKind::Float, Box::new([size]))
+    }
+
     pub fn new_int(int_kind: IntTypeKind) -> Self {
         let (signed, size) = match int_kind {
             IntTypeKind::U8    => (false, 1),
@@ -156,10 +163,9 @@ impl Type {
             TypeKind::Type
             | TypeKind::Empty
             | TypeKind::Int
+            | TypeKind::Float
             | TypeKind::IntSize(_)
             | TypeKind::IntSigned(_)
-            | TypeKind::F32
-            | TypeKind::F64
             | TypeKind::Bool => {}
             TypeKind::Reference  => {
                 let pointee = &self.args()[0];
@@ -246,8 +252,18 @@ impl Display for TypeData {
         match &self.kind {
             TypeKind::Type => write!(fmt, "type"),
             TypeKind::Empty => write!(fmt, "()"),
-            TypeKind::F64 => write!(fmt, "f64"),
-            TypeKind::F32 => write!(fmt, "f32"),
+            TypeKind::Float => {
+                let args = &self.args[..];
+                let &TypeKind::IntSize(size)   = args[1].kind() else { unreachable!() };
+
+                let string = match size {
+                    4 => "f32",
+                    8 => "f64",
+                    _ => unreachable!("Invalid float size: {}", size),
+                };
+
+                write!(fmt, "{}", string)
+            }
             TypeKind::IntSize(v) => write!(fmt, "<int size {}>", v),
             TypeKind::IntSigned(v) => write!(fmt, "<int signed {}>", v),
             TypeKind::Int => {
@@ -341,9 +357,9 @@ pub fn to_align(value: usize, align: usize) -> usize {
 pub enum TypeKind {
     Type,
     Empty,
-    F64,
-    F32,
     Bool,
+
+    Float,
 
     Int,
     IntSize(u8),
@@ -401,9 +417,8 @@ impl TypeData {
         match &self.kind {
             TypeKind::Type => (8, 8),
             TypeKind::Empty => (0, 1),
-            TypeKind::F64 | TypeKind::Reference | TypeKind::Function { .. } => (8, 8),
+            TypeKind::Reference | TypeKind::Function { .. } => (8, 8),
             TypeKind::Buffer => (16, 8),
-            TypeKind::F32 => (4, 4),
             TypeKind::Bool => (1, 1),
             TypeKind::Unique { inner, .. } => inner.0.calculate_size_align(),
             TypeKind::Enum { base, .. } => (base.size(), base.align()),
@@ -412,6 +427,12 @@ impl TypeData {
                 let align = internal.align();
                 let size = array_size(member_size, align, *length);
                 (size, align)
+            }
+            TypeKind::Float => {
+                let &TypeKind::IntSize(size) = self.args[0].kind() else { unreachable!() };
+                debug_assert!(size == 4 || size == 8);
+
+                (size as usize, size as usize)
             }
             TypeKind::IntSize(_) => (0, 0),
             TypeKind::IntSigned(_) => (0, 0),

@@ -2,7 +2,7 @@ use super::token_stream::TokenStream;
 use crate::errors::ErrorCtx;
 use crate::literal::Literal;
 use crate::location::Location;
-use crate::types::{IntTypeKind, Type, TypeKind};
+use crate::types::{IntTypeKind, Type};
 use core::iter::Peekable;
 use ustr::Ustr;
 
@@ -169,8 +169,8 @@ pub fn process_string(errors: &mut ErrorCtx, file: Ustr, string: &str) -> Result
                     "unpack" => TokenKind::Keyword(Keyword::Unpack),
                     "_" => TokenKind::Keyword(Keyword::Underscore),
 
-                    "f32" => TokenKind::Type(Type::new(TypeKind::F32)),
-                    "f64" => TokenKind::Type(Type::new(TypeKind::F64)),
+                    "f32" => TokenKind::Type(Type::new_float(4)),
+                    "f64" => TokenKind::Type(Type::new_float(8)),
 
                     "Int" => TokenKind::Keyword(Keyword::Int),
                     "Float" => TokenKind::Keyword(Keyword::Float),

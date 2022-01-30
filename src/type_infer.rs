@@ -1181,21 +1181,6 @@ impl TypeSystem {
             TypeKind::CompareUnspecified => unreachable!("CompareUnspecified should never be converted to a compiler type"),
             TypeKind::Type => types::Type::new(types::TypeKind::Type),
             TypeKind::Constant | TypeKind::ConstantValue(_) => unreachable!("Constants aren't concrete types, cannot use them as node types"),
-            TypeKind::Float => {
-                let [size] = &**type_args else {
-                    unreachable!("Invalid float size")
-                };
-
-                let Some(&Type { kind: TypeKind::IntSize(size_value), .. }) = self.get(*size).kind else { panic!() };
-
-                let type_kind = match size_value {
-                    4 => types::TypeKind::F32,
-                    8 => types::TypeKind::F64,
-                    _ => unreachable!("Invalid float size"),
-                };
-
-                types::Type::new(type_kind)
-            }
             TypeKind::Bool => types::Type::new(types::TypeKind::Bool),
             TypeKind::Empty => types::Type::new(types::TypeKind::Empty),
             TypeKind::Unique(marker) => {
@@ -1272,6 +1257,10 @@ impl TypeSystem {
             TypeKind::IntSize(v) => {
                 let args: Box<[_]> = type_args.iter().map(|&v| self.value_to_compiler_type(v)).collect();
                 types::Type::new_with_args(types::TypeKind::IntSize(v), args)
+            }
+            TypeKind::Float => {
+                let args: Box<[_]> = type_args.iter().map(|&v| self.value_to_compiler_type(v)).collect();
+                types::Type::new_with_args(types::TypeKind::Float, args)
             }
             TypeKind::Int => {
                 let args: Box<[_]> = type_args.iter().map(|&v| self.value_to_compiler_type(v)).collect();
@@ -2360,13 +2349,9 @@ impl TypeSystem {
             types::TypeKind::Type => {
                 self.set_type(id, TypeKind::Type, Args([]), set.clone())
             }
-            types::TypeKind::F64 => {
-                let size = self.add_type(TypeKind::IntSize(8), Args([]), ());
-                self.set_type(id, TypeKind::Float, Args([(size, Reason::temp_zero())]), set.clone())
-            }
-            types::TypeKind::F32 => {
-                let size = self.add_type(TypeKind::IntSize(4), Args([]), ());
-                self.set_type(id, TypeKind::Float, Args([(size, Reason::temp_zero())]), set.clone())
+            types::TypeKind::Float => {
+                let args: Vec<_> = type_.args().iter().map(|v| (self.add_compiler_type(program, v, set.clone()), Reason::temp_zero())).collect();
+                self.set_type(id, TypeKind::Float, Args(args), set.clone())
             }
             types::TypeKind::Int => {
                 let args: Vec<_> = type_.args().iter().map(|v| (self.add_compiler_type(program, v, set.clone()), Reason::temp_zero())).collect();
