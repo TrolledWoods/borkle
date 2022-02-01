@@ -8,6 +8,9 @@ type #builtin: CallingConvention = enum u8 {
 };
 
 #entry fn() {
+    let custom_call: fn #call _: () = fn #call 4: () {
+    };
+
     let timer = start_timer();
     run_tests();
     print("Time elapsed(micros): %\n", get_micros(timer));

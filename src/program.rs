@@ -9,7 +9,7 @@ use crate::logging::Logger;
 use crate::parser::Ast;
 use crate::thread_pool::{ThreadContext, WorkPile};
 use crate::type_infer::AstVariantId;
-use crate::types::{PointerInType, Type, TypeKind};
+use crate::types::{PointerInType, Type, TypeKind, FunctionArgs};
 use constant::{Constant, ConstantRef};
 use parking_lot::{Mutex, RwLock, MutexGuard};
 use std::alloc;
@@ -249,8 +249,8 @@ impl Program {
         let type_ = member.type_.to_option()?.0.clone();
 
         if let TypeKind::Function = type_.kind() {
-            let args = type_.args();
-            if args.len() == 1 && matches!(args[0].kind(), TypeKind::Empty) {
+            let function = FunctionArgs::get(type_.args());
+            if function.args.len() == 0 && matches!(function.return_.kind(), TypeKind::Empty) {
                 Some(unsafe { *member.value.to_option()?.as_ptr().cast::<FunctionId>() })
             } else {
                 None

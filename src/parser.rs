@@ -77,7 +77,7 @@ pub fn process_string(
     let mut context = DataContext::new(errors, program, &mut tokens, Path::new(&*file), scope);
 
     let mut no_base = None;
-    parse_tags(
+    parse_basic_tags(
         &mut context,
         "file header",
         &mut [("no_base".into(), &mut no_base)]
@@ -219,7 +219,7 @@ pub fn process_string(
 fn type_declaration(global: &mut DataContext<'_>) -> Result<(), ()> {
     let mut is_aliased = None;
     let mut is_builtin = None;
-    parse_tags(global, "type declaration", &mut [("alias".into(), &mut is_aliased), ("builtin".into(), &mut is_builtin)])?;
+    parse_basic_tags(global, "type declaration", &mut [("alias".into(), &mut is_aliased), ("builtin".into(), &mut is_builtin)])?;
 
     let (loc, name) = global.tokens.expect_identifier(global.errors)?;
     let poly_args = maybe_parse_polymorphic_arguments(global)?;
@@ -894,7 +894,7 @@ fn value_without_unaries(
             imperative.push_scope_boundary();
 
             let mut is_const = None;
-            parse_tags(global, "for", &mut [("const".into(), &mut is_const)])?;
+            parse_basic_tags(global, "for", &mut [("const".into(), &mut is_const)])?;
 
             let label = parse_default_label(global, imperative)?;
 
@@ -977,7 +977,7 @@ fn value_without_unaries(
             // Parse tags
             let mut is_const = None;
 
-            parse_tags(global, "if", &mut [
+            parse_basic_tags(global, "if", &mut [
                 ("const".into(), &mut is_const),
             ])?;
 
@@ -1211,6 +1211,8 @@ fn function_type(
     loc: Location,
     mut slot: AstSlot<'_>,
 ) -> Result<FinishedNode, ()> {
+    parse_tags(global, imperative, slot.add())?;
+
     // We start with a list of arguments.
     global
         .tokens
@@ -1282,6 +1284,8 @@ fn function_declaration(
     mut slot: AstSlot<'_>,
     loc: Location,
 ) -> Result<FinishedNode, ()> {
+    parse_tags(global, imperative, slot.add())?;
+
     global
         .tokens
         .expect_next_is(global.errors, &TokenKind::Open(Bracket::Round))?;
@@ -1295,7 +1299,7 @@ fn function_declaration(
         }
 
         let mut argument_info = FunctionArgumentInfo::default();
-        parse_tags(
+        parse_basic_tags(
             global,
             "function argument",
             &mut [
@@ -1443,7 +1447,55 @@ fn maybe_parse_label(
     }
 }
 
-fn parse_tags(global: &mut DataContext<'_>, expr_name: &str, tags: &mut [(Ustr, &mut Option<Location>)]) -> Result<(), ()> {
+#[derive(Debug, Clone, Copy)]
+#[repr(u8)]
+pub enum TagKind {
+    CallingConvention,
+}
+
+fn parse_tags(global: &mut DataContext<'_>, imperative: &mut ImperativeContext<'_>, mut slot: AstSlot<'_>) -> Result<(), ()> {
+    let loc = global.tokens.loc();
+
+    let mut is_first = true;
+    loop {
+        let Some(&Token { loc, kind: TokenKind::Tag(tag_name), .. }) = global.tokens.peek() else {
+            if is_first {
+                break;
+            } else {
+                global.error(global.tokens.loc(), format!("You need a `:` after a tag list to close it"));
+                return Err(());
+            }
+        };
+
+        is_first = false;
+
+        global.tokens.next();
+
+        match tag_name.as_str() {
+            "call" => {
+                let mut tag = slot.add();
+                value(global, imperative, tag.add())?;
+                tag.finish(Node::new(loc, NodeKind::Tag(TagKind::CallingConvention)));
+            }
+            _ => {
+                global.error(global.tokens.loc(), format!("`{}` is not a tag", tag_name));
+                return Err(());
+            }
+        }
+
+        if global.tokens.try_consume_operator_string(":").is_some() {
+            break;
+        } else {
+            global.tokens.expect_next_is(global.errors, &TokenKind::Comma)?;
+        }
+    }
+
+    slot.finish(Node::new(loc, NodeKind::TagList));
+    Ok(())
+}
+
+// TODO: This could be removed later probably
+fn parse_basic_tags(global: &mut DataContext<'_>, expr_name: &str, tags: &mut [(Ustr, &mut Option<Location>)]) -> Result<(), ()> {
     let mut is_first = true;
     loop {
         let Some(&Token { loc, kind: TokenKind::Tag(tag_name), .. }) = global.tokens.peek() else {
@@ -1526,6 +1578,11 @@ pub enum NodeKind {
     ConstAtTyping,
     ConstAtEvaluation,
 
+    /// A list of tags.
+    TagList,
+    /// Args depend on TagKind.
+    Tag(TagKind),
+
     Global {
         scope: ScopeId,
         name: Ustr,
@@ -1566,7 +1623,7 @@ pub enum NodeKind {
         name: Ustr,
     },
 
-    /// [ .. arg, returns, body ]  (at least 2 children)
+    /// [ tags, .. arg, returns, body ]  (at least 2 children)
     FunctionDeclaration {
         is_extern: Option<Ustr>,
         argument_infos: Vec<FunctionArgumentInfo>,

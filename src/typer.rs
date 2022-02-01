@@ -6,7 +6,7 @@ use crate::location::Location;
 use crate::execution_time::ExecutionTime;
 use crate::locals::LocalVariables;
 use crate::operators::{BinaryOp, UnaryOp};
-pub use crate::parser::{LocalUsage, Node, NodeKind, Ast, NodeView};
+pub use crate::parser::{LocalUsage, Node, NodeKind, Ast, NodeView, TagKind};
 use crate::ast::{NodeId, GenericChildIterator};
 use crate::program::{PolyOrMember, PolyMemberId, Program, Task, constant::ConstantRef, BuiltinFunction, MemberId, MemberMetaData, FunctionId, ScopeId, FunctionMetaData, FunctionArgumentInfo, MemberKind};
 use crate::thread_pool::ThreadContext;
@@ -1106,13 +1106,55 @@ fn extract_name(ctx: &Context<'_, '_>, node: NodeView<'_>) -> Option<(Ustr, Loca
     }
 }
 
+#[derive(Default, Debug, Clone)]
+struct FunctionDeclTags {
+    calling_convention: Option<(Location, TypeId)>,
+}
+
+fn build_function_decl_tags(
+    ctx: &mut Context<'_, '_>,
+    node: NodeView<'_>,
+    set: ValueSetId,
+) -> FunctionDeclTags {
+    let mut tags = FunctionDeclTags::default();
+
+    for node in node.children.into_iter() {
+        let &NodeKind::Tag(tag_kind) = &node.kind else { unreachable!("Invalid tag list") };
+
+        match tag_kind {
+            TagKind::CallingConvention => {
+                let [inner] = node.children.into_array();
+                if let Some(_) = tags.calling_convention {
+                    ctx.errors.error(node.loc, format!("Calling convention defined twice"));
+                    ctx.infer.value_sets.get_mut(set).has_errors |= true;
+                }
+                let value = build_inferrable_constant_value(ctx, inner, set);
+                
+                let int = ctx.infer.add_int(IntTypeKind::U8, set);
+                ctx.infer.set_equal(value.type_, int, Reason::temp(node.loc));
+                tags.calling_convention = Some((
+                    node.loc,
+                    value.constant_value,
+                ));
+            }
+        }
+    }
+
+    tags
+}
+
 fn build_function_declaration(
     ctx: &mut Context<'_, '_>,
     node: NodeView<'_>,
     set: ValueSetId,
     mut wants_meta_data: Option<&mut FunctionMetaData>,
 ) {
-    let NodeKind::FunctionDeclaration { is_extern, argument_infos } = &node.node.kind else { unreachable!() };
+    let &NodeKind::FunctionDeclaration { ref is_extern, ref argument_infos } = &node.node.kind else { unreachable!() };
+
+    let sub_set = ctx.infer.value_sets.add(WaitingOnTypeInferrence::None);
+
+    let mut children = node.children.into_iter();
+    let tags = build_function_decl_tags(ctx, children.next().unwrap(), sub_set);
 
     let node_type_id = TypeId::Node(ctx.ast_variant_id, node.id);
 
@@ -1133,11 +1175,8 @@ fn build_function_declaration(
         inside_type_comparison: false,
     };
 
-    let sub_set = sub_ctx.infer.value_sets.add(WaitingOnTypeInferrence::None);
-
     sub_ctx.infer.value_sets.lock(set);
 
-    let mut children = node.children.into_iter();
     let num_children = children.len();
 
     // @Cleanup: This isn't that nice
@@ -1179,6 +1218,15 @@ fn build_function_declaration(
             .set_equal(body_type_id, returns_type_id, Reason::new(returns_loc, ReasonKind::FunctionDeclReturned));
     };
 
+    if let Some((loc, calling_convention)) = tags.calling_convention {
+        function_args.set_calling_convention((calling_convention, Reason::temp(loc)));
+    } else {
+        // TODO: This should be the borkle calling convention
+        let constant_value = ctx.program.insert_buffer(&types::Type::new_int(IntTypeKind::U8), (&0_u8) as *const u8);
+        let calling_convention = ctx.infer.add_type(TypeKind::ConstantValue(constant_value), Args([]), set);
+        function_args.set_calling_convention((calling_convention, Reason::temp(node.loc)));
+    }
+    
     let infer_type_id = ctx.infer.add_type(TypeKind::Function, Args(function_args.build()), sub_set);
     ctx.infer
         .set_equal(infer_type_id, node_type_id, Reason::new(node.node.loc, ReasonKind::FunctionDecl));
@@ -1312,6 +1360,7 @@ fn build_type(
         }
         NodeKind::FunctionType => {
             let mut children = node.children.into_iter();
+            let tags = build_function_decl_tags(ctx, children.next().unwrap(), set);
             let mut function_args = FunctionArgsBuilder::with_num_args_capacity(children.len());
             let num_children = children.len();
             for type_node in children.by_ref().take(num_children - 1) {
@@ -1321,6 +1370,15 @@ fn build_type(
 
             let returns_type_id = build_type(ctx, children.next().unwrap(), set);
             function_args.set_return((returns_type_id, Reason::temp(node_loc)));
+
+            if let Some((loc, calling_convention)) = tags.calling_convention {
+                function_args.set_calling_convention((calling_convention, Reason::temp(loc)));
+            } else {
+                // TODO: This should be the borkle calling convention
+                let constant_value = ctx.program.insert_buffer(&types::Type::new_int(IntTypeKind::U8), (&0_u8) as *const u8);
+                let calling_convention = ctx.infer.add_type(TypeKind::ConstantValue(constant_value), Args([]), set);
+                function_args.set_calling_convention((calling_convention, Reason::temp(node.loc)));
+            }
 
             let infer_type_id = ctx.infer.add_type(TypeKind::Function, Args(function_args.build()), set);
             ctx.infer
@@ -1891,6 +1949,9 @@ fn build_function_call<'a>(
             }
         }
 
+        let calling_convention = ctx.infer.add_unknown_type_with_set(set);
+        typer_args.set_calling_convention((calling_convention, Reason::temp(node_loc)));
+
         // Specify that the caller has to be a function type
         let type_id = ctx.infer.add_type(TypeKind::Function, Args(typer_args.build()), set);
         ctx.additional_info.insert((ctx.ast_variant_id, node_id), AdditionalInfoKind::FunctionCall(function_arg_usage));
@@ -1904,6 +1965,8 @@ fn build_function_call<'a>(
             typer_args.add_arg((arg_type_id, Reason::new(node_loc, ReasonKind::FunctionCallArgument)));
         }
 
+        let calling_convention = ctx.infer.add_unknown_type_with_set(set);
+        typer_args.set_calling_convention((calling_convention, Reason::temp(node_loc)));
         typer_args.set_return((node_type_id, Reason::new(node_loc, ReasonKind::FunctionCallReturn)));
 
         // Specify that the caller has to be a function type

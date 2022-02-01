@@ -332,6 +332,7 @@ pub fn to_align(value: usize, align: usize) -> usize {
 pub struct FunctionArgsBuilder<T> {
     pub args: Vec<T>,
     pub return_: Option<T>,
+    pub calling_convention: Option<T>,
 }
 
 impl<T> FunctionArgsBuilder<T> {
@@ -339,6 +340,7 @@ impl<T> FunctionArgsBuilder<T> {
         Self {
             args: Vec::with_capacity(capacity + 1),
             return_: None,
+            calling_convention: None,
         }
     }
 
@@ -351,14 +353,21 @@ impl<T> FunctionArgsBuilder<T> {
         self.return_ = Some(value);
     }
 
+    pub fn set_calling_convention(&mut self, value: T) {
+        debug_assert!(self.calling_convention.is_none(), "Cannot set calling convention twice on FunctionArgsBuilder");
+        self.calling_convention = Some(value);
+    }
+
     pub fn build(mut self) -> Vec<T> {
         self.args.push(self.return_.expect("Cannot call `build` on FunctionArgsBuilder without assigning a return"));
+        self.args.push(self.calling_convention.expect("Cannot call `build` on FunctionArgsBuilder without assigning a calling convention"));
         self.args
     }
 }
 
 pub struct FunctionArgs<'a, T> {
     pub return_: &'a T,
+    pub calling_convention: &'a T,
     pub args: &'a [T],
 }
 
@@ -366,9 +375,10 @@ impl<T> FunctionArgs<'_, T> {
     // The reason it's a box is so I don't make mistakes about what I pass into it, it's supposed to be the full argument list, which conveniently
     // is wrapped in a box.
     pub fn get(args: &[T]) -> FunctionArgs<'_, T> {
-        let (return_, args) = args.split_last().expect("Invalid function arguments");
+        let [args @ .., return_, calling_convention] = args else { unreachable!() };
         FunctionArgs {
             return_,
+            calling_convention,
             args,
         }
     }

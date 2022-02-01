@@ -111,8 +111,8 @@ pub fn emit_function_declaration<'a>(
     }).collect();
 
     let mut children = node.children.into_iter();
-    for &(passed_as, _) in args.iter() {
-        let child = children.next().unwrap();
+    let _tag_list = children.next().unwrap();
+    for (&(passed_as, _), child) in args.iter().zip(&mut children) {
         emit_declarative_lvalue(&mut ctx, child, &Value::Stack(passed_as), true);
     }
 
@@ -943,7 +943,8 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, mut node: NodeView<'a>) -> (Value, T
             let layout = ctx.get_typed_layout(node_type_id);
             (Value::Constant { constant: ptr, offset: 0 }, layout)
         }
-        NodeKind::BuiltinFunction(_) | NodeKind::FunctionDeclaration { .. } => {
+        NodeKind::BuiltinFunction(_) => todo!(),
+        NodeKind::FunctionDeclaration { .. } => {
             if ctx.emit_inner_function_declarations {
                 let &AdditionalInfoKind::Function(id) = &ctx.additional_info[&(ctx.variant_id, node.id)] else { panic!() };
 
