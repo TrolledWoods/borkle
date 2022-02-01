@@ -314,6 +314,16 @@ impl Program {
         Ok(())
     }
 
+    pub fn get_member_id_from_builtin(&self, builtin_kind: Builtin) -> Option<PolyOrMember> {
+        profile::profile!("get_member_id_from_builtin");
+        let builtin = self.builtins[builtin_kind as usize].read();
+        if let BuiltinDefinition::Defined(member_id) = *builtin {
+            Some(member_id)
+        } else {
+            None
+        }
+    }
+
     /// Locks
     /// * ``scopes`` read
     pub fn get_member_id(&self, scope: ScopeId, name: Ustr) -> Option<PolyOrMember> {

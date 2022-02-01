@@ -66,6 +66,10 @@ fn main() {
 
         let mut program = program::Program::new(logger, options.clone(), backend::Backends { backends });
         program.add_file(&options.file, false);
+        
+        let mut compiler_path = options.lib_path.clone();
+        compiler_path.push("compiler.bo");
+        program.add_file(&compiler_path, true);
 
         let (backend_emitters, mut errors) = thread_pool::run(&mut program, options.num_threads);
 

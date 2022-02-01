@@ -1,0 +1,6 @@
+#no_base:
+
+type #builtin: CallingConvention = enum u8 {
+    Borkle = 0;
+    C = 1;
+};

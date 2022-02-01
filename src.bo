@@ -2,15 +2,7 @@ library "iter.bo";
 library "timer.bo";
 import "tests/main.bo";
 
-type #builtin: CallingConvention = enum u8 {
-    Borkle = 0;
-    C = 1;
-};
-
 #entry fn() {
-    let custom_call: fn #call _: () = fn #call 4: () {
-    };
-
     let timer = start_timer();
     run_tests();
     print("Time elapsed(micros): %\n", get_micros(timer));

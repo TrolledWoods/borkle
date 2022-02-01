@@ -1476,6 +1476,14 @@ fn parse_tags(global: &mut DataContext<'_>, imperative: &mut ImperativeContext<'
                 let mut tag = slot.add();
                 value(global, imperative, tag.add())?;
                 tag.finish(Node::new(loc, NodeKind::Tag(TagKind::CallingConvention)));
+
+                imperative.dependencies.add(
+                    loc,
+                    DepKind::MemberByBuiltin(
+                        Builtin::CallingConvention,
+                        MemberDep::Type,
+                    ),
+                );
             }
             _ => {
                 global.error(global.tokens.loc(), format!("`{}` is not a tag", tag_name));

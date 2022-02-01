@@ -8,7 +8,7 @@ use crate::locals::LocalVariables;
 use crate::operators::{BinaryOp, UnaryOp};
 pub use crate::parser::{LocalUsage, Node, NodeKind, Ast, NodeView, TagKind};
 use crate::ast::{NodeId, GenericChildIterator};
-use crate::program::{PolyOrMember, PolyMemberId, Program, Task, constant::ConstantRef, BuiltinFunction, MemberId, MemberMetaData, FunctionId, ScopeId, FunctionMetaData, FunctionArgumentInfo, MemberKind};
+use crate::program::{PolyOrMember, PolyMemberId, Program, Task, constant::ConstantRef, BuiltinFunction, MemberId, MemberMetaData, FunctionId, ScopeId, FunctionMetaData, FunctionArgumentInfo, MemberKind, Builtin};
 use crate::thread_pool::ThreadContext;
 use crate::type_infer::{self, AstVariantId, ValueId as TypeId, Args, TypeSystem, ValueSetId, TypeKind, Reason, ReasonKind};
 use crate::types::{self, IntTypeKind, UniqueTypeMarker, FunctionArgsBuilder};
@@ -723,10 +723,12 @@ fn build_constraints(
             ctx.infer.value_sets.add_node_to_set(set, ctx.ast_variant_id, on.id);
             ctx.infer.set_equal(TypeId::Node(ctx.ast_variant_id, on.id), node_type_id, Reason::temp(node_loc));
 
-            build_global(ctx, node.id, node.node, node.loc, scope, name, Some(children), set, false);
+            let id = ctx.program.get_member_id(scope, name).expect("The dependency system should have made sure that this is defined");
+            build_global(ctx, node.id, node.node, node.loc, id, Some(children), set, false);
         }
         NodeKind::Global { scope, name } => {
-            build_global(ctx, node.id, node.node, node.loc, scope, name, None, set, false);
+            let id = ctx.program.get_member_id(scope, name).expect("The dependency system should have made sure that this is defined");
+            build_global(ctx, node.id, node.node, node.loc, id, None, set, false);
         }
         NodeKind::While {
             label: label_id,
@@ -1129,9 +1131,14 @@ fn build_function_decl_tags(
                     ctx.infer.value_sets.get_mut(set).has_errors |= true;
                 }
                 let value = build_inferrable_constant_value(ctx, inner, set);
-                
-                let int = ctx.infer.add_int(IntTypeKind::U8, set);
-                ctx.infer.set_equal(value.type_, int, Reason::temp(node.loc));
+
+                let builtin_id = ctx.program
+                    .get_member_id_from_builtin(Builtin::CallingConvention)
+                    .expect("Parser should make sure we have access to calling convention");
+                // TODO: It is scary to monomorphise something like this, since we have to give a node
+                // that is the "global". Maybe there should be an entirely different code path for types?
+                build_global(ctx, inner.id, inner.node, inner.loc, builtin_id, None, set, true);
+
                 tags.calling_convention = Some((
                     node.loc,
                     value.constant_value,
@@ -1153,9 +1160,6 @@ fn build_function_declaration(
 
     let sub_set = ctx.infer.value_sets.add(WaitingOnTypeInferrence::None);
 
-    let mut children = node.children.into_iter();
-    let tags = build_function_decl_tags(ctx, children.next().unwrap(), sub_set);
-
     let node_type_id = TypeId::Node(ctx.ast_variant_id, node.id);
 
     let mut emit_deps = DependencyList::new();
@@ -1174,6 +1178,9 @@ fn build_function_declaration(
         additional_info: ctx.additional_info,
         inside_type_comparison: false,
     };
+
+    let mut children = node.children.into_iter();
+    let tags = build_function_decl_tags(&mut sub_ctx, children.next().unwrap(), sub_set);
 
     sub_ctx.infer.value_sets.lock(set);
 
@@ -1332,13 +1339,15 @@ fn build_type(
 
             let old_runs = ctx.runs;
             ctx.runs = ExecutionTime::Never;
-            build_global(ctx, node.id, node.node, node.loc, scope, name, Some(children), set, true);
+            let id = ctx.program.get_member_id(scope, name).expect("The dependency system should have made sure that this is defined");
+            build_global(ctx, node.id, node.node, node.loc, id, Some(children), set, true);
             ctx.runs = old_runs;
         }
         NodeKind::Global { scope, name } => {
             let old_runs = ctx.runs;
             ctx.runs = ExecutionTime::Never;
-            build_global(ctx, node.id, node.node, node.loc, scope, name, None, set, true);
+            let id = ctx.program.get_member_id(scope, name).expect("The dependency system should have made sure that this is defined");
+            build_global(ctx, node.id, node.node, node.loc, id, None, set, true);
             ctx.runs = old_runs;
         }
         NodeKind::PolymorphicArgument(index) => {
@@ -1807,10 +1816,12 @@ fn build_with_metadata(
             ctx.infer.value_sets.add_node_to_set(set, ctx.ast_variant_id, on.id);
             ctx.infer.set_equal(TypeId::Node(ctx.ast_variant_id, on.id), node_type_id, Reason::temp(node_loc));
 
-            Some(build_global(ctx, node.id, node.node, node.loc, scope, name, Some(children), set, false))
+            let id = ctx.program.get_member_id(scope, name).expect("The dependency system should have made sure that this is defined");
+            Some(build_global(ctx, node.id, node.node, node.loc, id, Some(children), set, false))
         }
         NodeKind::Global { scope, name } => {
-            Some(build_global(ctx, node.id, node.node, node.loc, scope, name, None, set, false))
+            let id = ctx.program.get_member_id(scope, name).expect("The dependency system should have made sure that this is defined");
+            Some(build_global(ctx, node.id, node.node, node.loc, id, None, set, false))
         }
         _ => {
             build_constraints(ctx, node, set);
@@ -1979,17 +1990,16 @@ fn build_function_call<'a>(
 fn build_global<'a>(
     ctx: &mut Context<'_, '_>,
     node_id: NodeId,
+    // TODO: Why are all of these separate instead of just NodeView?
     node: &Node,
     node_loc: Location,
-    scope: ScopeId,
-    name: Ustr,
+    id: PolyOrMember,
     children: Option<GenericChildIterator<'a, &'a [Node]>>,
     set: ValueSetId,
     expecting_type: bool,
 ) -> Arc<MemberMetaData> {
     debug_assert!(!(ctx.inside_type_comparison && !expecting_type));
 
-    let id = ctx.program.get_member_id(scope, name).expect("The dependency system should have made sure that this is defined");
     let node_type_id = TypeId::Node(ctx.ast_variant_id, node_id);
 
     let (meta_data, member_kind) = ctx.program.get_member_meta_data_and_kind(id);

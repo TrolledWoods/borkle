@@ -1,25 +1,25 @@
 #no_base:
 
-const QueryPerformanceFrequency = fn(frequency: &u64) -> i32  extern "QueryPerformanceFrequency";
-const QueryPerformanceCounter   = fn(frequency: &u64) -> i32  extern "QueryPerformanceCounter";
+const QueryPerformanceFrequency = fn #call .C: (frequency: &u64) -> i32  extern "QueryPerformanceFrequency";
+const QueryPerformanceCounter   = fn #call .C: (frequency: &u64) -> i32  extern "QueryPerformanceCounter";
 
-const MessageBox = fn(hwnd: &u8, message: &u8, title: &u8, u_type: u32) -> i32  extern "MessageBoxA";
-const OutputDebugString = fn(message: &u8) -> ()  extern "OutputDebugStringA";
-const WriteConsole = fn(console_handle: &u8, buffer: &u8, num_chars: u32, written: &u32, _: &u8) -> i32  extern "WriteConsoleA";
-const GetStdHandle = fn(handle: u32) -> &u8  extern "GetStdHandle";
-const GetLastError = fn() -> u32  extern "GetLastError";
+const MessageBox = fn #call .C: (hwnd: &u8, message: &u8, title: &u8, u_type: u32) -> i32  extern "MessageBoxA";
+const OutputDebugString = fn #call .C: (message: &u8) -> ()  extern "OutputDebugStringA";
+const WriteConsole = fn #call .C: (console_handle: &u8, buffer: &u8, num_chars: u32, written: &u32, _: &u8) -> i32  extern "WriteConsoleA";
+const GetStdHandle = fn #call .C: (handle: u32) -> &u8  extern "GetStdHandle";
+const GetLastError = fn #call .C: () -> u32  extern "GetLastError";
 const STD_ERROR_HANDLE = 4294967284 : u32;
 const STD_OUTPUT_HANDLE = 4294967285 : u32;
-const ExitProcess = fn(exit_code: u32) -> ()  extern "ExitProcess";
+const ExitProcess = fn #call .C: (exit_code: u32) -> ()  extern "ExitProcess";
 
 // @Cleanup: We cannot put an invalid pointer into a constant yet, so this is all we can do.
 // Later, I might add more control over pointers, so you can store an incorrect into a pointer too,
 // or maybe mark it as something that shouldn't be put into the constant table?
-const is_invalid_handle_value = fn(handle: &u8) -> bool {
+const is_invalid_handle_value = fn #call .C: (handle: &u8) -> bool {
     bit_cast handle : isize == -1
 };
 
-const VirtualAlloc = fn(
+const VirtualAlloc = fn #call .C: (
     address: &u8,
     size: usize,
     allocation_type: u32,
@@ -27,7 +27,7 @@ const VirtualAlloc = fn(
 ) -> &u8
 extern "VirtualAlloc";
 
-const VirtualFree = fn(address: &u8, size: usize, free_type: u32) -> i32 extern "VirtualFree";
+const VirtualFree = fn #call .C: (address: &u8, size: usize, free_type: u32) -> i32 extern "VirtualFree";
 
 const MEM_COMMIT   = 0x00001000 : u32;
 const MEM_DECOMMIT = 0x00004000 : u32;
@@ -37,7 +37,7 @@ const PAGE_READWRITE = 0x04 : u32;
 const GENERIC_READ  = 0x80000000 : u32;
 const GENERIC_WRITE = 0x40000000 : u32;
 
-const CreateConsoleScreenBuffer = fn(
+const CreateConsoleScreenBuffer = fn #call .C: (
     desired_access: u32,
     share_mode: u32,
     security_attributes: &u8,
@@ -46,12 +46,12 @@ const CreateConsoleScreenBuffer = fn(
 ) -> &u8
 extern "CreateConsoleScreenBuffer";
 
-const SetConsoleActiveScreenBuffer = fn(
+const SetConsoleActiveScreenBuffer = fn #call .C: (
     console_output: &u8,
 ) -> i32
 extern "SetConsoleActiveScreenBuffer";
 
-const WriteConsoleOutputCharacter = fn(
+const WriteConsoleOutputCharacter = fn #call .C: (
     console_output: &u8,
     character: &u8,
     length: u32,
@@ -60,12 +60,12 @@ const WriteConsoleOutputCharacter = fn(
 ) -> i32
 extern "WriteConsoleOutputCharacterA";
 
-const GetAsyncKeyState = fn(
+const GetAsyncKeyState = fn #call .C: (
     key: i32,
 ) -> u16
 extern "GetAsyncKeyState";
 
-const Sleep = fn(millis: u32) -> ()  extern "Sleep";
+const Sleep = fn #call .C: (millis: u32) -> ()  extern "Sleep";
 
 const CS_VREDRAW = 0x0001 : u16;
 const CS_HREDRAW = 0x0002 : u16;
@@ -110,14 +110,14 @@ type WNDCLASS = {
     lpszClassName: LPCSTR;
 };
 
-const RegisterClass = fn(class: &WNDCLASS) -> ATOM  extern "RegisterClassA";
+const RegisterClass = fn #call .C: (class: &WNDCLASS) -> ATOM  extern "RegisterClassA";
 
-type WNDPROC = fn(HWND, u32, WPARAM, LPARAM) -> LRESULT;
-const DefWindowProc = fn(hwnd: HWND, message: u32, w_param: WPARAM, l_param: LPARAM) -> LRESULT  extern "DefWindowProcA";
+type WNDPROC = fn #call .C: (HWND, u32, WPARAM, LPARAM) -> LRESULT;
+const DefWindowProc = fn #call .C: (hwnd: HWND, message: u32, w_param: WPARAM, l_param: LPARAM) -> LRESULT  extern "DefWindowProcA";
 
-const GetModuleHandle = fn(handle: LPCSTR) -> HANDLE extern "GetModuleHandleA";
+const GetModuleHandle = fn #call .C: (handle: LPCSTR) -> HANDLE extern "GetModuleHandleA";
 
-const CreateWindowEx = fn(
+const CreateWindowEx = fn #call .C: (
     dwExStyle: i32,
     lpClassName: LPCSTR,
     lpWindowName: LPCSTR,
