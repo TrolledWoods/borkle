@@ -5,7 +5,7 @@ use crate::program::Program;
 use crate::errors::ErrorCtx;
 use crate::location::Location;
 use crate::operators::BinaryOp;
-use crate::types::{self, IntTypeKind, UniqueTypeMarker};
+use crate::types::{self, IntTypeKind};
 use crate::ast::{NodeId as AstNodeId};
 use std::collections::HashMap;
 use std::mem;
@@ -17,6 +17,7 @@ pub use explain::{get_reasons, Reason, ReasonKind};
 
 mod value_sets;
 pub use value_sets::{ValueSets, ValueSetId, ValueSetHandles, ValueSet};
+pub use crate::types::TypeKind;
 
 const DEBUG: bool = false;
 
@@ -81,74 +82,20 @@ impl IntoValueSet for ValueSetId {
     }
 }
 
-#[derive(Clone)]
-pub struct CompilerType(pub types::Type);
-
-#[derive(Clone, Copy)]
-pub struct Empty;
-#[derive(Clone, Copy)]
-pub struct Var(pub ValueId);
-#[derive(Clone, Copy)]
-pub struct Unknown;
-
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub enum TypeKind {
-    /// bool, int size
-    Int,
-    /// int size
-    Float,
-    /// The size of an integer (the size is stored in the brackets)
-    IntSize(u8),
-    /// Whether an int is signed or not
-    IntSigned(bool),
-
-    Bool,
-    Empty,
-
-    /// return, (arg0, arg1, arg2, ...)
-    Function,
-    /// element: type, length: int
-    Array,
-    /// type
-    Reference,
-    /// type
-    Buffer,
-    /// (type, type, type, type), in the same order as the strings.
-    Struct(Box<[Ustr]>),
-    /// base_type, (const, const, const, const) in the same order as the strings.
-    Enum(UniqueTypeMarker, Box<[Ustr]>),
-
-    /// (type, type, type, ..)
-    Tuple,
-    /// inner type
-    Unique(UniqueTypeMarker),
-
-    /// no fields
-    ConstantValue(ConstantRef),
-    /// type, constant_ref(has to be a ConstantValue, or a compare unspecified)
-    /// * layout is the layout of the type of the constant, even though a constant having a layout doesn't make sense
-    Constant,
-
-    /// A type left unspecified in a type comparison.
-    CompareUnspecified,
-}
-
-impl TypeKind {
-    fn get_needed_children_for_layout<'a>(&self, children: &'a [ValueId]) -> &'a [ValueId] {
-        match self {
-            TypeKind::IntSize(_) | TypeKind::IntSigned(_) | TypeKind::Bool | TypeKind::Empty | TypeKind::Function | TypeKind::Reference | TypeKind::Buffer | TypeKind::ConstantValue(_) | TypeKind::CompareUnspecified => &[],
-            TypeKind::Enum { .. } => &children[0..1],
-            TypeKind::Float => &children[0..1],
-            TypeKind::Int => &children[1..2],
-            TypeKind::Array => children,
-            TypeKind::Struct(_) => children,
-            TypeKind::Tuple => children,
-            TypeKind::Unique(_) => children,
-            // A constant pretends to care about the actual ConstantValue for the layout as well. This is not
-            // because it "needs" to itself, but because things that need the constant, like the arrays layout,
-            // does actually care about the value, so if it isn't required we get problems.
-            TypeKind::Constant => children,
-        }
+fn get_needed_children_for_layout<'a>(type_: &TypeKind, children: &'a [ValueId]) -> &'a [ValueId] {
+    match type_ {
+        TypeKind::IntSize(_) | TypeKind::IntSigned(_) | TypeKind::Bool | TypeKind::Empty | TypeKind::Function | TypeKind::Reference | TypeKind::Buffer | TypeKind::ConstantValue(_) | TypeKind::CompareUnspecified => &[],
+        TypeKind::Enum { .. } => &children[0..1],
+        TypeKind::Float => &children[0..1],
+        TypeKind::Int => &children[1..2],
+        TypeKind::Array => children,
+        TypeKind::Struct(_) => children,
+        TypeKind::Tuple => children,
+        TypeKind::Unique(_) => children,
+        // A constant pretends to care about the actual ConstantValue for the layout as well. This is not
+        // because it "needs" to itself, but because things that need the constant, like the arrays layout,
+        // does actually care about the value, so if it isn't required we get problems.
+        TypeKind::Constant => children,
     }
 }
 
@@ -707,7 +654,7 @@ fn set_value(structures: &mut Structures, values: &mut Values, id: ValueId, kind
         // @Improvement: We need to figure out how to recursively determine
         // type completion, for when we're going to insert it as a type
         // id.
-        for &needed in args.iter() { // kind.get_needed_children_for_layout(&args)
+        for &needed in args.iter() { // get_needed_children_for_layout(kind, &args)
             let structure = get_or_define_structure_of_value(structures, values, needed);
             if structure.layout.align == 0 {
                 number += 1;

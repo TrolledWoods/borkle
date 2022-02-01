@@ -11,7 +11,7 @@ use crate::ast::{NodeId, GenericChildIterator};
 use crate::program::{PolyOrMember, PolyMemberId, Program, Task, constant::ConstantRef, BuiltinFunction, MemberId, MemberMetaData, FunctionId, ScopeId, FunctionMetaData, FunctionArgumentInfo, MemberKind};
 use crate::thread_pool::ThreadContext;
 use crate::type_infer::{self, AstVariantId, ValueId as TypeId, Args, TypeSystem, ValueSetId, TypeKind, Reason, ReasonKind};
-use crate::types::{self, IntTypeKind, UniqueTypeMarker};
+use crate::types::{self, IntTypeKind, UniqueTypeMarker, FunctionArgsBuilder};
 use std::collections::HashMap;
 use std::sync::Arc;
 use ustr::Ustr;
@@ -1147,10 +1147,10 @@ fn build_function_declaration(
         meta_data.arguments = Vec::with_capacity(num_args);
     }
 
-    let mut function_type_ids = Vec::with_capacity(num_args);
+    let mut function_args = FunctionArgsBuilder::with_num_args_capacity(num_args);
     for (argument_info, argument) in argument_infos.iter().zip(children.by_ref().take(num_args)) {
         let decl_id = build_declarative_lvalue(&mut sub_ctx, argument, sub_set, true);
-        function_type_ids.push((decl_id, Reason::temp(node.node.loc)));
+        function_args.add_arg((decl_id, Reason::temp(node.node.loc)));
 
         if let Some(meta_data) = wants_meta_data.as_mut() {
             meta_data.arguments.push(FunctionArgumentInfo {
@@ -1169,7 +1169,7 @@ fn build_function_declaration(
     let returns_type_reason = Reason::new(returns.loc, ReasonKind::FunctionDeclReturnType);
     let returns_loc = returns.loc;
     let returns_type_id = build_type(&mut sub_ctx, returns, sub_set);
-    function_type_ids.insert(0, (returns_type_id, returns_type_reason));
+    function_args.set_return((returns_type_id, returns_type_reason));
 
     if is_extern.is_none() {
         let body = children.next().unwrap();
@@ -1179,7 +1179,7 @@ fn build_function_declaration(
             .set_equal(body_type_id, returns_type_id, Reason::new(returns_loc, ReasonKind::FunctionDeclReturned));
     };
 
-    let infer_type_id = ctx.infer.add_type(TypeKind::Function, Args(function_type_ids), sub_set);
+    let infer_type_id = ctx.infer.add_type(TypeKind::Function, Args(function_args.build()), sub_set);
     ctx.infer
         .set_equal(infer_type_id, node_type_id, Reason::new(node.node.loc, ReasonKind::FunctionDecl));
 
@@ -1312,17 +1312,17 @@ fn build_type(
         }
         NodeKind::FunctionType => {
             let mut children = node.children.into_iter();
-            let mut function_type_ids = Vec::with_capacity(children.len());
+            let mut function_args = FunctionArgsBuilder::with_num_args_capacity(children.len());
             let num_children = children.len();
             for type_node in children.by_ref().take(num_children - 1) {
                 let type_id = build_type(ctx, type_node, set);
-                function_type_ids.push((type_id, Reason::temp(node_loc)));
+                function_args.add_arg((type_id, Reason::temp(node_loc)));
             }
 
             let returns_type_id = build_type(ctx, children.next().unwrap(), set);
-            function_type_ids.insert(0, (returns_type_id, Reason::temp(node_loc)));
+            function_args.set_return((returns_type_id, Reason::temp(node_loc)));
 
-            let infer_type_id = ctx.infer.add_type(TypeKind::Function, Args(function_type_ids), set);
+            let infer_type_id = ctx.infer.add_type(TypeKind::Function, Args(function_args.build()), set);
             ctx.infer
                 .set_equal(infer_type_id, node_type_id, Reason::temp(node_loc));
         }
@@ -1867,48 +1867,47 @@ fn build_function_call<'a>(
             }
         }
 
-        let mut typer_args = Vec::with_capacity(children.size_hint().0);
-        typer_args.push((node_type_id, Reason::new(node_loc, ReasonKind::FunctionCallReturn)));
+        let mut typer_args = FunctionArgsBuilder::with_num_args_capacity(children.size_hint().0);
+        typer_args.set_return((node_type_id, Reason::new(node_loc, ReasonKind::FunctionCallReturn)));
 
         for (i, (defined, defined_arg)) in arg_defined.into_iter().zip(arguments).enumerate() {
             match defined {
                 ArgDefinedAs::None => {
                     if defined_arg.var_args.is_some() {
                         let tuple_type = ctx.infer.add_type(TypeKind::Tuple, Args([]), set);
-                        typer_args.push((tuple_type, Reason::temp(node_loc)));
+                        typer_args.add_arg((tuple_type, Reason::temp(node_loc)));
                     } else {
                         ctx.errors.error(node_loc, format!("Argument `{}` not defined", i));
                         return;
                     }
                 }
                 ArgDefinedAs::Literal(node_loc, type_id) => {
-                    typer_args.push((type_id, Reason::temp(node_loc)));
+                    typer_args.add_arg((type_id, Reason::temp(node_loc)));
                 }
                 ArgDefinedAs::VarArgs(node_loc, type_id) => {
                     let tuple_type = ctx.infer.add_type(TypeKind::Tuple, Args(type_id), set);
-                    typer_args.push((tuple_type, Reason::temp(node_loc)));
+                    typer_args.add_arg((tuple_type, Reason::temp(node_loc)));
                 }
             }
         }
 
         // Specify that the caller has to be a function type
-        let type_id = ctx.infer.add_type(TypeKind::Function, Args(typer_args), set);
+        let type_id = ctx.infer.add_type(TypeKind::Function, Args(typer_args.build()), set);
         ctx.additional_info.insert((ctx.ast_variant_id, node_id), AdditionalInfoKind::FunctionCall(function_arg_usage));
         ctx.infer
             .set_equal(calling_type_id, type_id, Reason::new(node_loc, ReasonKind::FunctionCall));
     } else {
-        let mut typer_args = Vec::with_capacity(children.size_hint().0);
-        typer_args.push((node_type_id, Reason::new(node_loc, ReasonKind::FunctionCallReturn)));
+        let mut typer_args = FunctionArgsBuilder::with_num_args_capacity(children.size_hint().0);
 
         for arg in children {
-            let function_arg_type_id = ctx.infer.add_unknown_type();
             let arg_type_id = build_constraints(ctx, arg, set);
-            ctx.infer.set_equal(function_arg_type_id, arg_type_id, Reason::new(node_loc, ReasonKind::Passed));
-            typer_args.push((function_arg_type_id, Reason::new(node_loc, ReasonKind::FunctionCallArgument)));
+            typer_args.add_arg((arg_type_id, Reason::new(node_loc, ReasonKind::FunctionCallArgument)));
         }
 
+        typer_args.set_return((node_type_id, Reason::new(node_loc, ReasonKind::FunctionCallReturn)));
+
         // Specify that the caller has to be a function type
-        let type_id = ctx.infer.add_type(TypeKind::Function, Args(typer_args), set);
+        let type_id = ctx.infer.add_type(TypeKind::Function, Args(typer_args.build()), set);
         ctx.infer
             .set_equal(calling_type_id, type_id, Reason::new(node_loc, ReasonKind::FunctionCall));
     }

@@ -4,7 +4,7 @@ import "tests/main.bo";
 
 type #builtin: CallingConvention = enum u8 {
     Borkle = 0;
-    C      = 1;
+    C = 1;
 };
 
 #entry fn() {

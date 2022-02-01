@@ -847,7 +847,7 @@ impl Program {
         Ok(id)
     }
 
-    fn bind_member_to_builtin(
+    pub fn bind_member_to_builtin(
         &self,
         errors: &mut ErrorCtx,
         builtin: Builtin,

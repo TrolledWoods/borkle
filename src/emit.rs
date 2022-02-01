@@ -10,7 +10,7 @@ use crate::program::{FunctionId, Program, constant::ConstantRef};
 use crate::thread_pool::ThreadContext;
 use crate::type_infer::{ValueId as TypeId, TypeSystem, Reason, Args, AstVariantId, self, Layout};
 use crate::typer::{AdditionalInfo, AdditionalInfoKind, FunctionArgUsage};
-use crate::types::{Type, TypeKind, IntTypeKind};
+use crate::types::{Type, TypeKind, IntTypeKind, FunctionArgs};
 
 /// Emit instructions for an Ast.
 pub fn emit<'a>(
@@ -100,13 +100,13 @@ pub fn emit_function_declaration<'a>(
     };
 
     let function_type = ctx.types.get(TypeId::Node(ctx.variant_id, node_id));
-    let args = function_type.args();
+    let args = FunctionArgs::get(function_type.args());
 
     debug_assert_eq!(function_type.kind(), &type_infer::TypeKind::Function);
 
     // Pretend there are actual values on the stack
-    // @Performance
-    let args: Vec<_> = args.to_vec().into_iter().skip(1).map(|v| {
+    // @Speed:
+    let args: Vec<_> = args.args.to_vec().iter().map(|&v| {
         ctx.create_reg_and_typed_layout(v)
     }).collect();
 
@@ -780,7 +780,7 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, mut node: NodeView<'a>) -> (Value, T
             let (calling, calling_layout) = emit_node(ctx, calling_node.clone());
             let calling_type = ctx.types.get(TypeId::Node(ctx.variant_id, calling_node.id));
             // @Performance
-            let output_args = calling_type.args().to_vec().into_iter().skip(1).map(|v| {
+            let output_args = FunctionArgs::get(calling_type.args()).args.to_vec().into_iter().map(|v| {
                 ctx.create_reg_and_typed_layout(v)
             }).collect::<Vec<_>>();
 
@@ -804,7 +804,7 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, mut node: NodeView<'a>) -> (Value, T
                             let (given, given_layout) = emit_node(ctx, node);
 
                             let calling_type = ctx.types.get(TypeId::Node(ctx.variant_id, calling_node.id));
-                            let arg_type_id = calling_type.args()[function_arg + 1];
+                            let arg_type_id = FunctionArgs::get(calling_type.args()).args[function_arg];
                             let member = ctx.types.get_member_by_index(arg_type_id, field).unwrap();
 
                             let (to, _) = output_args[function_arg];
@@ -840,7 +840,7 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, mut node: NodeView<'a>) -> (Value, T
             let (calling, calling_layout) = emit_node(ctx, calling_node.clone());
             let calling_type = ctx.types.get(TypeId::Node(ctx.variant_id, calling_node.id));
             // @Performance
-            let output_args = calling_type.args().to_vec().into_iter().skip(1).map(|v| {
+            let output_args = FunctionArgs::get(calling_type.args()).args.to_vec().into_iter().map(|v| {
                 ctx.create_reg_and_typed_layout(v)
             }).collect::<Vec<_>>();
 
@@ -865,7 +865,7 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, mut node: NodeView<'a>) -> (Value, T
                             let (given, given_layout) = emit_node(ctx, node);
 
                             let calling_type = ctx.types.get(TypeId::Node(ctx.variant_id, calling_node.id));
-                            let arg_type_id = calling_type.args()[function_arg + 1];
+                            let arg_type_id = FunctionArgs::get(calling_type.args()).args[function_arg];
                             let member = ctx.types.get_member_by_index(arg_type_id, field).unwrap();
 
                             let (to, _) = output_args[function_arg];

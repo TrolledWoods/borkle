@@ -1,6 +1,6 @@
 use crate::location::Location;
 use crate::layout::{Layout, StructLayout};
-use crate::program::{constant_to_str, FunctionId};
+use crate::program::{constant_to_str, FunctionId, constant::ConstantRef};
 use std::fmt::{self, Debug, Display};
 use ustr::Ustr;
 // TODO: Move over TypeKind here, because I think it makes more sense to define generic type stuff
@@ -328,7 +328,93 @@ pub fn to_align(value: usize, align: usize) -> usize {
     (value + align - 1) & !(align - 1)
 }
 
-pub use crate::type_infer::TypeKind;
+#[derive(Default)]
+pub struct FunctionArgsBuilder<T> {
+    pub args: Vec<T>,
+    pub return_: Option<T>,
+}
+
+impl<T> FunctionArgsBuilder<T> {
+    pub fn with_num_args_capacity(capacity: usize) -> Self {
+        Self {
+            args: Vec::with_capacity(capacity + 1),
+            return_: None,
+        }
+    }
+
+    pub fn add_arg(&mut self, value: T) {
+        self.args.push(value);
+    }
+
+    pub fn set_return(&mut self, value: T) {
+        debug_assert!(self.return_.is_none(), "Cannot set return value twice on FunctionArgsBuilder");
+        self.return_ = Some(value);
+    }
+
+    pub fn build(mut self) -> Vec<T> {
+        self.args.push(self.return_.expect("Cannot call `build` on FunctionArgsBuilder without assigning a return"));
+        self.args
+    }
+}
+
+pub struct FunctionArgs<'a, T> {
+    pub return_: &'a T,
+    pub args: &'a [T],
+}
+
+impl<T> FunctionArgs<'_, T> {
+    // The reason it's a box is so I don't make mistakes about what I pass into it, it's supposed to be the full argument list, which conveniently
+    // is wrapped in a box.
+    pub fn get(args: &[T]) -> FunctionArgs<'_, T> {
+        let (return_, args) = args.split_last().expect("Invalid function arguments");
+        FunctionArgs {
+            return_,
+            args,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum TypeKind {
+    /// bool, int size
+    Int,
+    /// int size
+    Float,
+    /// The size of an integer (the size is stored in the brackets)
+    IntSize(u8),
+    /// Whether an int is signed or not
+    IntSigned(bool),
+
+    Bool,
+    Empty,
+
+    /// return, (arg0, arg1, arg2, ...)
+    Function,
+    /// element: type, length: int
+    Array,
+    /// type
+    Reference,
+    /// type
+    Buffer,
+    /// (type, type, type, type), in the same order as the strings.
+    Struct(Box<[Ustr]>),
+    /// base_type, (const, const, const, const) in the same order as the strings.
+    Enum(UniqueTypeMarker, Box<[Ustr]>),
+
+    /// (type, type, type, ..)
+    Tuple,
+    /// inner type
+    Unique(UniqueTypeMarker),
+
+    /// no fields
+    ConstantValue(ConstantRef),
+    /// type, constant_ref(has to be a ConstantValue, or a compare unspecified)
+    /// * layout is the layout of the type of the constant, even though a constant having a layout doesn't make sense
+    Constant,
+
+    /// A type left unspecified in a type comparison.
+    CompareUnspecified,
+}
 
 impl TypeData {
     fn for_each_child(&self, mut on_inner: impl FnMut(&Type)) {

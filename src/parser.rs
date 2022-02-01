@@ -4,7 +4,7 @@ use crate::literal::Literal;
 use crate::locals::{Local, LocalVariables, LabelId, LocalId};
 use crate::location::Location;
 use crate::operators::{BinaryOp, Operator, UnaryOp};
-use crate::program::{Program, ScopeId, Task, BuiltinFunction, constant::ConstantRef, MemberMetaData, MemberId, MemberKind};
+use crate::program::{Program, ScopeId, Task, BuiltinFunction, constant::ConstantRef, MemberMetaData, MemberId, MemberKind, PolyOrMember, Builtin};
 use std::sync::Arc;
 use crate::types::{Type, TypeKind};
 use context::{DataContext, ImperativeContext};
@@ -242,7 +242,7 @@ fn type_declaration(global: &mut DataContext<'_>) -> Result<(), ()> {
     type_(global, &mut imperative, buffer.add())?;
     let tree = Ast::from_builder(name, buffer);
 
-    if poly_args.is_empty() {
+    let id = if poly_args.is_empty() {
         let id = global
             .program
             .define_member(global.errors, loc, Some(global.scope), name, MemberKind::Type { is_aliased: is_aliased.is_some() })?;
@@ -250,6 +250,8 @@ fn type_declaration(global: &mut DataContext<'_>) -> Result<(), ()> {
             dependencies,
             Task::TypeMember { member_id: id, locals, ast: tree, member_kind: MemberKind::Type { is_aliased: is_aliased.is_some() }},
         );
+
+        PolyOrMember::Member(id)
     } else {
         let id = global.program.define_polymorphic_member(
             global.errors,
@@ -270,6 +272,17 @@ fn type_declaration(global: &mut DataContext<'_>) -> Result<(), ()> {
                 member_kind: MemberKind::Type { is_aliased: is_aliased.is_some() },
             },
         );
+
+        PolyOrMember::Poly(id)
+    };
+
+    if let Some(_) = is_builtin {
+        if let Some(builtin) = Builtin::builtin_type_from_string(name.as_str()) {
+            global.program.bind_member_to_builtin(global.errors, builtin, loc, id)?;
+        } else {
+            global.errors.error(loc, format!("No builtin with the name `{}`", name));
+            return Err(());
+        }
     }
 
     global
