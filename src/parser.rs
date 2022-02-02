@@ -975,14 +975,9 @@ fn value_without_unaries(
         }
         TokenKind::Keyword(Keyword::If) => {
             // Parse tags
-            let mut is_const = None;
-
-            parse_basic_tags(global, "if", &mut [
-                ("const".into(), &mut is_const),
-            ])?;
-
+            let found_tags = parse_tags(global, imperative, slot.add())?;
             // Condition
-            if is_const.is_some() {
+            if (found_tags & FOUND_TAG_COMPILE) > 0 {
                 let old = imperative.evaluate_at_typing;
                 imperative.evaluate_at_typing = true;
                 expression(global, imperative, slot.add())?;
@@ -1005,7 +1000,7 @@ fn value_without_unaries(
             slot.finish(Node::new(
                 token.loc,
                 NodeKind::If {
-                    is_const,
+                    is_const: (found_tags & FOUND_TAG_COMPILE) > 0,
                 },
             ))
         }
@@ -1451,10 +1446,18 @@ fn maybe_parse_label(
 #[repr(u8)]
 pub enum TagKind {
     CallingConvention,
+    Target,
+    Compile,
 }
 
-fn parse_tags(global: &mut DataContext<'_>, imperative: &mut ImperativeContext<'_>, mut slot: AstSlot<'_>) -> Result<(), ()> {
+pub const FOUND_TAG_CALLING_CONVENTION: u32 = 0x1;
+pub const FOUND_TAG_TARGET:             u32 = 0x2;
+pub const FOUND_TAG_COMPILE:            u32 = 0x4;
+
+fn parse_tags(global: &mut DataContext<'_>, imperative: &mut ImperativeContext<'_>, mut slot: AstSlot<'_>) -> Result<u32, ()> {
     let loc = global.tokens.loc();
+
+    let mut found_tags = 0;
 
     let mut is_first = true;
     loop {
@@ -1484,6 +1487,29 @@ fn parse_tags(global: &mut DataContext<'_>, imperative: &mut ImperativeContext<'
                         MemberDep::Type,
                     ),
                 );
+
+                found_tags |= FOUND_TAG_CALLING_CONVENTION;
+            }
+            "target" => {
+                let mut tag = slot.add();
+                value(global, imperative, tag.add())?;
+                tag.finish(Node::new(loc, NodeKind::Tag(TagKind::Target)));
+
+                imperative.dependencies.add(
+                    loc,
+                    DepKind::MemberByBuiltin(
+                        Builtin::Target,
+                        MemberDep::Type,
+                    ),
+                );
+
+                found_tags |= FOUND_TAG_TARGET;
+            }
+            // TODO: Rename this to `compile`.
+            "const" => {
+                slot.add().finish(Node::new(loc, NodeKind::Tag(TagKind::Compile)));
+
+                found_tags |= FOUND_TAG_COMPILE;
             }
             _ => {
                 global.error(global.tokens.loc(), format!("`{}` is not a tag", tag_name));
@@ -1498,8 +1524,8 @@ fn parse_tags(global: &mut DataContext<'_>, imperative: &mut ImperativeContext<'
         }
     }
 
-    slot.finish(Node::new(loc, NodeKind::TagList));
-    Ok(())
+    slot.finish(Node::new(loc, NodeKind::TagList { found_tags }));
+    Ok(found_tags)
 }
 
 // TODO: This could be removed later probably
@@ -1587,7 +1613,9 @@ pub enum NodeKind {
     ConstAtEvaluation,
 
     /// A list of tags.
-    TagList,
+    TagList {
+        found_tags: u32,
+    },
     /// Args depend on TagKind.
     Tag(TagKind),
 
@@ -1620,9 +1648,9 @@ pub enum NodeKind {
     While {
         label: LabelId,
     },
-    /// [ condition, body, else_body ]
+    /// [ tags, condition, body, else_body ]
     If {
-        is_const: Option<Location>,
+        is_const: bool,
     },
 
     AnonymousMember { name: Ustr },

@@ -403,9 +403,21 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, mut node: NodeView<'a>) -> (Value, T
             (Value::Stack(to), else_body_layout)
         }
         NodeKind::If {
-            is_const: None,
+            is_const: true,
         } => {
-            let [condition, true_body, false_body] = node.children.as_array();
+            let [_tags, _, true_body, false_body] = node.children.as_array();
+
+            let &AdditionalInfoKind::ConstIfResult(result) = &ctx.additional_info[&(ctx.variant_id, node.id)] else { panic!() };
+            if result {
+                emit_node(ctx, true_body)
+            } else {
+                emit_node(ctx, false_body)
+            }
+        }
+        NodeKind::If {
+            is_const: false,
+        } => {
+            let [_tags, condition, true_body, false_body] = node.children.as_array();
 
             let (condition, condition_layout) = emit_node(ctx, condition);
             let condition = ctx.flush_value(&condition, condition_layout);
@@ -915,18 +927,6 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, mut node: NodeView<'a>) -> (Value, T
             let layout = ctx.get_typed_layout(inner_type);
 
             (Value::Constant { constant, offset: 0 }, layout)
-        }
-        NodeKind::If {
-            is_const: Some(_),
-        } => {
-            let [_, true_body, false_body] = node.children.as_array();
-
-            let &AdditionalInfoKind::ConstIfResult(result) = &ctx.additional_info[&(ctx.variant_id, node.id)] else { panic!() };
-            if result {
-                emit_node(ctx, true_body)
-            } else {
-                emit_node(ctx, false_body)
-            }
         }
         NodeKind::PolymorphicArgs { .. } | NodeKind::Global { .. } => {
             let &AdditionalInfoKind::Monomorphised(id) = &ctx.additional_info[&(ctx.variant_id, node.id)] else { panic!() };

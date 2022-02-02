@@ -32,9 +32,3 @@ import "tests/main.bo";
 
 // - Make [ptr + usize -> _] also infer to [ptr + usize -> ptr] (maybe similar for other operators too?)
 // - "This is imported twice" error should show where it was imported (even if implicit)
-
-// - Enum variants should have the type of the enum itself.
-
-// -- For being able to build this again once I forget
-// nasm output.asm -fwin64
-// cl output.obj /link OneCore.lib /entry:function_2 /subsystem:console

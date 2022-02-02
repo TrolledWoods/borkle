@@ -892,11 +892,13 @@ fn build_constraints(
             }
         }
         NodeKind::If {
-            is_const,
+            is_const: _,
         } => {
-            let [condition, true_body, else_body] = node.children.into_array();
+            let [tags, condition, true_body, else_body] = node.children.into_array();
 
-            if let Some(_) = is_const {
+            let mut tags = build_tags(ctx, tags, set);
+
+            if let Some(_) = tags.compile.take() {
                 let sub_set = ctx.infer.value_sets.add(WaitingOnTypeInferrence::ConditionalCompilation {
                     node_id: node.id,
                     condition: condition.id,
@@ -929,6 +931,8 @@ fn build_constraints(
                 ctx.infer
                     .set_equal(false_body_id, node_type_id, Reason::new(node_loc, ReasonKind::Passed));
             }
+
+            tags.finish(ctx, set);
         }
         NodeKind::Unary {
             op: UnaryOp::Dereference,
@@ -1109,16 +1113,41 @@ fn extract_name(ctx: &Context<'_, '_>, node: NodeView<'_>) -> Option<(Ustr, Loca
 }
 
 #[derive(Default, Debug, Clone)]
-struct FunctionDeclTags {
+struct Tags {
     calling_convention: Option<(Location, TypeId)>,
+    target: Option<(Location, TypeId)>,
+    compile: Option<Location>,
 }
 
-fn build_function_decl_tags(
+impl Tags {
+    fn finish(self, ctx: &mut Context<'_, '_>, set: ValueSetId) {
+        if let Some((loc, _)) = self.calling_convention {
+            ctx.errors.error(loc, format!("Tag not valid for this kind of expression"));
+            ctx.infer.value_sets.get_mut(set).has_errors = true;
+        }
+
+        if let Some((loc, _)) = self.target {
+            ctx.errors.error(loc, format!("Tag not valid for this kind of expression"));
+            ctx.infer.value_sets.get_mut(set).has_errors = true;
+        }
+
+        if let Some(loc) = self.compile {
+            ctx.errors.error(loc, format!("Tag not valid for this kind of expression"));
+            ctx.infer.value_sets.get_mut(set).has_errors = true;
+        }
+    }
+}
+
+fn build_tags(
     ctx: &mut Context<'_, '_>,
     node: NodeView<'_>,
     set: ValueSetId,
-) -> FunctionDeclTags {
-    let mut tags = FunctionDeclTags::default();
+) -> Tags {
+    // TODO: The double-definition checks here are redundant; we could do them easier in the parser
+    // probably, so we should do them there. Also, I don't think it's very useful to pick a default here,
+    // since first of all, this is an uncommon mistake, so not showing more errors might be fine.
+
+    let mut tags = Tags::default();
 
     for node in node.children.into_iter() {
         let &NodeKind::Tag(tag_kind) = &node.kind else { unreachable!("Invalid tag list") };
@@ -1127,7 +1156,7 @@ fn build_function_decl_tags(
             TagKind::CallingConvention => {
                 let [inner] = node.children.into_array();
                 if let Some(_) = tags.calling_convention {
-                    ctx.errors.error(node.loc, format!("Calling convention defined twice"));
+                    ctx.errors.error(node.loc, format!("`call` defined twice"));
                     ctx.infer.value_sets.get_mut(set).has_errors |= true;
                 }
                 let value = build_inferrable_constant_value(ctx, inner, set);
@@ -1143,6 +1172,34 @@ fn build_function_decl_tags(
                     node.loc,
                     value.constant_value,
                 ));
+            }
+            TagKind::Target => {
+                let [inner] = node.children.into_array();
+                if let Some(_) = tags.target {
+                    ctx.errors.error(node.loc, format!("`target` defined twice"));
+                    ctx.infer.value_sets.get_mut(set).has_errors |= true;
+                }
+                let value = build_inferrable_constant_value(ctx, inner, set);
+
+                let builtin_id = ctx.program
+                    .get_member_id_from_builtin(Builtin::Target)
+                    .expect("Parser should make sure we have access to target");
+                // TODO: It is scary to monomorphise something like this, since we have to give a node
+                // that is the "global". Maybe there should be an entirely different code path for types?
+                build_global(ctx, inner.id, inner.node, inner.loc, builtin_id, None, set, true);
+
+                tags.calling_convention = Some((
+                    node.loc,
+                    value.constant_value,
+                ));
+            }
+            TagKind::Compile => {
+                if let Some(_) = tags.compile {
+                    ctx.errors.error(node.loc, format!("`const` defined twice"));
+                    ctx.infer.value_sets.get_mut(set).has_errors |= true;
+                }
+
+                tags.compile = Some(node.loc);
             }
         }
     }
@@ -1180,7 +1237,7 @@ fn build_function_declaration(
     };
 
     let mut children = node.children.into_iter();
-    let tags = build_function_decl_tags(&mut sub_ctx, children.next().unwrap(), sub_set);
+    let mut tags = build_tags(&mut sub_ctx, children.next().unwrap(), sub_set);
 
     sub_ctx.infer.value_sets.lock(set);
 
@@ -1225,7 +1282,7 @@ fn build_function_declaration(
             .set_equal(body_type_id, returns_type_id, Reason::new(returns_loc, ReasonKind::FunctionDeclReturned));
     };
 
-    if let Some((loc, calling_convention)) = tags.calling_convention {
+    if let Some((loc, calling_convention)) = tags.calling_convention.take() {
         function_args.set_calling_convention((calling_convention, Reason::temp(loc)));
     } else {
         // TODO: This should be the borkle calling convention
@@ -1233,6 +1290,8 @@ fn build_function_declaration(
         let calling_convention = ctx.infer.add_type(TypeKind::ConstantValue(constant_value), Args([]), set);
         function_args.set_calling_convention((calling_convention, Reason::temp(node.loc)));
     }
+
+    tags.finish(ctx, sub_set);
     
     let infer_type_id = ctx.infer.add_type(TypeKind::Function, Args(function_args.build()), sub_set);
     ctx.infer
@@ -1369,7 +1428,7 @@ fn build_type(
         }
         NodeKind::FunctionType => {
             let mut children = node.children.into_iter();
-            let tags = build_function_decl_tags(ctx, children.next().unwrap(), set);
+            let mut tags = build_tags(ctx, children.next().unwrap(), set);
             let mut function_args = FunctionArgsBuilder::with_num_args_capacity(children.len());
             let num_children = children.len();
             for type_node in children.by_ref().take(num_children - 1) {
@@ -1380,7 +1439,7 @@ fn build_type(
             let returns_type_id = build_type(ctx, children.next().unwrap(), set);
             function_args.set_return((returns_type_id, Reason::temp(node_loc)));
 
-            if let Some((loc, calling_convention)) = tags.calling_convention {
+            if let Some((loc, calling_convention)) = tags.calling_convention.take() {
                 function_args.set_calling_convention((calling_convention, Reason::temp(loc)));
             } else {
                 // TODO: This should be the borkle calling convention
@@ -1388,6 +1447,8 @@ fn build_type(
                 let calling_convention = ctx.infer.add_type(TypeKind::ConstantValue(constant_value), Args([]), set);
                 function_args.set_calling_convention((calling_convention, Reason::temp(node.loc)));
             }
+
+            tags.finish(ctx, set);
 
             let infer_type_id = ctx.infer.add_type(TypeKind::Function, Args(function_args.build()), set);
             ctx.infer

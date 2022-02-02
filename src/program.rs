@@ -73,7 +73,7 @@ impl Program {
             arguments,
             backends,
             logger,
-            builtins: [RwLock::new(BuiltinDefinition::Undefined(Vec::new())); Builtin::Count as usize],
+            builtins: [(); Builtin::Count as usize].map(|_| RwLock::new(BuiltinDefinition::Undefined(Vec::new()))),
             lib_lines_of_code: AtomicU64::new(0),
             user_lines_of_code: AtomicU64::new(0),
             members: default(),
@@ -1419,6 +1419,7 @@ impl<T> DependableOption<T> {
 #[repr(usize)]
 pub enum Builtin {
     CallingConvention,
+    Target,
     Count,
 }
 
@@ -1426,6 +1427,7 @@ impl Builtin {
     pub fn builtin_type_from_string(name: &str) -> Option<Self> {
         match name {
             "CallingConvention" => Some(Self::CallingConvention),
+            "Target" => Some(Self::Target),
             _ => None,
         }
     }

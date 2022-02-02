@@ -4,3 +4,10 @@ type #builtin: CallingConvention = enum u8 {
     Borkle = 0;
     C = 1;
 };
+
+type #builtin: Target = enum u8 {
+    Compiler = 0x01;
+    Native   = 0x02;
+
+    All      = 0x01 | 0x02;
+};
