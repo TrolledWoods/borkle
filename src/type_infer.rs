@@ -1061,8 +1061,11 @@ impl TypeSystem {
             match *error {
                 Error { a, b, kind: ErrorKind::NonexistantName(name) } => {
                     if let Some(loc) = get_loc_of_value(ast, a) {
-                        errors.info(loc, format!("Here"));
+                        errors.info(loc, format!(""));
+                    } else if let Some(loc) = get_loc_of_value(ast, b) {
+                        errors.info(loc, format!(""));
                     }
+
                     errors.global_error(format!("Field '{}' doesn't exist on `{}`", name, self.value_to_str(b, 0)));
                 }
                 Error { a, b: _, kind: ErrorKind::PackingNonUnique } => {

@@ -1071,6 +1071,8 @@ fn value_without_unaries(
         TokenKind::Open(Bracket::Curly) => {
             imperative.push_scope_boundary();
 
+            parse_tags(global, imperative, slot.add())?;
+
             let label = maybe_parse_label(global, imperative)?;
 
             loop {
@@ -1725,7 +1727,7 @@ pub enum NodeKind {
     },
     /// [ first_argument, calling, ..args ]
     ExpressiveFunctionCall,
-    /// [ .. contents ]
+    /// [ tags, .. contents ]
     Block {
         label: Option<LabelId>,
     },

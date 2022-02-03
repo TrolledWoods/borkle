@@ -1034,6 +1034,8 @@ fn build_constraints(
             }
 
             let mut children = node.children.into_iter();
+            let _tags = children.next().unwrap();
+
             let children_len = children.len();
             for statement_id in children.by_ref().take(children_len - 1) {
                 build_constraints(ctx, statement_id, set);
@@ -1186,7 +1188,7 @@ fn build_tags(
                 // that is the "global". Maybe there should be an entirely different code path for types?
                 build_global(ctx, inner.id, inner.node, inner.loc, builtin_id, None, set, true);
 
-                tags.calling_convention = Some((
+                tags.target = Some((
                     node.loc,
                     value.constant_value,
                 ));

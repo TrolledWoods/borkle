@@ -3,6 +3,9 @@ library "timer.bo";
 import "tests/main.bo";
 
 #entry fn() {
+    { #target .Compiler:
+    };
+
     let timer = start_timer();
     run_tests();
     print("Time elapsed(micros): %\n", get_micros(timer));

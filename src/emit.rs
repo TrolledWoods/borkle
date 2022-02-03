@@ -735,7 +735,9 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, mut node: NodeView<'a>) -> (Value, T
             let head = ctx.registers.head;
 
             let mut children = node.children.into_iter();
-            for content in children.by_ref().take(node.children.len() - 1) {
+            let _tags = children.next().unwrap();
+
+            for content in children.by_ref().take(node.children.len() - 2) {
                 emit_node(ctx, content);
             }
 
