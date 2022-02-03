@@ -4,7 +4,7 @@ use crate::location::Location;
 use crate::literal::Literal;
 use crate::locals::LocalVariables;
 use crate::operators::{BinaryOp, UnaryOp};
-use crate::parser::{Ast, NodeKind, NodeView};
+use crate::parser::{Ast, NodeKind, NodeView, tags};
 use crate::ast::NodeId;
 use crate::program::{FunctionId, Program, constant::ConstantRef};
 use crate::thread_pool::ThreadContext;
@@ -402,46 +402,42 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, mut node: NodeView<'a>) -> (Value, T
 
             (Value::Stack(to), else_body_layout)
         }
-        NodeKind::If {
-            is_const: true,
-        } => {
-            let [_tags, _, true_body, false_body] = node.children.as_array();
+        NodeKind::If => {
+            let [tags, condition, true_body, false_body] = node.children.as_array();
 
-            let &AdditionalInfoKind::ConstIfResult(result) = &ctx.additional_info[&(ctx.variant_id, node.id)] else { panic!() };
-            if result {
-                emit_node(ctx, true_body)
+            let &NodeKind::TagList { found_tags } = &tags.kind else { panic!() };
+            if (found_tags & tags::COMPILE) > 0 {
+                let &AdditionalInfoKind::ConstIfResult(result) = &ctx.additional_info[&(ctx.variant_id, node.id)] else { panic!() };
+                if result {
+                    emit_node(ctx, true_body)
+                } else {
+                    emit_node(ctx, false_body)
+                }
             } else {
-                emit_node(ctx, false_body)
+                let (condition, condition_layout) = emit_node(ctx, condition);
+                let condition = ctx.flush_value(&condition, condition_layout);
+
+                let start_of_false_body = ctx.create_label();
+                let end_of_false_body = ctx.create_label();
+
+                ctx.emit_jump_if_zero(condition, start_of_false_body);
+
+                let to = ctx.create_reg(TypeId::Node(ctx.variant_id, node.id));
+
+                // True body
+                let (true_body, true_body_layout) = emit_node(ctx, true_body);
+                ctx.flush_value_to(to, &true_body, true_body_layout);
+                ctx.emit_jump(end_of_false_body);
+
+                // False body
+                ctx.define_label(start_of_false_body);
+                let (false_body, false_body_layout) = emit_node(ctx, false_body);
+                ctx.flush_value_to(to, &false_body, false_body_layout);
+
+                ctx.define_label(end_of_false_body);
+
+                (Value::Stack(to), false_body_layout)
             }
-        }
-        NodeKind::If {
-            is_const: false,
-        } => {
-            let [_tags, condition, true_body, false_body] = node.children.as_array();
-
-            let (condition, condition_layout) = emit_node(ctx, condition);
-            let condition = ctx.flush_value(&condition, condition_layout);
-
-            let start_of_false_body = ctx.create_label();
-            let end_of_false_body = ctx.create_label();
-
-            ctx.emit_jump_if_zero(condition, start_of_false_body);
-
-            let to = ctx.create_reg(TypeId::Node(ctx.variant_id, node.id));
-
-            // True body
-            let (true_body, true_body_layout) = emit_node(ctx, true_body);
-            ctx.flush_value_to(to, &true_body, true_body_layout);
-            ctx.emit_jump(end_of_false_body);
-
-            // False body
-            ctx.define_label(start_of_false_body);
-            let (false_body, false_body_layout) = emit_node(ctx, false_body);
-            ctx.flush_value_to(to, &false_body, false_body_layout);
-
-            ctx.define_label(end_of_false_body);
-
-            (Value::Stack(to), false_body_layout)
         }
         NodeKind::Literal(Literal::String(data)) => {
             let u8_type = Type::new_int(IntTypeKind::U8);

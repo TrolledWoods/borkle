@@ -891,9 +891,7 @@ fn build_constraints(
                 ctx.infer.value_sets.get_mut(set).has_errors = true;
             }
         }
-        NodeKind::If {
-            is_const: _,
-        } => {
+        NodeKind::If => {
             let [tags, condition, true_body, else_body] = node.children.into_array();
 
             let mut tags = build_tags(ctx, tags, set);

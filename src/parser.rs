@@ -977,7 +977,7 @@ fn value_without_unaries(
             // Parse tags
             let found_tags = parse_tags(global, imperative, slot.add())?;
             // Condition
-            if (found_tags & FOUND_TAG_COMPILE) > 0 {
+            if (found_tags & tags::COMPILE) > 0 {
                 let old = imperative.evaluate_at_typing;
                 imperative.evaluate_at_typing = true;
                 expression(global, imperative, slot.add())?;
@@ -999,9 +999,7 @@ fn value_without_unaries(
 
             slot.finish(Node::new(
                 token.loc,
-                NodeKind::If {
-                    is_const: (found_tags & FOUND_TAG_COMPILE) > 0,
-                },
+                NodeKind::If,
             ))
         }
         TokenKind::Keyword(Keyword::Uninit) => slot.finish(Node::new(token.loc, NodeKind::Uninit)),
@@ -1450,9 +1448,11 @@ pub enum TagKind {
     Compile,
 }
 
-pub const FOUND_TAG_CALLING_CONVENTION: u32 = 0x1;
-pub const FOUND_TAG_TARGET:             u32 = 0x2;
-pub const FOUND_TAG_COMPILE:            u32 = 0x4;
+pub mod tags {
+    pub const CALLING_CONVENTION: u32 = 0x1;
+    pub const TARGET:             u32 = 0x2;
+    pub const COMPILE:            u32 = 0x4;
+}   
 
 fn parse_tags(global: &mut DataContext<'_>, imperative: &mut ImperativeContext<'_>, mut slot: AstSlot<'_>) -> Result<u32, ()> {
     let loc = global.tokens.loc();
@@ -1488,7 +1488,7 @@ fn parse_tags(global: &mut DataContext<'_>, imperative: &mut ImperativeContext<'
                     ),
                 );
 
-                found_tags |= FOUND_TAG_CALLING_CONVENTION;
+                found_tags |= tags::CALLING_CONVENTION;
             }
             "target" => {
                 let mut tag = slot.add();
@@ -1503,13 +1503,13 @@ fn parse_tags(global: &mut DataContext<'_>, imperative: &mut ImperativeContext<'
                     ),
                 );
 
-                found_tags |= FOUND_TAG_TARGET;
+                found_tags |= tags::TARGET;
             }
             // TODO: Rename this to `compile`.
             "const" => {
                 slot.add().finish(Node::new(loc, NodeKind::Tag(TagKind::Compile)));
 
-                found_tags |= FOUND_TAG_COMPILE;
+                found_tags |= tags::COMPILE;
             }
             _ => {
                 global.error(global.tokens.loc(), format!("`{}` is not a tag", tag_name));
@@ -1649,9 +1649,7 @@ pub enum NodeKind {
         label: LabelId,
     },
     /// [ tags, condition, body, else_body ]
-    If {
-        is_const: bool,
-    },
+    If,
 
     AnonymousMember { name: Ustr },
     /// [ of ]
