@@ -976,7 +976,15 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, mut node: NodeView<'a>) -> (Value, T
             let layout = ctx.get_typed_layout(node_type_id);
             (Value::Constant { constant: ptr, offset: 0 }, layout)
         }
-        NodeKind::BuiltinFunction(_) => todo!(),
+        NodeKind::BuiltinFunction(_) => {
+            let &AdditionalInfoKind::Function(id) = &ctx.additional_info[&(ctx.variant_id, node.id)] else { panic!() };
+
+            let inner_type = TypeId::Node(ctx.variant_id, node.id);
+            let compiler_type = ctx.types.value_to_compiler_type(inner_type);
+            let constant_ref = ctx.program.insert_buffer(&compiler_type, &id as *const _ as *const u8);
+            let layout = ctx.get_typed_layout(node_type_id);
+            (Value::Constant { constant: constant_ref, offset: 0 }, layout)
+        }
         NodeKind::FunctionDeclaration { .. } => {
             if ctx.emit_inner_function_declarations {
                 let &AdditionalInfoKind::Function(id) = &ctx.additional_info[&(ctx.variant_id, node.id)] else { panic!() };

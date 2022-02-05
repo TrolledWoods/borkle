@@ -9,14 +9,14 @@ const vec_new.(T) = fn() -> Vec.(T)  #0;
 const INITIAL_SIZE = 16 : usize;
 
 const as_buf.(T) = fn(vec: Vec.(T)) -> [] T {
-    let buf = #0;
+    let buf = #uninit;
     buf.ptr = vec.ptr;
     buf.len = vec.len;
     buf
 };
 
 const unused_memory.(T) = fn(vec: &Vec.(T)) -> [] T {
-    let buf = #0;
+    let buf = #uninit;
     buf.ptr = vec.ptr + vec.len;
     buf.len = vec.capacity - vec.len;
     buf

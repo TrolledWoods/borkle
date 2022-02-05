@@ -3,33 +3,11 @@ library "timer.bo";
 library "compiler.bo";
 import "tests/main.bo";
 
-const separate = fn() -> [] u8 {
-    let output = #0;
-
-    { #target .Compiler:
-        output = "In the compiler";
-    };
-
-    { #target .Native:
-        output = "In native";
-    };
-
-    output
-};
-
-const separate_at_compile = separate();
-
 #entry fn() {
-    print("%\n", separate());
-    print("%\n", separate_at_compile);
-};
-
-/*
     let timer = start_timer();
     run_tests();
     print("Time elapsed(micros): %\n", get_micros(timer));
 };
-*/
 
 // IR emission improvements
 //

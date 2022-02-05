@@ -427,12 +427,12 @@ fn subset_was_completed(ctx: &mut Context<'_, '_>, ast: &mut Ast, waiting_on: Wa
                 Ok(constant_ref) => {
                     unsafe { *constant_ref.as_ptr().cast::<u8>() > 0 }
                 }
-                Err(call_stack) => {
+                Err((message, call_stack)) => {
                     for &caller in call_stack.iter().rev().skip(1) {
                         ctx.errors.info(caller, "".to_string());
                     }
 
-                    ctx.errors.error(*call_stack.last().unwrap(), "Assert failed!".to_string());
+                    ctx.errors.error(*call_stack.last().unwrap(), message);
                     ctx.infer.value_sets.get_mut(set).has_errors = true;
 
                     return;
@@ -539,12 +539,12 @@ fn subset_was_completed(ctx: &mut Context<'_, '_>, ast: &mut Ast, waiting_on: Wa
 
                     ctx.infer.set_equal(finished_value, value_id, Reason::new(computation_node.loc, ReasonKind::IsOfType));
                 }
-                Err(call_stack) => {
+                Err((message, call_stack)) => {
                     for &caller in call_stack.iter().rev().skip(1) {
                         ctx.errors.info(caller, "".to_string());
                     }
 
-                    ctx.errors.error(*call_stack.last().unwrap(), "Assert failed!".to_string());
+                    ctx.errors.error(*call_stack.last().unwrap(), message);
                     ctx.infer.value_sets.get_mut(set).has_errors = true;
                 }
             }

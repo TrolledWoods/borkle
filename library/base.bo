@@ -1,6 +1,8 @@
 #no_base:
 
 library "windows.bo";
+library "builtins.bo";
+
 library "iter.bo";
 library "vec.bo";
 
@@ -18,9 +20,15 @@ const assert_eq.(T) = fn(a: T, b: T) {
 };
 
 const assert = fn(condition: bool) {
-    if !condition {
-        put_string("Assert failed\n");
-        abort();
+    { #target .Compiler:
+        i_assert(condition);
+    };
+
+    { #target .Native:
+        if !condition {
+            put_string("Assert failed\n");
+            4 / 0 : u8;
+        };
     };
 };
 
@@ -42,20 +50,32 @@ const copy_buf.(T) = fn(to: &T, from: [] T) {
 };
 
 const copy.(T) = fn(to: &T, from: &T, size: usize) {
-    if from < to {
-        while i < size {
-            *(to + (size - i - 1)) = *(from + (size - i - 1));
-        };
-    } else {
-        while i < size {
-            *(to + i) = *(from + i);
+    { #target .Compiler:
+        i_copy(cast from, cast to, size * sizeof T);
+    };
+
+    { #target .Native:
+        if from < to {
+            while i < size {
+                *(to + (size - i - 1)) = *(from + (size - i - 1));
+            };
+        } else {
+            while i < size {
+                *(to + i) = *(from + i);
+            };
         };
     };
 };
 
 const copy_nonoverlapping.(T) = fn(to: &T, from: &T, size: usize) {
-    while i < size {
-        *(to + i) = *(from + i);
+    { #target .Compiler:
+        i_copy_nonoverlapping(cast from, cast to, size * sizeof T);
+    };
+
+    { #target .Native:
+        while i < size {
+            *(to + i) = *(from + i);
+        };
     };
 };
 
@@ -67,8 +87,18 @@ const alloc_copy.(T) = fn(original: [] T) -> [] T {
 
 const alloc.(T) = fn(count: usize) -> [] T {
     if count > 0 {
-        let buf = #0;
-        buf.ptr = cast VirtualAlloc(#0, count * sizeof T, MEM_COMMIT, PAGE_READWRITE);
+        // TODO: This could be cleaned up with target ifs that can actually return values.
+        let ptr = #uninit;
+        { #target .Compiler:
+            ptr = cast i_alloc(count * sizeof T);
+        };
+
+        { #target .Native:
+            ptr = cast VirtualAlloc(#0, count * sizeof T, MEM_COMMIT, PAGE_READWRITE);
+        };
+
+        let buf = #uninit;
+        buf.ptr = ptr;
         buf.len = count;
         buf
     } else {
@@ -80,7 +110,16 @@ const is_null.(T) = fn(pointer: &T) -> bool  pointer == #0 : &T;
 
 const dealloc.(T) = fn(buf: [] T) {
     if buf.len > 0 {
-        VirtualFree(cast buf.ptr, buf.len * sizeof T, MEM_DECOMMIT);
+        { #target .Compiler:
+            let buf_u8 = #uninit;
+            buf_u8.ptr = cast buf.ptr;
+            buf_u8.len = buf.len * sizeof T;
+            i_dealloc(buf_u8);
+        };
+
+        { #target .Native:
+            VirtualFree(cast buf.ptr, buf.len * sizeof T, MEM_DECOMMIT);
+        };
     };
 };
 
@@ -171,8 +210,17 @@ const put_string = fn(c: [] u8) {
 };
 
 const put_char = fn(c: u8) {
-    let handle = GetStdHandle(STD_OUTPUT_HANDLE);
-    WriteConsole(handle, &c, 1, &0, #0);
+    { #target .Native:
+        let handle = GetStdHandle(STD_OUTPUT_HANDLE);
+        WriteConsole(handle, &c, 1, &0, #0);
+    };
+
+    { #target .Compiler:
+        let buffer = #uninit;
+        buffer.ptr = &c;
+        buffer.len = 1;
+        i_stdout_write(buffer);
+    };
 };
 
 const take_char = fn(string: &[] u8) -> u8 {
@@ -363,29 +411,58 @@ const vec_writer.(T) = fn(vec: &Vec.(T)) -> Writer.(T) {
 
 const stderr_writer = fn() -> Writer.(u8) {
     let writer = #0;
-    writer.write_buf = fn(_, buffer) {
-        let written = 0;
-        WriteConsole(GetStdHandle(STD_ERROR_HANDLE), buffer.ptr, cast buffer.len, &written, #0);
-        cast written
+
+    { #target .Native:
+        writer.write_buf = fn(_, buffer) {
+            let written = 0;
+            // Hack!
+            { #target .Native:
+                WriteConsole(GetStdHandle(STD_ERROR_HANDLE), buffer.ptr, cast buffer.len, &written, #0);
+            };
+            cast written
+        };
     };
+
+    { #target .Compiler:
+        writer.write_buf = fn(_, buffer) {
+            let written = 0;
+            // Hack!
+            { #target .Compiler:
+                written = i_stdout_write(buffer);
+            };
+            written
+        };
+    };
+
+    // TODO: Doesn't actually use stderr....
     writer.write_single = fn(_, c) {
         put_char(c);
         1
     };
+
     writer
 };
 
 const stdout_writer = fn() -> Writer.(u8) {
     let writer = #0;
-    writer.write_buf = fn(_, buffer) {
-        let written = 0;
-        WriteConsole(GetStdHandle(STD_OUTPUT_HANDLE), buffer.ptr, cast buffer.len, &written, #0);
-        cast written
+
+    { #target .Native:
+        writer.write_buf = fn(_, buffer) {
+            let written = 0;
+            WriteConsole(GetStdHandle(STD_OUTPUT_HANDLE), buffer.ptr, cast buffer.len, &written, #0);
+            cast written
+        };
+        writer.write_single = fn(_, c) {
+            put_char(c);
+            1
+        };
     };
-    writer.write_single = fn(_, c) {
-        put_char(c);
-        1
+
+    { #target .Compiler:
+        // stdout is the same as stderr at compiletime right now.
+        writer = stderr_writer();
     };
+
     writer
 };
 

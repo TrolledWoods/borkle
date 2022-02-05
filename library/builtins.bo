@@ -1,0 +1,12 @@
+#no_base:
+
+const i_assert              = #builtin_function assert                  : fn #target .Compiler: (bool);
+const i_stdout_write        = #builtin_function stdout_write            : fn #target .Compiler: ([] u8) -> usize;
+const i_stdout_flush        = #builtin_function stdout_flush            : fn #target .Compiler: ();
+
+// @Cleanup: When void pointers are back, these should probably operate on those
+const i_copy                = #builtin_function mem_copy                : fn #target .Compiler: (&u8, &u8, usize);
+const i_copy_nonoverlapping = #builtin_function mem_copy_nonoverlapping : fn #target .Compiler: (&u8, &u8, usize);
+
+const i_alloc               = #builtin_function alloc                   : fn #target .Compiler: (usize) -> &u8;
+const i_dealloc             = #builtin_function dealloc                 : fn #target .Compiler: ([] u8);

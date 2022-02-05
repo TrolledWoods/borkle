@@ -9,6 +9,8 @@ use crate::typer::AdditionalInfo;
 
 mod stack;
 
+pub const DEFAULT_STACK_SIZE: usize = 1 << 14;
+
 pub use stack::{Stack, StackFrame, StackValueRef, StackValueMut};
 
 pub fn emit_and_run<'a>(
@@ -21,7 +23,7 @@ pub fn emit_and_run<'a>(
     node: crate::ast::NodeId,
     variant_id: AstVariantId,
     call_stack: &mut Vec<Location>,
-) -> Result<ConstantRef, Box<[Location]>> {
+) -> Result<ConstantRef, (String, Box<[Location]>)> {
     // FIXME: This does not take into account calling dependencies
     let (_, routine) = crate::emit::emit(
         thread_context,
@@ -34,7 +36,7 @@ pub fn emit_and_run<'a>(
         variant_id,
         true,
     );
-    let mut stack = Stack::new(2048);
+    let mut stack = Stack::new(DEFAULT_STACK_SIZE);
     let result = interp(program, &mut stack, &routine, call_stack)?;
     Ok(program.insert_buffer(&types.value_to_compiler_type(TypeId::Node(variant_id, node)), result.as_ptr()))
 }
@@ -44,7 +46,7 @@ pub fn interp<'a>(
     stack: &'a mut Stack,
     routine: &'a UserDefinedRoutine,
     call_stack: &mut Vec<Location>,
-) -> Result<StackValueMut<'a>, Box<[Location]>> {
+) -> Result<StackValueMut<'a>, (String, Box<[Location]>)> {
     let mut stack_frame = stack.stack_frame(&routine.stack);
     interp_internal(program, &mut stack_frame, routine, call_stack)?;
 
@@ -53,7 +55,7 @@ pub fn interp<'a>(
 
 // The stack frame has to be set up ahead of time here. That is necessary; because
 // we need some way to access the result afterwards as well.
-fn interp_internal(program: &Program, stack: &mut StackFrame<'_>, routine: &UserDefinedRoutine, call_stack: &mut Vec<Location>) -> Result<(), Box<[Location]>> {
+fn interp_internal(program: &Program, stack: &mut StackFrame<'_>, routine: &UserDefinedRoutine, call_stack: &mut Vec<Location>) -> Result<(), (String, Box<[Location]>)> {
     let mut instr_pointer = 0;
     while instr_pointer < routine.instr.len() {
         let instr = &routine.instr[instr_pointer];
@@ -182,19 +184,19 @@ fn interp_function_call(
     to: (StackValue, TypedLayout),
     args: &[(StackValue, TypedLayout)],
     call_stack: &mut Vec<Location>,
-) -> Result<(), Box<[Location]>> {
+) -> Result<(), (String, Box<[Location]>)> {
     let calling = program
         .get_routine(function_id)
         .expect("Invalid function pointer. There are two reasons this could happen; you bit_casted some number into a function pointer, or there is a bug in the compilers dependency system.");
     
     match &*calling {
         Routine::Extern(_) => {
-            return Err(std::mem::take(call_stack).into_boxed_slice());
+            return Err(("Cannot call extern functions at compile time right now".to_string(), std::mem::take(call_stack).into_boxed_slice()));
         }
         Routine::Builtin(BuiltinFunction::Assert) => unsafe {
             let condition = stack.get(args[0].0).read::<u8>();
             if condition == 0 {
-                return Err(std::mem::take(call_stack).into_boxed_slice());
+                return Err(("Assert failed".to_string(), std::mem::take(call_stack).into_boxed_slice()));
             }
         }
         Routine::Builtin(BuiltinFunction::StdoutWrite) => unsafe {
@@ -250,7 +252,9 @@ fn interp_function_call(
             );
         },
         Routine::UserDefined(calling) => {
-            let (mut old_stack, mut new_stack) = stack.split(&calling.stack);
+            let Some((mut old_stack, mut new_stack)) = stack.split(&calling.stack) else {
+                return Err((format!("Stack overflow, tried calling a function with stack size {}, but only {} bytes remain", calling.stack.max, stack.len()), std::mem::take(call_stack).into_boxed_slice()));
+            };
 
             // Put the arguments on top of the new stack frame
             for (&(old, field_layout), new) in args.iter().zip(&calling.stack.values) {

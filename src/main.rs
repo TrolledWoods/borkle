@@ -116,13 +116,13 @@ fn main() {
                 // @Improvement: We want to put the entry point in here.
                 match interp::interp(&program, &mut stack, routine, &mut vec![]) {
                     Ok(_) => {}
-                    Err(call_stack) => {
+                    Err((message, call_stack)) => {
                         errors.clear();
                         for &caller in call_stack.iter().rev().skip(1) {
                             errors.info(caller, "".to_string());
                         }
 
-                        errors.error(*call_stack.last().unwrap(), "Assert failed!".to_string());
+                        errors.error(*call_stack.last().unwrap(), message);
                         let files = program.file_contents();
                         errors.print(files);
                     }

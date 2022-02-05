@@ -233,7 +233,7 @@ fn worker<'a>(alloc: &'a mut Bump, program: &'a Program) -> (ThreadContext<'a>, 
                 }
                 Task::EvaluateMember(member_id, routine) => {
                     if !program.member_is_evaluated(member_id) {
-                        let mut stack = crate::interp::Stack::new(2048);
+                        let mut stack = crate::interp::Stack::new(crate::interp::DEFAULT_STACK_SIZE);
 
                         match crate::interp::interp(program, &mut stack, &routine, &mut vec![]) {
                             Ok(result) => {
@@ -254,12 +254,12 @@ fn worker<'a>(alloc: &'a mut Bump, program: &'a Program) -> (ThreadContext<'a>, 
                                     });
                                 }
                             }
-                            Err(call_stack) => {
+                            Err((message, call_stack)) => {
                                 for &caller in call_stack.iter().rev().skip(1) {
                                     errors.info(caller, "".to_string());
                                 }
 
-                                errors.error(*call_stack.last().unwrap(), "Assert failed!".to_string());
+                                errors.error(*call_stack.last().unwrap(), message);
                             }
                         }
                     }

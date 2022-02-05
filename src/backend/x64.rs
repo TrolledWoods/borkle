@@ -108,6 +108,9 @@ pub fn emit_constants(out: &mut String, program: &Program) {
                         let routine = program.get_routine(function_id).unwrap();
 
                         match &*routine {
+                            Routine::Builtin { .. } => {
+                                write!(out, "0").unwrap();
+                            }
                             Routine::Extern(symbol_name) => {
                                 write!(out, "{}", symbol_name).unwrap();
                             }
