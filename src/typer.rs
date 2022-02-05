@@ -4,11 +4,11 @@ use crate::errors::ErrorCtx;
 use crate::literal::Literal;
 use crate::location::Location;
 use crate::execution_time::ExecutionTime;
-use crate::locals::LocalVariables;
+use crate::locals::{LocalVariables, LabelId};
 use crate::operators::{BinaryOp, UnaryOp};
 pub use crate::parser::{LocalUsage, Node, NodeKind, Ast, NodeView, TagKind};
 use crate::ast::{NodeId, GenericChildIterator};
-use crate::program::{PolyOrMember, PolyMemberId, Program, Task, constant::ConstantRef, BuiltinFunction, MemberId, MemberMetaData, FunctionId, ScopeId, FunctionMetaData, FunctionArgumentInfo, MemberKind, Builtin};
+use crate::program::{PolyOrMember, PolyMemberId, Program, Task, constant::ConstantRef, BuiltinFunction, MemberId, MemberMetaData, FunctionId, FunctionMetaData, FunctionArgumentInfo, MemberKind, Builtin};
 use crate::thread_pool::ThreadContext;
 use crate::type_infer::{self, AstVariantId, ValueId as TypeId, Args, TypeSystem, ValueSetId, TypeKind, Reason, ReasonKind};
 use crate::types::{self, IntTypeKind, UniqueTypeMarker, FunctionArgsBuilder};
@@ -36,6 +36,7 @@ pub enum FunctionArgUsage {
 pub enum AdditionalInfoKind {
     FunctionCall(Vec<FunctionArgUsage>),
     Function(FunctionId),
+    InferredConstant(TypeId),
     IsExpression(type_infer::ComparisonId),
     ConstIfResult(bool),
     ConstForAstVariants {
@@ -1034,7 +1035,12 @@ fn build_constraints(
             }
 
             let mut children = node.children.into_iter();
-            let _tags = children.next().unwrap();
+            let tags_node = children.next().unwrap();
+            let mut tags = build_tags(ctx, tags_node, set);
+            if let Some(_target) = tags.target.take() {
+                // TODO: We want to add this to some kind of checking thing to check that targets work out later.
+            }
+            tags.finish(ctx, set);
 
             let children_len = children.len();
             for statement_id in children.by_ref().take(children_len - 1) {
@@ -1117,6 +1123,7 @@ struct Tags {
     calling_convention: Option<(Location, TypeId)>,
     target: Option<(Location, TypeId)>,
     compile: Option<Location>,
+    label: Option<(Location, LabelId, TypeId)>,
 }
 
 impl Tags {
@@ -1127,6 +1134,11 @@ impl Tags {
         }
 
         if let Some((loc, _)) = self.target {
+            ctx.errors.error(loc, format!("Tag not valid for this kind of expression"));
+            ctx.infer.value_sets.get_mut(set).has_errors = true;
+        }
+
+        if let Some((loc, _, _)) = self.label {
             ctx.errors.error(loc, format!("Tag not valid for this kind of expression"));
             ctx.infer.value_sets.get_mut(set).has_errors = true;
         }
@@ -1188,6 +1200,8 @@ fn build_tags(
                 // that is the "global". Maybe there should be an entirely different code path for types?
                 build_global(ctx, inner.id, inner.node, inner.loc, builtin_id, None, set, true);
 
+                ctx.additional_info.insert((ctx.ast_variant_id, node.id), AdditionalInfoKind::InferredConstant(value.constant_value));
+
                 tags.target = Some((
                     node.loc,
                     value.constant_value,
@@ -1200,6 +1214,10 @@ fn build_tags(
                 }
 
                 tags.compile = Some(node.loc);
+            }
+            TagKind::Label(label_id) => {
+                ctx.locals.get_label_mut(label_id).declared_at = Some(node.id);
+                tags.label = Some((node.loc, label_id, TypeId::Node(ctx.ast_variant_id, node.id)));
             }
         }
     }

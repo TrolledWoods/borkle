@@ -1448,12 +1448,14 @@ pub enum TagKind {
     CallingConvention,
     Target,
     Compile,
+    Label(LabelId),
 }
 
 pub mod tags {
-    pub const CALLING_CONVENTION: u32 = 0x1;
-    pub const TARGET:             u32 = 0x2;
-    pub const COMPILE:            u32 = 0x4;
+    pub const CALLING_CONVENTION: u32 = 0x01;
+    pub const TARGET:             u32 = 0x02;
+    pub const COMPILE:            u32 = 0x04;
+    pub const LABEL:              u32 = 0x08;
 }   
 
 fn parse_tags(global: &mut DataContext<'_>, imperative: &mut ImperativeContext<'_>, mut slot: AstSlot<'_>) -> Result<u32, ()> {
@@ -1479,7 +1481,7 @@ fn parse_tags(global: &mut DataContext<'_>, imperative: &mut ImperativeContext<'
         match tag_name.as_str() {
             "call" => {
                 let mut tag = slot.add();
-                value(global, imperative, tag.add())?;
+                expression_rec(global, imperative, tag.add(), 9)?;
                 tag.finish(Node::new(loc, NodeKind::Tag(TagKind::CallingConvention)));
 
                 imperative.dependencies.add(
@@ -1494,7 +1496,7 @@ fn parse_tags(global: &mut DataContext<'_>, imperative: &mut ImperativeContext<'
             }
             "target" => {
                 let mut tag = slot.add();
-                value(global, imperative, tag.add())?;
+                expression_rec(global, imperative, tag.add(), 9)?;
                 tag.finish(Node::new(loc, NodeKind::Tag(TagKind::Target)));
 
                 imperative.dependencies.add(
@@ -1512,6 +1514,24 @@ fn parse_tags(global: &mut DataContext<'_>, imperative: &mut ImperativeContext<'
                 slot.add().finish(Node::new(loc, NodeKind::Tag(TagKind::Compile)));
 
                 found_tags |= tags::COMPILE;
+            }
+            "label" => {
+                let (label_loc, name) = global.tokens.expect_identifier(global.errors)?;
+                let id = imperative.insert_label(
+                    name,
+                    crate::locals::Label {
+                        loc: label_loc,
+                        defer_depth: imperative.defer_depth,
+                        first_break_location: None,
+                        declared_at: None,
+                        stack_frame_id: 0,
+                        num_defers: 0,
+                        type_: None,
+                        value: None,
+                        ir_labels: None,
+                    },
+                );
+                slot.add().finish(Node::new(loc, NodeKind::Tag(TagKind::Label(id))));
             }
             _ => {
                 global.error(global.tokens.loc(), format!("`{}` is not a tag", tag_name));

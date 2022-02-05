@@ -4,7 +4,7 @@ use crate::location::Location;
 use crate::literal::Literal;
 use crate::locals::LocalVariables;
 use crate::operators::{BinaryOp, UnaryOp};
-use crate::parser::{Ast, NodeKind, NodeView, tags};
+use crate::parser::{Ast, NodeKind, NodeView, tags, TagKind};
 use crate::ast::NodeId;
 use crate::program::{FunctionId, Program, constant::ConstantRef};
 use crate::thread_pool::ThreadContext;
@@ -63,6 +63,37 @@ pub fn emit<'a>(
             label_locations: ctx.label_locations,
         },
     )
+}
+
+#[derive(Default)]
+struct Tags {
+    target: Option<u32>,
+}
+
+fn get_tags(ctx: &mut Context<'_, '_>, node: NodeView<'_>) -> Tags {
+    let mut tags = Tags::default();
+
+    for tag_child in node.children.into_iter() {
+        let &NodeKind::Tag(tag_kind) = &tag_child.kind else { unreachable!() };
+
+        match tag_kind {
+            TagKind::Target => {
+                let &AdditionalInfoKind::InferredConstant(constant_value) = &ctx.additional_info[&(ctx.variant_id, tag_child.id)] else {
+                    unreachable!();
+                };
+
+                let &TypeKind::ConstantValue(constant_value) = ctx.types.get(constant_value).kind() else { unreachable!() };
+
+                let targets = unsafe { *constant_value.as_ptr().cast::<u32>() };
+
+                println!("Targets are: {:X}", targets);
+                tags.target = Some(targets);
+            }
+            _ => {}
+        }
+    }
+
+    tags
 }
 
 pub fn emit_function_declaration<'a>(
@@ -735,7 +766,8 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, mut node: NodeView<'a>) -> (Value, T
             let head = ctx.registers.head;
 
             let mut children = node.children.into_iter();
-            let _tags = children.next().unwrap();
+            let tags = children.next().unwrap();
+            let _tags = get_tags(ctx, tags);
 
             for content in children.by_ref().take(node.children.len() - 2) {
                 emit_node(ctx, content);

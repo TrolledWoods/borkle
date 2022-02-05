@@ -5,7 +5,7 @@ type #builtin: CallingConvention = enum u8 {
     C = 1;
 };
 
-type #builtin: Target = enum u8 {
+type #builtin: Target = enum u32 {
     Compiler = 0x01;
     Native   = 0x02;
 
