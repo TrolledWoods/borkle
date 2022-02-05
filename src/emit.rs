@@ -85,8 +85,6 @@ fn get_tags(ctx: &mut Context<'_, '_>, node: NodeView<'_>) -> Tags {
                 let &TypeKind::ConstantValue(constant_value) = ctx.types.get(constant_value).kind() else { unreachable!() };
 
                 let targets = unsafe { *constant_value.as_ptr().cast::<u32>() };
-
-                println!("Targets are: {:X}", targets);
                 tags.target = Some(targets);
             }
             _ => {}

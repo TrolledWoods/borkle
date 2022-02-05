@@ -1,6 +1,7 @@
 pub use super::AstVariantId;
 pub type ValueSetId = usize;
 
+
 #[derive(Clone, Default)]
 pub struct ValueSets {
     sets: Vec<ValueSet>,
@@ -23,6 +24,7 @@ impl ValueSets {
             has_errors: false,
             related_nodes: Vec::new(),
             emit_deps: None,
+            target_checker: None,
             waiting_on_completion,
             has_been_computed: false,
         });
@@ -90,6 +92,7 @@ pub struct ValueSet {
     // have to do with sub-sections of an Ast that can be emitted separately.
     pub waiting_on_completion: crate::typer::WaitingOnTypeInferrence,
     pub emit_deps: Option<crate::dependencies::DependencyList>,
+    pub target_checker: Option<crate::typer::TargetChecker>,
 
     pub has_been_computed: bool,
 }

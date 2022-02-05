@@ -115,6 +115,20 @@ struct Context<'a, 'b> {
     ast_variant_id: AstVariantId,
     additional_info: &'a mut AdditionalInfo,
     inside_type_comparison: bool,
+    target_checker: TargetChecker,
+}
+
+#[derive(Clone)]
+struct TargetCheck {
+    loc: Location,
+    subset: TypeId,
+    superset: TypeId,
+}
+
+#[derive(Default, Clone)]
+pub struct TargetChecker {
+    checks: Vec<TargetCheck>,
+    stack: Vec<TypeId>,
 }
 
 pub fn process_ast<'a>(
@@ -173,6 +187,7 @@ pub fn begin<'a>(
         ast_variant_id: AstVariantId::root(),
         additional_info: &mut additional_info,
         inside_type_comparison: false,
+        target_checker: TargetChecker::default(),
     };
 
     // Build the type relationships between nodes.
@@ -205,7 +220,10 @@ pub fn begin<'a>(
         )
     };
 
-    infer.value_sets.get_mut(root_set_id).emit_deps = Some(emit_deps);
+    let target_checker = ctx.target_checker;
+    let value_set = infer.value_sets.get_mut(root_set_id);
+    value_set.emit_deps = Some(emit_deps);
+    value_set.target_checker = Some(target_checker);
 
     (
         YieldData {
@@ -243,6 +261,7 @@ pub fn solve<'a>(
         ast_variant_id: AstVariantId::root(),
         additional_info: &mut data.additional_info,
         inside_type_comparison: false,
+        target_checker: TargetChecker::default(),
     };
 
     loop {
@@ -267,7 +286,16 @@ pub fn solve<'a>(
             value_set.has_been_computed = true;
             let waiting_on = std::mem::replace(&mut value_set.waiting_on_completion, WaitingOnTypeInferrence::None);
 
-            if !value_set.has_errors {
+            let mut has_errors = value_set.has_errors;
+            
+            let value_set = ctx.infer.value_sets.get(value_set_id);
+            if let Some(target_checker) = &value_set.target_checker {
+                if validate(ctx.infer, ctx.errors, target_checker) {
+                    has_errors = true;
+                }
+            }
+
+            if !has_errors {
                 subset_was_completed(&mut ctx, &mut data.ast, waiting_on, value_set_id);
             }
 
@@ -356,6 +384,8 @@ fn subset_was_completed(ctx: &mut Context<'_, '_>, ast: &mut Ast, waiting_on: Wa
                 ast_variant_id: AstVariantId::invalid(),
                 additional_info: ctx.additional_info,
                 inside_type_comparison: false,
+                // TODO: This is incorrect, we're going to change things up a lot later.
+                target_checker: TargetChecker::default(),
             };
 
             let mut variant_ids = Vec::with_capacity(iterator_args.len());
@@ -421,6 +451,8 @@ fn subset_was_completed(ctx: &mut Context<'_, '_>, ast: &mut Ast, waiting_on: Wa
                 ast_variant_id: ast_variant_id,
                 additional_info: ctx.additional_info,
                 inside_type_comparison: false,
+                // TODO: This is not correct...
+                target_checker: TargetChecker::default(),
             };
 
             let child_type = build_constraints(&mut sub_ctx, ast.get(emitting), parent_set);
@@ -599,6 +631,25 @@ fn subset_was_completed(ctx: &mut Context<'_, '_>, ast: &mut Ast, waiting_on: Wa
         }
         WaitingOnTypeInferrence::None => {},
     }
+}
+
+fn validate(types: &TypeSystem, errors: &mut ErrorCtx, target_checker: &TargetChecker) -> bool {
+    let mut has_errors = false;
+
+    for check in &target_checker.checks {
+        let &TypeKind::ConstantValue(subset) = types.get(check.subset).kind() else { panic!() };
+        let &TypeKind::ConstantValue(superset) = types.get(check.superset).kind() else { panic!() };
+
+        let subset_value   = unsafe { *subset.as_ptr().cast::<u32>() };
+        let superset_value = unsafe { *superset.as_ptr().cast::<u32>() };
+
+        if (superset_value & subset_value) != subset_value {
+            has_errors = true;
+            errors.error(check.loc, "Invalid target value (temporary error message)".to_string());
+        }
+    }
+
+    has_errors
 }
 
 fn build_constraints(
@@ -1037,9 +1088,22 @@ fn build_constraints(
             let mut children = node.children.into_iter();
             let tags_node = children.next().unwrap();
             let mut tags = build_tags(ctx, tags_node, set);
-            if let Some(_target) = tags.target.take() {
-                // TODO: We want to add this to some kind of checking thing to check that targets work out later.
-            }
+            let target_based = if let Some((tag_loc, target)) = tags.target.take() {
+                let required_type = ctx.infer.add_type(TypeKind::Empty, Args([]), set);
+                ctx.infer.set_equal(node_type_id, required_type, Reason::temp(tag_loc));
+
+                if let Some(&parent) = ctx.target_checker.stack.last() {
+                    ctx.target_checker.checks.push(TargetCheck {
+                        loc: tag_loc,
+                        subset: target,
+                        superset: parent,
+                    });
+                }
+                ctx.target_checker.stack.push(target);
+                true
+            } else {
+                false
+            };
             tags.finish(ctx, set);
 
             let children_len = children.len();
@@ -1050,6 +1114,10 @@ fn build_constraints(
             let last_type_id = build_constraints(ctx, children.next().unwrap(), set);
             ctx.infer
                 .set_equal(node_type_id, last_type_id, Reason::new(node_loc, ReasonKind::Passed));
+
+            if target_based {
+                ctx.target_checker.stack.pop();
+            }
         }
         NodeKind::Break {
             label,
@@ -1252,6 +1320,7 @@ fn build_function_declaration(
         ast_variant_id: ctx.ast_variant_id,
         additional_info: ctx.additional_info,
         inside_type_comparison: false,
+        target_checker: TargetChecker::default(),
     };
 
     let mut children = node.children.into_iter();
@@ -1296,9 +1365,11 @@ fn build_function_declaration(
         let body = children.next().unwrap();
         let body_type_id = build_constraints(&mut sub_ctx, body, sub_set);
 
-        ctx.infer
+        sub_ctx.infer
             .set_equal(body_type_id, returns_type_id, Reason::new(returns_loc, ReasonKind::FunctionDeclReturned));
     };
+
+    let target_checker = sub_ctx.target_checker;
 
     if let Some((loc, calling_convention)) = tags.calling_convention.take() {
         function_args.set_calling_convention((calling_convention, Reason::temp(loc)));
@@ -1324,8 +1395,11 @@ fn build_function_declaration(
         ast_variant_id: ctx.ast_variant_id,
     });
 
-    let old_set = ctx.infer.value_sets.get_mut(sub_set).emit_deps.replace(emit_deps);
+    let value_set = ctx.infer.value_sets.get_mut(sub_set);
+    let old_set = value_set.emit_deps.replace(emit_deps);
+    let old_target_checker = value_set.target_checker.replace(target_checker);
     debug_assert!(old_set.is_none());
+    debug_assert!(old_target_checker.is_none());
 }
 
 fn build_unique_type(
@@ -1842,6 +1916,7 @@ fn build_inferrable_constant_value(
                 errors: ctx.errors,
                 program: ctx.program,
                 locals: ctx.locals,
+                // TODO: Think about whether this is correct or not
                 emit_deps: ctx.emit_deps,
                 poly_params: ctx.poly_params,
                 infer: ctx.infer,
@@ -1850,6 +1925,8 @@ fn build_inferrable_constant_value(
                 ast_variant_id: ctx.ast_variant_id,
                 additional_info: ctx.additional_info,
                 inside_type_comparison: false,
+                // TODO: We don't ever use this thing....
+                target_checker: TargetChecker::default(),
             };
             let sub_set = sub_ctx.infer.value_sets.add(WaitingOnTypeInferrence::None);
 

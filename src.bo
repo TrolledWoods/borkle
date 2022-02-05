@@ -3,20 +3,18 @@ library "timer.bo";
 library "compiler.bo";
 import "tests/main.bo";
 
-const compute_complex_target.(T) = fn() -> Target {
-    if #const: T is u32 { .Compiler }
-    else .Native
-};
-
 #entry fn() {
     let x: u32 = 0;
     let y: u64 = 0;
 
-    { #target compute_complex_target.(typeof x)():
+    { #target .Compiler:
+        { #target .All:
+            print("Hello from native!\n");
+        };
+        
+        print("Hello from compiler!\n");
     };
 
-    { #target compute_complex_target.(typeof y)():
-    };
 };
 
 /*
