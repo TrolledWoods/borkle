@@ -752,20 +752,28 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, mut node: NodeView<'a>) -> (Value, T
 
             let (to, to_layout) = ctx.create_reg_and_typed_layout(TypeId::Node(ctx.variant_id, node.id));
 
-            if let Some(label) = *label {
-                let ir_labels = (0..=ctx.locals.get_label(label).num_defers)
+            let final_label = if let Some(label) = *label {
+                let ir_labels: Vec<_> = (0..=ctx.locals.get_label(label).num_defers)
                     .map(|_| ctx.create_label())
                     .collect();
+                let final_label = ir_labels[0];
                 let label_ref = ctx.locals.get_label_mut(label);
                 label_ref.ir_labels = Some(ir_labels);
                 label_ref.value = Some(to);
-            }
+                final_label
+            } else {
+                ctx.create_label()
+            };
 
             let head = ctx.registers.head;
 
             let mut children = node.children.into_iter();
             let tags = children.next().unwrap();
-            let _tags = get_tags(ctx, tags);
+            let tags = get_tags(ctx, tags);
+
+            if let Some(target) = tags.target {
+                ctx.emit_target_block(target, final_label);
+            }
 
             for content in children.by_ref().take(node.children.len() - 2) {
                 emit_node(ctx, content);
@@ -784,10 +792,7 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, mut node: NodeView<'a>) -> (Value, T
                 emit_node(ctx, defer);
             }
 
-            if let Some(label) = *label {
-                let ir_label = ctx.locals.get_label(label).ir_labels.as_ref().unwrap()[0];
-                ctx.define_label(ir_label);
-            }
+            ctx.define_label(final_label);
 
             ctx.defers.truncate(num_defers_at_start);
             ctx.registers.head = head;
@@ -1573,6 +1578,10 @@ impl Context<'_, '_> {
             println!("{}", crate::program::constant_to_str(type_, global, 0));
             self.instr.push(Instr::RefGlobal { to_ptr, global });
         }
+    }
+
+    fn emit_target_block(&mut self, target: u32, to: LabelId) {
+        self.instr.push(Instr::TargetBlock { target, to });
     }
 
     fn emit_jump_if_zero(&mut self, condition: StackValue, to: LabelId) {

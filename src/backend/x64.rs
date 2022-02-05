@@ -834,7 +834,8 @@ fn emit_routine(
         }
     }
 
-    for instr in &routine.instr {
+    let mut instructions = routine.instr.iter();
+    while let Some(instr) = instructions.next() {
         if DEBUG_SPAM {
             writeln!(ctx.out, "; {:?}", instr)?;
             write!(ctx.out, "; ")?;
@@ -860,6 +861,17 @@ fn emit_routine(
                     if loc.line != prev_line {
                         writeln!(ctx.out, "%line {:0>3}+000 {}", loc.line, loc.file)?;
                         prev_line = loc.line;
+                    }
+                }
+            }
+            Instr::TargetBlock { target, to } => {
+                if (target & crate::typer::TARGET_NATIVE) == 0 {
+                    while let Some(instr) = instructions.next() {
+                        if let Instr::LabelDefinition(label_id) = instr {
+                            if *label_id == to {
+                                break;
+                            }
+                        }
                     }
                 }
             }

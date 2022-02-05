@@ -3,18 +3,25 @@ library "timer.bo";
 library "compiler.bo";
 import "tests/main.bo";
 
-#entry fn() {
-    let x: u32 = 0;
-    let y: u64 = 0;
+const separate = fn() -> [] u8 {
+    let output = #0;
 
     { #target .Compiler:
-        { #target .All:
-            print("Hello from native!\n");
-        };
-        
-        print("Hello from compiler!\n");
+        output = "In the compiler";
     };
 
+    { #target .Native:
+        output = "In native";
+    };
+
+    output
+};
+
+const separate_at_compile = separate();
+
+#entry fn() {
+    print("%\n", separate());
+    print("%\n", separate_at_compile);
 };
 
 /*

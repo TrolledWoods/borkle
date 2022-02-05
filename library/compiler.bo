@@ -9,5 +9,5 @@ type #builtin: Target = enum u32 {
     Compiler = 0x01;
     Native   = 0x02;
 
-    All      = 0x01 | 0x02;
+    All      = cast (-1 : i32);
 };

@@ -79,6 +79,11 @@ fn interp_internal(program: &Program, stack: &mut StackFrame<'_>, routine: &User
             Instr::Jump { to } => {
                 instr_pointer = routine.label_locations[to.0];
             }
+            Instr::TargetBlock { target, to } => {
+                if (target & crate::typer::TARGET_COMPILER) == 0 {
+                    instr_pointer = routine.label_locations[to.0];
+                }
+            }
             Instr::CallImm {
                 to,
                 function_id,

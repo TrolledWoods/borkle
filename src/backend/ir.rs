@@ -72,6 +72,9 @@ pub fn print_instr(mut out: impl Write, instr: &Instr) {
 
             writeln!(out, ")").unwrap();
         }
+        Instr::TargetBlock { target, to } => {
+            writeln!(out, "target {:X}, else {}", target, to).unwrap();
+        }
         Instr::SetToZero { to_ptr, size } => {
             writeln!(out, "\tzero {} /{}", to_ptr, size).unwrap();
         }

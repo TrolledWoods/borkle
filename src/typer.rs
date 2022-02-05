@@ -16,6 +16,10 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use ustr::Ustr;
 
+pub const TARGET_COMPILER: u32 = 0x1;
+pub const TARGET_NATIVE: u32 = 0x2;
+pub const TARGET_ALL: u32 = 0xffff_ffff;
+
 pub type AdditionalInfo = HashMap<(AstVariantId, NodeId), AdditionalInfoKind>;
 
 #[derive(Clone)]
@@ -645,7 +649,7 @@ fn validate(types: &TypeSystem, errors: &mut ErrorCtx, target_checker: &TargetCh
 
         if (superset_value & subset_value) != subset_value {
             has_errors = true;
-            errors.error(check.loc, "Invalid target value (temporary error message)".to_string());
+            errors.error(check.loc, "Target mismatch (temporary error message)".to_string());
         }
     }
 
@@ -1361,6 +1365,16 @@ fn build_function_declaration(
     let returns_type_id = build_type(&mut sub_ctx, returns, sub_set);
     function_args.set_return((returns_type_id, returns_type_reason));
 
+    if let Some((loc, target)) = tags.target.take() {
+        function_args.set_target((target, Reason::temp(loc)));
+        sub_ctx.target_checker.stack.push(target);
+    } else {
+        // TODO: This should be the borkle calling convention
+        let constant_value = sub_ctx.program.insert_buffer(&types::Type::new_int(IntTypeKind::U32), (&TARGET_ALL) as *const u32 as *const u8);
+        let target = sub_ctx.infer.add_type(TypeKind::ConstantValue(constant_value), Args([]), set);
+        function_args.set_target((target, Reason::temp(node.loc)));
+    };
+
     if is_extern.is_none() {
         let body = children.next().unwrap();
         let body_type_id = build_constraints(&mut sub_ctx, body, sub_set);
@@ -1539,6 +1553,15 @@ fn build_type(
                 let calling_convention = ctx.infer.add_type(TypeKind::ConstantValue(constant_value), Args([]), set);
                 function_args.set_calling_convention((calling_convention, Reason::temp(node.loc)));
             }
+
+            if let Some((loc, target)) = tags.target.take() {
+                function_args.set_target((target, Reason::temp(loc)));
+            } else {
+                let constant_value = ctx.program.insert_buffer(&types::Type::new_int(IntTypeKind::U32), (&TARGET_ALL) as *const u32 as *const u8);
+                let target = ctx.infer.add_type(TypeKind::ConstantValue(constant_value), Args([]), set);
+                function_args.set_target((target, Reason::temp(node.loc)));
+            }
+
 
             tags.finish(ctx, set);
 
@@ -2119,6 +2142,17 @@ fn build_function_call<'a>(
         let calling_convention = ctx.infer.add_unknown_type_with_set(set);
         typer_args.set_calling_convention((calling_convention, Reason::temp(node_loc)));
 
+        let target = ctx.infer.add_unknown_type_with_set(set);
+        typer_args.set_target((target, Reason::temp(node_loc)));
+
+        if let Some(&parent) = ctx.target_checker.stack.last() {
+            ctx.target_checker.checks.push(TargetCheck {
+                loc: node_loc,
+                subset: parent,
+                superset: target,
+            });
+        }
+
         // Specify that the caller has to be a function type
         let type_id = ctx.infer.add_type(TypeKind::Function, Args(typer_args.build()), set);
         ctx.additional_info.insert((ctx.ast_variant_id, node_id), AdditionalInfoKind::FunctionCall(function_arg_usage));
@@ -2135,6 +2169,17 @@ fn build_function_call<'a>(
         let calling_convention = ctx.infer.add_unknown_type_with_set(set);
         typer_args.set_calling_convention((calling_convention, Reason::temp(node_loc)));
         typer_args.set_return((node_type_id, Reason::new(node_loc, ReasonKind::FunctionCallReturn)));
+
+        let target = ctx.infer.add_unknown_type_with_set(set);
+        typer_args.set_target((target, Reason::temp(node_loc)));
+
+        if let Some(&parent) = ctx.target_checker.stack.last() {
+            ctx.target_checker.checks.push(TargetCheck {
+                loc: node_loc,
+                subset: parent,
+                superset: target,
+            });
+        }
 
         // Specify that the caller has to be a function type
         let type_id = ctx.infer.add_type(TypeKind::Function, Args(typer_args.build()), set);

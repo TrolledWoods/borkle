@@ -166,6 +166,10 @@ pub enum Instr {
         to_number: PrimitiveType,
         from_number: PrimitiveType,
     },
+    TargetBlock {
+        target: u32,
+        to: LabelId,
+    },
     // jump to 'to' if condition
     JumpIfZero {
         condition: StackValue,
