@@ -349,6 +349,36 @@ pub fn finish<'a>(
 
 fn subset_was_completed(ctx: &mut Context<'_, '_>, ast: &mut Ast, waiting_on: WaitingOnTypeInferrence, set: ValueSetId) {
     match waiting_on {
+        WaitingOnTypeInferrence::TargetFromConstantValue { value_id, computation, ast_variant_id } => {
+            let len_loc = ast.get(computation).loc;
+            match crate::interp::emit_and_run(
+                ctx.thread_context,
+                ctx.program,
+                ctx.locals,
+                ctx.infer,
+                ast,
+                ctx.additional_info,
+                computation,
+                ast_variant_id,
+                &mut vec![len_loc],
+            ) {
+                Ok(constant_ref) => {
+                    let computation_node = ast.get(computation);
+
+                    let number = unsafe { *constant_ref.as_ptr().cast::<u32>() };
+                    let finished_value = ctx.infer.add_type(TypeKind::Target { min: number, max: number }, Args([]), set);
+                    ctx.infer.set_equal(finished_value, value_id, Reason::new(computation_node.loc, ReasonKind::IsOfType));
+                }
+                Err((message, call_stack)) => {
+                    for &caller in call_stack.iter().rev().skip(1) {
+                        ctx.errors.info(caller, "".to_string());
+                    }
+
+                    ctx.errors.error(*call_stack.last().unwrap(), message);
+                    ctx.infer.value_sets.get_mut(set).has_errors = true;
+                }
+            }
+        }
         WaitingOnTypeInferrence::ConstFor { node_id, ast_variant_id, parent_set, runs, iterator_type } => {
             let node = ast.get(node_id);
             let [iterator, _i_value, mut inner, _else_body] = node.children.into_array();
@@ -641,13 +671,10 @@ fn validate(types: &TypeSystem, errors: &mut ErrorCtx, target_checker: &TargetCh
     let mut has_errors = false;
 
     for check in &target_checker.checks {
-        let &TypeKind::ConstantValue(subset) = types.get(check.subset).kind() else { panic!() };
-        let &TypeKind::ConstantValue(superset) = types.get(check.superset).kind() else { panic!() };
+        let &TypeKind::Target { min: subset, max: _ } = types.get(check.subset).kind() else { panic!() };
+        let &TypeKind::Target { min: superset, max: _ } = types.get(check.superset).kind() else { panic!() };
 
-        let subset_value   = unsafe { *subset.as_ptr().cast::<u32>() };
-        let superset_value = unsafe { *superset.as_ptr().cast::<u32>() };
-
-        if (superset_value & subset_value) != subset_value {
+        if (superset & subset) != subset {
             has_errors = true;
             errors.error(check.loc, "Target mismatch (temporary error message)".to_string());
         }
@@ -1263,20 +1290,48 @@ fn build_tags(
                     ctx.errors.error(node.loc, format!("`target` defined twice"));
                     ctx.infer.value_sets.get_mut(set).has_errors |= true;
                 }
-                let value = build_inferrable_constant_value(ctx, inner, set);
 
-                let builtin_id = ctx.program
+                let mut sub_ctx = Context {
+                    thread_context: ctx.thread_context,
+                    errors: ctx.errors,
+                    program: ctx.program,
+                    locals: ctx.locals,
+                    // TODO: Think about whether this is correct or not
+                    emit_deps: ctx.emit_deps,
+                    poly_params: ctx.poly_params,
+                    infer: ctx.infer,
+                    runs: ctx.runs.combine(ExecutionTime::Typing),
+                    needs_explaining: ctx.needs_explaining,
+                    ast_variant_id: ctx.ast_variant_id,
+                    additional_info: ctx.additional_info,
+                    inside_type_comparison: false,
+                    // TODO: We don't ever use this thing....
+                    target_checker: TargetChecker::default(),
+                };
+                let sub_set = sub_ctx.infer.value_sets.add(WaitingOnTypeInferrence::None);
+
+                build_constraints(&mut sub_ctx, inner, sub_set);
+
+                let builtin_id = sub_ctx.program
                     .get_member_id_from_builtin(Builtin::Target)
                     .expect("Parser should make sure we have access to target");
                 // TODO: It is scary to monomorphise something like this, since we have to give a node
                 // that is the "global". Maybe there should be an entirely different code path for types?
-                build_global(ctx, inner.id, inner.node, inner.loc, builtin_id, None, set, true);
+                build_global(&mut sub_ctx, inner.id, inner.node, inner.loc, builtin_id, None, sub_set, true);
 
-                ctx.additional_info.insert((ctx.ast_variant_id, node.id), AdditionalInfoKind::InferredConstant(value.constant_value));
+
+                let target_id = TypeId::Node(ctx.ast_variant_id, node.id);
+                ctx.infer.set_waiting_on_value_set(sub_set, WaitingOnTypeInferrence::TargetFromConstantValue {
+                    computation: inner.id,
+                    value_id: target_id,
+                    ast_variant_id: ctx.ast_variant_id,
+                });
+
+                ctx.infer.set_value_set(target_id, set);
 
                 tags.target = Some((
                     node.loc,
-                    value.constant_value,
+                    target_id,
                 ));
             }
             TagKind::Compile => {
@@ -1369,9 +1424,7 @@ fn build_function_declaration(
         function_args.set_target((target, Reason::temp(loc)));
         sub_ctx.target_checker.stack.push(target);
     } else {
-        // TODO: This should be the borkle calling convention
-        let constant_value = sub_ctx.program.insert_buffer(&types::Type::new_int(IntTypeKind::U32), (&TARGET_ALL) as *const u32 as *const u8);
-        let target = sub_ctx.infer.add_type(TypeKind::ConstantValue(constant_value), Args([]), set);
+        let target = sub_ctx.infer.add_type(TypeKind::Target { min: TARGET_ALL, max: TARGET_ALL }, Args([]), set);
         function_args.set_target((target, Reason::temp(node.loc)));
     };
 
@@ -1548,7 +1601,7 @@ fn build_type(
             if let Some((loc, calling_convention)) = tags.calling_convention.take() {
                 function_args.set_calling_convention((calling_convention, Reason::temp(loc)));
             } else {
-                // TODO: This should be the borkle calling convention
+                // TODO: This should be the borkle calling conventionTargei
                 let constant_value = ctx.program.insert_buffer(&types::Type::new_int(IntTypeKind::U8), (&0_u8) as *const u8);
                 let calling_convention = ctx.infer.add_type(TypeKind::ConstantValue(constant_value), Args([]), set);
                 function_args.set_calling_convention((calling_convention, Reason::temp(node.loc)));
@@ -1557,8 +1610,7 @@ fn build_type(
             if let Some((loc, target)) = tags.target.take() {
                 function_args.set_target((target, Reason::temp(loc)));
             } else {
-                let constant_value = ctx.program.insert_buffer(&types::Type::new_int(IntTypeKind::U32), (&TARGET_ALL) as *const u32 as *const u8);
-                let target = ctx.infer.add_type(TypeKind::ConstantValue(constant_value), Args([]), set);
+                let target = ctx.infer.add_type(TypeKind::Target { min: TARGET_ALL, max: TARGET_ALL }, Args([]), set);
                 function_args.set_target((target, Reason::temp(node.loc)));
             }
 
@@ -2353,6 +2405,11 @@ pub enum WaitingOnTypeInferrence {
     },
     SizeOf {
         parent_set: ValueSetId,
+    },
+    TargetFromConstantValue {
+        computation: NodeId,
+        ast_variant_id: AstVariantId,
+        value_id: type_infer::ValueId,
     },
     MonomorphiseMember {
         node_id: NodeId,

@@ -84,7 +84,7 @@ impl IntoValueSet for ValueSetId {
 
 fn get_needed_children_for_layout<'a>(type_: &TypeKind, children: &'a [ValueId]) -> &'a [ValueId] {
     match type_ {
-        TypeKind::IntSize(_) | TypeKind::IntSigned(_) | TypeKind::Bool | TypeKind::Empty | TypeKind::Function | TypeKind::Reference | TypeKind::Buffer | TypeKind::ConstantValue(_) | TypeKind::CompareUnspecified => &[],
+        TypeKind::Target { .. } | TypeKind::IntSize(_) | TypeKind::IntSigned(_) | TypeKind::Bool | TypeKind::Empty | TypeKind::Function | TypeKind::Reference | TypeKind::Buffer | TypeKind::ConstantValue(_) | TypeKind::CompareUnspecified => &[],
         TypeKind::Enum { .. } => &children[0..1],
         TypeKind::Float => &children[0..1],
         TypeKind::Int => &children[1..2],
@@ -148,7 +148,7 @@ fn compute_type_layout(kind: &TypeKind, structures: &Structures, values: &Values
             size = crate::types::to_align(size, align);
             Layout { size, align }
         }
-        TypeKind::ConstantValue(_) => Layout { size: 0, align: 1 },
+        TypeKind::Target { .. } | TypeKind::ConstantValue(_) => Layout { size: 0, align: 1 },
         TypeKind::Constant => *get_value(structures, values, children[0]).layout.unwrap(),
     }
 }
@@ -1312,6 +1312,25 @@ impl TypeSystem {
             return "...".to_string();
         }
         match &self.get(value).kind {
+            &Some(&Type { kind: TypeKind::Target { min: value, .. }, .. }) => {
+                if value == crate::typer::TARGET_ALL {
+                    "All".to_string()
+                } else if value == 0 {
+                    "None".to_string()
+                } else {
+                    let values = [
+                        ((value & crate::typer::TARGET_COMPILER) > 0).then(|| "Compiler"),
+                        ((value & crate::typer::TARGET_NATIVE) > 0).then(|| "Native"),
+                    ];
+
+                    let mut output = String::new();
+                    for (i, name) in values.into_iter().flatten().enumerate() {
+                        if i > 0 { output.push_str(" | "); }
+                        output.push_str(name);
+                    }
+                    output
+                }
+            }
             Some(Type { kind: TypeKind::CompareUnspecified, .. }) => "_(intentionally unspecified)".to_string(),
             Some(Type { kind: TypeKind::Bool, .. }) => "bool".to_string(),
             Some(Type { kind: TypeKind::Empty, .. }) => "Empty".to_string(),

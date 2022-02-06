@@ -132,6 +132,7 @@ impl Type {
             | TypeKind::Float
             | TypeKind::IntSize(_)
             | TypeKind::IntSigned(_)
+            | TypeKind::Target { .. }
             | TypeKind::ConstantValue(_) 
             | TypeKind::Constant
             | TypeKind::Bool => {}
@@ -249,6 +250,25 @@ impl Display for TypeData {
                 };
 
                 write!(fmt, "{}", string)
+            }
+            &TypeKind::Target { min: value, .. } => {
+                if value == crate::typer::TARGET_ALL {
+                    write!(fmt, "All")?;
+                } else if value == 0 {
+                    write!(fmt, "None")?;
+                } else {
+                    let values = [
+                        ((value & crate::typer::TARGET_COMPILER) > 0).then(|| "Compiler"),
+                        ((value & crate::typer::TARGET_NATIVE) > 0).then(|| "Native"),
+                    ];
+
+                    for (i, name) in values.into_iter().flatten().enumerate() {
+                        if i > 0 { write!(fmt, " | ")?; }
+                        write!(fmt, "{}", name)?;
+                    }
+                }
+
+                Ok(())
             }
             TypeKind::Bool => write!(fmt, "bool"),
             TypeKind::Reference => write!(fmt, "&{}", self.args[0]),
@@ -405,6 +425,8 @@ pub enum TypeKind {
     /// Whether an int is signed or not
     IntSigned(bool),
 
+    Target { min: u32, max: u32 },
+
     Bool,
     Empty,
 
@@ -469,7 +491,7 @@ impl TypeData {
 
                 (size as usize, size as usize)
             }
-            TypeKind::ConstantValue(_) => (0, 1),
+            TypeKind::Target { .. } | TypeKind::ConstantValue(_) => (0, 1),
             TypeKind::Constant => {
                 self.args[0].0.calculate_size_align()
             }

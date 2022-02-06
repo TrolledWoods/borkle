@@ -78,13 +78,8 @@ fn get_tags(ctx: &mut Context<'_, '_>, node: NodeView<'_>) -> Tags {
 
         match tag_kind {
             TagKind::Target => {
-                let &AdditionalInfoKind::InferredConstant(constant_value) = &ctx.additional_info[&(ctx.variant_id, tag_child.id)] else {
-                    unreachable!();
-                };
+                let &TypeKind::Target { min: targets, max: _ } = ctx.types.get(TypeId::Node(ctx.variant_id, tag_child.id)).kind() else { unreachable!() };
 
-                let &TypeKind::ConstantValue(constant_value) = ctx.types.get(constant_value).kind() else { unreachable!() };
-
-                let targets = unsafe { *constant_value.as_ptr().cast::<u32>() };
                 tags.target = Some(targets);
             }
             _ => {}
