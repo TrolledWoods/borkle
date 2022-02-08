@@ -298,7 +298,6 @@ fn get_value_mut<'a>(structures: &'a mut Structures, values: &'a mut Values, id:
             ValueBorrowMut {
                 kind: structure.kind.as_mut(),
                 layout: Some(&mut structure.layout),
-                value_sets: &mut value.value.value_sets,
                 is_base_value: &mut value.value.is_base_value,
             }
         }
@@ -306,7 +305,6 @@ fn get_value_mut<'a>(structures: &'a mut Structures, values: &'a mut Values, id:
             ValueBorrowMut {
                 kind: None,
                 layout: None,
-                value_sets: &mut value.value.value_sets,
                 is_base_value: &mut value.value.is_base_value,
             }
         }
@@ -424,7 +422,6 @@ impl ValueId {
 
 #[derive(Default, Debug, Clone)]
 struct Value {
-    value_sets: ValueSetHandles,
     is_base_value: bool,
 }
 
@@ -453,7 +450,6 @@ impl ValueBorrow<'_> {
 pub struct ValueBorrowMut<'a> {
     pub kind: Option<&'a mut Type>,
     pub layout: Option<&'a mut Layout>,
-    value_sets: &'a mut ValueSetHandles,
     pub is_base_value: &'a mut bool,
 }
 
@@ -523,14 +519,11 @@ fn iter_values_in_structure<'a>(structures: &Structures, values: &'a Values, val
     })
 }
 
-fn structurally_combine(structures: &mut Structures, values: &mut Values, computable_sizes: &mut Vec<ValueId>, value_sets: &mut ValueSets, a: ValueId, b: ValueId) {
+fn structurally_combine(structures: &mut Structures, values: &mut Values, computable_sizes: &mut Vec<ValueId>, a: ValueId, b: ValueId) {
     let a_value = values.get(a);
     let structure_id = a_value.structure_id;
-    let a_value_is_complete = a_value.value.value_sets.is_complete();
     let b_value = values.get(b);
     let old_b_structure_id = b_value.structure_id;
-    let b_value_is_complete = b_value.value.value_sets.is_complete();
-    debug_assert!(!(b_value_is_complete && !a_value_is_complete), "b can't be complete while a isn't, because a will replace b, so it makes no sense for b not to be complete?");
 
     if structure_id.is_some() && structure_id == old_b_structure_id {
         return;
@@ -595,9 +588,6 @@ fn structurally_combine(structures: &mut Structures, values: &mut Values, comput
     let mut value_id = b_structure.first_value;
     loop {
         let value = values.get_mut(value_id);
-        if a_value_is_complete && !b_value_is_complete {
-            value.value.value_sets.complete(value_sets);
-        }
         value.structure_id = Some(structure_id);
         if value.next_in_structure_group == ValueId::None {
             break;
@@ -606,7 +596,7 @@ fn structurally_combine(structures: &mut Structures, values: &mut Values, comput
     }
 }
 
-fn compute_size(structures: &mut Structures, values: &mut Values, computable_sizes: &mut Vec<ValueId>, id: ValueId, value_sets: &mut ValueSets) {
+fn compute_size(structures: &mut Structures, values: &mut Values, computable_sizes: &mut Vec<ValueId>, id: ValueId) {
     let id = values.get(id).structure_id.expect("Cannot compute the size of something that doesn't even have a kind");
     let structure = &structures.structure[id as usize];
     if structure.layout.align > 0 {
@@ -630,7 +620,6 @@ fn compute_size(structures: &mut Structures, values: &mut Values, computable_siz
     let mut value_id = structure.first_value;
     loop {
         let value = values.get_mut(value_id);
-        value.value.value_sets.complete(value_sets);
         if value.next_in_structure_group == ValueId::NONE {
             break;
         }
@@ -650,11 +639,7 @@ fn compute_size(structures: &mut Structures, values: &mut Values, computable_siz
     }
 }
 
-fn set_value(structures: &mut Structures, values: &mut Values, id: ValueId, kind: Type, value_sets: &mut ValueSets, value_set_handles: ValueSetHandles) {
-    let value = values.get_mut(id);
-
-    value.value.value_sets.take_from(value_set_handles, value_sets);
-
+fn set_value(structures: &mut Structures, values: &mut Values, id: ValueId, kind: Type) {
     let mut layout = Layout::default();
     if let Type { args: Some(args), kind } = &kind {
         let mut number = 0;
@@ -671,10 +656,6 @@ fn set_value(structures: &mut Structures, values: &mut Values, id: ValueId, kind
 
         if number == 0 {
             layout = compute_type_layout(kind, structures, values, args);
-
-            // Since there is only one value in the structure, this is fine
-            let value = values.get_mut(id);
-            value.value.value_sets.complete(value_sets);
         } else {
             layout.size = number;
         }
@@ -689,21 +670,21 @@ fn set_value(structures: &mut Structures, values: &mut Values, id: ValueId, kind
     structure.layout = layout;
 }
 
-fn add_value(structures: &mut Structures, values: &mut Values, kind: Option<Type>, value_sets: &mut ValueSets, value_set_handles: ValueSetHandles) -> ValueId {
+fn add_value(structures: &mut Structures, values: &mut Values, kind: Option<Type>) -> ValueId {
     let id = ValueId::Dynamic(values.values.len() as u32);
 
     if let Some(kind) = kind {
         let structure_id = structures.structure.len() as u32;
         structures.structure.push(StructureGroup::with_single(id));
         values.values.push(ValueWrapper {
-            value: Value { value_sets: value_set_handles, is_base_value: false },
+            value: Value { is_base_value: false },
             structure_id: Some(structure_id),
             next_in_structure_group: ValueId::NONE,
         });
-        set_value(structures, values, id, kind, value_sets, ValueSetHandles::default());
+        set_value(structures, values, id, kind);
     } else {
         values.values.push(ValueWrapper {
-            value: Value { value_sets: value_set_handles, is_base_value: false },
+            value: Value { is_base_value: false },
             structure_id: None,
             next_in_structure_group: ValueId::NONE,
         });
@@ -1042,10 +1023,6 @@ impl TypeSystem {
 
     pub fn output_incompleteness_errors(&self, errors: &mut ErrorCtx, ast: &crate::parser::Ast) {
         for id in ast.root().iter_all_ids() {
-            if self.value_sets.is_erroneous(&self.values.get(ValueId::Node(AstVariantId::root(), id)).value.value_sets) {
-                continue;
-            }
-            
             // @Correctness: This won't generate all incompleteness errors, and will have some duds!
             // We need to fix this for real later on
             let value = get_value(&self.structures, &self.values, ValueId::Node(AstVariantId::root(), id));
@@ -1255,7 +1232,7 @@ impl TypeSystem {
         }
 
         while let Some(computable_size) = self.computable_value_sizes.pop() {
-            compute_size(&mut self.structures, &mut self.values, &mut self.computable_value_sizes, computable_size, &mut self.value_sets);
+            compute_size(&mut self.structures, &mut self.values, &mut self.computable_value_sizes, computable_size);
         }
 
         // self.print_state();
@@ -1927,8 +1904,6 @@ impl TypeSystem {
                                             kind: TypeKind::Reference,
                                             args: Some(Box::new([pointee])),
                                         }),
-                                        &mut self.value_sets,
-                                        ValueSetHandles::empty(),
                                     );
 
                                     self.set_equal(new_value_id, b_id, constraint.reason);
@@ -2202,14 +2177,16 @@ impl TypeSystem {
                     );
                 }
 
-                structurally_combine(&mut self.structures, &mut self.values, &mut self.computable_value_sizes, &mut self.value_sets, to, from);
+                structurally_combine(&mut self.structures, &mut self.values, &mut self.computable_value_sizes, to, from);
             }
         }
     }
 
-    pub fn make_erroneous(&mut self, id: ValueId) {
+    pub fn make_erroneous(&mut self, _id: ValueId) {
+        /* TODO
         let value = self.values.get(id);
         self.value_sets.make_erroneous(&value.value.value_sets);
+        */
     }
 
     /// Adds a value set to a value. This value has to be an unknown type, otherwise it will panic
@@ -2265,8 +2242,7 @@ impl TypeSystem {
                 })
                 .collect()
             );
-        let value_sets = ValueSetHandles::empty();
-        set_value(&mut self.structures, &mut self.values, value_id, Type { kind, args }, &mut self.value_sets, value_sets);
+        set_value(&mut self.structures, &mut self.values, value_id, Type { kind, args });
         *get_value_mut(&mut self.structures, &mut self.values, value_id).is_base_value = true;
 
         value_id
@@ -2310,14 +2286,11 @@ impl TypeSystem {
             &mut self.structures,
             &mut self.values,
             None,
-            &mut self.value_sets,
-            ValueSetHandles::empty(),
         )
     }
 
     pub fn set_value(&mut self, value_id: ValueId, type_: ValueId, value: impl IntoConstant) {
         let value = value.into_constant();
-        let value_sets = ValueSetHandles::empty();
         let constant_value_id = add_value(
             &mut self.structures,
             &mut self.values,
@@ -2325,8 +2298,6 @@ impl TypeSystem {
                 kind: TypeKind::ConstantValue(v),
                 args: Some(Box::new([])),
             }),
-            &mut self.value_sets,
-            value_sets,
         );
         *get_value_mut(&mut self.structures, &mut self.values, constant_value_id).is_base_value = true;
         self.set_type(value_id, TypeKind::Constant, Args([(type_, Reason::temp_zero()), (constant_value_id, Reason::temp_zero())]));
