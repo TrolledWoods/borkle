@@ -39,7 +39,7 @@ mod explain;
 pub use explain::{get_reasons, Reason, ReasonKind};
 
 mod value_sets;
-pub use value_sets::{ValueSets, ValueSetId, ValueSetHandles, ValueSet};
+pub use value_sets::{ValueSets, ValueSetId, ValueSet};
 pub use crate::types::TypeKind;
 
 const DEBUG: bool = false;
