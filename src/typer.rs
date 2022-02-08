@@ -748,7 +748,7 @@ fn build_constraints(
 
             ctx.additional_info.insert((ctx.ast_variant_id, node.id), AdditionalInfoKind::IsExpression(comparison_id));
 
-            ctx.infer.set_type(node_type_id, TypeKind::Bool, Args([]), set);
+            ctx.infer.set_type(node_type_id, TypeKind::Bool, Args([]), ());
         }
         NodeKind::Tuple => {
             let mut values = Vec::with_capacity(node.children.len());
@@ -757,7 +757,7 @@ fn build_constraints(
                 values.push((child_id, Reason::temp(node_loc)));
             }
 
-            ctx.infer.set_type(node_type_id, TypeKind::Tuple, Args(values), set);
+            ctx.infer.set_type(node_type_id, TypeKind::Tuple, Args(values), ());
         }
         NodeKind::Explain => {
             let [inner] = node.children.into_array();
@@ -902,10 +902,10 @@ fn build_constraints(
             ctx.infer.set_equal(node_type_id, else_type, Reason::new(node_loc, ReasonKind::Passed));
         }
         NodeKind::Literal(Literal::Float(_)) => {
-            ctx.infer.set_type(node_type_id, TypeKind::Float, (), set);
+            ctx.infer.set_type(node_type_id, TypeKind::Float, (), ());
         }
         NodeKind::Literal(Literal::Int(_)) => {
-            ctx.infer.set_type(node_type_id, TypeKind::Int, (), set);
+            ctx.infer.set_type(node_type_id, TypeKind::Int, (), ());
         }
         NodeKind::Defer => {
             let [deferring] = node.children.into_array();
@@ -918,7 +918,7 @@ fn build_constraints(
         }
         NodeKind::Literal(Literal::String(_)) => {
             let u8_type = ctx.infer.add_int(IntTypeKind::U8, set);
-            ctx.infer.set_type(node_type_id, TypeKind::Buffer, Args([(u8_type, Reason::temp(node_loc))]), set);
+            ctx.infer.set_type(node_type_id, TypeKind::Buffer, Args([(u8_type, Reason::temp(node_loc))]), ());
         }
         NodeKind::BuiltinFunction(function) => {
             let function_type_id = ctx.infer.add_unknown_type();
@@ -933,7 +933,8 @@ fn build_constraints(
             // it can continue, so we lock it to make sure it doesn't get emitted before then.
             ctx.infer.value_sets.lock(set);
 
-            ctx.infer.set_type(function_type_id, TypeKind::Function, (), sub_set);
+            ctx.infer.set_type(function_type_id, TypeKind::Function, (), ());
+            ctx.infer.set_value_set(function_type_id, sub_set);
             ctx.infer.set_equal(node_type_id, function_type_id, Reason::new(node_loc, ReasonKind::IsOfType));
         }
         NodeKind::ArrayLiteral => {
@@ -1085,7 +1086,7 @@ fn build_constraints(
             ctx.infer.set_type(
                 node_type_id,
                 TypeKind::Empty, Args([]),
-                set,
+                (),
             );
         }
         NodeKind::Binary { op } => {
@@ -1107,7 +1108,7 @@ fn build_constraints(
                 node_type_id,
                 TypeKind::Reference,
                 Args([(inner, Reason::temp(node_loc))]),
-                set,
+                (),
             );
         }
         NodeKind::Block {
@@ -1173,7 +1174,7 @@ fn build_constraints(
             ctx.infer.set_type(
                 node_type_id,
                 TypeKind::Empty, Args([]),
-                set,
+                (),
             );
         }
         NodeKind::Parenthesis => {
@@ -1499,7 +1500,8 @@ fn build_unique_type(
                 (value.constant_value, Reason::temp(node_loc))
             })).collect();
 
-            ctx.infer.set_type(node_type_id, TypeKind::Enum(marker, names), Args(fields), set);
+            ctx.infer.set_type(node_type_id, TypeKind::Enum(marker, names), Args(fields), ());
+            ctx.infer.set_value_set(node_type_id, set);
         }
         _ => {
             let inner_type = build_type(ctx, node, set);
@@ -1531,22 +1533,22 @@ fn build_type(
         NodeKind::IntType => {
             if ctx.inside_type_comparison {
                 let inner = ctx.infer.add_type(TypeKind::CompareUnspecified, Args([]));
-                ctx.infer.set_type(node_type_id, TypeKind::Int, Args([(inner, Reason::temp_zero()), (inner, Reason::temp_zero())]), set);
+                ctx.infer.set_type(node_type_id, TypeKind::Int, Args([(inner, Reason::temp_zero()), (inner, Reason::temp_zero())]), ());
             } else {
-                ctx.infer.set_type(node_type_id, TypeKind::Int, (), set);
+                ctx.infer.set_type(node_type_id, TypeKind::Int, (), ());
             }
         }
         NodeKind::FloatType => {
             if ctx.inside_type_comparison {
                 let inner = ctx.infer.add_type(TypeKind::CompareUnspecified, Args([]));
-                ctx.infer.set_type(node_type_id, TypeKind::Float, Args([(inner, Reason::temp_zero())]), set);
+                ctx.infer.set_type(node_type_id, TypeKind::Float, Args([(inner, Reason::temp_zero())]), ());
             } else {
-                ctx.infer.set_type(node_type_id, TypeKind::Float, (), set);
+                ctx.infer.set_type(node_type_id, TypeKind::Float, (), ());
             }
         }
         NodeKind::ImplicitType => {
             if ctx.inside_type_comparison {
-                ctx.infer.set_type(node_type_id, TypeKind::CompareUnspecified, Args([]), set);
+                ctx.infer.set_type(node_type_id, TypeKind::CompareUnspecified, Args([]), ());
             }
         },
         NodeKind::PolymorphicArgs => {
@@ -1633,7 +1635,7 @@ fn build_type(
                 values.push((child_id, Reason::temp(node_loc)));
             }
 
-            ctx.infer.set_type(node_type_id, TypeKind::Tuple, Args(values), set);
+            ctx.infer.set_type(node_type_id, TypeKind::Tuple, Args(values), ());
         }
         NodeKind::EnumType { ref fields } => {
             let names = fields.to_vec().into_boxed_slice();
@@ -1653,13 +1655,13 @@ fn build_type(
                 loc: node_loc,
             };
             
-            ctx.infer.set_type(node_type_id, TypeKind::Enum(marker, names), Args(fields), set);
+            ctx.infer.set_type(node_type_id, TypeKind::Enum(marker, names), Args(fields), ());
         }
         NodeKind::StructType { ref fields } => {
             // @Performance: Many allocations
             let names = fields.to_vec().into_boxed_slice();
             let fields: Vec<_> = node.children.into_iter().map(|v| (build_type(ctx, v, set), Reason::temp(node_loc))).collect();
-            ctx.infer.set_type(node_type_id, TypeKind::Struct(names), Args(fields), set);
+            ctx.infer.set_type(node_type_id, TypeKind::Struct(names), Args(fields), ());
         }
         NodeKind::ReferenceType => {
             let [inner] = node.children.into_array();
@@ -1667,7 +1669,7 @@ fn build_type(
             ctx.infer.set_type(
                 node_type_id,
                 TypeKind::Reference, Args([(inner, Reason::temp(node_loc))]),
-                set,
+                (),
             );
         }
         NodeKind::BufferType => {
@@ -1676,7 +1678,7 @@ fn build_type(
             ctx.infer.set_type(
                 node_type_id,
                 TypeKind::Buffer, Args([(inner, Reason::temp(node_loc))]),
-                set,
+                (),
             );
         }
         NodeKind::ArrayType => {
@@ -1686,7 +1688,7 @@ fn build_type(
             ctx.infer.set_equal(usize_type, length.type_, Reason::temp(node_loc));
 
             let member_type_id = build_type(ctx, members, set);
-            ctx.infer.set_type(node_type_id, TypeKind::Array, Args([(member_type_id, Reason::temp(node_loc)), (length.constant, Reason::temp(node_loc))]), set);
+            ctx.infer.set_type(node_type_id, TypeKind::Array, Args([(member_type_id, Reason::temp(node_loc)), (length.constant, Reason::temp(node_loc))]), ());
         }
         NodeKind::TypeOf => {
             let [inner] = node.children.into_array();
@@ -1787,7 +1789,7 @@ fn build_declarative_lvalue(
                 values.push((child_id, Reason::temp(node_loc)));
             }
 
-            ctx.infer.set_type(node_type_id, TypeKind::Tuple, Args(values), set);
+            ctx.infer.set_type(node_type_id, TypeKind::Tuple, Args(values), ());
         }
         NodeKind::ArrayLiteral => {
             let inner_type = ctx.infer.add_unknown_type_with_set(set);
