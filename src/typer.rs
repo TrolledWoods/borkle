@@ -366,7 +366,7 @@ fn subset_was_completed(ctx: &mut Context<'_, '_>, ast: &mut Ast, waiting_on: Wa
                     let computation_node = ast.get(computation);
 
                     let number = unsafe { *constant_ref.as_ptr().cast::<u32>() };
-                    let finished_value = ctx.infer.add_type(TypeKind::Target { min: number, max: number }, Args([]), set);
+                    let finished_value = ctx.infer.add_type(TypeKind::Target { min: number, max: number }, Args([]));
                     ctx.infer.set_equal(finished_value, value_id, Reason::new(computation_node.loc, ReasonKind::IsOfType));
                 }
                 Err((message, call_stack)) => {
@@ -398,7 +398,10 @@ fn subset_was_completed(ctx: &mut Context<'_, '_>, ast: &mut Ast, waiting_on: Wa
 
             let iterator_args: Vec<_> = if referenced {
                 iterator_type.args().to_vec().into_iter().map(|v| {
-                    ctx.infer.add_type(TypeKind::Reference, Args([(v, Reason::temp(node.loc))]), parent_set)
+                    let value = ctx.infer.add_type(TypeKind::Reference, Args([(v, Reason::temp(node.loc))]));
+                    // TODO: Is this necessary?
+                    ctx.infer.set_value_set(value, parent_set);
+                    value
                 }).collect()
             } else {
                 iterator_type.args().to_vec()
@@ -720,7 +723,8 @@ fn build_constraints(
             ctx.infer.value_sets.lock(set);
             let sub_set = ctx.infer.value_sets.add(WaitingOnTypeInferrence::None);
             let unknown = ctx.infer.add_unknown_type_with_set(sub_set);
-            let value = ctx.infer.add_type(TypeKind::Constant, Args([(node_type_id, Reason::temp(node_loc)), (unknown, Reason::temp(node_loc))]), sub_set);
+            let value = ctx.infer.add_type(TypeKind::Constant, Args([(node_type_id, Reason::temp(node_loc)), (unknown, Reason::temp(node_loc))]));
+            ctx.infer.set_value_set(value, sub_set);
             ctx.infer.set_constant_field(unknown, name, node_type_id, Reason::temp(node_loc));
             ctx.infer.set_waiting_on_value_set(sub_set, WaitingOnTypeInferrence::ConstantFromValueId {
                 value_id: value,
@@ -792,7 +796,7 @@ fn build_constraints(
         NodeKind::Empty => {
             // @Performance: We could set the type directly(because no inferrence has happened yet),
             // this is a roundabout way of doing things.
-            let temp = ctx.infer.add_type(type_infer::TypeKind::Empty, Args([]), set);
+            let temp = ctx.infer.add_type(type_infer::TypeKind::Empty, Args([]));
             ctx.infer.set_equal(node_type_id, temp, Reason::new(node_loc, ReasonKind::IsOfType));
         }
         NodeKind::PolymorphicArgs => {
@@ -827,7 +831,7 @@ fn build_constraints(
             ctx.infer.set_int(iteration_var_id, IntTypeKind::Usize, set);
 
             let condition_type_id = build_constraints(ctx, condition, set);
-            let bool_type = ctx.infer.add_type(TypeKind::Bool, Args([]), set);
+            let bool_type = ctx.infer.add_type(TypeKind::Bool, Args([]));
             ctx.infer.set_equal(condition_type_id, bool_type, Reason::new(node_loc, ReasonKind::IsOfType));
 
             build_constraints(ctx, body, set);
@@ -908,7 +912,6 @@ fn build_constraints(
             build_constraints(ctx, deferring, set);
             let empty_id = ctx.infer.add_type(
                 TypeKind::Empty, Args([]),
-                set,
             );
 
             ctx.infer.set_equal(node_type_id, empty_id, Reason::new(node_loc, ReasonKind::IsOfType));
@@ -952,8 +955,9 @@ fn build_constraints(
 
             let array_type = ctx.infer.add_type(
                 TypeKind::Array, Args([(inner_type, Reason::temp(node_loc)), (variable_count, Reason::temp(node_loc))]),
-                set,
             );
+            // TODO: Is this necessary?
+            ctx.infer.set_value_set(array_type, set);
 
             ctx.infer.set_equal(node_type_id, array_type, Reason::new(node_loc, ReasonKind::Passed));
         }
@@ -995,12 +999,12 @@ fn build_constraints(
                 ctx.runs = ctx.runs.combine(ExecutionTime::Typing);
                 let condition_type_id = build_constraints(ctx, condition, sub_set);
                 ctx.runs = old_runs;
-                let condition_type = ctx.infer.add_type(TypeKind::Bool, Args([]), sub_set);
+                let condition_type = ctx.infer.add_type(TypeKind::Bool, Args([]));
                 ctx.infer
                     .set_equal(condition_type_id, condition_type, Reason::new(node_loc, ReasonKind::IsOfType));
             } else {
                 let condition_type_id = build_constraints(ctx, condition, set);
-                let condition_type = ctx.infer.add_type(TypeKind::Bool, Args([]), set);
+                let condition_type = ctx.infer.add_type(TypeKind::Bool, Args([]));
                 ctx.infer
                     .set_equal(condition_type_id, condition_type, Reason::new(node_loc, ReasonKind::IsOfType));
 
@@ -1024,7 +1028,6 @@ fn build_constraints(
             let temp = ctx.infer.add_type(
                 TypeKind::Reference,
                 Args([(node_type_id, Reason::new(node_loc, ReasonKind::Dereference))]),
-                set,
             );
             ctx.infer
                 .set_equal(operand_type_id, temp, Reason::new(node_loc, ReasonKind::Passed));
@@ -1120,7 +1123,7 @@ fn build_constraints(
             let tags_node = children.next().unwrap();
             let mut tags = build_tags(ctx, tags_node, set);
             let target_based = if let Some((tag_loc, target)) = tags.target.take() {
-                let required_type = ctx.infer.add_type(TypeKind::Empty, Args([]), set);
+                let required_type = ctx.infer.add_type(TypeKind::Empty, Args([]));
                 ctx.infer.set_equal(node_type_id, required_type, Reason::temp(tag_loc));
 
                 if let Some(&parent) = ctx.target_checker.stack.last() {
@@ -1424,7 +1427,7 @@ fn build_function_declaration(
         function_args.set_target((target, Reason::temp(loc)));
         sub_ctx.target_checker.stack.push(target);
     } else {
-        let target = sub_ctx.infer.add_type(TypeKind::Target { min: TARGET_ALL, max: TARGET_ALL }, Args([]), set);
+        let target = sub_ctx.infer.add_type(TypeKind::Target { min: TARGET_ALL, max: TARGET_ALL }, Args([]));
         function_args.set_target((target, Reason::temp(node.loc)));
     };
 
@@ -1443,13 +1446,13 @@ fn build_function_declaration(
     } else {
         // TODO: This should be the borkle calling convention
         let constant_value = ctx.program.insert_buffer(&types::Type::new_int(IntTypeKind::U8), (&0_u8) as *const u8);
-        let calling_convention = ctx.infer.add_type(TypeKind::ConstantValue(constant_value), Args([]), set);
+        let calling_convention = ctx.infer.add_type(TypeKind::ConstantValue(constant_value), Args([]));
         function_args.set_calling_convention((calling_convention, Reason::temp(node.loc)));
     }
 
     tags.finish(ctx, sub_set);
     
-    let infer_type_id = ctx.infer.add_type(TypeKind::Function, Args(function_args.build()), sub_set);
+    let infer_type_id = ctx.infer.add_type(TypeKind::Function, Args(function_args.build()));
     ctx.infer
         .set_equal(infer_type_id, node_type_id, Reason::new(node.node.loc, ReasonKind::FunctionDecl));
 
@@ -1500,11 +1503,13 @@ fn build_unique_type(
         }
         _ => {
             let inner_type = build_type(ctx, node, set);
-            return ctx.infer.add_type(
+            let unique_type = ctx.infer.add_type(
                 TypeKind::Unique(marker),
                 Args([(inner_type, Reason::temp(node.loc))]),
-                set,
             );
+            // TODO: Is this necessary?
+            ctx.infer.set_value_set(unique_type, set);
+            return unique_type;
         }
     }
 
@@ -1525,7 +1530,7 @@ fn build_type(
     match node.kind {
         NodeKind::IntType => {
             if ctx.inside_type_comparison {
-                let inner = ctx.infer.add_type(TypeKind::CompareUnspecified, Args([]), set);
+                let inner = ctx.infer.add_type(TypeKind::CompareUnspecified, Args([]));
                 ctx.infer.set_type(node_type_id, TypeKind::Int, Args([(inner, Reason::temp_zero()), (inner, Reason::temp_zero())]), set);
             } else {
                 ctx.infer.set_type(node_type_id, TypeKind::Int, (), set);
@@ -1533,7 +1538,7 @@ fn build_type(
         }
         NodeKind::FloatType => {
             if ctx.inside_type_comparison {
-                let inner = ctx.infer.add_type(TypeKind::CompareUnspecified, Args([]), set);
+                let inner = ctx.infer.add_type(TypeKind::CompareUnspecified, Args([]));
                 ctx.infer.set_type(node_type_id, TypeKind::Float, Args([(inner, Reason::temp_zero())]), set);
             } else {
                 ctx.infer.set_type(node_type_id, TypeKind::Float, (), set);
@@ -1603,21 +1608,21 @@ fn build_type(
             } else {
                 // TODO: This should be the borkle calling conventionTargei
                 let constant_value = ctx.program.insert_buffer(&types::Type::new_int(IntTypeKind::U8), (&0_u8) as *const u8);
-                let calling_convention = ctx.infer.add_type(TypeKind::ConstantValue(constant_value), Args([]), set);
+                let calling_convention = ctx.infer.add_type(TypeKind::ConstantValue(constant_value), Args([]));
                 function_args.set_calling_convention((calling_convention, Reason::temp(node.loc)));
             }
 
             if let Some((loc, target)) = tags.target.take() {
                 function_args.set_target((target, Reason::temp(loc)));
             } else {
-                let target = ctx.infer.add_type(TypeKind::Target { min: TARGET_ALL, max: TARGET_ALL }, Args([]), set);
+                let target = ctx.infer.add_type(TypeKind::Target { min: TARGET_ALL, max: TARGET_ALL }, Args([]));
                 function_args.set_target((target, Reason::temp(node.loc)));
             }
 
 
             tags.finish(ctx, set);
 
-            let infer_type_id = ctx.infer.add_type(TypeKind::Function, Args(function_args.build()), set);
+            let infer_type_id = ctx.infer.add_type(TypeKind::Function, Args(function_args.build()));
             ctx.infer
                 .set_equal(infer_type_id, node_type_id, Reason::temp(node_loc));
         }
@@ -1803,7 +1808,6 @@ fn build_declarative_lvalue(
 
             let array_type = ctx.infer.add_type(
                 TypeKind::Array, Args([(inner_type, Reason::temp(node_loc)), (variable_count, Reason::temp(node_loc))]),
-                set,
             );
 
             ctx.infer.set_equal(node_type_id, array_type, Reason::new(node_loc, ReasonKind::Passed));
@@ -1830,7 +1834,6 @@ fn build_declarative_lvalue(
             let temp = ctx.infer.add_type(
                 TypeKind::Reference,
                 Args([(node_type_id, Reason::temp(node_loc))]),
-                set,
             );
 
             let operand_type_id = build_constraints(ctx, operand, set);
@@ -1916,7 +1919,6 @@ fn build_lvalue(
             let temp = ctx.infer.add_type(
                 TypeKind::Reference,
                 Args([(node_type_id, Reason::temp(node_loc))]),
-                set,
             );
 
             let operand_type_id = build_constraints(ctx, operand, set);
@@ -1960,7 +1962,7 @@ fn build_inferrable_constant_value(
     let type_system_constant = match node.kind {
         NodeKind::PolymorphicArgument(index) => {
             let constant_value = ctx.infer.add_unknown_type_with_set(set);
-            let constant = ctx.infer.add_type(TypeKind::Constant, Args([(node_type_id, Reason::temp(node_loc)), (constant_value, Reason::temp(node_loc))]), set);
+            let constant = ctx.infer.add_type(TypeKind::Constant, Args([(node_type_id, Reason::temp(node_loc)), (constant_value, Reason::temp(node_loc))]));
             let poly_param = &mut ctx.poly_params[index];
             poly_param.used_as_value.get_or_insert(node_loc);
             if poly_param.check_for_dual_purpose(ctx.errors) {
@@ -1972,15 +1974,19 @@ fn build_inferrable_constant_value(
         }
         NodeKind::ImplicitType => {
             if ctx.inside_type_comparison {
-                let unspecified = ctx.infer.add_type(TypeKind::CompareUnspecified, Args([]), set);
-                let constant = ctx.infer.add_type(TypeKind::Constant, Args([(node_type_id, Reason::temp(node_loc)), (unspecified, Reason::temp(node_loc))]), set);
+                let unspecified = ctx.infer.add_type(TypeKind::CompareUnspecified, Args([]));
+                let constant = ctx.infer.add_type(TypeKind::Constant, Args([(node_type_id, Reason::temp(node_loc)), (unspecified, Reason::temp(node_loc))]));
+                // TODO: Is this necessary?
+                ctx.infer.set_value_set(constant, set);
 
                 TypeSystemConstant { type_: node_type_id, constant_value: unspecified, constant }
             } else {
                 // Nothing at all is known about it, _except_ that the type of this node is equal to the
                 // value.
                 let constant_value = ctx.infer.add_unknown_type_with_set(set);
-                let constant = ctx.infer.add_type(TypeKind::Constant, Args([(node_type_id, Reason::temp(node_loc)), (constant_value, Reason::temp(node_loc))]), set);
+                let constant = ctx.infer.add_type(TypeKind::Constant, Args([(node_type_id, Reason::temp(node_loc)), (constant_value, Reason::temp(node_loc))]));
+                // TODO: Is this necessary?
+                ctx.infer.set_value_set(constant, set);
                 TypeSystemConstant { type_: node_type_id, constant_value, constant }
             }
         }
@@ -2007,7 +2013,9 @@ fn build_inferrable_constant_value(
 
             let constant_type_id = build_constraints(&mut sub_ctx, node, sub_set);
             let constant_value = ctx.infer.add_unknown_type_with_set(set);
-            let value_id = ctx.infer.add_type(TypeKind::Constant, Args([(constant_type_id, Reason::temp(node_loc)), (constant_value, Reason::temp(node_loc))]), set);
+            let value_id = ctx.infer.add_type(TypeKind::Constant, Args([(constant_type_id, Reason::temp(node_loc)), (constant_value, Reason::temp(node_loc))]));
+            // TODO: Is this necessary?
+            ctx.infer.set_value_set(value_id, set);
             ctx.infer.set_equal(node_type_id, constant_type_id, Reason::temp(node_loc));
 
             ctx.infer.set_waiting_on_value_set(sub_set, WaitingOnTypeInferrence::ValueIdFromConstantComputation {
@@ -2174,7 +2182,8 @@ fn build_function_call<'a>(
             match defined {
                 ArgDefinedAs::None => {
                     if defined_arg.var_args.is_some() {
-                        let tuple_type = ctx.infer.add_type(TypeKind::Tuple, Args([]), set);
+                        let tuple_type = ctx.infer.add_type(TypeKind::Tuple, Args([]));
+                        ctx.infer.set_value_set(tuple_type, set);
                         typer_args.add_arg((tuple_type, Reason::temp(node_loc)));
                     } else {
                         ctx.errors.error(node_loc, format!("Argument `{}` not defined", i));
@@ -2185,7 +2194,8 @@ fn build_function_call<'a>(
                     typer_args.add_arg((type_id, Reason::temp(node_loc)));
                 }
                 ArgDefinedAs::VarArgs(node_loc, type_id) => {
-                    let tuple_type = ctx.infer.add_type(TypeKind::Tuple, Args(type_id), set);
+                    let tuple_type = ctx.infer.add_type(TypeKind::Tuple, Args(type_id));
+                    ctx.infer.set_value_set(tuple_type, set);
                     typer_args.add_arg((tuple_type, Reason::temp(node_loc)));
                 }
             }
@@ -2206,7 +2216,8 @@ fn build_function_call<'a>(
         }
 
         // Specify that the caller has to be a function type
-        let type_id = ctx.infer.add_type(TypeKind::Function, Args(typer_args.build()), set);
+        let type_id = ctx.infer.add_type(TypeKind::Function, Args(typer_args.build()));
+        ctx.infer.set_value_set(type_id, set);
         ctx.additional_info.insert((ctx.ast_variant_id, node_id), AdditionalInfoKind::FunctionCall(function_arg_usage));
         ctx.infer
             .set_equal(calling_type_id, type_id, Reason::new(node_loc, ReasonKind::FunctionCall));
@@ -2234,7 +2245,8 @@ fn build_function_call<'a>(
         }
 
         // Specify that the caller has to be a function type
-        let type_id = ctx.infer.add_type(TypeKind::Function, Args(typer_args.build()), set);
+        let type_id = ctx.infer.add_type(TypeKind::Function, Args(typer_args.build()));
+        ctx.infer.set_value_set(type_id, set);
         ctx.infer
             .set_equal(calling_type_id, type_id, Reason::new(node_loc, ReasonKind::FunctionCall));
     }
@@ -2303,13 +2315,16 @@ fn build_global<'a>(
                     if ctx.inside_type_comparison {
                         // @Copypasta
                         if other_poly_arg.is_type() {
-                            let type_id = ctx.infer.add_type(TypeKind::CompareUnspecified, Args([]), sub_set);
+                            let type_id = ctx.infer.add_type(TypeKind::CompareUnspecified, Args([]));
+                            ctx.infer.set_value_set(type_id, sub_set);
                             param_values.push(type_id);
                             param_reasons.push((type_id, other_poly_arg.value_id, Reason::new(node_loc, ReasonKind::PolyParam(i))));
                         } else {
                             let unknown = ctx.infer.add_unknown_type_with_set(sub_set);
-                            let unspecified = ctx.infer.add_type(TypeKind::CompareUnspecified, Args([]), sub_set);
-                            let type_id = ctx.infer.add_type(TypeKind::Constant, Args([(unknown, Reason::temp(node_loc)), (unspecified, Reason::temp(node_loc))]), sub_set);
+                            let unspecified = ctx.infer.add_type(TypeKind::CompareUnspecified, Args([]));
+                            ctx.infer.set_value_set(unspecified, sub_set);
+                            let type_id = ctx.infer.add_type(TypeKind::Constant, Args([(unknown, Reason::temp(node_loc)), (unspecified, Reason::temp(node_loc))]));
+                            ctx.infer.set_value_set(type_id, sub_set);
                             param_values.push(type_id);
                             param_reasons.push((type_id, other_poly_arg.value_id, Reason::new(node_loc, ReasonKind::PolyParam(i))));
                         }

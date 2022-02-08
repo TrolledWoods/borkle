@@ -309,7 +309,7 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, mut node: NodeView<'a>) -> (Value, T
                     let length = unsafe { *ctx.types.extract_constant_temp(iterator_args[1]).unwrap().as_ptr().cast::<usize>() };
 
                     let ptr_to_array = if by_value {
-                        let array_ptr_type_id = ctx.types.add_type(type_infer::TypeKind::Reference, type_infer::Args([(iterator_type_id, Reason::temp_zero())]), ());
+                        let array_ptr_type_id = ctx.types.add_type(type_infer::TypeKind::Reference, type_infer::Args([(iterator_type_id, Reason::temp_zero())]));
                         let temp = ctx.create_reg(array_ptr_type_id);
                         ctx.emit_reference(temp, iterating_value);
                         temp
@@ -1158,7 +1158,7 @@ fn emit_lvalue<'a>(
     // @TODO: Creating all these types suck, maybe we should remove the damn `Global` thing from registers,
     // and instead let them just be pointers to values? These pointers wouldn't even be considered pointers from
     // the language, but just registers that need to point to things.
-    let ref_type_id = ctx.types.add_type(type_infer::TypeKind::Reference, Args([(node_type_id, Reason::temp_zero())]), ());
+    let ref_type_id = ctx.types.add_type(type_infer::TypeKind::Reference, Args([(node_type_id, Reason::temp_zero())]));
 
     match &node.kind {
         NodeKind::Member { name } => {

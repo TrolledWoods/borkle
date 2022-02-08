@@ -1700,7 +1700,7 @@ impl TypeSystem {
                         Some(Type { kind: TypeKind::Int, args: _ }),
                         None,
                     ) => {
-                        let int_t = self.add_type(TypeKind::Int, (), ());
+                        let int_t = self.add_type(TypeKind::Int, ());
                         self.set_equal(from_id, int_t, constraint.reason);
                     }
                     (
@@ -1708,7 +1708,7 @@ impl TypeSystem {
                         None,
                         Some(Type { kind: TypeKind::Int, args: _ }),
                     ) => {
-                        let int_t = self.add_type(TypeKind::Int, (), ());
+                        let int_t = self.add_type(TypeKind::Int, ());
                         self.set_equal(to_id, int_t, constraint.reason);
                     }
                     (
@@ -1756,7 +1756,7 @@ impl TypeSystem {
                             },
                         );
 
-                        let to = self.add_type(TypeKind::Reference, Args([(to_inner, Reason::temp_zero())]), ());
+                        let to = self.add_type(TypeKind::Reference, Args([(to_inner, Reason::temp_zero())]));
                         self.set_equal(from_id, to, constraint.reason);
                     }
                     (
@@ -1808,7 +1808,7 @@ impl TypeSystem {
                         (_, _, _),
                     ) => {
                         // Temporary: No type validation, just equality :)
-                        let bool = self.add_type(TypeKind::Bool, Args([]), ());
+                        let bool = self.add_type(TypeKind::Bool, Args([]));
                         self.set_equal(bool, a_id, constraint.reason);
                         self.set_equal(bool, b_id, constraint.reason);
                         self.set_equal(bool, result_id, constraint.reason);
@@ -1828,7 +1828,7 @@ impl TypeSystem {
                     ) => {
                         self.set_equal(a_id, b_id, constraint.reason);
 
-                        let bool = self.add_type(TypeKind::Bool, Args([]), ());
+                        let bool = self.add_type(TypeKind::Bool, Args([]));
                         self.set_equal(bool, result_id, constraint.reason);
                     }
                     (
@@ -1868,7 +1868,7 @@ impl TypeSystem {
                         BinaryOp::Equals | BinaryOp::NotEquals | BinaryOp::LargerThanEquals | BinaryOp::LargerThan | BinaryOp::LessThanEquals | BinaryOp::LessThan,
                         (Some(TypeKind::Int), Some(TypeKind::Int), _) | (Some(TypeKind::Reference), Some(TypeKind::Reference), _) | (Some(TypeKind::Bool), Some(TypeKind::Bool), _) | (Some(TypeKind::Float), Some(TypeKind::Float), _)
                     ) => {
-                        let id = self.add_type(TypeKind::Bool, Args([]), ());
+                        let id = self.add_type(TypeKind::Bool, Args([]));
 
                         self.set_equal(result_id, id, constraint.reason);
                         self.set_equal(a_id, b_id, constraint.reason);
@@ -2320,15 +2320,15 @@ impl TypeSystem {
             IntTypeKind::Isize => (true,  0),
         };
 
-        let size = self.add_type(TypeKind::IntSize(size), Args([]), ());
-        let sign = self.add_type(TypeKind::IntSigned(signed), Args([]), ());
+        let size = self.add_type(TypeKind::IntSize(size), Args([]));
+        let sign = self.add_type(TypeKind::IntSigned(signed), Args([]));
 
         self.set_type(value_id, TypeKind::Int, Args([(sign, Reason::temp_zero()), (size, Reason::temp_zero())]), set);
     }
 
-    pub fn add_type(&mut self, kind: TypeKind, args: impl IntoValueArgs, set: impl IntoValueSet) -> ValueId {
+    pub fn add_type(&mut self, kind: TypeKind, args: impl IntoValueArgs) -> ValueId {
         let value_id = self.add_unknown_type();
-        self.set_type(value_id, kind, args, set);
+        self.set_type(value_id, kind, args, ());
         value_id
     }
 
