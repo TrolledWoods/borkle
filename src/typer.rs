@@ -93,10 +93,10 @@ impl YieldData {
     pub fn insert_poly_params(&mut self, program: &Program, poly_args: &[crate::types::Type]) {
         for (param, compiler_type) in self.poly_params.iter().zip(poly_args) {
             if param.is_type() {
-                let type_id = self.infer.add_compiler_type(program, compiler_type, ());
+                let type_id = self.infer.add_compiler_type(program, compiler_type);
                 self.infer.set_equal(param.value_id, type_id, Reason::temp_zero());
             } else {
-                let constant = self.infer.add_compiler_type(program, compiler_type, ());
+                let constant = self.infer.add_compiler_type(program, compiler_type);
                 self.infer.set_equal(constant, param.value_id, Reason::temp_zero());
             }
         }
@@ -526,7 +526,7 @@ fn subset_was_completed(ctx: &mut Context<'_, '_>, ast: &mut Ast, waiting_on: Wa
             if let Ok(member_id) = ctx.program.monomorphise_poly_member(ctx.errors, ctx.thread_context, poly_member_id, &fixed_up_params, wanted_dep) {
                 let type_ = ctx.program.get_member_type(member_id);
 
-                let compiler_type = ctx.infer.add_compiler_type(ctx.program, &type_, ());
+                let compiler_type = ctx.infer.add_compiler_type(ctx.program, &type_);
                 ctx.infer.set_equal(TypeId::Node(ast_variant_id, node_id), compiler_type, Reason::new(node_loc, ReasonKind::IsOfType));
 
                 ctx.additional_info.insert((ast_variant_id, node_id), AdditionalInfoKind::Monomorphised(member_id));
@@ -566,7 +566,7 @@ fn subset_was_completed(ctx: &mut Context<'_, '_>, ast: &mut Ast, waiting_on: Wa
             ) {
                 Ok(constant_ref) => {
                     let computation_node = ast.get(computation);
-                    let finished_value = ctx.infer.add_value(TypeId::Node(ctx.ast_variant_id, computation), constant_ref, ());
+                    let finished_value = ctx.infer.add_value(TypeId::Node(ctx.ast_variant_id, computation), constant_ref);
                     ctx.infer.set_value_set(finished_value, set);
 
                     ctx.infer.set_equal(finished_value, value_id, Reason::new(computation_node.loc, ReasonKind::IsOfType));
@@ -708,7 +708,7 @@ fn build_constraints(
             }
 
             let sub_set = ctx.infer.value_sets.add(WaitingOnTypeInferrence::None);
-            let value_id = ctx.infer.add_value(node_type_id, (), ());
+            let value_id = ctx.infer.add_value(node_type_id, ());
             ctx.infer.set_value_set(value_id, sub_set);
             ctx.infer.set_equal(value_id, poly_param.value_id, Reason::new(node_loc, ReasonKind::Passed));
 
@@ -748,7 +748,7 @@ fn build_constraints(
 
             ctx.additional_info.insert((ctx.ast_variant_id, node.id), AdditionalInfoKind::IsExpression(comparison_id));
 
-            ctx.infer.set_type(node_type_id, TypeKind::Bool, Args([]), ());
+            ctx.infer.set_type(node_type_id, TypeKind::Bool, Args([]));
         }
         NodeKind::Tuple => {
             let mut values = Vec::with_capacity(node.children.len());
@@ -757,7 +757,7 @@ fn build_constraints(
                 values.push((child_id, Reason::temp(node_loc)));
             }
 
-            ctx.infer.set_type(node_type_id, TypeKind::Tuple, Args(values), ());
+            ctx.infer.set_type(node_type_id, TypeKind::Tuple, Args(values));
         }
         NodeKind::Explain => {
             let [inner] = node.children.into_array();
@@ -780,7 +780,7 @@ fn build_constraints(
             let subset = ctx.infer.value_sets.add(WaitingOnTypeInferrence::SizeOf { parent_set: set });
             build_type(ctx, inner, subset);
 
-            ctx.infer.set_int(node_type_id, IntTypeKind::Usize, ());
+            ctx.infer.set_int(node_type_id, IntTypeKind::Usize);
 
             ctx.infer.value_sets.lock(set);
         }
@@ -823,7 +823,7 @@ fn build_constraints(
             let [iteration_var, condition, body, else_body] = node.children.into_array();
 
             let iteration_var_id = build_declarative_lvalue(ctx, iteration_var, set, true);
-            let int = ctx.infer.add_int(IntTypeKind::Usize, ());
+            let int = ctx.infer.add_int(IntTypeKind::Usize);
             ctx.infer.set_equal(iteration_var_id, int, Reason::temp(node_loc));
 
             let label = ctx.locals.get_label_mut(label_id);
@@ -852,7 +852,7 @@ fn build_constraints(
             label.stack_frame_id = set;
             label.declared_at = Some(else_body.id);
 
-            let usize_id = ctx.infer.add_int(IntTypeKind::Usize, ());
+            let usize_id = ctx.infer.add_int(IntTypeKind::Usize);
             ctx.infer.set_equal(iteration_var_id, usize_id, Reason::temp(node_loc));
 
             let iterator_type = build_constraints(ctx, iterating, set);
@@ -887,7 +887,7 @@ fn build_constraints(
             label.stack_frame_id = set;
             label.declared_at = Some(else_body.id);
 
-            let usize_id = ctx.infer.add_int(IntTypeKind::Usize, ());
+            let usize_id = ctx.infer.add_int(IntTypeKind::Usize);
             ctx.infer.set_equal(iteration_var_id, usize_id, Reason::temp(node_loc));
 
             // The type the body returns doesn't matter, since we don't forward it.
@@ -902,10 +902,10 @@ fn build_constraints(
             ctx.infer.set_equal(node_type_id, else_type, Reason::new(node_loc, ReasonKind::Passed));
         }
         NodeKind::Literal(Literal::Float(_)) => {
-            ctx.infer.set_type(node_type_id, TypeKind::Float, (), ());
+            ctx.infer.set_type(node_type_id, TypeKind::Float, ());
         }
         NodeKind::Literal(Literal::Int(_)) => {
-            ctx.infer.set_type(node_type_id, TypeKind::Int, (), ());
+            ctx.infer.set_type(node_type_id, TypeKind::Int, ());
         }
         NodeKind::Defer => {
             let [deferring] = node.children.into_array();
@@ -917,8 +917,8 @@ fn build_constraints(
             ctx.infer.set_equal(node_type_id, empty_id, Reason::new(node_loc, ReasonKind::IsOfType));
         }
         NodeKind::Literal(Literal::String(_)) => {
-            let u8_type = ctx.infer.add_int(IntTypeKind::U8, ());
-            ctx.infer.set_type(node_type_id, TypeKind::Buffer, Args([(u8_type, Reason::temp(node_loc))]), ());
+            let u8_type = ctx.infer.add_int(IntTypeKind::U8);
+            ctx.infer.set_type(node_type_id, TypeKind::Buffer, Args([(u8_type, Reason::temp(node_loc))]));
         }
         NodeKind::BuiltinFunction(function) => {
             let function_type_id = ctx.infer.add_unknown_type();
@@ -933,7 +933,7 @@ fn build_constraints(
             // it can continue, so we lock it to make sure it doesn't get emitted before then.
             ctx.infer.value_sets.lock(set);
 
-            ctx.infer.set_type(function_type_id, TypeKind::Function, (), ());
+            ctx.infer.set_type(function_type_id, TypeKind::Function, ());
             ctx.infer.set_value_set(function_type_id, sub_set);
             ctx.infer.set_equal(node_type_id, function_type_id, Reason::new(node_loc, ReasonKind::IsOfType));
         }
@@ -945,13 +945,12 @@ fn build_constraints(
                 ctx.infer.set_equal(arg_type_id, inner_type, Reason::new(node_loc, ReasonKind::Passed));
             }
 
-            let usize = ctx.infer.add_int(IntTypeKind::Usize, ());
+            let usize = ctx.infer.add_int(IntTypeKind::Usize);
             let length = ctx.program.insert_buffer(&types::Type::new_int(IntTypeKind::Usize), (node.children.len()).to_le_bytes().as_ptr());
 
             let variable_count = ctx.infer.add_value(
                 usize,
                 length,
-                (),
             );
             ctx.infer.set_value_set(variable_count, set);
 
@@ -1087,7 +1086,6 @@ fn build_constraints(
             ctx.infer.set_type(
                 node_type_id,
                 TypeKind::Empty, Args([]),
-                (),
             );
         }
         NodeKind::Binary { op } => {
@@ -1109,7 +1107,6 @@ fn build_constraints(
                 node_type_id,
                 TypeKind::Reference,
                 Args([(inner, Reason::temp(node_loc))]),
-                (),
             );
         }
         NodeKind::Block {
@@ -1175,7 +1172,6 @@ fn build_constraints(
             ctx.infer.set_type(
                 node_type_id,
                 TypeKind::Empty, Args([]),
-                (),
             );
         }
         NodeKind::Parenthesis => {
@@ -1501,7 +1497,7 @@ fn build_unique_type(
                 (value.constant_value, Reason::temp(node_loc))
             })).collect();
 
-            ctx.infer.set_type(node_type_id, TypeKind::Enum(marker, names), Args(fields), ());
+            ctx.infer.set_type(node_type_id, TypeKind::Enum(marker, names), Args(fields));
             ctx.infer.set_value_set(node_type_id, set);
         }
         _ => {
@@ -1534,22 +1530,22 @@ fn build_type(
         NodeKind::IntType => {
             if ctx.inside_type_comparison {
                 let inner = ctx.infer.add_type(TypeKind::CompareUnspecified, Args([]));
-                ctx.infer.set_type(node_type_id, TypeKind::Int, Args([(inner, Reason::temp_zero()), (inner, Reason::temp_zero())]), ());
+                ctx.infer.set_type(node_type_id, TypeKind::Int, Args([(inner, Reason::temp_zero()), (inner, Reason::temp_zero())]));
             } else {
-                ctx.infer.set_type(node_type_id, TypeKind::Int, (), ());
+                ctx.infer.set_type(node_type_id, TypeKind::Int, ());
             }
         }
         NodeKind::FloatType => {
             if ctx.inside_type_comparison {
                 let inner = ctx.infer.add_type(TypeKind::CompareUnspecified, Args([]));
-                ctx.infer.set_type(node_type_id, TypeKind::Float, Args([(inner, Reason::temp_zero())]), ());
+                ctx.infer.set_type(node_type_id, TypeKind::Float, Args([(inner, Reason::temp_zero())]));
             } else {
-                ctx.infer.set_type(node_type_id, TypeKind::Float, (), ());
+                ctx.infer.set_type(node_type_id, TypeKind::Float, ());
             }
         }
         NodeKind::ImplicitType => {
             if ctx.inside_type_comparison {
-                ctx.infer.set_type(node_type_id, TypeKind::CompareUnspecified, Args([]), ());
+                ctx.infer.set_type(node_type_id, TypeKind::CompareUnspecified, Args([]));
             }
         },
         NodeKind::PolymorphicArgs => {
@@ -1591,7 +1587,7 @@ fn build_type(
                 .set_equal(inner_type_id, node_type_id, Reason::temp(node_loc));
         }
         NodeKind::LiteralType(ref type_) => {
-            ctx.infer.set_compiler_type(ctx.program, node_type_id, type_, ());
+            ctx.infer.set_compiler_type(ctx.program, node_type_id, type_);
         }
         NodeKind::FunctionType => {
             let mut children = node.children.into_iter();
@@ -1636,7 +1632,7 @@ fn build_type(
                 values.push((child_id, Reason::temp(node_loc)));
             }
 
-            ctx.infer.set_type(node_type_id, TypeKind::Tuple, Args(values), ());
+            ctx.infer.set_type(node_type_id, TypeKind::Tuple, Args(values));
         }
         NodeKind::EnumType { ref fields } => {
             let names = fields.to_vec().into_boxed_slice();
@@ -1656,13 +1652,13 @@ fn build_type(
                 loc: node_loc,
             };
             
-            ctx.infer.set_type(node_type_id, TypeKind::Enum(marker, names), Args(fields), ());
+            ctx.infer.set_type(node_type_id, TypeKind::Enum(marker, names), Args(fields));
         }
         NodeKind::StructType { ref fields } => {
             // @Performance: Many allocations
             let names = fields.to_vec().into_boxed_slice();
             let fields: Vec<_> = node.children.into_iter().map(|v| (build_type(ctx, v, set), Reason::temp(node_loc))).collect();
-            ctx.infer.set_type(node_type_id, TypeKind::Struct(names), Args(fields), ());
+            ctx.infer.set_type(node_type_id, TypeKind::Struct(names), Args(fields));
         }
         NodeKind::ReferenceType => {
             let [inner] = node.children.into_array();
@@ -1670,7 +1666,6 @@ fn build_type(
             ctx.infer.set_type(
                 node_type_id,
                 TypeKind::Reference, Args([(inner, Reason::temp(node_loc))]),
-                (),
             );
         }
         NodeKind::BufferType => {
@@ -1679,17 +1674,16 @@ fn build_type(
             ctx.infer.set_type(
                 node_type_id,
                 TypeKind::Buffer, Args([(inner, Reason::temp(node_loc))]),
-                (),
             );
         }
         NodeKind::ArrayType => {
             let [len, members] = node.children.into_array();
             let length = build_inferrable_constant_value(ctx, len, set);
-            let usize_type = ctx.infer.add_int(IntTypeKind::Usize, ());
+            let usize_type = ctx.infer.add_int(IntTypeKind::Usize);
             ctx.infer.set_equal(usize_type, length.type_, Reason::temp(node_loc));
 
             let member_type_id = build_type(ctx, members, set);
-            ctx.infer.set_type(node_type_id, TypeKind::Array, Args([(member_type_id, Reason::temp(node_loc)), (length.constant, Reason::temp(node_loc))]), ());
+            ctx.infer.set_type(node_type_id, TypeKind::Array, Args([(member_type_id, Reason::temp(node_loc)), (length.constant, Reason::temp(node_loc))]));
         }
         NodeKind::TypeOf => {
             let [inner] = node.children.into_array();
@@ -1790,7 +1784,7 @@ fn build_declarative_lvalue(
                 values.push((child_id, Reason::temp(node_loc)));
             }
 
-            ctx.infer.set_type(node_type_id, TypeKind::Tuple, Args(values), ());
+            ctx.infer.set_type(node_type_id, TypeKind::Tuple, Args(values));
         }
         NodeKind::ArrayLiteral => {
             let inner_type = ctx.infer.add_unknown_type_with_set(set);
@@ -1800,14 +1794,14 @@ fn build_declarative_lvalue(
                 ctx.infer.set_equal(arg_type_id, inner_type, Reason::new(node_loc, ReasonKind::Passed));
             }
 
-            let usize = ctx.infer.add_int(IntTypeKind::Usize, ());
+            let usize = ctx.infer.add_int(IntTypeKind::Usize);
             let length = ctx.program.insert_buffer(&types::Type::new_int(IntTypeKind::Usize), (node.children.len()).to_le_bytes().as_ptr());
 
             let variable_count = ctx.infer.add_value(
                 usize,
                 length,
-                set,
             );
+            ctx.infer.set_value_set(variable_count, set);
 
             let array_type = ctx.infer.add_type(
                 TypeKind::Array, Args([(inner_type, Reason::temp(node_loc)), (variable_count, Reason::temp(node_loc))]),
@@ -2376,7 +2370,6 @@ fn build_global<'a>(
             let type_id = ctx.infer.add_compiler_type(
                 ctx.program,
                 &type_,
-                (),
             );
 
             ctx.infer.set_equal(node_type_id, type_id, Reason::new(node.loc, ReasonKind::IsOfType));

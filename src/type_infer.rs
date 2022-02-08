@@ -83,28 +83,6 @@ impl<T> IntoValueArgs for Args<T> where T: IntoIterator<Item = (ValueId, Reason)
     }
 }
 
-pub trait IntoValueSet {
-    fn add_set(&self, value_sets: &mut ValueSets) -> ValueSetHandles;
-}
-
-impl IntoValueSet for () {
-    fn add_set(&self, _value_sets: &mut ValueSets) -> ValueSetHandles {
-        ValueSetHandles::empty()
-    }
-}
-
-impl IntoValueSet for &ValueSetHandles {
-    fn add_set(&self, value_sets: &mut ValueSets) -> ValueSetHandles {
-        (*self).clone(value_sets)
-    }
-}
-
-impl IntoValueSet for ValueSetId {
-    fn add_set(&self, value_sets: &mut ValueSets) -> ValueSetHandles {
-        value_sets.with_one(*self)
-    }
-}
-
 fn get_needed_children_for_layout<'a>(type_: &TypeKind, children: &'a [ValueId]) -> &'a [ValueId] {
     match type_ {
         TypeKind::Target { .. } | TypeKind::IntSize(_) | TypeKind::IntSigned(_) | TypeKind::Bool | TypeKind::Empty | TypeKind::Function | TypeKind::Reference | TypeKind::Buffer | TypeKind::ConstantValue(_) | TypeKind::CompareUnspecified => &[],
@@ -1023,10 +1001,10 @@ impl TypeSystem {
                         Reason::temp(source_location),
                     ))
                     .collect::<Vec<_>>();
-                self.set_type(value_id, kind.clone(), Args(new_args), ());
+                self.set_type(value_id, kind.clone(), Args(new_args));
             }
             Some(Type { kind, args: None }) => {
-                self.set_type(value_id, kind.clone(), (), ());
+                self.set_type(value_id, kind.clone(), ());
             }
             None => {},
         }
@@ -1799,7 +1777,7 @@ impl TypeSystem {
                         (Some(TypeKind::Reference), Some(TypeKind::Int), Some(TypeKind::Reference)),
                     ) => {
                         // No reason given for why the type is a usize....
-                        let usize = self.add_int(IntTypeKind::Usize, ());
+                        let usize = self.add_int(IntTypeKind::Usize);
                         self.set_equal(usize, b_id, constraint.reason);
                         self.set_equal(a_id, result_id, constraint.reason);
                     }
@@ -1957,7 +1935,7 @@ impl TypeSystem {
                                 }
                             }
                             "len" => {
-                                let usize_type = self.add_int(IntTypeKind::Usize, ());
+                                let usize_type = self.add_int(IntTypeKind::Usize);
                                 self.set_equal(usize_type, b_id, constraint.reason);
 
                                 self.constraints[constraint_id].applied = true;
@@ -2258,17 +2236,17 @@ impl TypeSystem {
         type_
     }
 
-    pub fn set_compiler_type(&mut self, program: &Program, id: ValueId, type_: &types::Type, set: impl IntoValueSet + Clone) -> ValueId {
-        let args: Vec<_> = type_.args().iter().map(|v| (self.add_compiler_type(program, v, set.clone()), Reason::temp_zero())).collect();
-        self.set_type(id, type_.kind().clone(), Args(args), set)
+    pub fn set_compiler_type(&mut self, program: &Program, id: ValueId, type_: &types::Type) -> ValueId {
+        let args: Vec<_> = type_.args().iter().map(|v| (self.add_compiler_type(program, v), Reason::temp_zero())).collect();
+        self.set_type(id, type_.kind().clone(), Args(args))
     }
 
-    pub fn add_compiler_type(&mut self, program: &Program, type_: &types::Type, set: impl IntoValueSet + Clone) -> ValueId {
+    pub fn add_compiler_type(&mut self, program: &Program, type_: &types::Type) -> ValueId {
         let id = self.add_unknown_type();
-        self.set_compiler_type(program, id, type_, set)
+        self.set_compiler_type(program, id, type_)
     }
 
-    pub fn set_type(&mut self, value_id: ValueId, kind: TypeKind, args: impl IntoValueArgs, set: impl IntoValueSet) -> ValueId {
+    pub fn set_type(&mut self, value_id: ValueId, kind: TypeKind, args: impl IntoValueArgs) -> ValueId {
         let args = args
             .into_value_args()
             .map(|v|
@@ -2287,21 +2265,21 @@ impl TypeSystem {
                 })
                 .collect()
             );
-        let value_sets = set.add_set(&mut self.value_sets);
+        let value_sets = ValueSetHandles::empty();
         set_value(&mut self.structures, &mut self.values, value_id, Type { kind, args }, &mut self.value_sets, value_sets);
         *get_value_mut(&mut self.structures, &mut self.values, value_id).is_base_value = true;
 
         value_id
     }
 
-    pub fn add_int(&mut self, int_kind: IntTypeKind, set: impl IntoValueSet) -> ValueId {
+    pub fn add_int(&mut self, int_kind: IntTypeKind) -> ValueId {
         let id = self.add_unknown_type();
-        self.set_int(id, int_kind, set);
+        self.set_int(id, int_kind);
         id
     }
 
     // @Speed: This creates a temporary, but is also a kind of temporary value itself....
-    pub fn set_int(&mut self, value_id: ValueId, int_kind: IntTypeKind, set: impl IntoValueSet) {
+    pub fn set_int(&mut self, value_id: ValueId, int_kind: IntTypeKind) {
         let (signed, size) = match int_kind {
             IntTypeKind::U8    => (false, 1),
             IntTypeKind::U16   => (false, 2),
@@ -2318,12 +2296,12 @@ impl TypeSystem {
         let size = self.add_type(TypeKind::IntSize(size), Args([]));
         let sign = self.add_type(TypeKind::IntSigned(signed), Args([]));
 
-        self.set_type(value_id, TypeKind::Int, Args([(sign, Reason::temp_zero()), (size, Reason::temp_zero())]), set);
+        self.set_type(value_id, TypeKind::Int, Args([(sign, Reason::temp_zero()), (size, Reason::temp_zero())]));
     }
 
     pub fn add_type(&mut self, kind: TypeKind, args: impl IntoValueArgs) -> ValueId {
         let value_id = self.add_unknown_type();
-        self.set_type(value_id, kind, args, ());
+        self.set_type(value_id, kind, args);
         value_id
     }
 
@@ -2337,9 +2315,9 @@ impl TypeSystem {
         )
     }
 
-    pub fn set_value(&mut self, value_id: ValueId, type_: ValueId, value: impl IntoConstant, set: impl IntoValueSet) {
+    pub fn set_value(&mut self, value_id: ValueId, type_: ValueId, value: impl IntoConstant) {
         let value = value.into_constant();
-        let value_sets = set.add_set(&mut self.value_sets);
+        let value_sets = ValueSetHandles::empty();
         let constant_value_id = add_value(
             &mut self.structures,
             &mut self.values,
@@ -2351,12 +2329,12 @@ impl TypeSystem {
             value_sets,
         );
         *get_value_mut(&mut self.structures, &mut self.values, constant_value_id).is_base_value = true;
-        self.set_type(value_id, TypeKind::Constant, Args([(type_, Reason::temp_zero()), (constant_value_id, Reason::temp_zero())]), set);
+        self.set_type(value_id, TypeKind::Constant, Args([(type_, Reason::temp_zero()), (constant_value_id, Reason::temp_zero())]));
     }
 
-    pub fn add_value(&mut self, type_: ValueId, value: impl IntoConstant, set: impl IntoValueSet) -> ValueId {
+    pub fn add_value(&mut self, type_: ValueId, value: impl IntoConstant) -> ValueId {
         let type_id = self.add_unknown_type();
-        self.set_value(type_id, type_, value, set);
+        self.set_value(type_id, type_, value);
         type_id
     }
 }
