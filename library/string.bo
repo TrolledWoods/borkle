@@ -1,0 +1,68 @@
+library "iter.bo";
+
+const single_utf8 = fn(string: &[] u8) -> [] u8 { 'function
+    if string.len == 0  break 'function #0;
+
+    let length = leading_ones_to_length(leading_ones(*string.ptr));
+
+    let result = #0;
+    result.ptr = string.ptr;
+    result.len = length;
+
+    string.ptr = string.ptr + length;
+    string.len = string.len - length;
+
+    result
+};
+
+const skip_single_utf8 = fn(string: &[] u8) -> usize { 'function
+    if string.len == 0  break 'function 0;
+
+    let length = leading_ones_to_length(leading_ones(*string.ptr));
+    string.ptr = string.ptr + length;
+    string.len = string.len - length;
+
+    length
+};
+
+const leading_ones_to_length = fn(leading_ones: u32) -> usize {
+    if leading_ones == 0  1 else cast leading_ones
+};
+
+const string_split = fn(buffer: [] u8, split_at: [] u8) -> Iterator.(_, type [] u8) {
+    let stream = #0;
+    stream.state : { buffer: [] u8; split_at: [] u8; };
+    stream.state.buffer = buffer;
+    stream.state.split_at = split_at;
+
+    stream.next = fn(state, out) { 'function
+        let begin = state.buffer.ptr;
+
+        let skipped = 0;
+        while state.buffer.len > 0 {
+            if slice_starts_with(state.buffer, state.split_at) {
+                out.ptr = begin;
+                out.len = skipped;
+
+                let reduction = state.split_at.len;
+                if state.buffer.len > reduction {
+                    state.buffer.ptr = state.buffer.ptr + reduction;
+                    state.buffer.len = state.buffer.len - reduction;
+                } else {
+                    state.buffer.len = 0;
+                };
+
+                break true;
+            } else {
+                skipped = skipped + skip_single_utf8(&state.buffer);
+            };
+        } else if skipped > 0 {
+            out.ptr = begin;
+            out.len = skipped;
+            true
+        } else {
+            false
+        }
+    };
+    stream
+};

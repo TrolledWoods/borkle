@@ -1,7 +1,19 @@
 library "timer.bo";
+library "string.bo";
+library "vec.bo";
+library "iter.bo";
 import "tests/main.bo";
 
 #entry fn() {
+    let stuff = "こ suddenly の食品 english は食 text用です";
+
+    let vector = stuff->string_split("食")->collect_vec();
+    defer vec_free(vector);
+
+    for vector->as_buf() {
+        print("%: %\n", i, v);
+    };
+
     let timer = start_timer();
     run_tests();
     print("Time elapsed(micros): %\n", get_micros(timer));

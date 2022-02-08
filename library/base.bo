@@ -123,6 +123,20 @@ const dealloc.(T) = fn(buf: [] T) {
     };
 };
 
+const buf_to_arr.(T, N) = fn(buf: [] T, default: T) -> [N] T {
+    let output = #uninit;
+
+    while i < N {
+        *(&output._0 + i) = if i < buf.len {
+            *(buf.ptr + i)
+        } else {
+            default
+        };
+    };
+
+    output
+};
+
 const fill.(T) = fn(buf: [] T, value: T) {
     for &buf { *v = value; };
 };
@@ -157,6 +171,11 @@ const slice_cmp.(T) = fn(a: [] T, b: [] T) -> Ordering {
     } else {
         .Equal
     }
+};
+
+const slice_starts_with.(T) = fn(a: [] T, start: [] T) -> bool { 'function
+    if start.len > a.len  break 'function false;
+    slice_cmp(slice(a, 0, start.len), start) == .Equal
 };
 
 const slice_to_end.(T) = fn(buf: [] T, start: usize) -> [] T {
@@ -687,4 +706,12 @@ const print.(Args) = fn(format_str: [] u8, #var_args: args: Args) {
 
 const eprint.(Args) = fn(format_str: [] u8, #var_args: args: Args) {
     write(stderr_writer(), format_str, .args = args);
+};
+
+const leading_ones.(T) = fn(num: T) -> u32 { 'function
+    while i < (sizeof T * 8) {
+        if ((cast num << i) & 0x80) == 0   break 'function cast i;
+    };
+
+    8
 };
