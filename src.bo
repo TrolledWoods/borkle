@@ -1,6 +1,4 @@
-library "iter.bo";
 library "timer.bo";
-library "compiler.bo";
 import "tests/main.bo";
 
 #entry fn() {

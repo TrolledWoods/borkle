@@ -31,11 +31,11 @@ const iter_arr.(N, T) = fn(array: [N] T) -> Iterator.(_, T) {
     stream
 };
 
-const iter_vec.(Item) = fn(from: Vec.(Item)) -> Iterator.(_, type Item) {
+const iter_vec.(Item) = fn(from: Vec.(Item)) -> Iterator.(_, type &Item) {
     range(from.ptr, from.ptr + from.len)
 };
 
-const iter_buf.(Item) = fn(from: [] Item) -> Iterator.(_, type Item) {
+const iter_buf.(Item) = fn(from: [] Item) -> Iterator.(_, type &Item) {
     range(from.ptr, from.ptr + from.len)
 };
 

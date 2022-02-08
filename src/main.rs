@@ -1,5 +1,6 @@
 #![feature(let_else)]
 #![feature(generic_associated_types)]
+#![feature(backtrace)]
 #![deny(rust_2018_idioms, mutable_borrow_reservation_conflict, unused_variables, unused_mut, unused_unsafe)]
 
 mod layout;
@@ -67,9 +68,11 @@ fn main() {
         let mut program = program::Program::new(logger, options.clone(), backend::Backends { backends });
         program.add_file(&options.file, false);
         
-        let mut compiler_path = options.lib_path.clone();
-        compiler_path.push("compiler.bo");
-        program.add_file(&compiler_path, true);
+        if !options.no_builtins {
+            let mut compiler_path = options.lib_path.clone();
+            compiler_path.push("compiler.bo");
+            program.add_file(&compiler_path, true);
+        }
 
         let (backend_emitters, mut errors) = thread_pool::run(&mut program, options.num_threads);
 

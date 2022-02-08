@@ -1,5 +1,28 @@
 //! Type inferrence system
 
+/*
+
+// Stores Values and Constraints  (Structures for now too)
+{
+    next_queued_constraint
+
+    add_constraint
+
+    // Adds value.
+    add_dynamic_value
+
+    // Adds a group of values for a subtree
+    add_subtree_group
+
+    // Gets a handle to a value
+    get_value
+
+    // Gets a mutable handle to a value, and marks it as updated.
+    get_value_mut
+}
+
+*/
+
 use crate::layout::StructLayout;
 use crate::program::Program;
 use crate::errors::ErrorCtx;
@@ -181,7 +204,10 @@ enum Relation {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 enum ConstraintKind {
-    /// Doesn't add type inferrence information, but rather,
+    RequireSize {
+        value_id: ValueId,
+        value_set_id: ValueSetId,
+    },
     Compare {
         values: [ValueId; 2],
         comparison: ComparisonId,
@@ -212,6 +238,7 @@ enum ConstraintKind {
 impl Constraint {
     fn values(&self) -> &[ValueId] {
         match &self.kind {
+            ConstraintKind::RequireSize { value_id, .. } => std::slice::from_ref(value_id),
             ConstraintKind::Relation { values, .. } => &*values,
             ConstraintKind::Equal { values, .. }
             | ConstraintKind::Compare { values, .. }
@@ -356,11 +383,11 @@ fn insert_active_constraint(
     available_constraints: &mut HashMap<ValueId, Vec<ConstraintId>>,
     queued_constraints: &mut Vec<ConstraintId>,
     constraint: Constraint,
-) {
+) -> bool {
     // @Performance: We can do a faster lookup using available_constraints
     if !matches!(constraint.kind, ConstraintKind::Compare { .. }) {
         if let Some(_) = constraints.iter().position(|v| v.kind == constraint.kind) {
-            return;
+            return false;
         }
     }
 
@@ -371,7 +398,7 @@ fn insert_active_constraint(
     match constraint.kind {
         ConstraintKind::Equal { values: [a, b], .. } => {
             if a == b {
-                return;
+                return false;
             };
         }
         _ => {}
@@ -383,6 +410,8 @@ fn insert_active_constraint(
     }
 
     queued_constraints.push(id);
+
+    true
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -778,7 +807,7 @@ impl Values {
     }
 }
 
-fn get_loc_of_value(ast: &crate::parser::Ast, value: ValueId) -> Option<Location> {
+pub fn get_loc_of_value(ast: &crate::parser::Ast, value: ValueId) -> Option<Location> {
     match value {
         ValueId::Node(_, id) => Some(ast.get(id).loc),
         _ => None,
@@ -1100,11 +1129,17 @@ impl TypeSystem {
     }
 
     pub fn value_to_compiler_type(&self, value_id: ValueId) -> types::Type {
+        self.value_to_compiler_type_inner(value_id, 0)
+    }
+
+    fn value_to_compiler_type_inner(&self, value_id: ValueId, rec: u32) -> types::Type {
+        debug_assert!(rec < 20);
+
         let Some(Type { kind: type_kind, args: Some(type_args) }) = &self.get(value_id).kind else {
             panic!("Cannot call value_to_compiler_type on incomplete value")
         };
 
-        let args: Box<[_]> = type_args.iter().map(|&v| self.value_to_compiler_type(v)).collect();
+        let args: Box<[_]> = type_args.iter().map(|&v| self.value_to_compiler_type_inner(v, rec + 1)).collect();
         types::Type::new_with_args(type_kind.clone(), args)
     }
     
@@ -1470,6 +1505,9 @@ impl TypeSystem {
 
     fn constraint_to_string(&self, constraint: &Constraint) -> String {
         match constraint.kind {
+            ConstraintKind::RequireSize { value_id, value_set_id } => {
+                format!("{:?} requires size of {}", value_set_id, self.value_to_str(value_id, 0))
+            }
             ConstraintKind::Compare { values: [a, b], .. } => {
                 format!("{} is {}?", self.value_to_str(a, 0), self.value_to_str(b, 0))
             }
@@ -1541,6 +1579,36 @@ impl TypeSystem {
         if constraint.applied { return; }
 
         match constraint.kind {
+            ConstraintKind::RequireSize { value_set_id, value_id } => {
+                let value = get_value(&self.structures, &self.values, value_id);
+
+                if let Some(type_) = value.kind {
+                    if let Some(ref args) = type_.args {
+                        if DEBUG {
+                            println!("Recursive sizes!");
+                        }
+
+                        for &arg in args.iter() {
+                            if insert_active_constraint(
+                                &mut self.constraints,
+                                &mut self.available_constraints,
+                                &mut self.queued_constraints,
+                                Constraint {
+                                    kind: ConstraintKind::RequireSize { value_set_id, value_id: arg },
+                                    applied: false,
+                                    reason: constraint.reason,
+                                }
+                            ) {
+                                self.value_sets.lock(value_set_id);
+                            }
+                        }
+
+                        self.value_sets.unlock(value_set_id);
+
+                        self.constraints[constraint_id].applied = true;
+                    }
+                }
+            }
             ConstraintKind::Relation { kind, values: [to_id, from_id] } => {
                 let to = get_value(&self.structures, &self.values, to_id);
                 let from = get_value(&self.structures, &self.values, from_id);
@@ -2170,13 +2238,18 @@ impl TypeSystem {
     /// in debug mode. It also cannot be an alias. This is solely intended for use by the building
     /// process of the typer.
     pub fn set_value_set(&mut self, value_id: ValueId, value_set_id: ValueSetId) {
-        let value = get_value_mut(&mut self.structures, &mut self.values, value_id);
-
-        // There can be no children, this function shouldn't have to recurse.
-        debug_assert!(matches!(value.kind, None));
-
-        // We don't want to worry about sorting or binary searching
-        value.value_sets.set_to(self.value_sets.with_one(value_set_id));
+        if insert_active_constraint(
+            &mut self.constraints,
+            &mut self.available_constraints,
+            &mut self.queued_constraints,
+            Constraint {
+                kind: ConstraintKind::RequireSize { value_id, value_set_id },
+                applied: false,
+                reason: Reason::temp_zero(),
+            },
+        ) {
+            self.value_sets.lock(value_set_id);
+        }
     }
 
     pub fn add_unknown_type_with_set(&mut self, set: ValueSetId) -> ValueId {
