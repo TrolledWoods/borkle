@@ -2253,14 +2253,9 @@ impl TypeSystem {
     }
 
     pub fn add_unknown_type_with_set(&mut self, set: ValueSetId) -> ValueId {
-        let value_set_handles = self.value_sets.with_one(set);
-        add_value(
-            &mut self.structures,
-            &mut self.values,
-            None,
-            &mut self.value_sets,
-            value_set_handles,
-        )
+        let type_ = self.add_unknown_type();
+        self.set_value_set(type_, set);
+        type_
     }
 
     pub fn set_compiler_type(&mut self, program: &Program, id: ValueId, type_: &types::Type, set: impl IntoValueSet + Clone) -> ValueId {

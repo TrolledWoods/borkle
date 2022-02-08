@@ -10,6 +10,7 @@ pub struct ValueSets {
 impl ValueSets {
     pub fn with_one(&mut self, set_id: ValueSetId) -> ValueSetHandles {
         self.sets[set_id].uncomputed_values += 1;
+        unreachable!();
 
         ValueSetHandles {
             sets: Some(set_id),
