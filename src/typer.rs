@@ -111,27 +111,23 @@ struct Statics<'a, 'b> {
     locals: &'a mut LocalVariables,
     infer: &'a mut TypeSystem,
     needs_explaining: &'a mut Vec<(NodeId, type_infer::ValueId)>,
+    poly_params: &'a mut Vec<PolyParam>,
+    additional_info: &'a mut AdditionalInfo,
 }
 
 /// Things that are necessary for a value set. This may not actually represent the value set that you intend, because
 /// things like the `emit_deps` are wholly unnecessary for type time things, so it isn't used in those cases....
 /// Maybe this is actually something we want to change?
-struct Context<'a> {
+struct Context {
     /// Dependencies necessary for being able to emit code for this output.
-    emit_deps: &'a mut DependencyList,
-    poly_params: &'a mut Vec<PolyParam>,
+    emit_deps: DependencyList,
     runs: ExecutionTime,
-    ast_variant_id: AstVariantId,
-    additional_info: &'a mut AdditionalInfo,
     inside_type_comparison: bool,
     target_checker: TargetChecker,
+    ast_variant_id: AstVariantId,
 }
 
 /*
-
-/// Information about a value set, that's passed around mutably to everything that uses it.
-struct ValueSetInfo {
-}
 
 /// Contextual information about very specific things, like which parent target you have e.t.c.
 /// This is passed around _immutably_, and if you want to modify it you have to clone it (trivial clone, not copy just to not make me accidentally cause mass hysteria)
@@ -177,7 +173,6 @@ pub fn begin<'a>(
     poly_params: Vec<(Location, Ustr)>,
     member_kind: MemberKind,
 ) -> (YieldData, MemberMetaData) {
-    let mut emit_deps = DependencyList::new();
     let mut infer = TypeSystem::new(ast.structure.len());
 
     let mut poly_params: Vec<_> = poly_params
@@ -205,14 +200,14 @@ pub fn begin<'a>(
         locals: &mut locals,
         infer: &mut infer,
         needs_explaining: &mut needs_explaining,
+        poly_params: &mut poly_params,
+        additional_info: &mut additional_info,
     };
 
     let mut ctx = Context {
-        emit_deps: &mut emit_deps,
-        poly_params: &mut poly_params,
+        emit_deps: DependencyList::new(),
         runs: ExecutionTime::RuntimeFunc,
         ast_variant_id: AstVariantId::root(),
-        additional_info: &mut additional_info,
         inside_type_comparison: false,
         target_checker: TargetChecker::default(),
     };
@@ -249,7 +244,7 @@ pub fn begin<'a>(
 
     let target_checker = ctx.target_checker;
     let value_set = infer.value_sets.get_mut(root_set_id);
-    value_set.emit_deps = Some(emit_deps);
+    value_set.emit_deps = Some(ctx.emit_deps);
     value_set.target_checker = Some(target_checker);
 
     (
@@ -273,7 +268,6 @@ pub fn solve<'a>(
     program: &'a Program,
     data: &mut YieldData,
 ) {
-    let mut temp_emit_deps = DependencyList::new();
     let mut statics = Statics {
         thread_context,
         errors,
@@ -281,14 +275,14 @@ pub fn solve<'a>(
         locals: &mut data.locals,
         infer: &mut data.infer,
         needs_explaining: &mut data.needs_explaining,
+        poly_params: &mut data.poly_params,
+        additional_info: &mut data.additional_info,
     };
     let mut ctx = Context {
-        emit_deps: &mut temp_emit_deps,
-        poly_params: &mut data.poly_params,
+        emit_deps: DependencyList::new(),
         // This is only used in build_constraints, what it's set to doesn't matter
         runs: ExecutionTime::Never,
         ast_variant_id: AstVariantId::root(),
-        additional_info: &mut data.additional_info,
         inside_type_comparison: false,
         target_checker: TargetChecker::default(),
     };
@@ -336,7 +330,7 @@ pub fn solve<'a>(
         }
     }
 
-    debug_assert!(temp_emit_deps.is_empty(), "Didn't expect context to gain more emit_deps here, should clean up the code to not even have this case be possible");
+    debug_assert!(ctx.emit_deps.is_empty(), "Didn't expect context to gain more emit_deps here, should clean up the code to not even have this case be possible");
 }
 
 pub fn finish<'a>(
@@ -372,7 +366,7 @@ pub fn finish<'a>(
     Ok(Ok((emit_deps, from.locals, from.infer, from.ast, from.root_value_id, from.additional_info)))
 }
 
-fn subset_was_completed(statics: &mut Statics<'_, '_>, ctx: &mut Context<'_>, ast: &mut Ast, waiting_on: WaitingOnTypeInferrence, set: ValueSetId) {
+fn subset_was_completed(statics: &mut Statics<'_, '_>, ctx: &mut Context, ast: &mut Ast, waiting_on: WaitingOnTypeInferrence, set: ValueSetId) {
     match waiting_on {
         WaitingOnTypeInferrence::TargetFromConstantValue { value_id, computation, ast_variant_id } => {
             let len_loc = ast.get(computation).loc;
@@ -382,7 +376,7 @@ fn subset_was_completed(statics: &mut Statics<'_, '_>, ctx: &mut Context<'_>, as
                 statics.locals,
                 statics.infer,
                 ast,
-                ctx.additional_info,
+                statics.additional_info,
                 computation,
                 ast_variant_id,
                 &mut vec![len_loc],
@@ -432,13 +426,11 @@ fn subset_was_completed(statics: &mut Statics<'_, '_>, ctx: &mut Context<'_>, as
                 iterator_type.args().to_vec()
             };
 
-            let mut emit_deps = statics.infer.value_sets.get_mut(parent_set).emit_deps.take().unwrap_or_default();
+            let emit_deps = statics.infer.value_sets.get_mut(parent_set).emit_deps.take().unwrap_or_default();
             let mut sub_ctx = Context {
-                emit_deps: &mut emit_deps,
-                poly_params: ctx.poly_params,
+                emit_deps,
                 runs,
                 ast_variant_id: AstVariantId::invalid(),
-                additional_info: ctx.additional_info,
                 inside_type_comparison: false,
                 // TODO: This is incorrect, we're going to change things up a lot later.
                 target_checker: TargetChecker::default(),
@@ -458,8 +450,8 @@ fn subset_was_completed(statics: &mut Statics<'_, '_>, ctx: &mut Context<'_>, as
                 build_constraints(statics, &mut sub_ctx, body, parent_set);
             }
 
-            statics.infer.value_sets.get_mut(parent_set).emit_deps = Some(emit_deps);
-            ctx.additional_info.insert((ast_variant_id, node_id), AdditionalInfoKind::ConstForAstVariants { referenced, variant_ids });
+            statics.infer.value_sets.get_mut(parent_set).emit_deps = Some(sub_ctx.emit_deps);
+            statics.additional_info.insert((ast_variant_id, node_id), AdditionalInfoKind::ConstForAstVariants { referenced, variant_ids });
 
             statics.infer.value_sets.unlock(parent_set);
         }
@@ -471,7 +463,7 @@ fn subset_was_completed(statics: &mut Statics<'_, '_>, ctx: &mut Context<'_>, as
                 statics.locals,
                 statics.infer,
                 ast,
-                ctx.additional_info,
+                statics.additional_info,
                 condition,
                 ast_variant_id,
                 &mut vec![loc],
@@ -493,23 +485,21 @@ fn subset_was_completed(statics: &mut Statics<'_, '_>, ctx: &mut Context<'_>, as
             
             let emitting = if result { true_body } else { false_body };
 
-            let mut emit_deps = statics.infer.value_sets.get_mut(parent_set).emit_deps.take().unwrap_or_default();
+            let emit_deps = statics.infer.value_sets.get_mut(parent_set).emit_deps.take().unwrap_or_default();
             let mut sub_ctx = Context {
-                emit_deps: &mut emit_deps,
-                poly_params: ctx.poly_params,
+                emit_deps,
                 runs,
                 ast_variant_id: ast_variant_id,
-                additional_info: ctx.additional_info,
                 inside_type_comparison: false,
                 // TODO: This is not correct...
                 target_checker: TargetChecker::default(),
             };
 
             let child_type = build_constraints(statics, &mut sub_ctx, ast.get(emitting), parent_set);
-            statics.infer.value_sets.get_mut(parent_set).emit_deps = Some(emit_deps);
+            statics.infer.value_sets.get_mut(parent_set).emit_deps = Some(sub_ctx.emit_deps);
             statics.infer.set_equal(TypeId::Node(ast_variant_id, node_id), child_type, Reason::temp_zero());
 
-            ctx.additional_info.insert((ast_variant_id, node_id), AdditionalInfoKind::ConstIfResult(result));
+            statics.additional_info.insert((ast_variant_id, node_id), AdditionalInfoKind::ConstIfResult(result));
             statics.infer.value_sets.unlock(parent_set);
         }
         WaitingOnTypeInferrence::ConstantFromValueId { value_id, to, ast_variant_id, parent_set } => {
@@ -517,7 +507,7 @@ fn subset_was_completed(statics: &mut Statics<'_, '_>, ctx: &mut Context<'_>, as
             // e.g., node_type_id should be equal to the type of the constant.
             let constant_ref = statics.infer.extract_constant_temp(value_id).unwrap();
 
-            ctx.additional_info.insert((ast_variant_id, to), AdditionalInfoKind::Constant(constant_ref));
+            statics.additional_info.insert((ast_variant_id, to), AdditionalInfoKind::Constant(constant_ref));
             statics.infer.value_sets.unlock(parent_set);
         }
         WaitingOnTypeInferrence::SizeOf { parent_set } => {
@@ -544,7 +534,7 @@ fn subset_was_completed(statics: &mut Statics<'_, '_>, ctx: &mut Context<'_>, as
                 let compiler_type = statics.infer.add_compiler_type(statics.program, &type_);
                 statics.infer.set_equal(TypeId::Node(ast_variant_id, node_id), compiler_type, Reason::new(node_loc, ReasonKind::IsOfType));
 
-                ctx.additional_info.insert((ast_variant_id, node_id), AdditionalInfoKind::Monomorphised(member_id));
+                statics.additional_info.insert((ast_variant_id, node_id), AdditionalInfoKind::Monomorphised(member_id));
 
                 match when_needed {
                     // This will never be emitted anyway so it doesn't matter if the value isn't accessible.
@@ -574,7 +564,7 @@ fn subset_was_completed(statics: &mut Statics<'_, '_>, ctx: &mut Context<'_>, as
                 statics.locals,
                 statics.infer,
                 ast,
-                ctx.additional_info,
+                statics.additional_info,
                 computation,
                 ast_variant_id,
                 &mut vec![len_loc],
@@ -629,7 +619,7 @@ fn subset_was_completed(statics: &mut Statics<'_, '_>, ctx: &mut Context<'_>, as
                             Task::EmitFunction(
                                 statics.locals.clone(),
                                 statics.infer.clone(),
-                                ctx.additional_info.clone(),
+                                statics.additional_info.clone(),
                                 ast.clone(),
                                 node_id,
                                 type_,
@@ -645,7 +635,7 @@ fn subset_was_completed(statics: &mut Statics<'_, '_>, ctx: &mut Context<'_>, as
                             statics.locals,
                             statics.infer,
                             ast.get(node_id),
-                            ctx.additional_info,
+                            statics.additional_info,
                             node_id,
                             ast_variant_id,
                             node_loc,
@@ -656,7 +646,7 @@ fn subset_was_completed(statics: &mut Statics<'_, '_>, ctx: &mut Context<'_>, as
                 }
             }
 
-            ctx.additional_info.insert((ast_variant_id, node_id), AdditionalInfoKind::Function(function_id));
+            statics.additional_info.insert((ast_variant_id, node_id), AdditionalInfoKind::Function(function_id));
             statics.infer.value_sets.unlock(parent_set);
         }
         WaitingOnTypeInferrence::BuiltinFunctionInTyping {
@@ -677,7 +667,7 @@ fn subset_was_completed(statics: &mut Statics<'_, '_>, ctx: &mut Context<'_>, as
             let routine = statics.program.get_routine(function_id).unwrap();
             statics.thread_context.emitters.emit_routine(statics.program, function_id, &routine);
 
-            ctx.additional_info.insert((ast_variant_id, node_id), AdditionalInfoKind::Function(function_id));
+            statics.additional_info.insert((ast_variant_id, node_id), AdditionalInfoKind::Function(function_id));
             statics.infer.value_sets.unlock(parent_set);
         }
         WaitingOnTypeInferrence::None => {},
@@ -702,7 +692,7 @@ fn validate(types: &TypeSystem, errors: &mut ErrorCtx, target_checker: &TargetCh
 
 fn build_constraints(
     statics: &mut Statics<'_, '_>,
-    ctx: &mut Context<'_>,
+    ctx: &mut Context,
     node: NodeView<'_>,
     set: ValueSetId,
 ) -> type_infer::ValueId {
@@ -717,7 +707,7 @@ fn build_constraints(
         NodeKind::PolymorphicArgument(index) => {
             statics.infer.value_sets.lock(set);
 
-            let poly_param = &mut ctx.poly_params[index];
+            let poly_param = &mut statics.poly_params[index];
             poly_param.used_as_value.get_or_insert(node_loc);
             if poly_param.check_for_dual_purpose(statics.errors) {
                 statics.infer.value_sets.get_mut(set).has_errors |= true;
@@ -762,7 +752,7 @@ fn build_constraints(
 
             let comparison_id = statics.infer.add_comparison(set, got, wanted);
 
-            ctx.additional_info.insert((ctx.ast_variant_id, node.id), AdditionalInfoKind::IsExpression(comparison_id));
+            statics.additional_info.insert((ctx.ast_variant_id, node.id), AdditionalInfoKind::IsExpression(comparison_id));
 
             statics.infer.set_type(node_type_id, TypeKind::Bool, Args([]));
         }
@@ -1221,7 +1211,7 @@ fn build_constraints(
     node_type_id
 }
 
-fn extract_name(statics: &Statics<'_, '_>, ctx: &Context<'_>, node: NodeView<'_>) -> Option<(Ustr, Location)> {
+fn extract_name(statics: &Statics<'_, '_>, ctx: &Context, node: NodeView<'_>) -> Option<(Ustr, Location)> {
     match node.kind {
         NodeKind::Local { local_id, .. } => {
             Some((statics.locals.get(local_id).name, node.loc))
@@ -1243,7 +1233,7 @@ struct Tags {
 }
 
 impl Tags {
-    fn finish(self, statics: &mut Statics<'_, '_>, _ctx: &mut Context<'_>, set: ValueSetId) {
+    fn finish(self, statics: &mut Statics<'_, '_>, _ctx: &mut Context, set: ValueSetId) {
         if let Some((loc, _)) = self.calling_convention {
             statics.errors.error(loc, format!("Tag not valid for this kind of expression"));
             statics.infer.value_sets.get_mut(set).has_errors = true;
@@ -1268,7 +1258,7 @@ impl Tags {
 
 fn build_tags(
     statics: &mut Statics<'_, '_>,
-    ctx: &mut Context<'_>,
+    ctx: &mut Context,
     node: NodeView<'_>,
     set: ValueSetId,
 ) -> Tags {
@@ -1311,11 +1301,9 @@ fn build_tags(
 
                 let mut sub_ctx = Context {
                     // TODO: Think about whether this is correct or not
-                    emit_deps: ctx.emit_deps,
-                    poly_params: ctx.poly_params,
+                    emit_deps: DependencyList::new(),
                     runs: ctx.runs.combine(ExecutionTime::Typing),
                     ast_variant_id: ctx.ast_variant_id,
-                    additional_info: ctx.additional_info,
                     inside_type_comparison: false,
                     // TODO: We don't ever use this thing....
                     target_checker: TargetChecker::default(),
@@ -1323,6 +1311,8 @@ fn build_tags(
                 let sub_set = statics.infer.value_sets.add(WaitingOnTypeInferrence::None);
 
                 build_constraints(statics, &mut sub_ctx, inner, sub_set);
+
+                debug_assert!(sub_ctx.emit_deps.is_empty());
 
                 let builtin_id = statics.program
                     .get_member_id_from_builtin(Builtin::Target)
@@ -1366,7 +1356,7 @@ fn build_tags(
 
 fn build_function_declaration(
     statics: &mut Statics<'_, '_>,
-    ctx: &mut Context<'_>,
+    ctx: &mut Context,
     node: NodeView<'_>,
     set: ValueSetId,
     mut wants_meta_data: Option<&mut FunctionMetaData>,
@@ -1377,14 +1367,10 @@ fn build_function_declaration(
 
     let node_type_id = TypeId::Node(ctx.ast_variant_id, node.id);
 
-    let mut emit_deps = DependencyList::new();
-
     let mut sub_ctx = Context {
-        emit_deps: &mut emit_deps,
-        poly_params: ctx.poly_params,
+        emit_deps: DependencyList::new(),
         runs: ctx.runs.combine(ExecutionTime::RuntimeFunc),
         ast_variant_id: ctx.ast_variant_id,
-        additional_info: ctx.additional_info,
         inside_type_comparison: false,
         target_checker: TargetChecker::default(),
     };
@@ -1470,7 +1456,7 @@ fn build_function_declaration(
     });
 
     let value_set = statics.infer.value_sets.get_mut(sub_set);
-    let old_set = value_set.emit_deps.replace(emit_deps);
+    let old_set = value_set.emit_deps.replace(sub_ctx.emit_deps);
     let old_target_checker = value_set.target_checker.replace(target_checker);
     debug_assert!(old_set.is_none());
     debug_assert!(old_target_checker.is_none());
@@ -1478,7 +1464,7 @@ fn build_function_declaration(
 
 fn build_unique_type(
     statics: &mut Statics<'_, '_>,
-    ctx: &mut Context<'_>,
+    ctx: &mut Context,
     node: NodeView<'_>,
     set: ValueSetId,
     marker: UniqueTypeMarker,
@@ -1524,7 +1510,7 @@ fn build_unique_type(
 
 fn build_type(
     statics: &mut Statics<'_, '_>,
-    ctx: &mut Context<'_>,
+    ctx: &mut Context,
     node: NodeView<'_>,
     set: ValueSetId,
 ) -> type_infer::ValueId {
@@ -1581,7 +1567,7 @@ fn build_type(
             ctx.runs = old_runs;
         }
         NodeKind::PolymorphicArgument(index) => {
-            let poly_param = &mut ctx.poly_params[index];
+            let poly_param = &mut statics.poly_params[index];
             poly_param.used_as_type.get_or_insert(node_loc);
             if poly_param.check_for_dual_purpose(statics.errors) {
                 statics.infer.value_sets.get_mut(set).has_errors |= true;
@@ -1720,7 +1706,7 @@ fn build_type(
 
 fn build_declarative_lvalue(
     statics: &mut Statics<'_, '_>,
-    ctx: &mut Context<'_>,
+    ctx: &mut Context,
     node: NodeView<'_>,
     set: ValueSetId,
     is_declaring: bool,
@@ -1862,7 +1848,7 @@ fn build_declarative_lvalue(
 /// If this strategy doesn't work however, we fallback to read-only.
 fn build_lvalue(
     statics: &mut Statics<'_, '_>,
-    ctx: &mut Context<'_>,
+    ctx: &mut Context,
     node: NodeView<'_>,
     set: ValueSetId,
     can_reference_temporaries: bool,
@@ -1959,7 +1945,7 @@ struct TypeSystemConstant {
 // The first return is the type of the constant, the second return is the value id of that constant, where the constant will later be stored.
 fn build_inferrable_constant_value(
     statics: &mut Statics<'_, '_>,
-    ctx: &mut Context<'_>,
+    ctx: &mut Context,
     node: NodeView<'_>,
     set: ValueSetId,
 ) -> TypeSystemConstant {
@@ -1971,7 +1957,7 @@ fn build_inferrable_constant_value(
         NodeKind::PolymorphicArgument(index) => {
             let constant_value = statics.infer.add_unknown_type_with_set(set);
             let constant = statics.infer.add_type(TypeKind::Constant, Args([(node_type_id, Reason::temp(node_loc)), (constant_value, Reason::temp(node_loc))]));
-            let poly_param = &mut ctx.poly_params[index];
+            let poly_param = &mut statics.poly_params[index];
             poly_param.used_as_value.get_or_insert(node_loc);
             if poly_param.check_for_dual_purpose(statics.errors) {
                 statics.infer.value_sets.get_mut(set).has_errors |= true;
@@ -2002,11 +1988,9 @@ fn build_inferrable_constant_value(
             // We can't figure it out in a clever way, so just compile time execute the node as a constant.
             let mut sub_ctx = Context {
                 // TODO: Think about whether this is correct or not
-                emit_deps: ctx.emit_deps,
-                poly_params: ctx.poly_params,
+                emit_deps: DependencyList::new(),
                 runs: ctx.runs.combine(ExecutionTime::Typing),
                 ast_variant_id: ctx.ast_variant_id,
-                additional_info: ctx.additional_info,
                 inside_type_comparison: false,
                 // TODO: We don't ever use this thing....
                 target_checker: TargetChecker::default(),
@@ -2014,6 +1998,8 @@ fn build_inferrable_constant_value(
             let sub_set = statics.infer.value_sets.add(WaitingOnTypeInferrence::None);
 
             let constant_type_id = build_constraints(statics, &mut sub_ctx, node, sub_set);
+            debug_assert!(sub_ctx.emit_deps.is_empty());
+
             let constant_value = statics.infer.add_unknown_type_with_set(set);
             let value_id = statics.infer.add_type(TypeKind::Constant, Args([(constant_type_id, Reason::temp(node_loc)), (constant_value, Reason::temp(node_loc))]));
             // TODO: Is this necessary?
@@ -2039,7 +2025,7 @@ fn build_inferrable_constant_value(
 
 fn build_with_metadata(
     statics: &mut Statics<'_, '_>,
-    ctx: &mut Context<'_>,
+    ctx: &mut Context,
     node: NodeView<'_>,
     set: ValueSetId,
 ) -> Option<Arc<MemberMetaData>> {
@@ -2074,7 +2060,7 @@ fn build_with_metadata(
 
 fn build_function_call<'a>(
     statics: &mut Statics<'_, '_>,
-    ctx: &mut Context<'_>,
+    ctx: &mut Context,
     node_id: NodeId,
     node_type_id: TypeId,
     node_loc: Location,
@@ -2222,7 +2208,7 @@ fn build_function_call<'a>(
         // Specify that the caller has to be a function type
         let type_id = statics.infer.add_type(TypeKind::Function, Args(typer_args.build()));
         statics.infer.set_value_set(type_id, set);
-        ctx.additional_info.insert((ctx.ast_variant_id, node_id), AdditionalInfoKind::FunctionCall(function_arg_usage));
+        statics.additional_info.insert((ctx.ast_variant_id, node_id), AdditionalInfoKind::FunctionCall(function_arg_usage));
         statics.infer
             .set_equal(calling_type_id, type_id, Reason::new(node_loc, ReasonKind::FunctionCall));
     } else {
@@ -2258,7 +2244,7 @@ fn build_function_call<'a>(
 
 fn build_global<'a>(
     statics: &mut Statics<'_, '_>,
-    ctx: &mut Context<'_>,
+    ctx: &mut Context,
     node_id: NodeId,
     // TODO: Why are all of these separate instead of just NodeView?
     node: &Node,
@@ -2397,7 +2383,7 @@ fn build_global<'a>(
                 }
             }
 
-            ctx.additional_info.insert((ctx.ast_variant_id, node_id), AdditionalInfoKind::Monomorphised(id));
+            statics.additional_info.insert((ctx.ast_variant_id, node_id), AdditionalInfoKind::Monomorphised(id));
         }
     }
 
