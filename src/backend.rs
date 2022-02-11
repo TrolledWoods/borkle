@@ -27,7 +27,7 @@ impl Backends {
         }
     }
 
-    pub fn emit(self, program: &Program, mut emitters: Vec<BackendEmitters>) {
+    pub fn emit(self, program: &Program) {
         for backend in self.backends.into_iter().rev() {
             match backend {
                 Backend::C { path: _, compile_output: _ } => {
@@ -67,24 +67,10 @@ impl Backends {
                     }*/
                 }
                 Backend::Ir { path } => {
-                    let ir_emitters = emitters.iter_mut()
-                        .map(|v| v.emitters.pop())
-                        .map(|v| match v {
-                            Some(BackendEmitter::Ir(emitter)) => emitter,
-                            _ => unreachable!(),
-                        })
-                        .collect();
-                    ir::emit(program, &path, ir_emitters);
+                    ir::emit(program, &path);
                 }
                 Backend::X64 { path } => {
-                    let ir_emitters = emitters.iter_mut()
-                        .map(|v| v.emitters.pop())
-                        .map(|v| match v {
-                            Some(BackendEmitter::X64(emitter)) => emitter,
-                            _ => unreachable!(),
-                        })
-                        .collect();
-                    x64::emit(program, &path, ir_emitters);
+                    x64::emit(program, &path);
 
                     let entry_point = program.get_entry_point().unwrap();
 

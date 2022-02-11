@@ -616,8 +616,6 @@ fn subset_was_completed(statics: &mut Statics<'_, '_>, ast: &mut Ast, waiting_on
                 statics.program.add_external_symbol(symbol_name);
 
                 let routine = Routine::Extern(symbol_name);
-
-                statics.thread_context.emitters.emit_routine(statics.program, function_id, &routine);
                 statics.program.set_routine_of_function(function_id, Vec::new(), routine);
             } else {
                 match time {
@@ -675,9 +673,6 @@ fn subset_was_completed(statics: &mut Statics<'_, '_>, ast: &mut Ast, waiting_on
                 Vec::new(),
                 crate::ir::Routine::Builtin(function),
             );
-
-            let routine = statics.program.get_routine(function_id).unwrap();
-            statics.thread_context.emitters.emit_routine(statics.program, function_id, &routine);
 
             statics.additional_info.insert((ast_variant_id, node_id), AdditionalInfoKind::Function(function_id));
             statics.infer.value_sets.unlock(parent_set);

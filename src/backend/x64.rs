@@ -44,54 +44,37 @@ impl Emitter {
     }
 }
 
-pub fn emit(program: &Program, file_path: &Path, mut emitters: Vec<Emitter>) {
-    emitters.clear();
+pub fn emit(program: &Program, file_path: &Path) {
     let routines = program.get_routines();
-    let mut new_emitter = Emitter::default();
+    // TODO: Relic from a long bygone past, please change.
+    let mut emitter = Emitter::default();
     for (id, routine) in routines.iter() {
-        new_emitter.emit_routine(program, id, routine);
+        emitter.emit_routine(program, id, routine);
     }
     drop(routines);
-
-    emitters.push(new_emitter);
 
     let mut out = String::new();
 
     writeln!(&mut out, "\nsection .data").unwrap();
     emit_constants(&mut out, program);
 
-    for emitter in &emitters {
-        write!(&mut out, "{}", emitter.extern_defs).unwrap();
-    }
-
-    // @Performance: This is not fast!
-    let files: UstrSet = emitters.iter().flat_map(|v| v.files.keys()).copied().collect();
+    write!(&mut out, "{}", emitter.extern_defs).unwrap();
 
     writeln!(&mut out, "\nsection .text").unwrap();
 
-    for file in &files {
-        for emitter in &emitters {
-            if let Some(file_contents) = emitter.files.get(file) {
-                write!(&mut out, "{}", file_contents.text).unwrap();
-            }
-        }
+    for (_, file_contents) in &emitter.files {
+        write!(&mut out, "{}", file_contents.text).unwrap();
     }
 
     writeln!(&mut out, "\nsection .pdata rdata align=4").unwrap();
 
-    for file in &files {
-        for emitter in &emitters {
-            if let Some(file_contents) = emitter.files.get(file) {
-                write!(&mut out, "{}", file_contents.p_data).unwrap();
-            }
-        }
+    for (_, file_contents) in &emitter.files {
+        write!(&mut out, "{}", file_contents.p_data).unwrap();
     }
 
     writeln!(&mut out, "\nsection .xdata rdata align=8").unwrap();
 
-    for emitter in &emitters {
-        write!(&mut out, "{}", emitter.x_data).unwrap();
-    }
+    write!(&mut out, "{}", emitter.x_data).unwrap();
 
     if let Err(_) = std::fs::write(file_path, &out) {
         eprintln!("Failed to write x64 assembly to {}", file_path.display());

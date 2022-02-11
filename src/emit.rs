@@ -160,10 +160,7 @@ pub fn emit_function_declaration<'a>(
         result_layout,
     });
 
-    if ctx.program.set_routine_of_function(function_id, ctx.calling, routine) {
-        let routine = ctx.program.get_routine(function_id);
-        ctx.thread_context.emitters.emit_routine(ctx.program, function_id, &routine.unwrap());
-    }
+    ctx.program.set_routine_of_function(function_id, ctx.calling, routine);
 }
 
 fn emit_node<'a>(ctx: &mut Context<'a, '_>, mut node: NodeView<'a>) -> (Value, TypedLayout) {

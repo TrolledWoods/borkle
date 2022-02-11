@@ -74,7 +74,7 @@ fn main() {
             program.add_file(&compiler_path, true);
         }
 
-        let (backend_emitters, mut errors) = thread_pool::run(&mut program, options.num_threads);
+        let mut errors = thread_pool::run(&mut program, options.num_threads);
 
         let frontend_time = frontend_timer.elapsed();
 
@@ -95,7 +95,7 @@ fn main() {
         let backend_timer = std::time::Instant::now();
 
         let backends = std::mem::take(&mut program.backends);
-        backends.emit(&program, backend_emitters);
+        backends.emit(&program);
 
         let backend_time = backend_timer.elapsed();
 

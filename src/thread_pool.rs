@@ -2,7 +2,6 @@ use crate::dependencies::{DepKind, DependencyList, MemberDep};
 use crate::errors::ErrorCtx;
 use crate::location::Location;
 use crate::type_infer::{AstVariantId, ValueId as TypeId};
-use crate::backend::BackendEmitters;
 use crate::program::{Program, ScopeId, Task, MemberKind};
 use bumpalo::Bump;
 // use crossbeam::queue::SegQueue;
@@ -35,7 +34,7 @@ impl WorkPile {
 }
 
 /// Tries to evaluate everything in the program
-pub fn run(program: &mut Program, num_threads: usize) -> (Vec<BackendEmitters>, ErrorCtx) {
+pub fn run(program: &mut Program, num_threads: usize) -> ErrorCtx {
     let mut allocators: Vec<_> = std::iter::repeat_with(Bump::new)
         .take(num_threads)
         .collect();
@@ -53,19 +52,16 @@ pub fn run(program: &mut Program, num_threads: usize) -> (Vec<BackendEmitters>, 
         }));
     }
 
-    let (thread_context, mut errors) = worker(allocators.next().unwrap(), borrow_program);
+    let (_thread_context, mut errors) = worker(allocators.next().unwrap(), borrow_program);
 
-    let mut emitters = Vec::with_capacity(num_threads);
-    emitters.push(thread_context.emitters);
     for thread in threads {
-        let (ctx, other_errors) = thread.join().unwrap();
-        emitters.push(ctx.emitters);
+        let (_ctx, other_errors) = thread.join().unwrap();
         errors.join(other_errors);
     }
 
     program.check_for_completion(&mut errors);
 
-    (emitters, errors)
+    errors
 }
 
 /// Data that is local to each thread. This is useful to have because
@@ -73,7 +69,6 @@ pub fn run(program: &mut Program, num_threads: usize) -> (Vec<BackendEmitters>, 
 /// combine all the collective thread data at the end of the compilation.
 pub struct ThreadContext<'a> {
     pub alloc: &'a mut Bump,
-    pub emitters: BackendEmitters,
 }
 
 fn worker<'a>(alloc: &'a mut Bump, program: &'a Program) -> (ThreadContext<'a>, ErrorCtx) {
@@ -84,7 +79,6 @@ fn worker<'a>(alloc: &'a mut Bump, program: &'a Program) -> (ThreadContext<'a>, 
 
     let mut thread_context = ThreadContext {
         alloc,
-        emitters: program.backends.create_emitters(),
     };
 
     loop {

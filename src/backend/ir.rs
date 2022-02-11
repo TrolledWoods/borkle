@@ -22,7 +22,7 @@ impl Emitter {
     }
 }
 
-pub fn emit(program: &Program, file_path: &Path, emitters: Vec<Emitter>) {
+pub fn emit(program: &Program, file_path: &Path) {
     use std::io::Write;
 
     let Ok(mut file) = std::fs::File::create(file_path) else {
@@ -33,10 +33,15 @@ pub fn emit(program: &Program, file_path: &Path, emitters: Vec<Emitter>) {
     let entry_id = program.get_entry_point().unwrap();
     let _ = writeln!(&mut file, "entry: function_{}", usize::from(entry_id)).unwrap();
 
-    for emitter in &emitters {
-        if let Err(_) = write!(&mut file, "{}", emitter.text) {
-            println!("Failed to write ir to output file, {}", file_path.display());
-        }
+    // TODO: This should be cleaned up, old system
+    let mut emitter = Emitter::default();
+    let routines = program.get_routines();
+    for (id, routine) in routines.iter() {
+        emitter.emit_routine(program, id, routine);
+    }
+    drop(routines);
+    if let Err(_) = write!(&mut file, "{}", emitter.text) {
+        println!("Failed to write ir to output file, {}", file_path.display());
     }
 }
 
