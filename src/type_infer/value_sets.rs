@@ -15,7 +15,6 @@ impl ValueSets {
             has_errors: false,
             related_nodes: Vec::new(),
             ctx: None,
-            target_checker: None,
             waiting_on_completion,
             has_been_computed: false,
         });
@@ -67,7 +66,6 @@ pub struct ValueSet {
     // have to do with sub-sections of an Ast that can be emitted separately.
     pub waiting_on_completion: crate::typer::WaitingOnTypeInferrence,
     pub ctx: Option<crate::typer::AstVariantContext>,
-    pub target_checker: Option<crate::typer::TargetChecker>,
 
     pub has_been_computed: bool,
 }

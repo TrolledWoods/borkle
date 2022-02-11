@@ -87,6 +87,7 @@ pub struct YieldData {
     infer: TypeSystem,
     poly_params: Vec<PolyParam>,
     needs_explaining: Vec<(NodeId, type_infer::ValueId)>,
+    target_checks: Vec<TargetCheck>,
 }
 
 impl YieldData {
@@ -113,6 +114,10 @@ struct Statics<'a, 'b> {
     needs_explaining: &'a mut Vec<(NodeId, type_infer::ValueId)>,
     poly_params: &'a mut Vec<PolyParam>,
     additional_info: &'a mut AdditionalInfo,
+
+    // TODO: this should really be moved to `AstVariantContext`, I made a mistake putting it here....
+    // Since we probably want to check this before we compute any value set... why are value sets and ast variants separate again?
+    target_checks: &'a mut Vec<TargetCheck>,
 }
 
 /// Things that each ast variant has. 
@@ -128,7 +133,7 @@ struct Context {
     runs: ExecutionTime,
     inside_type_comparison: bool,
     ast_variant_id: AstVariantId,
-    target_checker: TargetChecker,
+    target: Option<TypeId>,
 }
 
 #[derive(Clone)]
@@ -136,12 +141,6 @@ struct TargetCheck {
     loc: Location,
     subset: TypeId,
     superset: TypeId,
-}
-
-#[derive(Default, Clone)]
-pub struct TargetChecker {
-    stack: Vec<TypeId>,
-    checks: Vec<TargetCheck>,
 }
 
 pub fn process_ast<'a>(
@@ -186,6 +185,7 @@ pub fn begin<'a>(
 
     let mut needs_explaining = Vec::new();
     let mut additional_info = Default::default();
+    let mut target_checks = Vec::new();
 
     let mut statics = Statics {
         thread_context,
@@ -196,6 +196,7 @@ pub fn begin<'a>(
         needs_explaining: &mut needs_explaining,
         poly_params: &mut poly_params,
         additional_info: &mut additional_info,
+        target_checks: &mut target_checks,
     };
 
     let mut ast_variant_ctx = AstVariantContext {
@@ -206,7 +207,7 @@ pub fn begin<'a>(
         runs: ExecutionTime::RuntimeFunc,
         ast_variant_id: AstVariantId::root(),
         inside_type_comparison: false,
-        target_checker: TargetChecker::default(),
+        target: None,
     };
 
     // Build the type relationships between nodes.
@@ -239,10 +240,8 @@ pub fn begin<'a>(
         )
     };
 
-    let target_checker = ctx.target_checker;
     let value_set = infer.value_sets.get_mut(root_set_id);
     value_set.ctx = Some(ast_variant_ctx);
-    value_set.target_checker = Some(target_checker);
 
     (
         YieldData {
@@ -254,6 +253,7 @@ pub fn begin<'a>(
             poly_params,
             needs_explaining,
             additional_info,
+            target_checks,
         },
         meta_data,
     )
@@ -265,6 +265,7 @@ pub fn solve<'a>(
     program: &'a Program,
     data: &mut YieldData,
 ) {
+    let mut target_checks = Vec::new();
     let mut statics = Statics {
         thread_context,
         errors,
@@ -274,13 +275,14 @@ pub fn solve<'a>(
         needs_explaining: &mut data.needs_explaining,
         poly_params: &mut data.poly_params,
         additional_info: &mut data.additional_info,
+        target_checks: &mut target_checks,
     };
     let mut ctx = Context {
         // This is only used in build_constraints, what it's set to doesn't matter
         runs: ExecutionTime::Never,
         ast_variant_id: AstVariantId::root(),
         inside_type_comparison: false,
-        target_checker: TargetChecker::default(),
+        target: None,
     };
 
     loop {
@@ -305,15 +307,7 @@ pub fn solve<'a>(
             value_set.has_been_computed = true;
             let waiting_on = std::mem::replace(&mut value_set.waiting_on_completion, WaitingOnTypeInferrence::None);
 
-            let mut has_errors = value_set.has_errors;
-            
-            let value_set = statics.infer.value_sets.get(value_set_id);
-            if let Some(target_checker) = &value_set.target_checker {
-                if validate(statics.infer, statics.errors, target_checker) {
-                    has_errors = true;
-                }
-            }
-
+            let has_errors = value_set.has_errors;
             if !has_errors {
                 subset_was_completed(&mut statics, &mut ctx, &mut data.ast, waiting_on, value_set_id);
             }
@@ -427,7 +421,7 @@ fn subset_was_completed(statics: &mut Statics<'_, '_>, ctx: &Context, ast: &mut 
                 ast_variant_id: AstVariantId::invalid(),
                 inside_type_comparison: false,
                 // TODO: This is incorrect, we're going to change things up a lot later.
-                target_checker: TargetChecker::default(),
+                target: None,
             };
 
             let mut variant_ids = Vec::with_capacity(iterator_args.len());
@@ -486,7 +480,7 @@ fn subset_was_completed(statics: &mut Statics<'_, '_>, ctx: &Context, ast: &mut 
                 ast_variant_id,
                 inside_type_comparison: false,
                 // TODO: This is not correct...
-                target_checker: TargetChecker::default(),
+                target: None,
             };
 
             let child_type = build_constraints(statics, &mut sub_ast_variant_ctx, &mut sub_ctx, ast.get(emitting), parent_set);
@@ -668,10 +662,10 @@ fn subset_was_completed(statics: &mut Statics<'_, '_>, ctx: &Context, ast: &mut 
     }
 }
 
-fn validate(types: &TypeSystem, errors: &mut ErrorCtx, target_checker: &TargetChecker) -> bool {
+fn validate(types: &TypeSystem, errors: &mut ErrorCtx, target_checks: &Vec<TargetCheck>) -> bool {
     let mut has_errors = false;
 
-    for check in &target_checker.checks {
+    for check in target_checks {
         let &TypeKind::Target { min: subset, max: _ } = types.get(check.subset).kind() else { panic!() };
         let &TypeKind::Target { min: superset, max: _ } = types.get(check.superset).kind() else { panic!() };
 
@@ -1130,16 +1124,14 @@ fn build_constraints(
                 let required_type = statics.infer.add_type(TypeKind::Empty, Args([]));
                 statics.infer.set_equal(node_type_id, required_type, Reason::temp(tag_loc));
 
-                if let Some(_parent) = ctx.target_checker.stack.last() {
-                    /*
-                    ctx.target_checker.checks.push(TargetCheck {
+                if let Some(parent) = ctx.target {
+                    statics.target_checks.push(TargetCheck {
                         loc: tag_loc,
                         subset: target,
                         superset: parent,
                     });
-                    */
                 }
-                sub_ctx.target_checker.stack.push(target);
+                sub_ctx.target = Some(target);
             }
             tags.finish(statics, ast_variant_ctx, &sub_ctx, set);
 
@@ -1304,7 +1296,7 @@ fn build_tags(
                     ast_variant_id: ctx.ast_variant_id,
                     inside_type_comparison: false,
                     // TODO: We don't ever use this thing....
-                    target_checker: TargetChecker::default(),
+                    target: None,
                 };
                 let sub_set = statics.infer.value_sets.add(WaitingOnTypeInferrence::None);
 
@@ -1373,7 +1365,7 @@ fn build_function_declaration(
         runs: ctx.runs.combine(ExecutionTime::RuntimeFunc),
         ast_variant_id: ctx.ast_variant_id,
         inside_type_comparison: false,
-        target_checker: TargetChecker::default(),
+        target: None,
     };
 
     let mut children = node.children.into_iter();
@@ -1416,7 +1408,7 @@ fn build_function_declaration(
 
     if let Some((loc, target)) = tags.target.take() {
         function_args.set_target((target, Reason::temp(loc)));
-        sub_ctx.target_checker.stack.push(target);
+        sub_ctx.target = Some(target);
     } else {
         let target = statics.infer.add_type(TypeKind::Target { min: TARGET_ALL, max: TARGET_ALL }, Args([]));
         function_args.set_target((target, Reason::temp(node.loc)));
@@ -1429,8 +1421,6 @@ fn build_function_declaration(
         statics.infer
             .set_equal(body_type_id, returns_type_id, Reason::new(returns_loc, ReasonKind::FunctionDeclReturned));
     };
-
-    let target_checker = sub_ctx.target_checker;
 
     if let Some((loc, calling_convention)) = tags.calling_convention.take() {
         function_args.set_calling_convention((calling_convention, Reason::temp(loc)));
@@ -1458,9 +1448,7 @@ fn build_function_declaration(
 
     let value_set = statics.infer.value_sets.get_mut(sub_set);
     let old_ast_variant_ctx = value_set.ctx.replace(sub_ast_variant_ctx);
-    let old_target_checker = value_set.target_checker.replace(target_checker);
     debug_assert!(old_ast_variant_ctx.is_none());
-    debug_assert!(old_target_checker.is_none());
 }
 
 fn build_unique_type(
@@ -1995,7 +1983,7 @@ fn build_inferrable_constant_value(
                 ast_variant_id: ctx.ast_variant_id,
                 inside_type_comparison: false,
                 // TODO: We don't ever use this thing....
-                target_checker: TargetChecker::default(),
+                target: None,
             };
             let sub_set = statics.infer.value_sets.add(WaitingOnTypeInferrence::None);
 
@@ -2201,14 +2189,12 @@ fn build_function_call<'a>(
         let target = statics.infer.add_unknown_type_with_set(set);
         typer_args.set_target((target, Reason::temp(node_loc)));
 
-        if let Some(_parent) = ctx.target_checker.stack.last() {
-            /*
-            ctx.target_checker.checks.push(TargetCheck {
+        if let Some(parent) = ctx.target {
+            statics.target_checks.push(TargetCheck {
                 loc: node_loc,
                 subset: parent,
                 superset: target,
             });
-            */
         }
 
         // Specify that the caller has to be a function type
@@ -2232,14 +2218,12 @@ fn build_function_call<'a>(
         let target = statics.infer.add_unknown_type_with_set(set);
         typer_args.set_target((target, Reason::temp(node_loc)));
 
-        if let Some(_parent) = ctx.target_checker.stack.last() {
-            /*
-            ctx_.target_checker.checks.push(TargetCheck {
+        if let Some(parent) = ctx.target {
+            statics.target_checks.push(TargetCheck {
                 loc: node_loc,
                 subset: parent,
                 superset: target,
             });
-            */
         }
 
         // Specify that the caller has to be a function type
