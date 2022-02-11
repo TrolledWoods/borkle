@@ -14,7 +14,7 @@ impl ValueSets {
             uncomputed_values: 0,
             has_errors: false,
             related_nodes: Vec::new(),
-            emit_deps: None,
+            ctx: None,
             target_checker: None,
             waiting_on_completion,
             has_been_computed: false,
@@ -66,7 +66,7 @@ pub struct ValueSet {
     // @Cleanup: I need to think about what a `ValueSet` is supposed to be, but the idea is that they
     // have to do with sub-sections of an Ast that can be emitted separately.
     pub waiting_on_completion: crate::typer::WaitingOnTypeInferrence,
-    pub emit_deps: Option<crate::dependencies::DependencyList>,
+    pub ctx: Option<crate::typer::AstVariantContext>,
     pub target_checker: Option<crate::typer::TargetChecker>,
 
     pub has_been_computed: bool,

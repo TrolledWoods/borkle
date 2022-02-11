@@ -116,17 +116,19 @@ struct Statics<'a, 'b> {
 }
 
 /// Things that each ast variant has. 
-struct AstVariantContext {
+// TODO: I don't really want default to be implemented for this.
+#[derive(Default, Clone)]
+pub struct AstVariantContext {
     /// Dependencies necessary for being able to emit code for this output.
     emit_deps: DependencyList,
 }
 
-/// 
+#[derive(Clone)]
 struct Context {
     runs: ExecutionTime,
     inside_type_comparison: bool,
-    target_checker: TargetChecker,
     ast_variant_id: AstVariantId,
+    target_checker: TargetChecker,
 }
 
 #[derive(Clone)]
@@ -138,8 +140,8 @@ struct TargetCheck {
 
 #[derive(Default, Clone)]
 pub struct TargetChecker {
-    checks: Vec<TargetCheck>,
     stack: Vec<TypeId>,
+    checks: Vec<TargetCheck>,
 }
 
 pub fn process_ast<'a>(
@@ -239,7 +241,7 @@ pub fn begin<'a>(
 
     let target_checker = ctx.target_checker;
     let value_set = infer.value_sets.get_mut(root_set_id);
-    value_set.emit_deps = Some(ast_variant_ctx.emit_deps);
+    value_set.ctx = Some(ast_variant_ctx);
     value_set.target_checker = Some(target_checker);
 
     (
@@ -353,9 +355,9 @@ pub fn finish<'a>(
         return Err(());
     }
 
-    let emit_deps = from.infer.value_sets.get_mut(from.root_set_id).emit_deps.take().unwrap();
+    let ast_variant_ctx = from.infer.value_sets.get_mut(from.root_set_id).ctx.take().unwrap();
 
-    Ok(Ok((emit_deps, from.locals, from.infer, from.ast, from.root_value_id, from.additional_info)))
+    Ok(Ok((ast_variant_ctx.emit_deps, from.locals, from.infer, from.ast, from.root_value_id, from.additional_info)))
 }
 
 fn subset_was_completed(statics: &mut Statics<'_, '_>, ctx: &mut Context, ast: &mut Ast, waiting_on: WaitingOnTypeInferrence, set: ValueSetId) {
@@ -418,11 +420,7 @@ fn subset_was_completed(statics: &mut Statics<'_, '_>, ctx: &mut Context, ast: &
                 iterator_type.args().to_vec()
             };
 
-            let emit_deps = statics.infer.value_sets.get_mut(parent_set).emit_deps.take().unwrap_or_default();
-
-            let mut sub_ast_variant_ctx = AstVariantContext {
-                emit_deps,
-            };
+            let mut sub_ast_variant_ctx = statics.infer.value_sets.get_mut(parent_set).ctx.take().unwrap_or_default();
 
             let mut sub_ctx = Context {
                 runs,
@@ -446,7 +444,7 @@ fn subset_was_completed(statics: &mut Statics<'_, '_>, ctx: &mut Context, ast: &
                 build_constraints(statics, &mut sub_ast_variant_ctx, &mut sub_ctx, body, parent_set);
             }
 
-            statics.infer.value_sets.get_mut(parent_set).emit_deps = Some(sub_ast_variant_ctx.emit_deps);
+            statics.infer.value_sets.get_mut(parent_set).ctx = Some(sub_ast_variant_ctx);
             statics.additional_info.insert((ast_variant_id, node_id), AdditionalInfoKind::ConstForAstVariants { referenced, variant_ids });
 
             statics.infer.value_sets.unlock(parent_set);
@@ -481,10 +479,8 @@ fn subset_was_completed(statics: &mut Statics<'_, '_>, ctx: &mut Context, ast: &
             
             let emitting = if result { true_body } else { false_body };
 
-            let emit_deps = statics.infer.value_sets.get_mut(parent_set).emit_deps.take().unwrap_or_default();
-            let mut sub_ast_variant_ctx = AstVariantContext {
-                emit_deps,
-            };
+            let mut sub_ast_variant_ctx = statics.infer.value_sets.get_mut(parent_set).ctx.take().unwrap_or_default();
+
             let mut sub_ctx = Context {
                 runs,
                 ast_variant_id,
@@ -494,7 +490,7 @@ fn subset_was_completed(statics: &mut Statics<'_, '_>, ctx: &mut Context, ast: &
             };
 
             let child_type = build_constraints(statics, &mut sub_ast_variant_ctx, &mut sub_ctx, ast.get(emitting), parent_set);
-            statics.infer.value_sets.get_mut(parent_set).emit_deps = Some(sub_ast_variant_ctx.emit_deps);
+            statics.infer.value_sets.get_mut(parent_set).ctx = Some(sub_ast_variant_ctx);
             statics.infer.set_equal(TypeId::Node(ast_variant_id, node_id), child_type, Reason::temp_zero());
 
             statics.additional_info.insert((ast_variant_id, node_id), AdditionalInfoKind::ConstIfResult(result));
@@ -538,12 +534,12 @@ fn subset_was_completed(statics: &mut Statics<'_, '_>, ctx: &mut Context, ast: &
                     // This will never be emitted anyway so it doesn't matter if the value isn't accessible.
                     ExecutionTime::Never => {},
                     ExecutionTime::RuntimeFunc => {
-                        let emit_deps = statics.infer.value_sets.get_mut(parent_set).emit_deps.as_mut().unwrap();
-                        emit_deps.add(node_loc, DepKind::Member(member_id, MemberDep::Value));
+                        let sub_ast_variant_ctx = statics.infer.value_sets.get_mut(parent_set).ctx.as_mut().unwrap();
+                        sub_ast_variant_ctx.emit_deps.add(node_loc, DepKind::Member(member_id, MemberDep::Value));
                     }
                     ExecutionTime::Emission => {
-                        let emit_deps = statics.infer.value_sets.get_mut(parent_set).emit_deps.as_mut().unwrap();
-                        emit_deps.add(node_loc, DepKind::Member(member_id, MemberDep::ValueAndCallableIfFunction));
+                        let sub_ast_variant_ctx = statics.infer.value_sets.get_mut(parent_set).ctx.as_mut().unwrap();
+                        sub_ast_variant_ctx.emit_deps.add(node_loc, DepKind::Member(member_id, MemberDep::ValueAndCallableIfFunction));
                     }
                     ExecutionTime::Typing => {
                         // The parser should have already made sure the value is accessible. We will run this node
@@ -596,7 +592,7 @@ fn subset_was_completed(statics: &mut Statics<'_, '_>, ctx: &mut Context, ast: &
             let function_id = statics.program.insert_function(node_loc);
 
             let type_ = statics.infer.value_to_compiler_type(function_type);
-            let emit_deps = statics.infer.value_sets.get_mut(set).emit_deps.take().unwrap();
+            let ast_variant_ctx = statics.infer.value_sets.get_mut(set).ctx.take().unwrap();
 
             if let Some(symbol_name) = is_extern {
                 statics.program.add_external_symbol(symbol_name);
@@ -609,11 +605,11 @@ fn subset_was_completed(statics: &mut Statics<'_, '_>, ctx: &mut Context, ast: &
                 match time {
                     ExecutionTime::Never => return,
                     ExecutionTime::RuntimeFunc | ExecutionTime::Emission => {
-                        let dependant_deps = statics.infer.value_sets.get_mut(parent_set).emit_deps.as_mut().unwrap();
+                        let dependant_deps = &mut statics.infer.value_sets.get_mut(parent_set).ctx.as_mut().unwrap().emit_deps;
                         dependant_deps.add(node_loc, DepKind::Callable(function_id));
 
                         statics.program.queue_task(
-                            emit_deps,
+                            ast_variant_ctx.emit_deps,
                             Task::EmitFunction(
                                 statics.locals.clone(),
                                 statics.infer.clone(),
@@ -1464,9 +1460,9 @@ fn build_function_declaration(
     });
 
     let value_set = statics.infer.value_sets.get_mut(sub_set);
-    let old_set = value_set.emit_deps.replace(sub_ast_variant_ctx.emit_deps);
+    let old_ast_variant_ctx = value_set.ctx.replace(sub_ast_variant_ctx);
     let old_target_checker = value_set.target_checker.replace(target_checker);
-    debug_assert!(old_set.is_none());
+    debug_assert!(old_ast_variant_ctx.is_none());
     debug_assert!(old_target_checker.is_none());
 }
 
