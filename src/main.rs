@@ -43,29 +43,9 @@ fn main() {
             return;
         }
 
-        let mut backends = Vec::new();
-        if options.output_c {
-            backends.push(backend::Backend::C {
-                path: options.c_path.clone(),
-                compile_output: options.compile_c,
-            });
-        }
-
-        if options.output_ir {
-            backends.push(backend::Backend::Ir {
-                path: options.ir_path.clone(),
-            });
-        }
-
-        if options.output_x64 {
-            backends.push(backend::Backend::X64 {
-                path: options.x64_path.clone(),
-            });
-        }
-
         let frontend_timer = std::time::Instant::now();
 
-        let mut program = program::Program::new(logger, options.clone(), backend::Backends { backends });
+        let mut program = program::Program::new(logger, options.clone());
         program.add_file(&options.file, false);
         
         if !options.no_builtins {
@@ -94,8 +74,13 @@ fn main() {
 
         let backend_timer = std::time::Instant::now();
 
-        let backends = std::mem::take(&mut program.backends);
-        backends.emit(&program);
+        if options.output_ir {
+            backend::emit_bir(&program, &options.ir_path);
+        }
+
+        if options.output_x64 {
+            backend::emit_x64(&program, &options.x64_path);
+        }
 
         let backend_time = backend_timer.elapsed();
 

@@ -8,6 +8,7 @@ create_exe(
 */
 
 #entry fn() {
+    print("Does things!\n");
     run_tests();
 };
 

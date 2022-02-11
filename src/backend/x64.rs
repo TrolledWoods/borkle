@@ -7,7 +7,7 @@ use std::path::Path;
 use std::fmt::{self, Write};
 use super::{Formatter, function_symbol, global_symbol};
 use std::cmp::{Ord, Ordering};
-use ustr::{UstrSet, UstrMap};
+use ustr::UstrMap;
 
 const DEBUG_SPAM: bool = false;
 

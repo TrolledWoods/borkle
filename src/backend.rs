@@ -1,178 +1,69 @@
-use std::path::PathBuf;
+use std::path::Path;
 use crate::program::{Program, FunctionId};
-use crate::ir::Routine;
 use std::fmt;
 
 // mod c;
 pub mod ir;
 mod x64;
 
-#[derive(Default)]
-pub struct Backends {
-    pub backends: Vec<Backend>,
+pub fn emit_bir(program: &Program, path: &Path) {
+    ir::emit(program, &path);
 }
 
-impl Backends {
-    pub fn create_emitters(&self) -> BackendEmitters {
-        let emitters = self.backends.iter().map(|v| {
-            match v {
-                Backend::C { .. } => BackendEmitter::C, // (c::Emitter::default()),
-                Backend::Ir { .. } => BackendEmitter::Ir(Default::default()),
-                Backend::X64 { .. } => BackendEmitter::X64(Default::default()),
-            }
-        }).collect();
+pub fn emit_x64(program: &Program, path: &Path) {
+    x64::emit(program, &path);
 
-        BackendEmitters {
-            emitters
+    let entry_point = program.get_entry_point().unwrap();
+
+    let mut command = std::process::Command::new("nasm");
+    command.arg(&path);
+    if program.arguments.debug_asm_output {
+        command.arg("--no-line");
+    }
+    command.arg("-fwin64");
+    command.arg("-g");
+    command.arg("-Fcv8");
+    command.stdout(std::process::Stdio::inherit());
+    command.stderr(std::process::Stdio::inherit());
+
+    println!("nasm command: {:?}", command);
+
+    match command.output() {
+        Ok(output) => {
+            use std::io::Write;
+            std::io::stdout().write_all(&output.stdout).unwrap();
+            std::io::stderr().write_all(&output.stderr).unwrap();
         }
+        Err(err) => println!("Failed to run nasm: {:?}", err),
     }
 
-    pub fn emit(self, program: &Program) {
-        for backend in self.backends.into_iter().rev() {
-            match backend {
-                Backend::C { path: _, compile_output: _ } => {
-                    todo!()
-                    /*let c_emitters = emitters.iter_mut()
-                        .map(|v| v.emitters.pop())
-                        .map(|v| match v {
-                            Some(BackendEmitter::C(emitter)) => emitter,
-                            _ => unreachable!(),
-                        })
-                        .collect();
-                    c::emit(program, &path, c_emitters);
+    let mut path = path.to_path_buf();
+    path.set_extension("obj");
 
-                    if compile_output {
-                        let mut command = std::process::Command::new(&program.arguments.c_compiler);
-                        command.arg(&path);
-                        command.arg("-o");
-                        command.arg(&program.arguments.exe_path);
-                        // command.arg("-O3");
-                        command.arg("-g");
-                        command.arg("-O0");
-                        command.arg("-Wno-everything");
+    // @Improvement: Use vswhere instead, right now just run `cargo run` in the Native Tools
+    // command prompt.
+    let mut command = std::process::Command::new("cl");
+    command.arg(&path);
+    command.arg("/Fetarget\\output.exe");
+    command.arg("/Zi");
+    command.arg("/nologo");
+    command.arg("/link");
+    command.arg("/release");
+    command.arg("/incremental:no");
+    command.arg("OneCore.lib");
+    command.arg("/debug");
+    command.arg("/subsystem:console");
+    command.arg(format!("/entry:function_{}", usize::from(entry_point)));
 
-                        command.stdout(std::process::Stdio::inherit());
-                        command.stderr(std::process::Stdio::inherit());
+    command.stdout(std::process::Stdio::inherit());
+    command.stderr(std::process::Stdio::inherit());
 
-                        println!("Compilation command: {:?}", command);
+    println!("cl command: {:?}", command);
 
-                        match command.output() {
-                            Ok(output) => {
-                                use std::io::Write;
-                                std::io::stdout().write_all(&output.stdout).unwrap();
-                                std::io::stderr().write_all(&output.stderr).unwrap();
-                            }
-                            Err(err) => println!("Failed to run c compiler: {:?}", err),
-                        }
-                    }*/
-                }
-                Backend::Ir { path } => {
-                    ir::emit(program, &path);
-                }
-                Backend::X64 { path } => {
-                    x64::emit(program, &path);
-
-                    let entry_point = program.get_entry_point().unwrap();
-
-                    let mut command = std::process::Command::new("nasm");
-                    command.arg(&path);
-                    if program.arguments.debug_asm_output {
-                        command.arg("--no-line");
-                    }
-                    command.arg("-fwin64");
-                    command.arg("-g");
-                    command.arg("-Fcv8");
-                    command.stdout(std::process::Stdio::inherit());
-                    command.stderr(std::process::Stdio::inherit());
-
-                    println!("nasm command: {:?}", command);
-
-                    match command.output() {
-                        Ok(output) => {
-                            use std::io::Write;
-                            std::io::stdout().write_all(&output.stdout).unwrap();
-                            std::io::stderr().write_all(&output.stderr).unwrap();
-                        }
-                        Err(err) => println!("Failed to run nasm: {:?}", err),
-                    }
-
-                    let mut path = path.to_path_buf();
-                    path.set_extension("obj");
-
-                    // @Improvement: Use vswhere instead, right now just run `cargo run` in the Native Tools
-                    // command prompt.
-                    let mut command = std::process::Command::new("cl");
-                    command.arg(&path);
-                    command.arg("/Fetarget\\output.exe");
-                    command.arg("/Zi");
-                    command.arg("/nologo");
-                    command.arg("/link");
-                    command.arg("/release");
-                    command.arg("/incremental:no");
-                    command.arg("OneCore.lib");
-                    command.arg("/debug");
-                    command.arg("/subsystem:console");
-                    command.arg(format!("/entry:function_{}", usize::from(entry_point)));
-
-                    command.stdout(std::process::Stdio::inherit());
-                    command.stderr(std::process::Stdio::inherit());
-
-                    println!("cl command: {:?}", command);
-
-                    match command.output() {
-                        Ok(_) => {}
-                        Err(err) => println!("Failed to link: {:?}", err),
-                    }
-                }
-            }
-        }
+    match command.output() {
+        Ok(_) => {}
+        Err(err) => println!("Failed to link: {:?}", err),
     }
-}
-
-pub enum Backend {
-    C {
-        path: PathBuf,
-        compile_output: bool,
-    },
-    Ir {
-        path: PathBuf,
-    },
-    X64 {
-        path: PathBuf,
-    },
-}
-
-pub struct BackendEmitters {
-    emitters: Vec<BackendEmitter>,
-}
-
-impl BackendEmitters {
-    pub fn emit_routine(
-        &mut self, 
-        program: &Program,
-        id: FunctionId,
-        routine: &Routine,
-    ) {
-        for emitter in &mut self.emitters { 
-            match emitter {
-                BackendEmitter::C { .. } => {
-                    // v.emit_routine(program, id, routine, arg_types, return_type);
-                }
-                BackendEmitter::Ir(v) => {
-                    v.emit_routine(program, id, routine);
-                }
-                BackendEmitter::X64(v) => {
-                    v.emit_routine(program, id, routine);
-                }
-            }
-        }
-    }
-}
-
-enum BackendEmitter {
-    C, // (c::Emitter),
-    X64(x64::Emitter),
-    Ir(ir::Emitter),
 }
 
 struct Formatter<F>(F)

@@ -1,7 +1,6 @@
 use crate::command_line_arguments::Arguments;
 use crate::dependencies::{DepKind, DependencyList, MemberDep};
 use crate::errors::ErrorCtx;
-use crate::backend::Backends;
 use crate::id::{Id, IdVec};
 use crate::ir::Routine;
 use crate::location::Location;
@@ -35,7 +34,6 @@ pub mod constant;
 /// pointer to ``insert_buffer`` while the type isn't a zst for example)!
 pub struct Program {
     pub arguments: Arguments,
-    pub backends: Backends,
     pub logger: Logger,
 
     pub lib_lines_of_code: AtomicU64,
@@ -68,10 +66,9 @@ unsafe impl Send for Program {}
 unsafe impl Sync for Program {}
 
 impl Program {
-    pub fn new(logger: Logger, arguments: Arguments, backends: Backends) -> Self {
+    pub fn new(logger: Logger, arguments: Arguments) -> Self {
         Self {
             arguments,
-            backends,
             logger,
             builtins: [(); Builtin::Count as usize].map(|_| RwLock::new(BuiltinDefinition::Undefined(Vec::new()))),
             lib_lines_of_code: AtomicU64::new(0),
