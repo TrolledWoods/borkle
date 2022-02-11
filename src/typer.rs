@@ -277,13 +277,6 @@ pub fn solve<'a>(
         additional_info: &mut data.additional_info,
         target_checks: &mut target_checks,
     };
-    let mut ctx = Context {
-        // This is only used in build_constraints, what it's set to doesn't matter
-        runs: ExecutionTime::Never,
-        ast_variant_id: AstVariantId::root(),
-        inside_type_comparison: false,
-        target: None,
-    };
 
     loop {
         statics.infer.solve();
@@ -309,7 +302,7 @@ pub fn solve<'a>(
 
             let has_errors = value_set.has_errors;
             if !has_errors {
-                subset_was_completed(&mut statics, &mut ctx, &mut data.ast, waiting_on, value_set_id);
+                subset_was_completed(&mut statics, &mut data.ast, waiting_on, value_set_id);
             }
 
             progress = true;
@@ -354,7 +347,7 @@ pub fn finish<'a>(
     Ok(Ok((ast_variant_ctx.emit_deps, from.locals, from.infer, from.ast, from.root_value_id, from.additional_info)))
 }
 
-fn subset_was_completed(statics: &mut Statics<'_, '_>, ctx: &Context, ast: &mut Ast, waiting_on: WaitingOnTypeInferrence, set: ValueSetId) {
+fn subset_was_completed(statics: &mut Statics<'_, '_>, ast: &mut Ast, waiting_on: WaitingOnTypeInferrence, set: ValueSetId) {
     match waiting_on {
         WaitingOnTypeInferrence::TargetFromConstantValue { value_id, computation, ast_variant_id } => {
             let len_loc = ast.get(computation).loc;
@@ -559,7 +552,7 @@ fn subset_was_completed(statics: &mut Statics<'_, '_>, ctx: &Context, ast: &mut 
             ) {
                 Ok(constant_ref) => {
                     let computation_node = ast.get(computation);
-                    let finished_value = statics.infer.add_value(TypeId::Node(ctx.ast_variant_id, computation), constant_ref);
+                    let finished_value = statics.infer.add_value(TypeId::Node(ast_variant_id, computation), constant_ref);
                     statics.infer.set_value_set(finished_value, set);
 
                     statics.infer.set_equal(finished_value, value_id, Reason::new(computation_node.loc, ReasonKind::IsOfType));
@@ -2393,6 +2386,7 @@ pub enum WaitingOnTypeInferrence {
         ast_variant_id: AstVariantId,
         runs: ExecutionTime,
         parent_set: ValueSetId,
+        // context: Context,
     },
     ConstFor {
         node_id: NodeId,
@@ -2400,6 +2394,7 @@ pub enum WaitingOnTypeInferrence {
         runs: ExecutionTime,
         iterator_type: TypeId,
         parent_set: ValueSetId,
+        // context: Context,
     },
     SizeOf {
         parent_set: ValueSetId,
