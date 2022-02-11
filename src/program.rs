@@ -8,7 +8,7 @@ use crate::logging::Logger;
 use crate::parser::Ast;
 use crate::thread_pool::{ThreadContext, WorkPile};
 use crate::type_infer::AstVariantId;
-use crate::types::{PointerInType, Type, TypeKind, FunctionArgs};
+use crate::types::{PointerInType, Type, TypeKind};
 use constant::{Constant, ConstantRef};
 use parking_lot::{Mutex, RwLock, MutexGuard};
 use std::alloc;
@@ -55,7 +55,6 @@ pub struct Program {
     // FIXME: This shouldn't be public, but is for now so that the thread pool can do things with
     // it.
     pub loaded_files: Mutex<UstrMap<ScopeId>>,
-    pub entry_point: Mutex<Option<MemberId>>,
     file_contents: Mutex<UstrMap<Arc<String>>>,
 }
 
@@ -83,7 +82,6 @@ impl Program {
             constant_data: default(),
             work: WorkPile::new(),
             loaded_files: default(),
-            entry_point: default(),
         }
     }
 
@@ -237,32 +235,6 @@ impl Program {
             .routine
             .to_option()
             .map(|(_, x)| Arc::clone(x))
-    }
-
-    /// Locks
-    /// * ``entry_point`` write
-    /// * ``members`` read
-    pub fn get_entry_point(&self) -> Option<FunctionId> {
-        profile::profile!("Get entry point");
-
-        let member_id = (*self.entry_point.lock())?;
-
-        let members = self.members.read();
-        let member = &members[member_id];
-
-        // @Speed: We don't want to clone here!
-        let type_ = member.type_.to_option()?.0.clone();
-
-        if let TypeKind::Function = type_.kind() {
-            let function = FunctionArgs::get(type_.args());
-            if function.args.len() == 0 && matches!(function.return_.kind(), TypeKind::Empty) {
-                Some(unsafe { *member.value.to_option()?.as_ptr().cast::<FunctionId>() })
-            } else {
-                None
-            }
-        } else {
-            None
-        }
     }
 
     /// # Locks
@@ -1453,6 +1425,8 @@ impl Builtin {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum BuiltinFunction {
+    CreateExe,
+
     StdoutWrite,
     StdoutFlush,
     StdinRead,

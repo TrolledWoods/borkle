@@ -54,7 +54,7 @@ fn main() {
             program.add_file(&compiler_path, true);
         }
 
-        let mut errors = thread_pool::run(&mut program, options.num_threads);
+        let errors = thread_pool::run(&mut program, options.num_threads);
 
         let frontend_time = frontend_timer.elapsed();
 
@@ -64,22 +64,10 @@ fn main() {
             return;
         }
 
-        let entry_point = match program.get_entry_point() {
-            Some(value) => value,
-            None => {
-                println!("Expected '#entry' to denote an entry point, and for that entry point to be of type 'fn()'");
-                return;
-            }
-        };
-
         let backend_timer = std::time::Instant::now();
 
         if options.output_ir {
             backend::emit_bir(&program, &options.ir_path);
-        }
-
-        if options.output_x64 {
-            backend::emit_x64(&program, &options.x64_path);
         }
 
         let backend_time = backend_timer.elapsed();
@@ -95,30 +83,6 @@ fn main() {
         println!("Finished in {:.6} seconds", elapsed.as_secs_f32());
         println!("         .. {:.6} were frontend", frontend_time.as_secs_f32());
         println!("         .. {:.6} were backend",  backend_time.as_secs_f32());
-
-        if options.run {
-            let routine = program.get_routine(entry_point).unwrap();
-            if let ir::Routine::UserDefined(routine) = &*routine {
-                let mut stack = interp::Stack::new(1 << 16);
-
-                // @Improvement: We want to put the entry point in here.
-                match interp::interp(&program, &mut stack, routine, &mut vec![]) {
-                    Ok(_) => {}
-                    Err((message, call_stack)) => {
-                        errors.clear();
-                        for &caller in call_stack.iter().rev().skip(1) {
-                            errors.info(caller, "".to_string());
-                        }
-
-                        errors.error(*call_stack.last().unwrap(), message);
-                        let files = program.file_contents();
-                        errors.print(files);
-                    }
-                }
-            } else {
-                println!("ERROR: For now, the entry point cannot be a built in function");
-            }
-        }
     }
 
     profile::finish("target\\profile_output.json");

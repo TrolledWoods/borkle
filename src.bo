@@ -1,15 +1,10 @@
-import "tests/main.bo";
 
-/*
-create_exe(
-    "my_executable.exe",
-    fn() print("Hello, world!\n"),
-);
-*/
 
-#entry fn() {
-    print("Does things!\n");
-    run_tests();
+while i < 3 {
+    let path = sprint("target/number_%.exe", i);
+    defer dealloc(path);
+
+    create_exe(path, fn() print("Hello!\n"));
 };
 
 // IR emission improvements

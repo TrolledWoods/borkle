@@ -10,13 +10,14 @@ pub fn emit_bir(program: &Program, path: &Path) {
     ir::emit(program, &path);
 }
 
-pub fn emit_x64(program: &Program, path: &Path) {
-    x64::emit(program, &path);
+pub fn emit_x64(program: &Program, path: &Path, entry_point: FunctionId) {
+    let mut asm_path = path.to_path_buf();
+    asm_path.set_extension("asm");
 
-    let entry_point = program.get_entry_point().unwrap();
+    x64::emit(program, &asm_path);
 
     let mut command = std::process::Command::new("nasm");
-    command.arg(&path);
+    command.arg(&asm_path);
     if program.arguments.debug_asm_output {
         command.arg("--no-line");
     }
@@ -37,14 +38,14 @@ pub fn emit_x64(program: &Program, path: &Path) {
         Err(err) => println!("Failed to run nasm: {:?}", err),
     }
 
-    let mut path = path.to_path_buf();
-    path.set_extension("obj");
+    let mut obj_path = path.to_path_buf();
+    obj_path.set_extension("obj");
 
     // @Improvement: Use vswhere instead, right now just run `cargo run` in the Native Tools
     // command prompt.
     let mut command = std::process::Command::new("cl");
-    command.arg(&path);
-    command.arg("/Fetarget\\output.exe");
+    command.arg(&obj_path);
+    command.arg(format!("/Fe{}", path.display()));
     command.arg("/Zi");
     command.arg("/nologo");
     command.arg("/link");

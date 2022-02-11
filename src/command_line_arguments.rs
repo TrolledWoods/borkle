@@ -150,9 +150,6 @@ create_arguments!(
         file: PathBuf = "src.bo";
             "The file to compile",
 
-        run: bool = false;
-            "If this is set, the compiler will run the entry point using the interpreter.",
-
         output: PathBuf = "target/";
             "The folder to put output files into",
 
@@ -178,10 +175,6 @@ create_arguments!(
         exe_path: PathBuf = "target/output.exe";
             "The path of the executable",
 
-        x64_path: PathBuf = "target/output.asm";
-            "The path where the x64 file should be created",
-        output_x64: bool = true;
-            "If set to true, a file containing x64 will be emitted",
         debug_asm_output: bool = false;
             "Internal compiler debugging option, debug symbols will be generated for the assembly itself to debug it",
         no_builtins: bool = false;

@@ -124,43 +124,6 @@ pub fn process_string(
                     return Err(());
                 }
             }
-            TokenKind::Keyword(Keyword::Entry) => {
-                context.tokens.next();
-
-                let mut buffer = AstBuilder::new();
-                let mut dependencies = DependencyList::new();
-                let mut locals = LocalVariables::new();
-                let mut imperative =
-                    ImperativeContext::new(&mut dependencies, &mut locals, false, &[]);
-                expression(&mut context, &mut imperative, buffer.add())?;
-                let tree = Ast::from_builder("__entry__".into(), buffer);
-
-                context
-                    .tokens
-                    .expect_next_is(context.errors, &TokenKind::SemiColon)?;
-
-                let id = context.program.define_member(
-                    context.errors,
-                    token.loc,
-                    None,
-                    "<entry_point>".into(),
-                    MemberKind::Const,
-                )?;
-                context.program.queue_task(
-                    dependencies,
-                    Task::TypeMember { member_id: id, locals, ast: tree, member_kind: MemberKind::Const },
-                );
-
-                let mut entry_point = context.program.entry_point.lock();
-                if entry_point.is_some() {
-                    context.error(
-                        token.loc,
-                        "There is already an entry point defined elsewhere".to_string(),
-                    );
-                    return Err(());
-                }
-                *entry_point = Some(id);
-            }
             TokenKind::Keyword(Keyword::Import) => {
                 context.tokens.next();
 
@@ -769,6 +732,7 @@ fn value_without_unaries(
             let (name_loc, name) = global.tokens.expect_identifier(global.errors)?;
 
             let builtin_kind = match name.as_str() {
+                "create_exe" => BuiltinFunction::CreateExe,
                 "assert" => BuiltinFunction::Assert,
                 "mem_copy" => BuiltinFunction::MemCopy,
                 "mem_copy_nonoverlapping" => BuiltinFunction::MemCopyNonOverlapping,

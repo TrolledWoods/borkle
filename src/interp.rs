@@ -193,6 +193,15 @@ fn interp_function_call(
         Routine::Extern(_) => {
             return Err(("Cannot call extern functions at compile time right now".to_string(), std::mem::take(call_stack).into_boxed_slice()));
         }
+        Routine::Builtin(BuiltinFunction::CreateExe) => unsafe {
+            let path = stack.get(args[0].0).read::<BufferRepr>();
+            let entry_function = stack.get(args[1].0).read::<FunctionId>();
+
+            let slice = std::slice::from_raw_parts(path.ptr, path.length);
+            let path = String::from_utf8_lossy(slice);
+
+            crate::backend::emit_x64(program, path.as_ref().as_ref(), entry_function);
+        }
         Routine::Builtin(BuiltinFunction::Assert) => unsafe {
             let condition = stack.get(args[0].0).read::<u8>();
             if condition == 0 {

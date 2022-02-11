@@ -30,9 +30,6 @@ pub fn emit(program: &Program, file_path: &Path) {
         return;
     };
 
-    let entry_id = program.get_entry_point().unwrap();
-    let _ = writeln!(&mut file, "entry: function_{}", usize::from(entry_id)).unwrap();
-
     // TODO: This should be cleaned up, old system
     let mut emitter = Emitter::default();
     let routines = program.get_routines();
