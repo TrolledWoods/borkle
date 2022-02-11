@@ -1,11 +1,9 @@
+import "tests/main.bo";
 
-
-while i < 3 {
-    let path = sprint("target/number_%.exe", i);
-    defer dealloc(path);
-
-    create_exe(path, fn() print("Hello!\n"));
-};
+create_exe(
+    "target/tests.exe",
+    run_tests,
+);
 
 // IR emission improvements
 //
