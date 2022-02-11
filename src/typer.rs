@@ -237,7 +237,7 @@ pub fn begin<'a>(
             statics.infer.set_value_set(node_type_id, root_set_id);
             statics.infer.value_sets.add_node_to_set(root_set_id, ctx.ast_variant_id, node.id);
             let mut meta_data = FunctionMetaData::default();
-            build_function_declaration(&mut statics, &mut ast_variant_ctx, &mut ctx, node, root_set_id, Some(&mut meta_data));
+            build_function_declaration(&mut statics, &mut ctx, node, root_set_id, Some(&mut meta_data));
 
             (node_type_id, MemberMetaData::Function(meta_data))
         }
@@ -1011,7 +1011,7 @@ fn build_constraints(
                     .set_equal(false_body_id, node_type_id, Reason::new(node_loc, ReasonKind::Passed));
             }
 
-            tags.finish(statics, ast_variant_ctx, ctx, set);
+            tags.finish(statics, set);
         }
         NodeKind::Unary {
             op: UnaryOp::Dereference,
@@ -1027,7 +1027,7 @@ fn build_constraints(
                 .set_equal(operand_type_id, temp, Reason::new(node_loc, ReasonKind::Passed));
         }
         NodeKind::FunctionDeclaration { .. } => {
-            build_function_declaration(statics, ast_variant_ctx, ctx, node, set, None);
+            build_function_declaration(statics, ctx, node, set, None);
         }
         NodeKind::ExpressiveFunctionCall => {
             let mut children = node.children.into_iter();
@@ -1129,7 +1129,7 @@ fn build_constraints(
                 });
                 sub_ctx.target = Target::Inferred(target);
             }
-            tags.finish(statics, ast_variant_ctx, &sub_ctx, set);
+            tags.finish(statics, set);
 
             let children_len = children.len();
             for statement_id in children.by_ref().take(children_len - 1) {
@@ -1215,7 +1215,7 @@ struct Tags {
 }
 
 impl Tags {
-    fn finish(self, statics: &mut Statics<'_, '_>, _ast_variant_ctx: &mut AstVariantContext, _ctx: &Context, set: ValueSetId) {
+    fn finish(self, statics: &mut Statics<'_, '_>, set: ValueSetId) {
         if let Some((loc, _)) = self.calling_convention {
             statics.errors.error(loc, format!("Tag not valid for this kind of expression"));
             statics.infer.value_sets.get_mut(set).has_errors = true;
@@ -1341,7 +1341,6 @@ fn build_tags(
 
 fn build_function_declaration(
     statics: &mut Statics<'_, '_>,
-    ast_variant_ctx: &mut AstVariantContext,
     ctx: &Context,
     node: NodeView<'_>,
     set: ValueSetId,
@@ -1426,7 +1425,7 @@ fn build_function_declaration(
         function_args.set_calling_convention((calling_convention, Reason::temp(node.loc)));
     }
 
-    tags.finish(statics, ast_variant_ctx, ctx, sub_set);
+    tags.finish(statics, set);
     
     let infer_type_id = statics.infer.add_type(TypeKind::Function, Args(function_args.build()));
     statics.infer
@@ -1597,7 +1596,7 @@ fn build_type(
             }
 
 
-            tags.finish(statics, ast_variant_ctx, ctx, set);
+            tags.finish(statics, set);
 
             let infer_type_id = statics.infer.add_type(TypeKind::Function, Args(function_args.build()));
             statics.infer
