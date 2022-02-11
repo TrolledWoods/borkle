@@ -4,25 +4,29 @@ library "vec.bo";
 library "iter.bo";
 import "tests/main.bo";
 
+library "windows.bo";
+
 const only_runtime_function = fn #target .Native: () {
+    MessageBox(#0, "This is a message you can only get at runtime, haha!\0".ptr, "World!\0".ptr, 0);
     print("Only at runtime!\n");
 };
 
-only_runtime_function();
-
-
-
-#entry fn() {
-    let stuff = "こ suddenly の食品 english は食 text用です";
-
-    let vector = stuff->string_split("食")->collect_vec();
-    defer vec_free(vector);
-
-    print("This is some text: %\n", raw_text("hello"));
-
-    for vector->as_buf() {
-        print("%: %\n", i, v);
+const function_that_may_run_anywhere = fn() {
+    { #target .Native:
+        only_runtime_function();
     };
+
+    { #target .Compiler:
+        print("Too bad, but we can't run this at compile time\n");
+    };
+};
+
+function_that_may_run_anywhere();
+
+#entry fn #target .Native: () {
+    let buffer = #0 : [{ only_runtime_function(); 3 }] u32;
+    
+    function_that_may_run_anywhere();
 
     let timer = start_timer();
     run_tests();

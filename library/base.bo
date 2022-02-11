@@ -220,12 +220,18 @@ const cmp_strings = fn(a: [] u8, b: [] u8) -> bool { 'function
 };
 
 const put_string = fn(c: [] u8) {
-    let handle = GetStdHandle(STD_OUTPUT_HANDLE);
-    if handle == #0 : &_                abort();
-    if is_invalid_handle_value(handle)  abort();
-    if c.ptr == #0 : &_                 abort();
-    let result = WriteConsole(handle, c.ptr, cast c.len, &0, #0);
-    if result != 1  ExitProcess(GetLastError());
+    { #target .Native:
+        let handle = GetStdHandle(STD_OUTPUT_HANDLE);
+        if handle == #0 : &_                abort();
+        if is_invalid_handle_value(handle)  abort();
+        if c.ptr == #0 : &_                 abort();
+        let result = WriteConsole(handle, c.ptr, cast c.len, &0, #0);
+        if result != 1  ExitProcess(GetLastError());
+    };
+
+    { #target .Compiler:
+        i_stdout_write(c);
+    };
 };
 
 const put_char = fn(c: u8) {
@@ -468,7 +474,10 @@ const stdout_writer = fn() -> Writer.(u8) {
     { #target .Native:
         writer.write_buf = fn(_, buffer) {
             let written = 0;
-            WriteConsole(GetStdHandle(STD_OUTPUT_HANDLE), buffer.ptr, cast buffer.len, &written, #0);
+            // HACK!
+            { #target .Native:
+                WriteConsole(GetStdHandle(STD_OUTPUT_HANDLE), buffer.ptr, cast buffer.len, &written, #0);
+            };
             cast written
         };
         writer.write_single = fn(_, c) {

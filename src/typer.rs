@@ -124,15 +124,19 @@ struct Statics<'a, 'b> {
 // TODO: I don't really want default to be implemented for this.
 #[derive(Default, Clone)]
 pub struct AstVariantContext {
-    /// Dependencies necessary for being able to emit code for this output.
+    /// Dependencies necessary for being able to emit code for this ast variant.
+    // TODO: This could be omitted for things that are supposed to run at typing time... maybe?
+    // Though with yielding this would probably be good to have anyway, so probably not a good
+    // idea to remove it.
     emit_deps: DependencyList,
+    target_checks: Vec<TargetCheck>,
 }
 
 #[derive(Clone)]
 pub struct Context {
     runs: ExecutionTime,
     inside_type_comparison: bool,
-    // TODO: I don't really like this one here, it should probably be in AstVariantContext...
+    // TODO: I don't really like this one here, should probably be in `AstVariantContext`.
     ast_variant_id: AstVariantId,
     target: Target,
 }
@@ -141,6 +145,31 @@ pub struct Context {
 enum Target {
     Inferred(TypeId),
     Constant(u32),
+}
+
+fn target_to_str(target: u32) -> String {
+    if target == TARGET_ALL {
+        return "All".to_string();
+    }
+
+    let target_names = [
+        ("Compiler", TARGET_COMPILER),
+        ("Native", TARGET_NATIVE),
+    ];
+
+    let mut first = true;
+    let mut builder = String::new();
+    for (name, value) in target_names {
+        if (target & value) > 0 {
+            if !first {
+                builder.push_str("|");
+            }
+            first = false;
+
+            builder.push_str(name);
+        }
+    }
+    builder
 }
 
 fn get_target(types: &TypeSystem, target: Target) -> u32 {
@@ -216,9 +245,7 @@ pub fn begin<'a>(
         target_checks: &mut target_checks,
     };
 
-    let mut ast_variant_ctx = AstVariantContext {
-        emit_deps: DependencyList::new(),
-    };
+    let mut ast_variant_ctx = AstVariantContext::default();
 
     let mut ctx = Context {
         runs: ExecutionTime::RuntimeFunc,
@@ -316,8 +343,17 @@ pub fn solve<'a>(
             value_set.related_nodes = related_nodes;
             value_set.has_been_computed = true;
             let waiting_on = std::mem::replace(&mut value_set.waiting_on_completion, WaitingOnTypeInferrence::None);
+            let value_set = statics.infer.value_sets.get(value_set_id);
 
-            let has_errors = value_set.has_errors;
+            let mut has_errors = value_set.has_errors;
+
+            // TODO: I don't know if this should ever be None...
+            if let Some(value_set_ctx) = &value_set.ctx {
+                if validate(statics.infer, statics.errors, &value_set_ctx.target_checks) {
+                    has_errors = true;
+                }
+            }
+
             if !has_errors {
                 subset_was_completed(&mut statics, &mut data.ast, waiting_on, value_set_id);
             }
@@ -664,12 +700,14 @@ fn validate(types: &TypeSystem, errors: &mut ErrorCtx, target_checks: &Vec<Targe
     let mut has_errors = false;
 
     for check in target_checks {
-        let subset = get_target(types, check.subset);
+        let subset   = get_target(types, check.subset);
         let superset = get_target(types, check.superset);
 
         if (superset & subset) != subset {
             has_errors = true;
-            errors.error(check.loc, "Target mismatch (temporary error message)".to_string());
+            let superset_name = target_to_str(superset);
+            let subset_name   = target_to_str(subset);
+            errors.error(check.loc, format!("Code that only runs in `{}`, was called from code that may run in `{}`", superset_name, subset_name));
         }
     }
 
@@ -1122,7 +1160,7 @@ fn build_constraints(
                 let required_type = statics.infer.add_type(TypeKind::Empty, Args([]));
                 statics.infer.set_equal(node_type_id, required_type, Reason::temp(tag_loc));
 
-                statics.target_checks.push(TargetCheck {
+                ast_variant_ctx.target_checks.push(TargetCheck {
                     loc: tag_loc,
                     subset: Target::Inferred(target),
                     superset: ctx.target,
@@ -1282,13 +1320,10 @@ fn build_tags(
                     statics.infer.value_sets.get_mut(set).has_errors |= true;
                 }
 
-                let mut sub_ast_variant_ctx = AstVariantContext {
-                    // TODO: Think about whether this is correct or not
-                    emit_deps: DependencyList::new(),
-                };
+                let mut sub_ast_variant_ctx = AstVariantContext::default();
 
                 let mut sub_ctx = Context {
-                    runs: ctx.runs.combine(ExecutionTime::Typing),
+                    runs: ExecutionTime::Typing,
                     ast_variant_id: ctx.ast_variant_id,
                     inside_type_comparison: false,
                     target: Target::Constant(TARGET_COMPILER),
@@ -1352,9 +1387,7 @@ fn build_function_declaration(
 
     let node_type_id = TypeId::Node(ctx.ast_variant_id, node.id);
 
-    let mut sub_ast_variant_ctx = AstVariantContext {
-        emit_deps: DependencyList::new(),
-    };
+    let mut sub_ast_variant_ctx = AstVariantContext::default();
     let mut sub_ctx = Context {
         runs: ctx.runs.combine(ExecutionTime::RuntimeFunc),
         ast_variant_id: ctx.ast_variant_id,
@@ -1968,10 +2001,7 @@ fn build_inferrable_constant_value(
         }
         _ => {
             // We can't figure it out in a clever way, so just compile time execute the node as a constant.
-            let mut sub_ast_variant_ctx = AstVariantContext {
-                // TODO: Think about whether this is correct or not
-                emit_deps: DependencyList::new(),
-            };
+            let mut sub_ast_variant_ctx = AstVariantContext::default();
             let mut sub_ctx = Context {
                 runs: ctx.runs.combine(ExecutionTime::Typing),
                 ast_variant_id: ctx.ast_variant_id,
@@ -1994,6 +2024,7 @@ fn build_inferrable_constant_value(
                 value_id,
                 ast_variant_id: ctx.ast_variant_id,
             });
+            statics.infer.value_sets.get_mut(sub_set).ctx = Some(sub_ast_variant_ctx);
 
             // Because the set of the node is already set by build_constraints, we early return type
             return TypeSystemConstant { type_: node_type_id, constant_value, constant: value_id };
@@ -2182,7 +2213,7 @@ fn build_function_call<'a>(
         let target = statics.infer.add_unknown_type_with_set(set);
         typer_args.set_target((target, Reason::temp(node_loc)));
 
-        statics.target_checks.push(TargetCheck {
+        ast_variant_ctx.target_checks.push(TargetCheck {
             loc: node_loc,
             subset: ctx.target,
             superset: Target::Inferred(target),
@@ -2209,7 +2240,7 @@ fn build_function_call<'a>(
         let target = statics.infer.add_unknown_type_with_set(set);
         typer_args.set_target((target, Reason::temp(node_loc)));
 
-        statics.target_checks.push(TargetCheck {
+        ast_variant_ctx.target_checks.push(TargetCheck {
             loc: node_loc,
             subset: ctx.target,
             superset: Target::Inferred(target),
