@@ -129,9 +129,10 @@ pub struct AstVariantContext {
 }
 
 #[derive(Clone)]
-struct Context {
+pub struct Context {
     runs: ExecutionTime,
     inside_type_comparison: bool,
+    // TODO: I don't really like this one here, it should probably be in AstVariantContext...
     ast_variant_id: AstVariantId,
     target: Option<TypeId>,
 }
@@ -379,7 +380,7 @@ fn subset_was_completed(statics: &mut Statics<'_, '_>, ast: &mut Ast, waiting_on
                 }
             }
         }
-        WaitingOnTypeInferrence::ConstFor { node_id, ast_variant_id, parent_set, runs, iterator_type } => {
+        WaitingOnTypeInferrence::ConstFor { node_id, ast_variant_id, parent_set, iterator_type, context } => {
             let node = ast.get(node_id);
             let [iterator, _i_value, mut inner, _else_body] = node.children.into_array();
 
@@ -408,14 +409,7 @@ fn subset_was_completed(statics: &mut Statics<'_, '_>, ast: &mut Ast, waiting_on
             };
 
             let mut sub_ast_variant_ctx = statics.infer.value_sets.get_mut(parent_set).ctx.take().unwrap_or_default();
-
-            let mut sub_ctx = Context {
-                runs,
-                ast_variant_id: AstVariantId::invalid(),
-                inside_type_comparison: false,
-                // TODO: This is incorrect, we're going to change things up a lot later.
-                target: None,
-            };
+            let mut sub_ctx = context;
 
             let mut variant_ids = Vec::with_capacity(iterator_args.len());
             for iterator_arg in iterator_args {
@@ -425,7 +419,7 @@ fn subset_was_completed(statics: &mut Statics<'_, '_>, ast: &mut Ast, waiting_on
 
                 let [v_value_decl, body] = inner.children.borrow().into_array();
 
-                let v_value_id = build_declarative_lvalue(statics, &mut sub_ast_variant_ctx, &mut sub_ctx, v_value_decl, parent_set, true);
+                let v_value_id = build_declarative_lvalue(statics, &mut sub_ast_variant_ctx, &sub_ctx, v_value_decl, parent_set, true);
                 statics.infer.set_equal(iterator_arg, v_value_id, Reason::temp(node.node.loc));
 
                 build_constraints(statics, &mut sub_ast_variant_ctx, &mut sub_ctx, body, parent_set);
@@ -436,7 +430,7 @@ fn subset_was_completed(statics: &mut Statics<'_, '_>, ast: &mut Ast, waiting_on
 
             statics.infer.value_sets.unlock(parent_set);
         }
-        WaitingOnTypeInferrence::ConditionalCompilation { node_id, condition, true_body, false_body, ast_variant_id, parent_set, runs } => {
+        WaitingOnTypeInferrence::ConditionalCompilation { node_id, condition, true_body, false_body, ast_variant_id, parent_set, context } => {
             let loc = ast.get(condition).loc;
             let result = match crate::interp::emit_and_run(
                 statics.thread_context,
@@ -468,15 +462,10 @@ fn subset_was_completed(statics: &mut Statics<'_, '_>, ast: &mut Ast, waiting_on
 
             let mut sub_ast_variant_ctx = statics.infer.value_sets.get_mut(parent_set).ctx.take().unwrap_or_default();
 
-            let mut sub_ctx = Context {
-                runs,
-                ast_variant_id,
-                inside_type_comparison: false,
-                // TODO: This is not correct...
-                target: None,
-            };
+            let mut sub_ctx = context;
+            sub_ctx.ast_variant_id = ast_variant_id;
 
-            let child_type = build_constraints(statics, &mut sub_ast_variant_ctx, &mut sub_ctx, ast.get(emitting), parent_set);
+            let child_type = build_constraints(statics, &mut sub_ast_variant_ctx, &sub_ctx, ast.get(emitting), parent_set);
             statics.infer.value_sets.get_mut(parent_set).ctx = Some(sub_ast_variant_ctx);
             statics.infer.set_equal(TypeId::Node(ast_variant_id, node_id), child_type, Reason::temp_zero());
 
@@ -848,10 +837,10 @@ fn build_constraints(
             let check_type = statics.infer.add_unknown_type();
             let sub_set = statics.infer.value_sets.add(WaitingOnTypeInferrence::ConstFor {
                 node_id: node.id,
-                ast_variant_id: ctx.ast_variant_id,
                 iterator_type: check_type,
-                runs: ctx.runs,
                 parent_set: set,
+                ast_variant_id: ctx.ast_variant_id,
+                context: ctx.clone(),
             });
             statics.infer.set_value_set(check_type, sub_set);
             statics.infer.set_equal(check_type, iterator_type, Reason::new(node_loc, ReasonKind::Passed));
@@ -980,7 +969,7 @@ fn build_constraints(
                     false_body: else_body.id,
                     ast_variant_id: ctx.ast_variant_id,
                     parent_set: set,
-                    runs: ctx.runs,
+                    context: ctx.clone(),
                 });
                 statics.infer.value_sets.lock(set);
 
@@ -2384,17 +2373,15 @@ pub enum WaitingOnTypeInferrence {
         true_body: NodeId,
         false_body: NodeId,
         ast_variant_id: AstVariantId,
-        runs: ExecutionTime,
         parent_set: ValueSetId,
-        // context: Context,
+        context: Context,
     },
     ConstFor {
         node_id: NodeId,
         ast_variant_id: AstVariantId,
-        runs: ExecutionTime,
         iterator_type: TypeId,
         parent_set: ValueSetId,
-        // context: Context,
+        context: Context,
     },
     SizeOf {
         parent_set: ValueSetId,
