@@ -115,27 +115,19 @@ struct Statics<'a, 'b> {
     additional_info: &'a mut AdditionalInfo,
 }
 
-/// Things that are necessary for a value set. This may not actually represent the value set that you intend, because
-/// things like the `emit_deps` are wholly unnecessary for type time things, so it isn't used in those cases....
-/// Maybe this is actually something we want to change?
-struct Context {
+/// Things that each ast variant has. 
+struct AstVariantContext {
     /// Dependencies necessary for being able to emit code for this output.
     emit_deps: DependencyList,
+}
+
+/// 
+struct Context {
     runs: ExecutionTime,
     inside_type_comparison: bool,
     target_checker: TargetChecker,
     ast_variant_id: AstVariantId,
 }
-
-/*
-
-/// Contextual information about very specific things, like which parent target you have e.t.c.
-/// This is passed around _immutably_, and if you want to modify it you have to clone it (trivial clone, not copy just to not make me accidentally cause mass hysteria)
-#[derive(Clone)]
-struct Context {
-}
-
-*/
 
 #[derive(Clone)]
 struct TargetCheck {
@@ -204,8 +196,11 @@ pub fn begin<'a>(
         additional_info: &mut additional_info,
     };
 
-    let mut ctx = Context {
+    let mut ast_variant_ctx = AstVariantContext {
         emit_deps: DependencyList::new(),
+    };
+
+    let mut ctx = Context {
         runs: ExecutionTime::RuntimeFunc,
         ast_variant_id: AstVariantId::root(),
         inside_type_comparison: false,
@@ -222,20 +217,20 @@ pub fn begin<'a>(
             statics.infer.set_value_set(node_type_id, root_set_id);
             statics.infer.value_sets.add_node_to_set(root_set_id, ctx.ast_variant_id, node.id);
             let mut meta_data = FunctionMetaData::default();
-            build_function_declaration(&mut statics, &mut ctx, node, root_set_id, Some(&mut meta_data));
+            build_function_declaration(&mut statics, &mut ast_variant_ctx, &mut ctx, node, root_set_id, Some(&mut meta_data));
 
             (node_type_id, MemberMetaData::Function(meta_data))
         }
         _ => (
             match member_kind {
                 MemberKind::Type { is_aliased: false } => {
-                    build_unique_type(&mut statics, &mut ctx, node, root_set_id, UniqueTypeMarker { name: Some(ast.name), loc: node.loc })
+                    build_unique_type(&mut statics, &mut ast_variant_ctx,  &mut ctx, node, root_set_id, UniqueTypeMarker { name: Some(ast.name), loc: node.loc })
                 }
                 MemberKind::Type { is_aliased: true } => {
-                    build_type(&mut statics, &mut ctx, node, root_set_id)
+                    build_type(&mut statics, &mut ast_variant_ctx, &mut ctx, node, root_set_id)
                 }
                 MemberKind::Const => {
-                    build_constraints(&mut statics, &mut ctx, node, root_set_id)
+                    build_constraints(&mut statics, &mut ast_variant_ctx,  &mut ctx, node, root_set_id)
                 }
             },
             MemberMetaData::None,
@@ -244,7 +239,7 @@ pub fn begin<'a>(
 
     let target_checker = ctx.target_checker;
     let value_set = infer.value_sets.get_mut(root_set_id);
-    value_set.emit_deps = Some(ctx.emit_deps);
+    value_set.emit_deps = Some(ast_variant_ctx.emit_deps);
     value_set.target_checker = Some(target_checker);
 
     (
@@ -279,7 +274,6 @@ pub fn solve<'a>(
         additional_info: &mut data.additional_info,
     };
     let mut ctx = Context {
-        emit_deps: DependencyList::new(),
         // This is only used in build_constraints, what it's set to doesn't matter
         runs: ExecutionTime::Never,
         ast_variant_id: AstVariantId::root(),
@@ -329,8 +323,6 @@ pub fn solve<'a>(
             break;
         }
     }
-
-    debug_assert!(ctx.emit_deps.is_empty(), "Didn't expect context to gain more emit_deps here, should clean up the code to not even have this case be possible");
 }
 
 pub fn finish<'a>(
@@ -427,8 +419,12 @@ fn subset_was_completed(statics: &mut Statics<'_, '_>, ctx: &mut Context, ast: &
             };
 
             let emit_deps = statics.infer.value_sets.get_mut(parent_set).emit_deps.take().unwrap_or_default();
-            let mut sub_ctx = Context {
+
+            let mut sub_ast_variant_ctx = AstVariantContext {
                 emit_deps,
+            };
+
+            let mut sub_ctx = Context {
                 runs,
                 ast_variant_id: AstVariantId::invalid(),
                 inside_type_comparison: false,
@@ -444,13 +440,13 @@ fn subset_was_completed(statics: &mut Statics<'_, '_>, ctx: &mut Context, ast: &
 
                 let [v_value_decl, body] = inner.children.borrow().into_array();
 
-                let v_value_id = build_declarative_lvalue(statics, &mut sub_ctx, v_value_decl, parent_set, true);
+                let v_value_id = build_declarative_lvalue(statics, &mut sub_ast_variant_ctx, &mut sub_ctx, v_value_decl, parent_set, true);
                 statics.infer.set_equal(iterator_arg, v_value_id, Reason::temp(node.node.loc));
 
-                build_constraints(statics, &mut sub_ctx, body, parent_set);
+                build_constraints(statics, &mut sub_ast_variant_ctx, &mut sub_ctx, body, parent_set);
             }
 
-            statics.infer.value_sets.get_mut(parent_set).emit_deps = Some(sub_ctx.emit_deps);
+            statics.infer.value_sets.get_mut(parent_set).emit_deps = Some(sub_ast_variant_ctx.emit_deps);
             statics.additional_info.insert((ast_variant_id, node_id), AdditionalInfoKind::ConstForAstVariants { referenced, variant_ids });
 
             statics.infer.value_sets.unlock(parent_set);
@@ -486,17 +482,19 @@ fn subset_was_completed(statics: &mut Statics<'_, '_>, ctx: &mut Context, ast: &
             let emitting = if result { true_body } else { false_body };
 
             let emit_deps = statics.infer.value_sets.get_mut(parent_set).emit_deps.take().unwrap_or_default();
-            let mut sub_ctx = Context {
+            let mut sub_ast_variant_ctx = AstVariantContext {
                 emit_deps,
+            };
+            let mut sub_ctx = Context {
                 runs,
-                ast_variant_id: ast_variant_id,
+                ast_variant_id,
                 inside_type_comparison: false,
                 // TODO: This is not correct...
                 target_checker: TargetChecker::default(),
             };
 
-            let child_type = build_constraints(statics, &mut sub_ctx, ast.get(emitting), parent_set);
-            statics.infer.value_sets.get_mut(parent_set).emit_deps = Some(sub_ctx.emit_deps);
+            let child_type = build_constraints(statics, &mut sub_ast_variant_ctx, &mut sub_ctx, ast.get(emitting), parent_set);
+            statics.infer.value_sets.get_mut(parent_set).emit_deps = Some(sub_ast_variant_ctx.emit_deps);
             statics.infer.set_equal(TypeId::Node(ast_variant_id, node_id), child_type, Reason::temp_zero());
 
             statics.additional_info.insert((ast_variant_id, node_id), AdditionalInfoKind::ConstIfResult(result));
@@ -692,6 +690,7 @@ fn validate(types: &TypeSystem, errors: &mut ErrorCtx, target_checker: &TargetCh
 
 fn build_constraints(
     statics: &mut Statics<'_, '_>,
+    ast_variant_ctx: &mut AstVariantContext,
     ctx: &mut Context,
     node: NodeView<'_>,
     set: ValueSetId,
@@ -742,12 +741,12 @@ fn build_constraints(
         NodeKind::Is => {
             let [expr, type_] = node.children.into_array();
 
-            let got = build_type(statics, ctx, expr, set);
+            let got = build_type(statics, ast_variant_ctx, ctx, expr, set);
 
             let subset = statics.infer.value_sets.add(WaitingOnTypeInferrence::None);
             let old_inside_type_comparison = ctx.inside_type_comparison;
             ctx.inside_type_comparison = true;
-            let wanted = build_type(statics, ctx, type_, subset);
+            let wanted = build_type(statics, ast_variant_ctx, ctx, type_, subset);
             ctx.inside_type_comparison = old_inside_type_comparison;
 
             let comparison_id = statics.infer.add_comparison(set, got, wanted);
@@ -759,7 +758,7 @@ fn build_constraints(
         NodeKind::Tuple => {
             let mut values = Vec::with_capacity(node.children.len());
             for child in node.children {
-                let child_id = build_constraints(statics, ctx, child, set);
+                let child_id = build_constraints(statics, ast_variant_ctx, ctx, child, set);
                 values.push((child_id, Reason::temp(node_loc)));
             }
 
@@ -767,24 +766,24 @@ fn build_constraints(
         }
         NodeKind::Explain => {
             let [inner] = node.children.into_array();
-            let inner = build_constraints(statics, ctx, inner, set);
+            let inner = build_constraints(statics, ast_variant_ctx, ctx, inner, set);
             statics.infer.set_equal(node_type_id, inner, Reason::new(node_loc, ReasonKind::Passed));
             statics.needs_explaining.push((node.id, inner));
         }
         NodeKind::Pack => {
             let [inner] = node.children.into_array();
-            let inner_type = build_constraints(statics, ctx, inner, set);
+            let inner_type = build_constraints(statics, ast_variant_ctx, ctx, inner, set);
             statics.infer.set_pack(node_type_id, inner_type, Reason::temp(node_loc));
         }
         NodeKind::Unpack => {
             let [inner] = node.children.into_array();
-            let inner_type = build_constraints(statics, ctx, inner, set);
+            let inner_type = build_constraints(statics, ast_variant_ctx, ctx, inner, set);
             statics.infer.set_pack(inner_type, node_type_id, Reason::temp(node_loc));
         }
         NodeKind::SizeOf => {
             let [inner] = node.children.into_array();
             let subset = statics.infer.value_sets.add(WaitingOnTypeInferrence::SizeOf { parent_set: set });
-            build_type(statics, ctx, inner, subset);
+            build_type(statics, ast_variant_ctx, ctx, inner, subset);
 
             statics.infer.set_int(node_type_id, IntTypeKind::Usize);
 
@@ -792,12 +791,12 @@ fn build_constraints(
         }
         NodeKind::Cast => {
             let [inner] = node.children.into_array();
-            let result_value = build_constraints(statics, ctx, inner, set);
+            let result_value = build_constraints(statics, ast_variant_ctx, ctx, inner, set);
             statics.infer.set_cast(node_type_id, result_value, Reason::temp(node_loc));
         }
         NodeKind::BitCast => {
             let [value] = node.children.into_array();
-            build_constraints(statics, ctx, value, set);
+            build_constraints(statics, ast_variant_ctx, ctx, value, set);
         }
         NodeKind::Empty => {
             // @Performance: We could set the type directly(because no inferrence has happened yet),
@@ -817,18 +816,18 @@ fn build_constraints(
             statics.infer.set_equal(TypeId::Node(ctx.ast_variant_id, on.id), node_type_id, Reason::temp(node_loc));
 
             let id = statics.program.get_member_id(scope, name).expect("The dependency system should have made sure that this is defined");
-            build_global(statics, ctx, node.id, node.node, node.loc, id, Some(children), set, false);
+            build_global(statics, ast_variant_ctx, ctx, node.id, node.node, node.loc, id, Some(children), set, false);
         }
         NodeKind::Global { scope, name } => {
             let id = statics.program.get_member_id(scope, name).expect("The dependency system should have made sure that this is defined");
-            build_global(statics, ctx, node.id, node.node, node.loc, id, None, set, false);
+            build_global(statics, ast_variant_ctx, ctx, node.id, node.node, node.loc, id, None, set, false);
         }
         NodeKind::While {
             label: label_id,
         } => {
             let [iteration_var, condition, body, else_body] = node.children.into_array();
 
-            let iteration_var_id = build_declarative_lvalue(statics, ctx, iteration_var, set, true);
+            let iteration_var_id = build_declarative_lvalue(statics, ast_variant_ctx, ctx, iteration_var, set, true);
             let int = statics.infer.add_int(IntTypeKind::Usize);
             statics.infer.set_equal(iteration_var_id, int, Reason::temp(node_loc));
 
@@ -836,13 +835,13 @@ fn build_constraints(
             label.stack_frame_id = set;
             label.declared_at = Some(else_body.id);
 
-            let condition_type_id = build_constraints(statics, ctx, condition, set);
+            let condition_type_id = build_constraints(statics, ast_variant_ctx, ctx, condition, set);
             let bool_type = statics.infer.add_type(TypeKind::Bool, Args([]));
             statics.infer.set_equal(condition_type_id, bool_type, Reason::new(node_loc, ReasonKind::IsOfType));
 
-            build_constraints(statics, ctx, body, set);
+            build_constraints(statics, ast_variant_ctx, ctx, body, set);
 
-            let else_type = build_constraints(statics, ctx, else_body, set);
+            let else_type = build_constraints(statics, ast_variant_ctx, ctx, else_body, set);
 
             statics.infer.set_equal(node_type_id, else_type, Reason::new(node_loc, ReasonKind::Passed));
         }
@@ -852,7 +851,7 @@ fn build_constraints(
         } => {
             let [iterating, i_value, _inner, else_body] = node.children.into_array();
 
-            let iteration_var_id = build_declarative_lvalue(statics, ctx, i_value, set, true);
+            let iteration_var_id = build_declarative_lvalue(statics, ast_variant_ctx, ctx, i_value, set, true);
 
             let label = statics.locals.get_label_mut(label_id);
             label.stack_frame_id = set;
@@ -861,7 +860,7 @@ fn build_constraints(
             let usize_id = statics.infer.add_int(IntTypeKind::Usize);
             statics.infer.set_equal(iteration_var_id, usize_id, Reason::temp(node_loc));
 
-            let iterator_type = build_constraints(statics, ctx, iterating, set);
+            let iterator_type = build_constraints(statics, ast_variant_ctx, ctx, iterating, set);
 
             let check_type = statics.infer.add_unknown_type();
             let sub_set = statics.infer.value_sets.add(WaitingOnTypeInferrence::ConstFor {
@@ -876,7 +875,7 @@ fn build_constraints(
 
             statics.infer.value_sets.lock(set);
 
-            let else_type = build_constraints(statics, ctx, else_body, set);
+            let else_type = build_constraints(statics, ast_variant_ctx, ctx, else_body, set);
             statics.infer.set_equal(node_type_id, else_type, Reason::new(node_loc, ReasonKind::Passed));
         }
         NodeKind::For {
@@ -886,8 +885,8 @@ fn build_constraints(
             let [iterating, iteration_var, inner, else_body] = node.children.into_array();
             let [iterator, body] = inner.children.into_array();
 
-            let iteration_var_id = build_declarative_lvalue(statics, ctx, iteration_var, set, true);
-            let iterator_id = build_declarative_lvalue(statics, ctx, iterator, set, true);
+            let iteration_var_id = build_declarative_lvalue(statics, ast_variant_ctx, ctx, iteration_var, set, true);
+            let iterator_id = build_declarative_lvalue(statics, ast_variant_ctx, ctx, iterator, set, true);
 
             let label = statics.locals.get_label_mut(label_id);
             label.stack_frame_id = set;
@@ -897,13 +896,13 @@ fn build_constraints(
             statics.infer.set_equal(iteration_var_id, usize_id, Reason::temp(node_loc));
 
             // The type the body returns doesn't matter, since we don't forward it.
-            let iterating_type_id = build_constraints(statics, ctx, iterating, set);
+            let iterating_type_id = build_constraints(statics, ast_variant_ctx, ctx, iterating, set);
 
-            build_constraints(statics, ctx, body, set);
+            build_constraints(statics, ast_variant_ctx, ctx, body, set);
 
             statics.infer.set_for_relation(iterator_id, iterating_type_id, Reason::temp(node_loc));
 
-            let else_type = build_constraints(statics, ctx, else_body, set);
+            let else_type = build_constraints(statics, ast_variant_ctx, ctx, else_body, set);
 
             statics.infer.set_equal(node_type_id, else_type, Reason::new(node_loc, ReasonKind::Passed));
         }
@@ -915,7 +914,7 @@ fn build_constraints(
         }
         NodeKind::Defer => {
             let [deferring] = node.children.into_array();
-            build_constraints(statics, ctx, deferring, set);
+            build_constraints(statics, ast_variant_ctx, ctx, deferring, set);
             let empty_id = statics.infer.add_type(
                 TypeKind::Empty, Args([]),
             );
@@ -947,7 +946,7 @@ fn build_constraints(
             let inner_type = statics.infer.add_unknown_type_with_set(set);
 
             for arg in node.children.into_iter() {
-                let arg_type_id = build_constraints(statics, ctx, arg, set);
+                let arg_type_id = build_constraints(statics, ast_variant_ctx, ctx, arg, set);
                 statics.infer.set_equal(arg_type_id, inner_type, Reason::new(node_loc, ReasonKind::Passed));
             }
 
@@ -970,7 +969,7 @@ fn build_constraints(
         }
         NodeKind::Member { name } => {
             let [of] = node.children.into_array();
-            let of_type_id = build_constraints(statics, ctx, of, set);
+            let of_type_id = build_constraints(statics, ast_variant_ctx, ctx, of, set);
             statics.infer
                 .set_field_name_equal(of_type_id, name, node_type_id, Reason::new(node_loc, ReasonKind::NamedField(name)));
         }
@@ -988,7 +987,7 @@ fn build_constraints(
         NodeKind::If => {
             let [tags, condition, true_body, else_body] = node.children.into_array();
 
-            let mut tags = build_tags(statics, ctx, tags, set);
+            let mut tags = build_tags(statics, ast_variant_ctx, ctx, tags, set);
 
             if let Some(_) = tags.compile.take() {
                 let sub_set = statics.infer.value_sets.add(WaitingOnTypeInferrence::ConditionalCompilation {
@@ -1004,19 +1003,19 @@ fn build_constraints(
 
                 let old_runs = ctx.runs;
                 ctx.runs = ctx.runs.combine(ExecutionTime::Typing);
-                let condition_type_id = build_constraints(statics, ctx, condition, sub_set);
+                let condition_type_id = build_constraints(statics, ast_variant_ctx, ctx, condition, sub_set);
                 ctx.runs = old_runs;
                 let condition_type = statics.infer.add_type(TypeKind::Bool, Args([]));
                 statics.infer
                     .set_equal(condition_type_id, condition_type, Reason::new(node_loc, ReasonKind::IsOfType));
             } else {
-                let condition_type_id = build_constraints(statics, ctx, condition, set);
+                let condition_type_id = build_constraints(statics, ast_variant_ctx, ctx, condition, set);
                 let condition_type = statics.infer.add_type(TypeKind::Bool, Args([]));
                 statics.infer
                     .set_equal(condition_type_id, condition_type, Reason::new(node_loc, ReasonKind::IsOfType));
 
-                let true_body_id = build_constraints(statics, ctx, true_body, set);
-                let false_body_id = build_constraints(statics, ctx, else_body, set);
+                let true_body_id = build_constraints(statics, ast_variant_ctx, ctx, true_body, set);
+                let false_body_id = build_constraints(statics, ast_variant_ctx, ctx, else_body, set);
 
                 statics.infer
                     .set_equal(true_body_id, node_type_id, Reason::new(node_loc, ReasonKind::Passed));
@@ -1024,13 +1023,13 @@ fn build_constraints(
                     .set_equal(false_body_id, node_type_id, Reason::new(node_loc, ReasonKind::Passed));
             }
 
-            tags.finish(statics, ctx, set);
+            tags.finish(statics, ast_variant_ctx, ctx, set);
         }
         NodeKind::Unary {
             op: UnaryOp::Dereference,
         } => {
             let [operand] = node.children.into_array();
-            let operand_type_id = build_constraints(statics, ctx, operand, set);
+            let operand_type_id = build_constraints(statics, ast_variant_ctx, ctx, operand, set);
 
             let temp = statics.infer.add_type(
                 TypeKind::Reference,
@@ -1040,7 +1039,7 @@ fn build_constraints(
                 .set_equal(operand_type_id, temp, Reason::new(node_loc, ReasonKind::Passed));
         }
         NodeKind::FunctionDeclaration { .. } => {
-            build_function_declaration(statics, ctx, node, set, None);
+            build_function_declaration(statics, ast_variant_ctx, ctx, node, set, None);
         }
         NodeKind::ExpressiveFunctionCall => {
             let mut children = node.children.into_iter();
@@ -1048,10 +1047,12 @@ fn build_constraints(
 
             let calling = children.next().unwrap();
             let calling_type_id = TypeId::Node(ctx.ast_variant_id, calling.id);
-            let meta_data = build_with_metadata(statics, ctx, calling, set);
+            let meta_data = build_with_metadata(statics, ast_variant_ctx, ctx, calling, set);
 
             build_function_call(
-                statics, ctx,
+                statics,
+                ast_variant_ctx,
+                ctx,
                 node.id,
                 node_type_id,
                 node_loc,
@@ -1066,10 +1067,10 @@ fn build_constraints(
 
             let calling = children.next().unwrap();
             let calling_type_id = TypeId::Node(ctx.ast_variant_id, calling.id);
-            let meta_data = build_with_metadata(statics, ctx, calling, set);
+            let meta_data = build_with_metadata(statics, ast_variant_ctx, ctx, calling, set);
 
             build_function_call(
-                statics, ctx,
+                statics, ast_variant_ctx, ctx,
                 node.id,
                 node_type_id,
                 node_loc,
@@ -1083,8 +1084,8 @@ fn build_constraints(
             op: BinaryOp::Assign,
         } => {
             let [left, right] = node.children.into_array();
-            let left_type_id = build_declarative_lvalue(statics, ctx, left, set, false);
-            let right_type_id = build_constraints(statics, ctx, right, set);
+            let left_type_id = build_declarative_lvalue(statics, ast_variant_ctx, ctx, left, set, false);
+            let right_type_id = build_constraints(statics, ast_variant_ctx, ctx, right, set);
 
             statics.infer
                 .set_equal(left_type_id, right_type_id, Reason::new(node_loc, ReasonKind::Assigned));
@@ -1096,8 +1097,8 @@ fn build_constraints(
         }
         NodeKind::Binary { op } => {
             let [left, right] = node.children.into_array();
-            let left = build_constraints(statics, ctx, left, set);
-            let right = build_constraints(statics, ctx, right, set);
+            let left = build_constraints(statics, ast_variant_ctx, ctx, left, set);
+            let right = build_constraints(statics, ast_variant_ctx, ctx, right, set);
 
             // TODO: This is a massive hack! We want this to exist in the type inferrer itself probably....
             if op == BinaryOp::Equals || op == BinaryOp::NotEquals || op == BinaryOp::BitAnd || op == BinaryOp::BitOr {
@@ -1108,7 +1109,7 @@ fn build_constraints(
         }
         NodeKind::Reference => {
             let [operand] = node.children.into_array();
-            let inner = build_lvalue(statics, ctx, operand, set, true);
+            let inner = build_lvalue(statics, ast_variant_ctx, ctx, operand, set, true);
             statics.infer.set_type(
                 node_type_id,
                 TypeKind::Reference,
@@ -1126,7 +1127,7 @@ fn build_constraints(
 
             let mut children = node.children.into_iter();
             let tags_node = children.next().unwrap();
-            let mut tags = build_tags(statics, ctx, tags_node, set);
+            let mut tags = build_tags(statics, ast_variant_ctx, ctx, tags_node, set);
             let target_based = if let Some((tag_loc, target)) = tags.target.take() {
                 let required_type = statics.infer.add_type(TypeKind::Empty, Args([]));
                 statics.infer.set_equal(node_type_id, required_type, Reason::temp(tag_loc));
@@ -1143,14 +1144,14 @@ fn build_constraints(
             } else {
                 false
             };
-            tags.finish(statics, ctx, set);
+            tags.finish(statics, ast_variant_ctx, ctx, set);
 
             let children_len = children.len();
             for statement_id in children.by_ref().take(children_len - 1) {
-                build_constraints(statics, ctx, statement_id, set);
+                build_constraints(statics, ast_variant_ctx, ctx, statement_id, set);
             }
 
-            let last_type_id = build_constraints(statics, ctx, children.next().unwrap(), set);
+            let last_type_id = build_constraints(statics, ast_variant_ctx, ctx, children.next().unwrap(), set);
             statics.infer
                 .set_equal(node_type_id, last_type_id, Reason::new(node_loc, ReasonKind::Passed));
 
@@ -1172,7 +1173,7 @@ fn build_constraints(
 
             let label_type_id = TypeId::Node(ctx.ast_variant_id, label.declared_at.unwrap());
 
-            let value_type_id = build_constraints(statics, ctx, value, set);
+            let value_type_id = build_constraints(statics, ast_variant_ctx, ctx, value, set);
             statics.infer.set_equal(value_type_id, label_type_id, Reason::temp(node_loc));
 
             statics.infer.set_type(
@@ -1182,21 +1183,21 @@ fn build_constraints(
         }
         NodeKind::Parenthesis => {
             let [inner] = node.children.into_array();
-            let inner_type_id = build_constraints(statics, ctx, inner, set);
+            let inner_type_id = build_constraints(statics, ast_variant_ctx, ctx, inner, set);
             statics.infer
                 .set_equal(inner_type_id, node_type_id, Reason::new(node_loc, ReasonKind::Passed));
         }
         NodeKind::Unary { op: _ } => {
             // @TODO: Make sure the types are valid for the operator
             let [operand] = node.children.into_array();
-            let operand_id = build_constraints(statics, ctx, operand, set);
+            let operand_id = build_constraints(statics, ast_variant_ctx, ctx, operand, set);
 
             statics.infer.set_equal(operand_id, node_type_id, Reason::temp(node_loc));
         }
         NodeKind::TypeBound => {
             let [value, bound] = node.children.into_array();
-            let value_type_id = build_constraints(statics, ctx, value, set);
-            let bound_type_id = build_type(statics, ctx, bound, set);
+            let value_type_id = build_constraints(statics, ast_variant_ctx, ctx, value, set);
+            let bound_type_id = build_type(statics, ast_variant_ctx, ctx, bound, set);
             statics.infer
                 .set_equal(node_type_id, bound_type_id, Reason::new(node_loc, ReasonKind::TypeBound));
             statics.infer
@@ -1211,14 +1212,14 @@ fn build_constraints(
     node_type_id
 }
 
-fn extract_name(statics: &Statics<'_, '_>, ctx: &Context, node: NodeView<'_>) -> Option<(Ustr, Location)> {
+fn extract_name(statics: &Statics<'_, '_>, node: NodeView<'_>) -> Option<(Ustr, Location)> {
     match node.kind {
         NodeKind::Local { local_id, .. } => {
             Some((statics.locals.get(local_id).name, node.loc))
         }
         NodeKind::TypeBound => {
             let [value, _] = node.children.into_array();
-            extract_name(statics, ctx, value)
+            extract_name(statics, value)
         }
         _ => None,
     }
@@ -1233,7 +1234,7 @@ struct Tags {
 }
 
 impl Tags {
-    fn finish(self, statics: &mut Statics<'_, '_>, _ctx: &mut Context, set: ValueSetId) {
+    fn finish(self, statics: &mut Statics<'_, '_>, _ast_variant_ctx: &mut AstVariantContext, _ctx: &mut Context, set: ValueSetId) {
         if let Some((loc, _)) = self.calling_convention {
             statics.errors.error(loc, format!("Tag not valid for this kind of expression"));
             statics.infer.value_sets.get_mut(set).has_errors = true;
@@ -1258,6 +1259,7 @@ impl Tags {
 
 fn build_tags(
     statics: &mut Statics<'_, '_>,
+    ast_variant_ctx: &mut AstVariantContext,
     ctx: &mut Context,
     node: NodeView<'_>,
     set: ValueSetId,
@@ -1285,7 +1287,7 @@ fn build_tags(
                     .expect("Parser should make sure we have access to calling convention");
                 // TODO: It is scary to monomorphise something like this, since we have to give a node
                 // that is the "global". Maybe there should be an entirely different code path for types?
-                build_global(statics, ctx, inner.id, inner.node, inner.loc, builtin_id, None, set, true);
+                build_global(statics, ast_variant_ctx, ctx, inner.id, inner.node, inner.loc, builtin_id, None, set, true);
 
                 tags.calling_convention = Some((
                     node.loc,
@@ -1299,9 +1301,12 @@ fn build_tags(
                     statics.infer.value_sets.get_mut(set).has_errors |= true;
                 }
 
-                let mut sub_ctx = Context {
+                let mut sub_ast_variant_ctx = AstVariantContext {
                     // TODO: Think about whether this is correct or not
                     emit_deps: DependencyList::new(),
+                };
+
+                let mut sub_ctx = Context {
                     runs: ctx.runs.combine(ExecutionTime::Typing),
                     ast_variant_id: ctx.ast_variant_id,
                     inside_type_comparison: false,
@@ -1310,16 +1315,16 @@ fn build_tags(
                 };
                 let sub_set = statics.infer.value_sets.add(WaitingOnTypeInferrence::None);
 
-                build_constraints(statics, &mut sub_ctx, inner, sub_set);
+                build_constraints(statics, &mut sub_ast_variant_ctx, &mut sub_ctx, inner, sub_set);
 
-                debug_assert!(sub_ctx.emit_deps.is_empty());
+                debug_assert!(sub_ast_variant_ctx.emit_deps.is_empty());
 
                 let builtin_id = statics.program
                     .get_member_id_from_builtin(Builtin::Target)
                     .expect("Parser should make sure we have access to target");
                 // TODO: It is scary to monomorphise something like this, since we have to give a node
                 // that is the "global". Maybe there should be an entirely different code path for types?
-                build_global(statics, &mut sub_ctx, inner.id, inner.node, inner.loc, builtin_id, None, sub_set, true);
+                build_global(statics, &mut sub_ast_variant_ctx, &mut sub_ctx, inner.id, inner.node, inner.loc, builtin_id, None, sub_set, true);
 
 
                 let target_id = TypeId::Node(ctx.ast_variant_id, node.id);
@@ -1356,6 +1361,7 @@ fn build_tags(
 
 fn build_function_declaration(
     statics: &mut Statics<'_, '_>,
+    ast_variant_ctx: &mut AstVariantContext,
     ctx: &mut Context,
     node: NodeView<'_>,
     set: ValueSetId,
@@ -1367,8 +1373,10 @@ fn build_function_declaration(
 
     let node_type_id = TypeId::Node(ctx.ast_variant_id, node.id);
 
-    let mut sub_ctx = Context {
+    let mut sub_ast_variant_ctx = AstVariantContext {
         emit_deps: DependencyList::new(),
+    };
+    let mut sub_ctx = Context {
         runs: ctx.runs.combine(ExecutionTime::RuntimeFunc),
         ast_variant_id: ctx.ast_variant_id,
         inside_type_comparison: false,
@@ -1376,7 +1384,7 @@ fn build_function_declaration(
     };
 
     let mut children = node.children.into_iter();
-    let mut tags = build_tags(statics, &mut sub_ctx, children.next().unwrap(), sub_set);
+    let mut tags = build_tags(statics, &mut sub_ast_variant_ctx, &mut sub_ctx, children.next().unwrap(), sub_set);
 
     statics.infer.value_sets.lock(set);
 
@@ -1391,12 +1399,12 @@ fn build_function_declaration(
 
     let mut function_args = FunctionArgsBuilder::with_num_args_capacity(num_args);
     for (argument_info, argument) in argument_infos.iter().zip(children.by_ref().take(num_args)) {
-        let decl_id = build_declarative_lvalue(statics, &mut sub_ctx, argument, sub_set, true);
+        let decl_id = build_declarative_lvalue(statics, &mut sub_ast_variant_ctx, &mut sub_ctx, argument, sub_set, true);
         function_args.add_arg((decl_id, Reason::temp(node.node.loc)));
 
         if let Some(meta_data) = wants_meta_data.as_mut() {
             meta_data.arguments.push(FunctionArgumentInfo {
-                name: extract_name(statics, &sub_ctx, argument),
+                name: extract_name(statics, argument),
                 var_args: argument_info.var_args,
             });
         } else {
@@ -1410,7 +1418,7 @@ fn build_function_declaration(
     let returns = children.next().unwrap();
     let returns_type_reason = Reason::new(returns.loc, ReasonKind::FunctionDeclReturnType);
     let returns_loc = returns.loc;
-    let returns_type_id = build_type(statics, &mut sub_ctx, returns, sub_set);
+    let returns_type_id = build_type(statics, &mut sub_ast_variant_ctx, &mut sub_ctx, returns, sub_set);
     function_args.set_return((returns_type_id, returns_type_reason));
 
     if let Some((loc, target)) = tags.target.take() {
@@ -1423,7 +1431,7 @@ fn build_function_declaration(
 
     if is_extern.is_none() {
         let body = children.next().unwrap();
-        let body_type_id = build_constraints(statics, &mut sub_ctx, body, sub_set);
+        let body_type_id = build_constraints(statics, &mut sub_ast_variant_ctx, &mut sub_ctx, body, sub_set);
 
         statics.infer
             .set_equal(body_type_id, returns_type_id, Reason::new(returns_loc, ReasonKind::FunctionDeclReturned));
@@ -1440,7 +1448,7 @@ fn build_function_declaration(
         function_args.set_calling_convention((calling_convention, Reason::temp(node.loc)));
     }
 
-    tags.finish(statics, ctx, sub_set);
+    tags.finish(statics, ast_variant_ctx, ctx, sub_set);
     
     let infer_type_id = statics.infer.add_type(TypeKind::Function, Args(function_args.build()));
     statics.infer
@@ -1456,7 +1464,7 @@ fn build_function_declaration(
     });
 
     let value_set = statics.infer.value_sets.get_mut(sub_set);
-    let old_set = value_set.emit_deps.replace(sub_ctx.emit_deps);
+    let old_set = value_set.emit_deps.replace(sub_ast_variant_ctx.emit_deps);
     let old_target_checker = value_set.target_checker.replace(target_checker);
     debug_assert!(old_set.is_none());
     debug_assert!(old_target_checker.is_none());
@@ -1464,6 +1472,7 @@ fn build_function_declaration(
 
 fn build_unique_type(
     statics: &mut Statics<'_, '_>,
+    ast_variant_ctx: &mut AstVariantContext,
     ctx: &mut Context,
     node: NodeView<'_>,
     set: ValueSetId,
@@ -1481,7 +1490,7 @@ fn build_unique_type(
             let names = fields.to_vec().into_boxed_slice();
             let mut children = node.children.into_iter();
             let base_type = children.next().unwrap();
-            let base_type_id = build_type(statics, ctx, base_type, set);
+            let base_type_id = build_type(statics, ast_variant_ctx, ctx, base_type, set);
 
             let fields: Vec<_> = std::iter::once((base_type_id, Reason::temp(node_loc))).chain(children.map(|child| {
                 let value = build_inferrable_constant_value(statics, ctx, child, set);
@@ -1494,7 +1503,7 @@ fn build_unique_type(
             statics.infer.set_value_set(node_type_id, set);
         }
         _ => {
-            let inner_type = build_type(statics, ctx, node, set);
+            let inner_type = build_type(statics, ast_variant_ctx, ctx, node, set);
             let unique_type = statics.infer.add_type(
                 TypeKind::Unique(marker),
                 Args([(inner_type, Reason::temp(node.loc))]),
@@ -1510,6 +1519,7 @@ fn build_unique_type(
 
 fn build_type(
     statics: &mut Statics<'_, '_>,
+    ast_variant_ctx: &mut AstVariantContext,
     ctx: &mut Context,
     node: NodeView<'_>,
     set: ValueSetId,
@@ -1556,14 +1566,14 @@ fn build_type(
             let old_runs = ctx.runs;
             ctx.runs = ExecutionTime::Never;
             let id = statics.program.get_member_id(scope, name).expect("The dependency system should have made sure that this is defined");
-            build_global(statics, ctx, node.id, node.node, node.loc, id, Some(children), set, true);
+            build_global(statics, ast_variant_ctx, ctx, node.id, node.node, node.loc, id, Some(children), set, true);
             ctx.runs = old_runs;
         }
         NodeKind::Global { scope, name } => {
             let old_runs = ctx.runs;
             ctx.runs = ExecutionTime::Never;
             let id = statics.program.get_member_id(scope, name).expect("The dependency system should have made sure that this is defined");
-            build_global(statics, ctx, node.id, node.node, node.loc, id, None, set, true);
+            build_global(statics, ast_variant_ctx, ctx, node.id, node.node, node.loc, id, None, set, true);
             ctx.runs = old_runs;
         }
         NodeKind::PolymorphicArgument(index) => {
@@ -1576,7 +1586,7 @@ fn build_type(
         }
         NodeKind::Parenthesis | NodeKind::TypeAsValue => {
             let [inner] = node.children.into_array();
-            let inner_type_id = build_type(statics, ctx, inner, set);
+            let inner_type_id = build_type(statics, ast_variant_ctx, ctx, inner, set);
             statics.infer
                 .set_equal(inner_type_id, node_type_id, Reason::temp(node_loc));
         }
@@ -1585,15 +1595,15 @@ fn build_type(
         }
         NodeKind::FunctionType => {
             let mut children = node.children.into_iter();
-            let mut tags = build_tags(statics, ctx, children.next().unwrap(), set);
+            let mut tags = build_tags(statics, ast_variant_ctx, ctx, children.next().unwrap(), set);
             let mut function_args = FunctionArgsBuilder::with_num_args_capacity(children.len());
             let num_children = children.len();
             for type_node in children.by_ref().take(num_children - 1) {
-                let type_id = build_type(statics, ctx, type_node, set);
+                let type_id = build_type(statics, ast_variant_ctx, ctx, type_node, set);
                 function_args.add_arg((type_id, Reason::temp(node_loc)));
             }
 
-            let returns_type_id = build_type(statics, ctx, children.next().unwrap(), set);
+            let returns_type_id = build_type(statics, ast_variant_ctx, ctx, children.next().unwrap(), set);
             function_args.set_return((returns_type_id, Reason::temp(node_loc)));
 
             if let Some((loc, calling_convention)) = tags.calling_convention.take() {
@@ -1613,7 +1623,7 @@ fn build_type(
             }
 
 
-            tags.finish(statics, ctx, set);
+            tags.finish(statics, ast_variant_ctx, ctx, set);
 
             let infer_type_id = statics.infer.add_type(TypeKind::Function, Args(function_args.build()));
             statics.infer
@@ -1622,7 +1632,7 @@ fn build_type(
         NodeKind::TupleType => {
             let mut values = Vec::with_capacity(node.children.len());
             for child in node.children {
-                let child_id = build_type(statics, ctx, child, set);
+                let child_id = build_type(statics, ast_variant_ctx, ctx, child, set);
                 values.push((child_id, Reason::temp(node_loc)));
             }
 
@@ -1632,7 +1642,7 @@ fn build_type(
             let names = fields.to_vec().into_boxed_slice();
             let mut children = node.children.into_iter();
             let base_type = children.next().unwrap();
-            let base_type_id = build_type(statics, ctx, base_type, set);
+            let base_type_id = build_type(statics, ast_variant_ctx, ctx, base_type, set);
 
             let fields: Vec<_> = std::iter::once((base_type_id, Reason::temp(node_loc))).chain(children.map(|child| {
                 let value = build_inferrable_constant_value(statics, ctx, child, set);
@@ -1651,12 +1661,12 @@ fn build_type(
         NodeKind::StructType { ref fields } => {
             // @Performance: Many allocations
             let names = fields.to_vec().into_boxed_slice();
-            let fields: Vec<_> = node.children.into_iter().map(|v| (build_type(statics, ctx, v, set), Reason::temp(node_loc))).collect();
+            let fields: Vec<_> = node.children.into_iter().map(|v| (build_type(statics, ast_variant_ctx, ctx, v, set), Reason::temp(node_loc))).collect();
             statics.infer.set_type(node_type_id, TypeKind::Struct(names), Args(fields));
         }
         NodeKind::ReferenceType => {
             let [inner] = node.children.into_array();
-            let inner = build_type(statics, ctx, inner, set);
+            let inner = build_type(statics, ast_variant_ctx, ctx, inner, set);
             statics.infer.set_type(
                 node_type_id,
                 TypeKind::Reference, Args([(inner, Reason::temp(node_loc))]),
@@ -1664,7 +1674,7 @@ fn build_type(
         }
         NodeKind::BufferType => {
             let [inner] = node.children.into_array();
-            let inner = build_type(statics, ctx, inner, set);
+            let inner = build_type(statics, ast_variant_ctx, ctx, inner, set);
             statics.infer.set_type(
                 node_type_id,
                 TypeKind::Buffer, Args([(inner, Reason::temp(node_loc))]),
@@ -1676,7 +1686,7 @@ fn build_type(
             let usize_type = statics.infer.add_int(IntTypeKind::Usize);
             statics.infer.set_equal(usize_type, length.type_, Reason::temp(node_loc));
 
-            let member_type_id = build_type(statics, ctx, members, set);
+            let member_type_id = build_type(statics, ast_variant_ctx, ctx, members, set);
             statics.infer.set_type(node_type_id, TypeKind::Array, Args([(member_type_id, Reason::temp(node_loc)), (length.constant, Reason::temp(node_loc))]));
         }
         NodeKind::TypeOf => {
@@ -1685,7 +1695,7 @@ fn build_type(
             let old_inside_type_comparison = ctx.inside_type_comparison;
             ctx.inside_type_comparison = false;
             ctx.runs = ctx.runs.combine(ExecutionTime::Never);
-            let type_ = build_constraints(statics, ctx, inner, set);
+            let type_ = build_constraints(statics, ast_variant_ctx, ctx, inner, set);
             ctx.runs = old;
             ctx.inside_type_comparison = old_inside_type_comparison;
             statics.infer.set_equal(node_type_id, type_, Reason::new(node_loc, ReasonKind::TypeOf));
@@ -1706,6 +1716,7 @@ fn build_type(
 
 fn build_declarative_lvalue(
     statics: &mut Statics<'_, '_>,
+    ast_variant_ctx: &mut AstVariantContext,
     ctx: &mut Context,
     node: NodeView<'_>,
     set: ValueSetId,
@@ -1720,15 +1731,15 @@ fn build_declarative_lvalue(
     match node.kind {
         NodeKind::Member { name } if !is_declaring => {
             let [of] = node.children.into_array();
-            let of_type_id = build_lvalue(statics, ctx, of, set, false);
+            let of_type_id = build_lvalue(statics, ast_variant_ctx, ctx, of, set, false);
             statics.infer
                 .set_field_name_equal(of_type_id, name, node_type_id, Reason::new(node_loc, ReasonKind::NamedField(name)));
         }
         NodeKind::Binary { op: BinaryOp::BitAnd } => {
             let [left, right] = node.children.into_array();
 
-            let left_id = build_declarative_lvalue(statics, ctx, left, set, is_declaring);
-            let right_id = build_declarative_lvalue(statics, ctx, right, set, is_declaring);
+            let left_id = build_declarative_lvalue(statics, ast_variant_ctx, ctx, left, set, is_declaring);
+            let right_id = build_declarative_lvalue(statics, ast_variant_ctx, ctx, right, set, is_declaring);
 
             statics.infer.set_equal(node_type_id, left_id, Reason::temp(node_loc));
             statics.infer.set_equal(node_type_id, right_id, Reason::temp(node_loc));
@@ -1736,17 +1747,17 @@ fn build_declarative_lvalue(
         NodeKind::ImplicitType => {}
         NodeKind::Declare if !is_declaring => {
             let [inner] = node.children.into_array();
-            let inner = build_declarative_lvalue(statics, ctx, inner, set, true);
+            let inner = build_declarative_lvalue(statics, ast_variant_ctx, ctx, inner, set, true);
             statics.infer.set_equal(node_type_id, inner, Reason::temp(node_loc));
         }
         NodeKind::Pack => {
             let [inner] = node.children.into_array();
-            let inner_type = build_constraints(statics, ctx, inner, set);
+            let inner_type = build_constraints(statics, ast_variant_ctx, ctx, inner, set);
             statics.infer.set_pack(node_type_id, inner_type, Reason::temp(node_loc));
         }
         NodeKind::Unpack => {
             let [inner] = node.children.into_array();
-            let inner_type = build_constraints(statics, ctx, inner, set);
+            let inner_type = build_constraints(statics, ast_variant_ctx, ctx, inner, set);
             statics.infer.set_pack(inner_type, node_type_id, Reason::temp(node_loc));
         }
         NodeKind::Local{ local_id } => {
@@ -1769,13 +1780,13 @@ fn build_declarative_lvalue(
         }
         NodeKind::Parenthesis => {
             let [value] = node.children.into_array();
-            let inner = build_declarative_lvalue(statics, ctx, value, set, is_declaring);
+            let inner = build_declarative_lvalue(statics, ast_variant_ctx, ctx, value, set, is_declaring);
             statics.infer.set_equal(node_type_id, inner, Reason::temp(node_loc));
         }
         NodeKind::Tuple => {
             let mut values = Vec::with_capacity(node.children.len());
             for child in node.children {
-                let child_id = build_declarative_lvalue(statics, ctx, child, set, is_declaring);
+                let child_id = build_declarative_lvalue(statics, ast_variant_ctx, ctx, child, set, is_declaring);
                 values.push((child_id, Reason::temp(node_loc)));
             }
 
@@ -1785,7 +1796,7 @@ fn build_declarative_lvalue(
             let inner_type = statics.infer.add_unknown_type_with_set(set);
 
             for arg in node.children.into_iter() {
-                let arg_type_id = build_declarative_lvalue(statics, ctx, arg, set, is_declaring);
+                let arg_type_id = build_declarative_lvalue(statics, ast_variant_ctx, ctx, arg, set, is_declaring);
                 statics.infer.set_equal(arg_type_id, inner_type, Reason::new(node_loc, ReasonKind::Passed));
             }
 
@@ -1811,10 +1822,10 @@ fn build_declarative_lvalue(
             // I could try integrating this variance with the `access` variance passed in here to make it
             // less restrictive. It would also be nice if it was consistant with how non lvalue typebounds work,
             // since right now that's an inconsistancy that's going to be weird if you trigger it.
-            let bound_type_id = build_type(statics, ctx, bound, set);
+            let bound_type_id = build_type(statics, ast_variant_ctx, ctx, bound, set);
             statics.infer
                 .set_equal(node_type_id, bound_type_id, Reason::temp(node_loc));
-            let value_type_id = build_declarative_lvalue(statics, ctx, value, set, is_declaring);
+            let value_type_id = build_declarative_lvalue(statics, ast_variant_ctx, ctx, value, set, is_declaring);
             statics.infer
                 .set_equal(value_type_id, node_type_id, Reason::temp(node_loc));
         }
@@ -1828,7 +1839,7 @@ fn build_declarative_lvalue(
                 Args([(node_type_id, Reason::temp(node_loc))]),
             );
 
-            let operand_type_id = build_constraints(statics, ctx, operand, set);
+            let operand_type_id = build_constraints(statics, ast_variant_ctx, ctx, operand, set);
             statics.infer
                 .set_equal(operand_type_id, temp, Reason::temp(node_loc));
         }
@@ -1848,6 +1859,7 @@ fn build_declarative_lvalue(
 /// If this strategy doesn't work however, we fallback to read-only.
 fn build_lvalue(
     statics: &mut Statics<'_, '_>,
+    ast_variant_ctx: &mut AstVariantContext,
     ctx: &mut Context,
     node: NodeView<'_>,
     set: ValueSetId,
@@ -1859,7 +1871,7 @@ fn build_lvalue(
     match node.kind {
         NodeKind::Member { name } => {
             let [of] = node.children.into_array();
-            let of_type_id = build_lvalue(statics, ctx, of, set, can_reference_temporaries);
+            let of_type_id = build_lvalue(statics, ast_variant_ctx, ctx, of, set, can_reference_temporaries);
             statics.infer
                 .set_field_name_equal(of_type_id, name, node_type_id, Reason::new(node_loc, ReasonKind::NamedField(name)));
         }
@@ -1877,17 +1889,17 @@ fn build_lvalue(
         }
         NodeKind::Parenthesis => {
             let [value] = node.children.into_array();
-            let inner = build_lvalue(statics, ctx, value, set, can_reference_temporaries);
+            let inner = build_lvalue(statics, ast_variant_ctx, ctx, value, set, can_reference_temporaries);
             statics.infer.set_equal(node_type_id, inner, Reason::temp(node_loc));
         }
         NodeKind::Pack => {
             let [inner] = node.children.into_array();
-            let inner_type = build_constraints(statics, ctx, inner, set);
+            let inner_type = build_constraints(statics, ast_variant_ctx, ctx, inner, set);
             statics.infer.set_pack(node_type_id, inner_type, Reason::temp(node_loc));
         }
         NodeKind::Unpack => {
             let [inner] = node.children.into_array();
-            let inner_type = build_constraints(statics, ctx, inner, set);
+            let inner_type = build_constraints(statics, ast_variant_ctx, ctx, inner, set);
             statics.infer.set_pack(inner_type, node_type_id, Reason::temp(node_loc));
         }
         NodeKind::TypeBound => {
@@ -1897,10 +1909,10 @@ fn build_lvalue(
             // I could try integrating this variance with the `access` variance passed in here to make it
             // less restrictive. It would also be nice if it was consistant with how non lvalue typebounds work,
             // since right now that's an inconsistancy that's going to be weird if you trigger it.
-            let bound_type_id = build_type(statics, ctx, bound, set);
+            let bound_type_id = build_type(statics, ast_variant_ctx, ctx, bound, set);
             statics.infer
                 .set_equal(node_type_id, bound_type_id, Reason::temp(node_loc));
-            let value_type_id = build_lvalue(statics, ctx, value, set, can_reference_temporaries);
+            let value_type_id = build_lvalue(statics, ast_variant_ctx, ctx, value, set, can_reference_temporaries);
             statics.infer
                 .set_equal(value_type_id, node_type_id, Reason::temp(node_loc));
         }
@@ -1914,7 +1926,7 @@ fn build_lvalue(
                 Args([(node_type_id, Reason::temp(node_loc))]),
             );
 
-            let operand_type_id = build_constraints(statics, ctx, operand, set);
+            let operand_type_id = build_constraints(statics, ast_variant_ctx, ctx, operand, set);
             statics.infer
                 .set_equal(operand_type_id, temp, Reason::temp(node_loc));
         }
@@ -1922,7 +1934,7 @@ fn build_lvalue(
             if can_reference_temporaries {
                 // Make it a reference to a temporary instead. This forces the pointer to be readonly.
                 // TODO: Make it require it to be read-only here.
-                return build_constraints(statics, ctx, node, set);
+                return build_constraints(statics, ast_variant_ctx, ctx, node, set);
             } else {
                 statics.errors.error(node_loc, "Not a valid lvalue, as this is assigned to, we can't use temporary values".to_string());
                 statics.infer.value_sets.get_mut(set).has_errors = true;
@@ -1986,9 +1998,11 @@ fn build_inferrable_constant_value(
         }
         _ => {
             // We can't figure it out in a clever way, so just compile time execute the node as a constant.
-            let mut sub_ctx = Context {
+            let mut sub_ast_variant_ctx = AstVariantContext {
                 // TODO: Think about whether this is correct or not
                 emit_deps: DependencyList::new(),
+            };
+            let mut sub_ctx = Context {
                 runs: ctx.runs.combine(ExecutionTime::Typing),
                 ast_variant_id: ctx.ast_variant_id,
                 inside_type_comparison: false,
@@ -1997,8 +2011,8 @@ fn build_inferrable_constant_value(
             };
             let sub_set = statics.infer.value_sets.add(WaitingOnTypeInferrence::None);
 
-            let constant_type_id = build_constraints(statics, &mut sub_ctx, node, sub_set);
-            debug_assert!(sub_ctx.emit_deps.is_empty());
+            let constant_type_id = build_constraints(statics, &mut sub_ast_variant_ctx, &mut sub_ctx, node, sub_set);
+            debug_assert!(sub_ast_variant_ctx.emit_deps.is_empty());
 
             let constant_value = statics.infer.add_unknown_type_with_set(set);
             let value_id = statics.infer.add_type(TypeKind::Constant, Args([(constant_type_id, Reason::temp(node_loc)), (constant_value, Reason::temp(node_loc))]));
@@ -2025,6 +2039,7 @@ fn build_inferrable_constant_value(
 
 fn build_with_metadata(
     statics: &mut Statics<'_, '_>,
+    ast_variant_ctx: &mut AstVariantContext,
     ctx: &mut Context,
     node: NodeView<'_>,
     set: ValueSetId,
@@ -2045,14 +2060,14 @@ fn build_with_metadata(
             statics.infer.set_equal(TypeId::Node(ctx.ast_variant_id, on.id), node_type_id, Reason::temp(node_loc));
 
             let id = statics.program.get_member_id(scope, name).expect("The dependency system should have made sure that this is defined");
-            Some(build_global(statics, ctx, node.id, node.node, node.loc, id, Some(children), set, false))
+            Some(build_global(statics, ast_variant_ctx, ctx, node.id, node.node, node.loc, id, Some(children), set, false))
         }
         NodeKind::Global { scope, name } => {
             let id = statics.program.get_member_id(scope, name).expect("The dependency system should have made sure that this is defined");
-            Some(build_global(statics, ctx, node.id, node.node, node.loc, id, None, set, false))
+            Some(build_global(statics, ast_variant_ctx, ctx, node.id, node.node, node.loc, id, None, set, false))
         }
         _ => {
-            build_constraints(statics, ctx, node, set);
+            build_constraints(statics, ast_variant_ctx, ctx, node, set);
             None
         }
     }
@@ -2060,6 +2075,7 @@ fn build_with_metadata(
 
 fn build_function_call<'a>(
     statics: &mut Statics<'_, '_>,
+    ast_variant_ctx: &mut AstVariantContext,
     ctx: &mut Context,
     node_id: NodeId,
     node_type_id: TypeId,
@@ -2111,7 +2127,7 @@ fn build_function_call<'a>(
                 }
             };
 
-            let arg_id = build_constraints(statics, ctx, arg, set);
+            let arg_id = build_constraints(statics, ast_variant_ctx, ctx, arg, set);
 
             let Some(arg_info) = arguments.get(index) else {
                 statics.errors.error(arg.loc, "Too many arguments passed to function".to_string());
@@ -2215,7 +2231,7 @@ fn build_function_call<'a>(
         let mut typer_args = FunctionArgsBuilder::with_num_args_capacity(children.size_hint().0);
 
         for arg in children {
-            let arg_type_id = build_constraints(statics, ctx, arg, set);
+            let arg_type_id = build_constraints(statics, ast_variant_ctx, ctx, arg, set);
             typer_args.add_arg((arg_type_id, Reason::new(node_loc, ReasonKind::FunctionCallArgument)));
         }
 
@@ -2244,6 +2260,7 @@ fn build_function_call<'a>(
 
 fn build_global<'a>(
     statics: &mut Statics<'_, '_>,
+    ast_variant_ctx: &mut AstVariantContext,
     ctx: &mut Context,
     node_id: NodeId,
     // TODO: Why are all of these separate instead of just NodeView?
@@ -2292,7 +2309,7 @@ fn build_global<'a>(
                 for (i, (param, other_poly_arg)) in children.zip(&other_yield_data.poly_params).enumerate() {
                     let param_loc = param.loc;
                     if other_poly_arg.is_type() {
-                        let type_id = build_type(statics, ctx, param, sub_set);
+                        let type_id = build_type(statics, ast_variant_ctx, ctx, param, sub_set);
                         param_values.push(type_id);
                         param_reasons.push((type_id, other_poly_arg.value_id, Reason::new(param_loc, ReasonKind::PolyParam(i))));
                     } else {
@@ -2372,10 +2389,10 @@ fn build_global<'a>(
                 // This will never be emitted anyway so it doesn't matter if the value isn't accessible.
                 ExecutionTime::Never => {},
                 ExecutionTime::RuntimeFunc => {
-                    ctx.emit_deps.add(node.loc, DepKind::Member(id, MemberDep::Value));
+                    ast_variant_ctx.emit_deps.add(node.loc, DepKind::Member(id, MemberDep::Value));
                 }
                 ExecutionTime::Emission => {
-                    ctx.emit_deps.add(node.loc, DepKind::Member(id, MemberDep::ValueAndCallableIfFunction));
+                    ast_variant_ctx.emit_deps.add(node.loc, DepKind::Member(id, MemberDep::ValueAndCallableIfFunction));
                 }
                 ExecutionTime::Typing => {
                     // The parser should have already made sure the value is accessible. We will run this node

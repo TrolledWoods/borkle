@@ -10,6 +10,8 @@ import "tests/main.bo";
     let vector = stuff->string_split("食")->collect_vec();
     defer vec_free(vector);
 
+    print("This is some text: %\n", raw_text("hello"));
+
     for vector->as_buf() {
         print("%: %\n", i, v);
     };
