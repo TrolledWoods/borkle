@@ -134,14 +134,30 @@ pub struct Context {
     inside_type_comparison: bool,
     // TODO: I don't really like this one here, it should probably be in AstVariantContext...
     ast_variant_id: AstVariantId,
-    target: Option<TypeId>,
+    target: Target,
+}
+
+#[derive(Clone, Copy)]
+enum Target {
+    Inferred(TypeId),
+    Constant(u32),
+}
+
+fn get_target(types: &TypeSystem, target: Target) -> u32 {
+    match target {
+        Target::Inferred(type_id) => {
+            let &TypeKind::Target { min: value, max: _ } = types.get(type_id).kind() else { panic!() };
+            value
+        }
+        Target::Constant(value) => value,
+    }
 }
 
 #[derive(Clone)]
 struct TargetCheck {
     loc: Location,
-    subset: TypeId,
-    superset: TypeId,
+    subset: Target,
+    superset: Target,
 }
 
 pub fn process_ast<'a>(
@@ -208,7 +224,7 @@ pub fn begin<'a>(
         runs: ExecutionTime::RuntimeFunc,
         ast_variant_id: AstVariantId::root(),
         inside_type_comparison: false,
-        target: None,
+        target: Target::Constant(TARGET_COMPILER),
     };
 
     // Build the type relationships between nodes.
@@ -648,8 +664,8 @@ fn validate(types: &TypeSystem, errors: &mut ErrorCtx, target_checks: &Vec<Targe
     let mut has_errors = false;
 
     for check in target_checks {
-        let &TypeKind::Target { min: subset, max: _ } = types.get(check.subset).kind() else { panic!() };
-        let &TypeKind::Target { min: superset, max: _ } = types.get(check.superset).kind() else { panic!() };
+        let subset = get_target(types, check.subset);
+        let superset = get_target(types, check.superset);
 
         if (superset & subset) != subset {
             has_errors = true;
@@ -1106,14 +1122,12 @@ fn build_constraints(
                 let required_type = statics.infer.add_type(TypeKind::Empty, Args([]));
                 statics.infer.set_equal(node_type_id, required_type, Reason::temp(tag_loc));
 
-                if let Some(parent) = ctx.target {
-                    statics.target_checks.push(TargetCheck {
-                        loc: tag_loc,
-                        subset: target,
-                        superset: parent,
-                    });
-                }
-                sub_ctx.target = Some(target);
+                statics.target_checks.push(TargetCheck {
+                    loc: tag_loc,
+                    subset: Target::Inferred(target),
+                    superset: ctx.target,
+                });
+                sub_ctx.target = Target::Inferred(target);
             }
             tags.finish(statics, ast_variant_ctx, &sub_ctx, set);
 
@@ -1277,8 +1291,7 @@ fn build_tags(
                     runs: ctx.runs.combine(ExecutionTime::Typing),
                     ast_variant_id: ctx.ast_variant_id,
                     inside_type_comparison: false,
-                    // TODO: We don't ever use this thing....
-                    target: None,
+                    target: Target::Constant(TARGET_COMPILER),
                 };
                 let sub_set = statics.infer.value_sets.add(WaitingOnTypeInferrence::None);
 
@@ -1347,7 +1360,7 @@ fn build_function_declaration(
         runs: ctx.runs.combine(ExecutionTime::RuntimeFunc),
         ast_variant_id: ctx.ast_variant_id,
         inside_type_comparison: false,
-        target: None,
+        target: Target::Constant(TARGET_ALL),
     };
 
     let mut children = node.children.into_iter();
@@ -1390,7 +1403,7 @@ fn build_function_declaration(
 
     if let Some((loc, target)) = tags.target.take() {
         function_args.set_target((target, Reason::temp(loc)));
-        sub_ctx.target = Some(target);
+        sub_ctx.target = Target::Inferred(target);
     } else {
         let target = statics.infer.add_type(TypeKind::Target { min: TARGET_ALL, max: TARGET_ALL }, Args([]));
         function_args.set_target((target, Reason::temp(node.loc)));
@@ -1964,8 +1977,7 @@ fn build_inferrable_constant_value(
                 runs: ctx.runs.combine(ExecutionTime::Typing),
                 ast_variant_id: ctx.ast_variant_id,
                 inside_type_comparison: false,
-                // TODO: We don't ever use this thing....
-                target: None,
+                target: Target::Constant(TARGET_COMPILER),
             };
             let sub_set = statics.infer.value_sets.add(WaitingOnTypeInferrence::None);
 
@@ -2171,13 +2183,11 @@ fn build_function_call<'a>(
         let target = statics.infer.add_unknown_type_with_set(set);
         typer_args.set_target((target, Reason::temp(node_loc)));
 
-        if let Some(parent) = ctx.target {
-            statics.target_checks.push(TargetCheck {
-                loc: node_loc,
-                subset: parent,
-                superset: target,
-            });
-        }
+        statics.target_checks.push(TargetCheck {
+            loc: node_loc,
+            subset: ctx.target,
+            superset: Target::Inferred(target),
+        });
 
         // Specify that the caller has to be a function type
         let type_id = statics.infer.add_type(TypeKind::Function, Args(typer_args.build()));
@@ -2200,13 +2210,11 @@ fn build_function_call<'a>(
         let target = statics.infer.add_unknown_type_with_set(set);
         typer_args.set_target((target, Reason::temp(node_loc)));
 
-        if let Some(parent) = ctx.target {
-            statics.target_checks.push(TargetCheck {
-                loc: node_loc,
-                subset: parent,
-                superset: target,
-            });
-        }
+        statics.target_checks.push(TargetCheck {
+            loc: node_loc,
+            subset: ctx.target,
+            superset: Target::Inferred(target),
+        });
 
         // Specify that the caller has to be a function type
         let type_id = statics.infer.add_type(TypeKind::Function, Args(typer_args.build()));

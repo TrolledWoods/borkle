@@ -4,6 +4,14 @@ library "vec.bo";
 library "iter.bo";
 import "tests/main.bo";
 
+const only_runtime_function = fn #target .Native: () {
+    print("Only at runtime!\n");
+};
+
+only_runtime_function();
+
+
+
 #entry fn() {
     let stuff = "こ suddenly の食品 english は食 text用です";
 
