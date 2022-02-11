@@ -87,7 +87,6 @@ pub struct YieldData {
     infer: TypeSystem,
     poly_params: Vec<PolyParam>,
     needs_explaining: Vec<(NodeId, type_infer::ValueId)>,
-    target_checks: Vec<TargetCheck>,
 }
 
 impl YieldData {
@@ -114,10 +113,6 @@ struct Statics<'a, 'b> {
     needs_explaining: &'a mut Vec<(NodeId, type_infer::ValueId)>,
     poly_params: &'a mut Vec<PolyParam>,
     additional_info: &'a mut AdditionalInfo,
-
-    // TODO: this should really be moved to `AstVariantContext`, I made a mistake putting it here....
-    // Since we probably want to check this before we compute any value set... why are value sets and ast variants separate again?
-    target_checks: &'a mut Vec<TargetCheck>,
 }
 
 /// Things that each ast variant has. 
@@ -231,7 +226,6 @@ pub fn begin<'a>(
 
     let mut needs_explaining = Vec::new();
     let mut additional_info = Default::default();
-    let mut target_checks = Vec::new();
 
     let mut statics = Statics {
         thread_context,
@@ -242,7 +236,6 @@ pub fn begin<'a>(
         needs_explaining: &mut needs_explaining,
         poly_params: &mut poly_params,
         additional_info: &mut additional_info,
-        target_checks: &mut target_checks,
     };
 
     let mut ast_variant_ctx = AstVariantContext::default();
@@ -297,7 +290,6 @@ pub fn begin<'a>(
             poly_params,
             needs_explaining,
             additional_info,
-            target_checks,
         },
         meta_data,
     )
@@ -309,7 +301,6 @@ pub fn solve<'a>(
     program: &'a Program,
     data: &mut YieldData,
 ) {
-    let mut target_checks = Vec::new();
     let mut statics = Statics {
         thread_context,
         errors,
@@ -319,7 +310,6 @@ pub fn solve<'a>(
         needs_explaining: &mut data.needs_explaining,
         poly_params: &mut data.poly_params,
         additional_info: &mut data.additional_info,
-        target_checks: &mut target_checks,
     };
 
     loop {
