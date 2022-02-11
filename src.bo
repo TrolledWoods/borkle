@@ -1,5 +1,12 @@
 import "tests/main.bo";
 
+/*
+create_exe(
+    "my_executable.exe",
+    fn() print("Hello, world!\n"),
+);
+*/
+
 #entry fn() {
     run_tests();
 };

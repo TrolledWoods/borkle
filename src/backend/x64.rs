@@ -44,7 +44,17 @@ impl Emitter {
     }
 }
 
-pub fn emit(program: &Program, file_path: &Path, emitters: Vec<Emitter>) {
+pub fn emit(program: &Program, file_path: &Path, mut emitters: Vec<Emitter>) {
+    emitters.clear();
+    let routines = program.get_routines();
+    let mut new_emitter = Emitter::default();
+    for (id, routine) in routines.iter() {
+        new_emitter.emit_routine(program, id, routine);
+    }
+    drop(routines);
+
+    emitters.push(new_emitter);
+
     let mut out = String::new();
 
     writeln!(&mut out, "\nsection .data").unwrap();

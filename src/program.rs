@@ -220,6 +220,14 @@ impl Program {
         }
     }
 
+    pub fn get_routines<'a>(&'a self) -> RoutinesHandle<'a> {
+        let functions = self.functions.read();
+
+        RoutinesHandle {
+            functions,
+        }
+    }
+
     /// Locks
     /// * ``functions`` read
     pub fn get_routine(&self, id: FunctionId) -> Option<Arc<Routine>> {
@@ -1215,6 +1223,19 @@ impl Scope {
     fn get(&self, name: Ustr) -> Option<PolyOrMember> {
         let public = self.public_members.get(&name).copied();
         public.or_else(|| self.private_members.get(&name).copied())
+    }
+}
+
+pub struct RoutinesHandle<'a> {
+    functions: parking_lot::RwLockReadGuard<'a, IdVec<FunctionId, Function>>,
+}
+
+impl RoutinesHandle<'_> {
+    pub fn iter<'a>(&'a self) -> impl Iterator<Item = (FunctionId, &'a Arc<Routine>)> {
+        self.functions.iter().enumerate().filter_map(|(i, v)| match v.routine {
+            DependableOption::Some((_, ref v)) => Some((FunctionId(i), v)),
+            DependableOption::None { .. } => None,
+        })
     }
 }
 
