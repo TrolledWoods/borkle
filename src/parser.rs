@@ -185,12 +185,6 @@ fn type_declaration(global: &mut DataContext<'_>) -> Result<(), ()> {
     parse_basic_tags(global, "type declaration", &mut [("alias".into(), &mut is_aliased), ("builtin".into(), &mut is_builtin)])?;
 
     let (loc, name) = global.tokens.expect_identifier(global.errors)?;
-    let poly_args = maybe_parse_polymorphic_arguments(global)?;
-
-    if global.tokens.try_consume_operator_string("=").is_none() {
-        global.error(loc, "Expected '=' after type".to_string());
-        return Err(());
-    }
 
     let mut buffer = AstBuilder::new();
 
@@ -200,9 +194,20 @@ fn type_declaration(global: &mut DataContext<'_>) -> Result<(), ()> {
         &mut dependencies,
         &mut locals,
         false,
-        &poly_args,
+        &[],
     );
-    type_(global, &mut imperative, buffer.add())?;
+
+    let mut root = buffer.add();
+    let poly_args = parse_polymorphic_arguments(global, &mut imperative, &mut root)?;
+
+    if global.tokens.try_consume_operator_string("=").is_none() {
+        global.error(loc, "Expected '=' after type".to_string());
+        return Err(());
+    }
+
+    type_(global, &mut imperative, root.add())?;
+    root.finish(Node::new(loc, NodeKind::TypeCreator));
+
     let tree = Ast::from_builder(name, buffer);
 
     let id = if poly_args.is_empty() {
@@ -258,24 +263,35 @@ fn type_declaration(global: &mut DataContext<'_>) -> Result<(), ()> {
 fn constant(global: &mut DataContext<'_>) -> Result<(), ()> {
     let token = global.tokens.expect_next(global.errors)?;
     if let TokenKind::Identifier(name) = token.kind {
-        let poly_args = maybe_parse_polymorphic_arguments(global)?;
-
-        if global.tokens.try_consume_operator_string("=").is_none() {
-            global.error(token.loc, "Expected '=' after const".to_string());
-            return Err(());
-        }
-
-        let mut buffer = AstBuilder::new();
-
         let mut dependencies = DependencyList::new();
         let mut locals = LocalVariables::new();
         let mut imperative = ImperativeContext::new(
             &mut dependencies,
             &mut locals,
             false,
-            &poly_args,
+            &[],
         );
-        expression(global, &mut imperative, buffer.add())?;
+
+        let mut buffer = AstBuilder::new();
+        let mut root = buffer.add();
+
+        let poly_args = parse_polymorphic_arguments(global, &mut imperative, &mut root)?;
+
+        if let Some(_) = global.tokens.try_consume_operator_string(":") {
+            type_(global, &mut imperative, root.add())?;
+        } else {
+            root.add().finish(Node::new(token.loc, NodeKind::ImplicitType));
+        }
+
+        if global.tokens.try_consume_operator_string("=").is_none() {
+            global.error(token.loc, "Expected '=' after const".to_string());
+            return Err(());
+        }
+
+        expression(global, &mut imperative, root.add())?;
+
+        root.finish(Node::new(token.loc, NodeKind::ConstCreator));
+
         let tree = Ast::from_builder(name, buffer);
 
         if poly_args.is_empty() {
@@ -381,11 +397,7 @@ fn type_(
             }
 
             for (loc, name) in arguments {
-                let id = imperative.insert_poly(Polymorphic {
-                    loc,
-                    name,
-                    declared_at: None,
-                });
+                let id = imperative.insert_poly(Polymorphic::new(loc, name));
                 slot.add().finish(Node::new(loc, NodeKind::DeclPolyArgument(id)));
             }
 
@@ -405,9 +417,11 @@ fn type_(
             // the fact that we don't actually need the values of anything
             // in here, so that it doesn't fetch them unnecessarily
             let old_in_declarative_lvalue = imperative.in_declarative_lvalue;
+            let old_in_template_declaration = imperative.in_template_declaration;
             imperative.in_declarative_lvalue = false;
             value(global, imperative, slot.add())?;
             imperative.in_declarative_lvalue = old_in_declarative_lvalue;
+            imperative.in_template_declaration = old_in_template_declaration;
 
             Ok(slot.finish(Node::new(loc, NodeKind::TypeOf)))
         }
@@ -736,6 +750,9 @@ fn value_without_unaries(
             if imperative.in_declarative_lvalue {
                 let local_id = imperative.insert_local(Local::new(token.loc, name));
                 slot.finish(Node::new(token.loc, NodeKind::Local { local_id }))
+            } else if imperative.in_template_declaration {
+                let id = imperative.insert_poly(Polymorphic::new(token.loc, name));
+                slot.finish(Node::new(token.loc, NodeKind::DeclPolyArgument(id)))
             } else {
                 if let Some(local_id) = imperative.get_local(name) {
                     match local_id {
@@ -747,10 +764,7 @@ fn value_without_unaries(
                         }
                         // TODO: Copy paste!
                         LocalScopeId::Polymorphic(id) => {
-                            let poly = imperative.locals.get_poly(id);
-                            global.errors.info(poly.loc, format!("Defined here"));
-                            global.errors.error(loc, format!("`{}` is a polymorphic argument, not a local variable", name));
-                            return Err(());
+                            slot.finish(Node::new(token.loc, NodeKind::PolymorphicArgumentNew(id)))
                         }
                         LocalScopeId::Label(id) => {
                             let poly = imperative.locals.get_label(id);
@@ -1370,6 +1384,63 @@ fn function_declaration(
     )))
 }
 
+#[derive(Debug, Clone)]
+pub struct PolyArgumentInfo {
+    pub is_const: Option<Location>,
+    pub loc: Location,
+}
+
+fn parse_polymorphic_arguments(
+    global: &mut DataContext<'_>,
+    imperative: &mut ImperativeContext<'_>,
+    slot: &mut AstSlot<'_>,
+) -> Result<Vec<PolyArgumentInfo>, ()> {
+    let old_in_template_declaration = imperative.in_template_declaration;
+    imperative.in_template_declaration = true;
+
+    let mut args = Vec::new();
+
+    if global.tokens.try_consume_operator_string(".").is_some() {
+        global.tokens.expect_next_is(global.errors, &TokenKind::Open(Bracket::Round))?;
+
+        loop {
+            if global
+                .tokens
+                .try_consume(&TokenKind::Close(Bracket::Round))
+            {
+                break;
+            }
+
+            let mut is_const = None;
+
+            parse_basic_tags(global, "polymorphic argument", &mut [
+                ("const".into(), &mut is_const)
+            ])?;
+
+            let loc = global.tokens.loc();
+            expression(global, imperative, slot.add())?;
+            args.push(PolyArgumentInfo {
+                is_const,
+                loc,
+            });
+
+            let token = global.tokens.expect_next(global.errors)?;
+            match token.kind {
+                TokenKind::Close(Bracket::Round) => break,
+                TokenKind::Comma => {}
+                _ => {
+                    global.error(token.loc, "Expected either ',' or ')'".to_string());
+                    return Err(());
+                }
+            }
+        }
+    }
+
+    imperative.in_template_declaration = old_in_template_declaration;
+
+    Ok(args)
+}
+
 fn maybe_parse_polymorphic_arguments(
     global: &mut DataContext<'_>,
 ) -> Result<Vec<(Location, Ustr)>, ()> {
@@ -1381,7 +1452,7 @@ fn maybe_parse_polymorphic_arguments(
         loop {
             if global
                 .tokens
-                .try_consume(&TokenKind::Close(Bracket::Square))
+                .try_consume(&TokenKind::Close(Bracket::Round))
             {
                 break;
             }
@@ -1646,9 +1717,14 @@ pub enum NodeKind {
     ArrayLiteral,
     BuiltinFunction(BuiltinFunction),
 
+    /// [ .. poly args, type, expression ]
+    ConstCreator,
+    /// [ .. poly args, expression ]
+    TypeCreator,
+
     Explain,
 
-    // [ .. poly args: DeclPolyArgument, inner ]
+    /// [ .. poly args: DeclPolyArgument, inner ]
     Any,
     DeclPolyArgument(PolymorphicId),
 

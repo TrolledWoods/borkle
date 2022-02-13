@@ -6,7 +6,7 @@ use crate::location::Location;
 use crate::execution_time::ExecutionTime;
 use crate::locals::{LocalVariables, LabelId};
 use crate::operators::{BinaryOp, UnaryOp};
-pub use crate::parser::{LocalUsage, Node, NodeKind, Ast, NodeView, TagKind};
+pub use crate::parser::{LocalUsage, Node, NodeKind, Ast, NodeView, TagKind, PolyArgumentInfo};
 use crate::ast::{NodeId, GenericChildIterator};
 use crate::program::{PolyOrMember, PolyMemberId, Program, Task, constant::ConstantRef, BuiltinFunction, MemberId, MemberMetaData, FunctionId, FunctionMetaData, FunctionArgumentInfo, MemberKind, Builtin};
 use crate::thread_pool::ThreadContext;
@@ -53,28 +53,9 @@ pub enum AdditionalInfoKind {
 
 #[derive(Clone)]
 pub struct PolyParam {
-    used_as_type: Option<Location>,
-    used_as_value: Option<Location>,
+    is_const: Option<Location>,
     pub loc: Location,
     value_id: type_infer::ValueId,
-}
-
-impl PolyParam {
-    fn is_type(&self) -> bool {
-        self.used_as_type.is_some()
-    }
-
-    // Returns true on failure.
-    fn check_for_dual_purpose(&self, errors: &mut ErrorCtx) -> bool {
-        if let (Some(type_usage), Some(value_usage)) = (self.used_as_type, self.used_as_value) {
-            errors.info(type_usage, "Used as a type here".to_string());
-            errors.info(value_usage, "Used as a value here(to use types as values, you may need `type` before the generic)".to_string());
-            errors.global_error("Used generic as both type and value".to_string());
-            true
-        } else {
-            false
-        }
-    }
 }
 
 #[derive(Clone)]
@@ -92,13 +73,8 @@ pub struct YieldData {
 impl YieldData {
     pub fn insert_poly_params(&mut self, program: &Program, poly_args: &[crate::types::Type]) {
         for (param, compiler_type) in self.poly_params.iter().zip(poly_args) {
-            if param.is_type() {
-                let type_id = self.infer.add_compiler_type(program, compiler_type);
-                self.infer.set_equal(param.value_id, type_id, Reason::temp_zero());
-            } else {
-                let constant = self.infer.add_compiler_type(program, compiler_type);
-                self.infer.set_equal(constant, param.value_id, Reason::temp_zero());
-            }
+            let constant = self.infer.add_compiler_type(program, compiler_type);
+            self.infer.set_equal(constant, param.value_id, Reason::temp_zero());
         }
     }
 }
@@ -111,7 +87,6 @@ struct Statics<'a, 'b> {
     locals: &'a mut LocalVariables,
     infer: &'a mut TypeSystem,
     needs_explaining: &'a mut Vec<(NodeId, type_infer::ValueId)>,
-    poly_params: &'a mut Vec<PolyParam>,
     additional_info: &'a mut AdditionalInfo,
 }
 
@@ -204,22 +179,21 @@ pub fn begin<'a>(
     program: &'a Program,
     mut locals: LocalVariables,
     ast: Ast,
-    poly_params: Vec<(Location, Ustr)>,
+    poly_params: Vec<PolyArgumentInfo>,
     member_kind: MemberKind,
 ) -> (YieldData, MemberMetaData) {
     let mut infer = TypeSystem::new(ast.structure.len());
 
-    let mut poly_params: Vec<_> = poly_params
+    let poly_params: Vec<_> = poly_params
         .into_iter()
-        .map(|(loc, _)| {
+        .map(|info| {
             let value_id = infer.add_unknown_type();
             *infer.get_mut(value_id).is_base_value = true;
 
             PolyParam {
-                loc,
+                is_const: info.is_const,
+                loc: info.loc,
                 value_id,
-                used_as_type: None,
-                used_as_value: None,
             }
         })
         .collect();
@@ -234,7 +208,6 @@ pub fn begin<'a>(
         locals: &mut locals,
         infer: &mut infer,
         needs_explaining: &mut needs_explaining,
-        poly_params: &mut poly_params,
         additional_info: &mut additional_info,
     };
 
@@ -250,7 +223,50 @@ pub fn begin<'a>(
     // Build the type relationships between nodes.
     let root_set_id = statics.infer.value_sets.add(WaitingOnTypeInferrence::None);
 
-    let node = ast.root();
+    let mut node = ast.root();
+    match node.kind {
+        NodeKind::ConstCreator => {
+            let node_type_id = TypeId::Node(ctx.ast_variant_id, node.id);
+            let node_loc = node.loc;
+            statics.infer.set_value_set(node_type_id, root_set_id);
+            
+            let mut children = node.children.into_iter();
+
+            for (poly_param, child) in poly_params.iter().zip(&mut children) {
+                let value_id = build_template_declaration(&mut statics, &mut ast_variant_ctx, &ctx, child, poly_param.is_const, root_set_id);
+                statics.infer.set_equal(poly_param.value_id, value_id, Reason::temp(child.loc));
+            }
+
+            let type_ = children.next().unwrap();
+            let type_id = build_type(&mut statics, &mut ast_variant_ctx, &ctx, type_, root_set_id);
+
+            node = children.next().unwrap();
+
+            let inner_id = TypeId::Node(ctx.ast_variant_id, node.id);
+
+            statics.infer.set_equal(inner_id, type_id, Reason::temp(node_loc));
+            statics.infer.set_equal(inner_id, node_type_id, Reason::temp(node_loc));
+        }
+        NodeKind::TypeCreator => {
+            let node_type_id = TypeId::Node(ctx.ast_variant_id, node.id);
+            let node_loc = node.loc;
+            statics.infer.set_value_set(node_type_id, root_set_id);
+
+            let mut children = node.children.into_iter();
+
+            for (poly_param, child) in poly_params.iter().zip(&mut children) {
+                let value_id = build_template_declaration(&mut statics, &mut ast_variant_ctx, &ctx, child, poly_param.is_const, root_set_id);
+                statics.infer.set_equal(poly_param.value_id, value_id, Reason::temp(child.loc));
+            }
+
+            node = children.next().unwrap();
+
+            let inner_id = TypeId::Node(ctx.ast_variant_id, node.id);
+            statics.infer.set_equal(inner_id, node_type_id, Reason::temp(node_loc));
+        }
+        _ => {}
+    }
+
     let (root_value_id, meta_data) = match node.kind {
         NodeKind::FunctionDeclaration { .. } => {
             let node_type_id = TypeId::Node(ctx.ast_variant_id, node.id);
@@ -308,7 +324,6 @@ pub fn solve<'a>(
         locals: &mut data.locals,
         infer: &mut data.infer,
         needs_explaining: &mut data.needs_explaining,
-        poly_params: &mut data.poly_params,
         additional_info: &mut data.additional_info,
     };
 
@@ -714,19 +729,23 @@ fn build_constraints(
 
     match node.node.kind {
         NodeKind::Uninit | NodeKind::Zeroed => {}
-        NodeKind::PolymorphicArgument(index) => {
+        NodeKind::PolymorphicArgumentNew(id) => {
             statics.infer.value_sets.lock(set);
 
-            let poly_param = &mut statics.poly_params[index];
-            poly_param.used_as_value.get_or_insert(node_loc);
-            if poly_param.check_for_dual_purpose(statics.errors) {
+            let poly_param = statics.locals.get_poly(id);
+
+            if poly_param.is_const.is_none() {
+                statics.errors.info(poly_param.loc, "Defined here".to_string());
+                statics.errors.error(node_loc, "This generic parameter is a type, not a value (if you intended it to be a type, you have to flag it as `#const`)".to_string());
                 statics.infer.value_sets.get_mut(set).has_errors |= true;
             }
+
+            let poly_param_value = TypeId::Node(ctx.ast_variant_id, poly_param.declared_at.unwrap());
 
             let sub_set = statics.infer.value_sets.add(WaitingOnTypeInferrence::None);
             let value_id = statics.infer.add_value(node_type_id, ());
             statics.infer.set_value_set(value_id, sub_set);
-            statics.infer.set_equal(value_id, poly_param.value_id, Reason::new(node_loc, ReasonKind::Passed));
+            statics.infer.set_equal(value_id, poly_param_value, Reason::new(node_loc, ReasonKind::Passed));
 
             statics.infer.set_waiting_on_value_set(sub_set, WaitingOnTypeInferrence::ConstantFromValueId {
                 value_id,
@@ -1549,6 +1568,12 @@ fn build_type(
             let declared_at = poly.declared_at.unwrap();
             let arg_id = TypeId::Node(ctx.ast_variant_id, declared_at);
 
+            if let Some(is_const) = poly.is_const {
+                statics.errors.info(is_const, "Declared as const here".to_string());
+                statics.errors.error(node_loc, "This generic argument is a constant, but used as a type.".to_string());
+                statics.infer.value_sets.get_mut(set).has_errors = true;
+            }
+
             statics.infer.set_equal(node_type_id, arg_id, Reason::temp(node_loc));
         }
         NodeKind::IntType => {
@@ -1593,14 +1618,6 @@ fn build_type(
             sub_ctx.runs = ctx.runs.combine(ExecutionTime::Never);
             let id = statics.program.get_member_id(scope, name).expect("The dependency system should have made sure that this is defined");
             build_global(statics, ast_variant_ctx, &sub_ctx, node.id, node.node, node.loc, id, None, set, true);
-        }
-        NodeKind::PolymorphicArgument(index) => {
-            let poly_param = &mut statics.poly_params[index];
-            poly_param.used_as_type.get_or_insert(node_loc);
-            if poly_param.check_for_dual_purpose(statics.errors) {
-                statics.infer.value_sets.get_mut(set).has_errors |= true;
-            }
-            statics.infer.set_equal(poly_param.value_id, node_type_id, Reason::temp(node_loc));
         }
         NodeKind::Parenthesis | NodeKind::TypeAsValue => {
             let [inner] = node.children.into_array();
@@ -1746,6 +1763,46 @@ fn build_type(
         }
         _ => {
             statics.errors.error(node_loc, format!("Expected a type, got {:?}", node.kind));
+            statics.infer.value_sets.get_mut(set).has_errors = true;
+        }
+    }
+
+    node_type_id
+}
+
+fn build_template_declaration(
+    statics: &mut Statics<'_, '_>,
+    ast_variant_ctx: &mut AstVariantContext,
+    ctx: &Context,
+    node: NodeView<'_>,
+    is_const: Option<Location>,
+    set: ValueSetId,
+) -> TypeId {
+    let node_loc = node.loc;
+    let node_type_id = TypeId::Node(ctx.ast_variant_id, node.id);
+    statics.infer.set_value_set(node_type_id, set);
+    
+    match node.kind {
+        NodeKind::TypeBound => {
+            let [value, bound] = node.children.into_array();
+            let value = build_template_declaration(statics, ast_variant_ctx, ctx, value, is_const, set);
+            let bound_id = build_type(statics, ast_variant_ctx, ctx, bound, set);
+
+            if is_const.is_some() {
+                let constant_id = statics.infer.add_type(TypeKind::Constant, Args([(bound_id, Reason::temp(node_loc)), (value, Reason::temp(node_loc))]));
+                statics.infer.set_equal(constant_id, node_type_id, Reason::temp(node_loc));
+            } else {
+                statics.infer.set_equal(value, bound_id, Reason::temp(node_loc));
+                statics.infer.set_equal(node_type_id, bound_id, Reason::temp(node_loc));
+            }
+        }
+        NodeKind::DeclPolyArgument(id) => {
+            let poly = statics.locals.get_poly_mut(id);
+            poly.declared_at = Some(node.id);
+            poly.is_const = is_const;
+        }
+        _ => {
+            statics.errors.error(node_loc, "Invalid expression in template declaration".to_string());
             statics.infer.value_sets.get_mut(set).has_errors = true;
         }
     }
@@ -2005,18 +2062,6 @@ fn build_inferrable_constant_value(
     let node_type_id = TypeId::Node(ctx.ast_variant_id, node.id);
 
     let type_system_constant = match node.kind {
-        NodeKind::PolymorphicArgument(index) => {
-            let constant_value = statics.infer.add_unknown_type_with_set(set);
-            let constant = statics.infer.add_type(TypeKind::Constant, Args([(node_type_id, Reason::temp(node_loc)), (constant_value, Reason::temp(node_loc))]));
-            let poly_param = &mut statics.poly_params[index];
-            poly_param.used_as_value.get_or_insert(node_loc);
-            if poly_param.check_for_dual_purpose(statics.errors) {
-                statics.infer.value_sets.get_mut(set).has_errors |= true;
-            }
-            statics.infer.set_equal(poly_param.value_id, constant, Reason::temp(node_loc));
-            
-            TypeSystemConstant { type_: node_type_id, constant, constant_value }
-        }
         NodeKind::ImplicitType => {
             if ctx.inside_type_comparison {
                 let unspecified = statics.infer.add_type(TypeKind::CompareUnspecified, Args([]));
@@ -2340,7 +2385,7 @@ fn build_global<'a>(
 
                 for (i, (param, other_poly_arg)) in children.zip(&other_yield_data.poly_params).enumerate() {
                     let param_loc = param.loc;
-                    if other_poly_arg.is_type() {
+                    if other_poly_arg.is_const.is_none() {
                         let type_id = build_type(statics, ast_variant_ctx, ctx, param, sub_set);
                         param_values.push(type_id);
                         param_reasons.push((type_id, other_poly_arg.value_id, Reason::new(param_loc, ReasonKind::PolyParam(i))));
@@ -2354,7 +2399,7 @@ fn build_global<'a>(
                 for (i, other_poly_arg) in other_yield_data.poly_params.iter().enumerate() {
                     if ctx.inside_type_comparison {
                         // @Copypasta
-                        if other_poly_arg.is_type() {
+                        if other_poly_arg.is_const.is_none() {
                             let type_id = statics.infer.add_type(TypeKind::CompareUnspecified, Args([]));
                             statics.infer.set_value_set(type_id, sub_set);
                             param_values.push(type_id);

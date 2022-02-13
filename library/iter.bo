@@ -9,11 +9,11 @@ type Iterator.(State, Item) = {
 // -- Creation --
 //
 
-const iter_arr_by_ref.(N, T) = fn(array: &[N] T) -> Iterator.(_, type &T) {
+const iter_arr_by_ref.(#const: N, T) = fn(array: &[N] T) -> Iterator.(_, type &T) {
     range(&array._0, &array._0 + N)
 };
 
-const iter_arr.(N, T) = fn(array: [N] T) -> Iterator.(_, T) {
+const iter_arr.(#const: N, T) = fn(array: [N] T) -> Iterator.(_, T) {
     let stream = #0;
     stream.state : { array: _; index: _; };
     stream.state.array = array;
@@ -286,7 +286,7 @@ const collect_vec.(State, Item) = fn(stream: Iterator.(State, Item)) -> Vec.(Ite
     vec
 };
 
-const collect_array.(N, State, Item) = fn(stream: Iterator.(State, Item)) -> [N] Item {
+const collect_array.(#const: N, State, Item) = fn(stream: Iterator.(State, Item)) -> [N] Item {
     let array = #uninit;
     for &array  assert(stream.next(&stream.state, v));
     array

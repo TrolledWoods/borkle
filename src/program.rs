@@ -1451,7 +1451,7 @@ pub enum Task {
         ast: Ast,
         locals: crate::locals::LocalVariables,
         dependencies: DependencyList,
-        poly_args: Vec<(Location, Ustr)>,
+        poly_args: Vec<crate::parser::PolyArgumentInfo>,
         member_kind: MemberKind,
     },
     FlagPolyMember(PolyMemberId, MemberDep, DependencyList),

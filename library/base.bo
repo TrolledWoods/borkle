@@ -41,10 +41,10 @@ const abort = fn() {
     };
 };
 
-const array_ptr   .(N, T) = fn(array: &[N] T) ->   &T    cast array;
-const array_to_buf.(N, T) = fn(array: &[N] T) -> [] T    cast array;
+const array_ptr   .(#const: N, T) = fn(array: &[N] T) ->   &T    cast array;
+const array_to_buf.(#const: N, T) = fn(array: &[N] T) -> [] T    cast array;
 
-const filled_array.(N, T) = fn(fill_with: T) -> [N] T {
+const filled_array.(#const: N, T) = fn(fill_with: T) -> [N] T {
     let arr = #uninit : [N] T;
     for &arr { *v = fill_with; };
     arr
@@ -141,7 +141,7 @@ const dealloc.(T) = fn(buf: [] T) {
     };
 };
 
-const buf_to_arr.(T, N) = fn(buf: [] T, default: T) -> [N] T {
+const buf_to_arr.(T, #const: N) = fn(buf: [] T, default: T) -> [N] T {
     let output = #uninit;
 
     while i < N {

@@ -170,6 +170,10 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, mut node: NodeView<'a>) -> (Value, T
 
     match &node.kind {
         NodeKind::Empty => (Value::ZST, TypedLayout::ZST),
+        NodeKind::ConstCreator => {
+            let inner = node.children.into_iter().last().unwrap();
+            emit_node(ctx, inner)
+        }
         NodeKind::Break {
             label: label_id,
             num_defer_deduplications,

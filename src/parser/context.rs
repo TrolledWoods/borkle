@@ -47,9 +47,12 @@ pub struct ImperativeContext<'a> {
     pub locals: &'a mut LocalVariables,
     pub dependencies: &'a mut DependencyList,
     pub defer_depth: usize,
+    // TODO: These flags are too many, we want to just make a better version of this later
+    // on that isn't garbage.
     pub evaluate_at_typing: bool,
     pub in_const_expression: bool,
     pub in_declarative_lvalue: bool,
+    pub in_template_declaration: bool,
     pub poly_args: &'a [(Location, Ustr)],
     default_labels: Vec<LabelId>,
     scope_boundaries: Vec<ScopeBoundary>,
@@ -70,6 +73,7 @@ impl<'a> ImperativeContext<'a> {
             evaluate_at_typing,
             in_const_expression: false,
             in_declarative_lvalue: false,
+            in_template_declaration: false,
             poly_args,
 
             default_labels: Vec::new(),

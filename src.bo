@@ -2,6 +2,9 @@ import "tests/main.bo";
 
 run_tests();
 
+// const add2.(T, A: T, B: T): T = A + B;
+
+
 // IR emission improvements
 //
 // - Swapping variables using destructuring, for example, (x, y) = (y, x), is broken with the current system, this should be fixed!

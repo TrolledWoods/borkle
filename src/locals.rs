@@ -25,6 +25,18 @@ pub struct Polymorphic {
     pub loc: Location,
     pub name: Ustr,
     pub declared_at: Option<NodeId>,
+    pub is_const: Option<Location>,
+}
+
+impl Polymorphic {
+    pub fn new(loc: Location, name: Ustr) -> Self {
+        Self {
+            loc,
+            name,
+            declared_at: None,
+            is_const: None,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]

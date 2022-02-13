@@ -253,14 +253,19 @@ impl<D: TreeGrowable> Muncher<'_, D> {
 
     pub fn finish(self) -> FinishedNode {
         debug_assert_eq!(self.num_nodes, 1, "A muncher has to resolve to one node in the end.");
+        let id_usize = self.nodes.len() - 1;
 
-        FinishedNode(())
+        FinishedNode {
+            id: NodeId(id_usize as u32),
+        }
     }
 }
 
 /// Pointless struct, except that it makes it basically impossible to forget to finish a node, which is great.
 /// (because you can't construct the type outside of this module)
-pub struct FinishedNode(());
+pub struct FinishedNode {
+    pub id: NodeId,
+}
 
 pub struct AstSlot<'a, D: TreeGrowable> {
     nodes: &'a mut Vec<StructuralInfo>,
@@ -318,7 +323,9 @@ impl<'a, D: TreeGrowable> AstSlot<'a, D> {
             num_children: self.num_children,
         });
 
-        FinishedNode(())
+        FinishedNode {
+            id: NodeId(id_usize as u32),
+        }
     }
 }
 
