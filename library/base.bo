@@ -23,20 +23,22 @@ const assert_eq.(T) = fn(a: T, b: T) {
 };
 
 const assert = fn(condition: bool) {
-    { #target .Compiler:
-        i_assert(condition);
-    };
-
-    { #target .Native:
-        if !condition {
+    if !condition {
+        { #target .Native:
             put_string("Assert failed\n");
-            4 / 0 : u8;
         };
+        abort();
     };
 };
 
 const abort = fn() {
-    4 / 0 : u8;
+    { #target .Compiler:
+        i_assert(false);
+    };
+
+    { #target .Native:
+        4 / 0 : u8;
+    };
 };
 
 const array_ptr   .(N, T) = fn(array: &[N] T) ->   &T    cast array;
@@ -386,10 +388,10 @@ const is_digit = fn(c: u8) -> bool {
 
 const PERCENT = *"%".ptr;
 
-type Writer.(T) = {
-    state: &u8;
-    write_buf : fn(&u8, [] T) -> usize;
-    write_single : fn(&u8, T) -> usize;
+type Writer.(T) = any.(State) {
+    state: &State;
+    write_buf : fn(&State, [] T) -> usize;
+    write_single : fn(&State, T) -> usize;
     // If the writer discards the written things. Used for optimizations(you can skip calling write_buf or write_single altogether).
     discarding: bool;
 };
@@ -398,10 +400,11 @@ type Writer.(T) = {
 // allocating a buffer to write into.
 const count_writer.(T) = fn() -> Writer.(T) {
     let writer = #0;
+    writer.state : &();
     writer.discarding = true;
     writer.write_buf    = fn(_, buffer) buffer.len;
     writer.write_single = fn(_, _)      1;
-    writer
+    pack writer
 };
 
 // @HACK: Right now, it takes a reference to `buf`, and will modify it. Hence, if you write
@@ -409,9 +412,8 @@ const count_writer.(T) = fn() -> Writer.(T) {
 // reference it, so it doesn't remove your original buffer.
 const buf_writer.(T) = fn(buf: &[] T) -> Writer.(T) {
     let writer = #0;
-    writer.state = cast buf;
-    writer.write_buf = fn(buf_ptr, from) {
-        let buf = cast buf_ptr : &[] T;
+    writer.state = buf;
+    writer.write_buf = fn(buf, from) {
         let writing = min(buf.len, from.len);
 
         copy_nonoverlapping(buf.ptr, from.ptr, writing);
@@ -420,8 +422,7 @@ const buf_writer.(T) = fn(buf: &[] T) -> Writer.(T) {
 
         writing
     };
-    writer.write_single = fn(buf_ptr, from) {
-        let buf = cast buf_ptr : &[] T;
+    writer.write_single = fn(buf, from) {
         if buf.len > 0 {
             *buf.ptr = from;
             buf.len = buf.len - 1;
@@ -431,12 +432,12 @@ const buf_writer.(T) = fn(buf: &[] T) -> Writer.(T) {
             0
         }
     };
-    writer
+    pack writer
 };
 
 const vec_writer.(T) = fn(vec: &Vec.(T)) -> Writer.(T) {
     let writer = #0;
-    writer.state = cast vec;
+    writer.state = vec;
     writer.write_buf = fn(vec_ptr, buffer) {
         let vec = cast vec_ptr : &Vec.(T);
         vec_push_buf(vec, buffer);
@@ -447,11 +448,13 @@ const vec_writer.(T) = fn(vec: &Vec.(T)) -> Writer.(T) {
         vec_push(vec, single);
         1
     };
-    writer
+    pack writer
 };
 
 const stderr_writer = fn() -> Writer.(u8) {
     let writer = #0;
+
+    writer.state : &();
 
     { #target .Native:
         writer.write_buf = fn(_, buffer) {
@@ -481,13 +484,15 @@ const stderr_writer = fn() -> Writer.(u8) {
         1
     };
 
-    writer
+    pack writer
 };
 
 const stdout_writer = fn() -> Writer.(u8) {
-    let writer = #0;
+    let result = #uninit;
 
     { #target .Native:
+        let writer = #0;
+        writer.state : &();
         writer.write_buf = fn(_, buffer) {
             let written = 0;
             // HACK!
@@ -500,22 +505,26 @@ const stdout_writer = fn() -> Writer.(u8) {
             put_char(c);
             1
         };
+
+        result = pack writer;
     };
 
     { #target .Compiler:
         // stdout is the same as stderr at compiletime right now.
-        writer = stderr_writer();
+        result = stderr_writer();
     };
 
-    writer
+    result
 };
 
 const write_buf.(T) = fn(to: Writer.(T), buf: [] T) -> usize {
-    to.write_buf(to.state, buf)
+    let unpacked = unpack to;
+    unpacked.write_buf(unpacked.state, buf)
 };
 
 const write_single.(T) = fn(to: Writer.(T), value: T) -> usize {
-    to.write_single(to.state, value)
+    let unpacked = unpack to;
+    unpacked.write_single(unpacked.state, value)
 };
 
 type PadAlign = enum u8 {

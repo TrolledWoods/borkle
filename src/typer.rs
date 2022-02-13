@@ -1095,6 +1095,7 @@ fn build_constraints(
             op: BinaryOp::Assign,
         } => {
             let [left, right] = node.children.into_array();
+
             let left_type_id = build_declarative_lvalue(statics, ast_variant_ctx, ctx, left, set, false);
             let right_type_id = build_constraints(statics, ast_variant_ctx, ctx, right, set);
 

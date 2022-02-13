@@ -1,12 +1,6 @@
-library "vec.bo";
+import "tests/main.bo";
 
-const do_things = fn(from: Vec.(type any.(T) &T)) -> any.(T) Vec.(type &T) {
-    let vec = vec_new();
-    for from->as_buf() {
-        vec_push(&vec, unpack v);
-    };
-    pack vec
-};
+run_tests();
 
 // IR emission improvements
 //
