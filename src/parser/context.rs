@@ -1,7 +1,7 @@
 use super::token_stream::TokenStream;
 use crate::dependencies::DependencyList;
 use crate::errors::ErrorCtx;
-use crate::locals::{Label, LabelId, Local, LocalId, LocalVariables};
+use crate::locals::{Label, LocalScopeId, LabelId, Local, LocalId, LocalVariables};
 use crate::location::Location;
 use crate::program::{Program, ScopeId};
 use std::path::Path;
@@ -53,8 +53,7 @@ pub struct ImperativeContext<'a> {
     pub poly_args: &'a [(Location, Ustr)],
     default_labels: Vec<LabelId>,
     scope_boundaries: Vec<ScopeBoundary>,
-    local_map: Vec<(Ustr, LocalId)>,
-    label_map: Vec<(Ustr, LabelId)>,
+    local_map: Vec<(Ustr, LocalScopeId)>,
 }
 
 impl<'a> ImperativeContext<'a> {
@@ -76,7 +75,6 @@ impl<'a> ImperativeContext<'a> {
             default_labels: Vec::new(),
             scope_boundaries: Vec::new(),
             local_map: Vec::new(),
-            label_map: Vec::new(),
         }
     }
 
@@ -85,7 +83,6 @@ impl<'a> ImperativeContext<'a> {
         self.scope_boundaries.push(ScopeBoundary {
             defer_depth: self.defer_depth,
             locals: self.local_map.len(),
-            labels: self.label_map.len(),
         });
         id
     }
@@ -98,14 +95,13 @@ impl<'a> ImperativeContext<'a> {
 
         self.defer_depth = boundary.defer_depth;
         self.local_map.truncate(boundary.locals);
-        self.label_map.truncate(boundary.labels);
     }
 
     pub fn insert_default_label(&mut self, name: Option<Ustr>, label: Label) -> LabelId {
         let id = self.locals.insert_label(label);
         self.default_labels.push(id);
         if let Some(name) = name {
-            self.label_map.push((name, id));
+            self.local_map.push((name, LocalScopeId::Label(id)));
         }
         id
     }
@@ -120,34 +116,26 @@ impl<'a> ImperativeContext<'a> {
 
     pub fn insert_label(&mut self, name: Ustr, label: Label) -> LabelId {
         let id = self.locals.insert_label(label);
-        self.label_map.push((name, id));
+        self.local_map.push((name, LocalScopeId::Label(id)));
         id
     }
 
     pub fn insert_local(&mut self, local: Local) -> LocalId {
         let name = local.name;
         let id = self.locals.insert(local);
-        self.local_map.push((name, id));
+        self.local_map.push((name, LocalScopeId::Local(id)));
         id
     }
 
-    pub fn get_local(&self, name: Ustr) -> Option<LocalId> {
+    pub fn get_local(&self, name: Ustr) -> Option<LocalScopeId> {
         self.local_map
             .iter()
             .rev()
             .find_map(|&(local_name, id)| if local_name == name { Some(id) } else { None })
-    }
-
-    pub fn get_label(&self, name: Ustr) -> Option<LabelId> {
-        self.label_map
-            .iter()
-            .rev()
-            .find_map(|&(label_name, id)| if label_name == name { Some(id) } else { None })
     }
 }
 
 struct ScopeBoundary {
     defer_depth: usize,
     locals: usize,
-    labels: usize,
 }

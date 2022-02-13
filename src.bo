@@ -1,4 +1,9 @@
-type VoidPtr = any.(T) &T;
+// type VoidPtr = any.(T) &T;
+
+import "tests/main.bo";
+
+run_tests();
+create_exe("target/tests.exe", run_tests);
 
 // IR emission improvements
 //

@@ -5,10 +5,27 @@ use crate::types::Type;
 use ustr::Ustr;
 
 #[derive(Clone, Copy, Hash, PartialEq, Eq, Debug)]
+pub enum LocalScopeId {
+    Local(LocalId),
+    Label(LabelId),
+    Polymorphic(PolymorphicId),
+}
+
+#[derive(Clone, Copy, Hash, PartialEq, Eq, Debug)]
 pub struct LocalId(pub usize);
 
 #[derive(Clone, Copy, Hash, PartialEq, Eq, Debug)]
 pub struct LabelId(pub usize);
+
+#[derive(Clone, Copy, Hash, PartialEq, Eq, Debug)]
+pub struct PolymorphicId(pub usize);
+
+#[derive(Debug, Clone)]
+pub struct Polymorphic {
+    pub name: Ustr,
+    pub loc: Location,
+    pub value: Option<crate::type_infer::ValueId>,
+}
 
 #[derive(Debug, Clone)]
 pub struct Local {
@@ -66,6 +83,7 @@ pub struct Label {
 pub struct LocalVariables {
     locals: Vec<Local>,
     labels: Vec<Label>,
+    polymorphics: Vec<Polymorphic>,
 }
 
 impl LocalVariables {
@@ -73,6 +91,7 @@ impl LocalVariables {
         Self {
             locals: Vec::new(),
             labels: Vec::new(),
+            polymorphics: Vec::new(),
         }
     }
 
@@ -88,9 +107,23 @@ impl LocalVariables {
         id
     }
 
+    pub fn insert_poly(&mut self, poly: Polymorphic) -> PolymorphicId {
+        let id = PolymorphicId(self.polymorphics.len());
+        self.polymorphics.push(poly);
+        id
+    }
+
     #[allow(unused)]
     pub fn iter(&self) -> impl Iterator<Item = &'_ Local> {
         self.locals.iter()
+    }
+
+    pub fn get_poly(&self, id: PolymorphicId) -> &Polymorphic {
+        &self.polymorphics[id.0]
+    }
+
+    pub fn get_poly_mut(&mut self, id: PolymorphicId) -> &mut Polymorphic {
+        &mut self.polymorphics[id.0]
     }
 
     pub fn get_label(&self, id: LabelId) -> &Label {

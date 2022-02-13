@@ -1,7 +1,7 @@
 use crate::dependencies::{DepKind, DependencyList, MemberDep};
 use crate::errors::ErrorCtx;
 use crate::literal::Literal;
-use crate::locals::{Local, LocalVariables, LabelId, LocalId};
+use crate::locals::{Local, LocalVariables, LabelId, LocalId, LocalScopeId};
 use crate::location::Location;
 use crate::operators::{BinaryOp, Operator, UnaryOp};
 use crate::program::{Program, ScopeId, Task, BuiltinFunction, constant::ConstantRef, MemberMetaData, MemberId, MemberKind, PolyOrMember, Builtin};
@@ -390,13 +390,29 @@ fn type_(
 
             let mut muncher = slot.into_muncher();
 
-            if let Some(local_id) = imperative.get_local(name) {
-                // This is not allowed in a type expression, but we deal with it in the typer to get more error reporting,
-                // since it's not really a hard parsing error.
-                let local = imperative.locals.get_mut(local_id);
-                local.num_uses += 1;
-                local.uses.push(loc);
-                muncher.add().finish(Node::new(loc, NodeKind::Local { local_id }));
+            if let Some(local_scope_id) = imperative.get_local(name) {
+                match local_scope_id {
+                    LocalScopeId::Local(id) => {
+                        // This is not allowed in a type expression, but we deal with it in the typer to get more error reporting,
+                        // since it's not really a hard parsing error.
+                        let local = imperative.locals.get_mut(id);
+                        local.num_uses += 1;
+                        local.uses.push(loc);
+                        muncher.add().finish(Node::new(loc, NodeKind::Local { local_id: id }));
+                    }
+                    LocalScopeId::Polymorphic(id) => {
+                        let poly = imperative.locals.get_poly(id);
+                        global.errors.info(poly.loc, format!("Defined here"));
+                        global.errors.error(loc, format!("`{}` is a polymorphic argument, not a local variable", name));
+                        return Err(());
+                    }
+                    LocalScopeId::Label(id) => {
+                        let poly = imperative.locals.get_label(id);
+                        global.errors.info(poly.loc, format!("Defined here"));
+                        global.errors.error(loc, format!("`{}` is a label, not a local variable", name));
+                        return Err(());
+                    }
+                }
             } else if let Some(index) = imperative
                 .poly_args
                 .iter()
@@ -701,10 +717,27 @@ fn value_without_unaries(
                 slot.finish(Node::new(token.loc, NodeKind::Local { local_id }))
             } else {
                 if let Some(local_id) = imperative.get_local(name) {
-                    let local = imperative.locals.get_mut(local_id);
-                    local.num_uses += 1;
-                    local.uses.push(token.loc);
-                    slot.finish(Node::new(token.loc, NodeKind::Local { local_id }))
+                    match local_id {
+                        LocalScopeId::Local(local_id) => {
+                            let local = imperative.locals.get_mut(local_id);
+                            local.num_uses += 1;
+                            local.uses.push(token.loc);
+                            slot.finish(Node::new(token.loc, NodeKind::Local { local_id }))
+                        }
+                        // TODO: Copy paste!
+                        LocalScopeId::Polymorphic(id) => {
+                            let poly = imperative.locals.get_poly(id);
+                            global.errors.info(poly.loc, format!("Defined here"));
+                            global.errors.error(loc, format!("`{}` is a polymorphic argument, not a local variable", name));
+                            return Err(());
+                        }
+                        LocalScopeId::Label(id) => {
+                            let poly = imperative.locals.get_label(id);
+                            global.errors.info(poly.loc, format!("Defined here"));
+                            global.errors.error(loc, format!("`{}` is a label, not a local variable", name));
+                            return Err(());
+                        }
+                    }
                 } else if let Some(index) = imperative
                     .poly_args
                     .iter()
@@ -812,9 +845,9 @@ fn value_without_unaries(
             let id = if global.tokens.try_consume(&TokenKind::SingleQuote) {
                 let (loc, label_name) = global.tokens.expect_identifier(global.errors)?;
 
-                match imperative.get_label(label_name) {
-                    Some(id) => id,
-                    None => {
+                match imperative.get_local(label_name) {
+                    Some(LocalScopeId::Label(id)) => id,
+                    _ => {
                         global.error(loc, format!("There is no label called '{}'", label_name));
                         return Err(());
                     }
