@@ -40,6 +40,7 @@ macro_rules! operator {
 }
 
 operator!(UnaryOp {
+    Range = ("..", 0),
     Negate = ("-", 0),
     Not = ("!", 0),
     Reference = ("&", 0),

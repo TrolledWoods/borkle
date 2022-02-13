@@ -1332,8 +1332,9 @@ impl TypeSystem {
         if rec > 7 {
             return "...".to_string();
         }
-        match &self.get(value).kind {
-            &Some(&Type { kind: TypeKind::Target { min: value, .. }, .. }) => {
+        let kind = self.get(value).kind;
+        let inner = match kind {
+            Some(&Type { kind: TypeKind::Target { min: value, .. }, .. }) => {
                 if value == crate::typer::TARGET_ALL {
                     "All".to_string()
                 } else if value == 0 {
@@ -1505,6 +1506,12 @@ impl TypeSystem {
                 ),
                 _ => unreachable!("References should only ever have two type parameters"),
             },
+        };
+
+        if let Some(kind) = kind {
+            format!("{:p}({})", kind, inner)
+        } else {
+            format!("?({})", inner)
         }
     }
 

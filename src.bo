@@ -1,7 +1,9 @@
+#no_base:
+
+library "vec.bo";
 import "tests/main.bo";
 
 create_exe("target/tests.exe", run_tests);
-
 
 // IR emission improvements
 //

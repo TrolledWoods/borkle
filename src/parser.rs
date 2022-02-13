@@ -696,6 +696,8 @@ fn value(
         if op == UnaryOp::Reference {
             value(global, imperative, slot.add())?;
             Ok(slot.finish(Node::new(loc, NodeKind::Reference)))
+        } else if op == UnaryOp::Range {
+            Ok(slot.finish(Node::new(loc, NodeKind::LeaveToBeInferred)))
         } else if op == UnaryOp::Member {
             let (_, name) = global.tokens.expect_identifier(global.errors)?;
             Ok(slot.finish(Node::new(loc, NodeKind::AnonymousMember { name })))
@@ -1816,6 +1818,7 @@ pub enum NodeKind {
     /// [ inner ]
     TypeAsValue,
     ImplicitType,
+    LeaveToBeInferred,
     /// [ .. fields ]
     StructType {
         fields: Vec<Ustr>,

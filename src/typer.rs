@@ -2071,6 +2071,24 @@ fn build_inferrable_constant_value(
                 TypeSystemConstant { type_: node_type_id, constant_value, constant }
             }
         }
+        NodeKind::PolymorphicArgumentNew(id) => {
+            let poly_param = statics.locals.get_poly(id);
+
+            if poly_param.is_const.is_none() {
+                statics.errors.info(poly_param.loc, "Defined here".to_string());
+                statics.errors.error(node_loc, "This generic parameter is a type, not a value (if you intended it to be a type, you have to flag it as `#const`)".to_string());
+                statics.infer.value_sets.get_mut(set).has_errors |= true;
+            }
+
+            let poly_param_value = TypeId::Node(ctx.ast_variant_id, poly_param.declared_at.unwrap());
+            let constant_value = statics.infer.add_unknown_type_with_set(set);
+            let value_id = statics.infer.add_type(TypeKind::Constant, Args([(node_type_id, Reason::temp(node_loc)), (constant_value, Reason::temp(node_loc))]));
+
+            statics.infer.set_equal(poly_param_value, value_id, Reason::temp(node_loc));
+
+            // TODO: It would be nice if there were
+            return TypeSystemConstant { type_: node_type_id, constant_value, constant: value_id };
+        }
         _ => {
             // We can't figure it out in a clever way, so just compile time execute the node as a constant.
             let mut sub_ast_variant_ctx = AstVariantContext::default();
@@ -2247,7 +2265,7 @@ fn build_function_call<'a>(
                     }
 
                     if name.is_none() {
-                        anonymous_index += 1;
+                        anonymous_index = index + 1;
                     }
                 }
             }
@@ -2362,18 +2380,57 @@ fn build_global<'a>(
             let (other_yield_data, other_args) = statics.program.get_polymember_yielddata(id);
             let num_args = other_args.len();
 
-            let mut param_values = Vec::with_capacity(num_args);
-            let mut param_reasons = Vec::with_capacity(num_args);
+            let mut param_values = vec![TypeId::None; num_args];
+            let mut param_reasons = vec![(TypeId::None, TypeId::None, Reason::temp_zero()); num_args];
             let sub_set = statics.infer.value_sets.add(WaitingOnTypeInferrence::None);
 
             let mut defined = vec![None; num_args];
-            let exhaustive = false;
+            let mut exhaustive = false;
 
-            if let Some(children) = children {
+            if let Some(mut children) = children {
+                exhaustive = true;
+
                 let mut index = 0;
-                for param in children {
-                    let resolved_index = index;
-                    index += 1;
+                while let Some(mut param) = children.next() {
+                    let name = match param.kind {
+                        NodeKind::Binary { op: BinaryOp::Assign, .. } => {
+                            let [left, right] = param.children.into_array();
+
+                            if let NodeKind::AnonymousMember { name } = left.kind {
+                                param = right;
+                                Some((left.loc, name))
+                            } else {
+                                None
+                            }
+                        }
+                        NodeKind::LeaveToBeInferred => {
+                            exhaustive = false;
+                            if let Some(more) = children.next() {
+                                statics.errors.error(more.loc, "Cannot pass more arguments after `..`".to_string());
+                                statics.infer.value_sets.get_mut(set).has_errors |= true;
+                                continue;
+                            }
+                            break;
+                        }
+                        _ => None,
+                    };
+
+                    let resolved_index = match name {
+                        Some((name_loc, name)) => {
+                            match other_args.iter().position(|v| v.map(|(v, _)| v) == Some(name)) {
+                                Some(index) => index,
+                                None => {
+                                    statics.errors.error(name_loc, format!("Invalid generic argument name, `{}`", name));
+                                    statics.infer.value_sets.get_mut(set).has_errors |= true;
+                                    continue;
+                                }
+                            }
+                        }
+                        None => {
+                            index
+                        }
+                    };
+                    index = resolved_index + 1;
 
                     if resolved_index >= defined.len() {
                         statics.errors.error(param.loc, "Generic parameter out of bounds".to_string());
@@ -2393,12 +2450,12 @@ fn build_global<'a>(
 
                     if other_poly_arg.is_const.is_none() {
                         let type_id = build_type(statics, ast_variant_ctx, ctx, param, sub_set);
-                        param_values.push(type_id);
-                        param_reasons.push((type_id, other_poly_arg.value_id, Reason::temp(param.loc)));
+                        param_values[resolved_index] = type_id;
+                        param_reasons[resolved_index] = (type_id, other_poly_arg.value_id, Reason::temp(param.loc));
                     } else {
                         let param_value = build_inferrable_constant_value(statics, ctx, param, sub_set);
-                        param_values.push(param_value.constant);
-                        param_reasons.push((param_value.constant, other_poly_arg.value_id, Reason::temp(param.loc)));
+                        param_values[resolved_index] = param_value.constant;
+                        param_reasons[resolved_index] = (param_value.constant, other_poly_arg.value_id, Reason::temp(param.loc));
                     }
                 }
             }
@@ -2417,21 +2474,21 @@ fn build_global<'a>(
                     if other_poly_arg.is_const.is_none() {
                         let type_id = statics.infer.add_type(TypeKind::CompareUnspecified, Args([]));
                         statics.infer.set_value_set(type_id, sub_set);
-                        param_values.push(type_id);
-                        param_reasons.push((type_id, other_poly_arg.value_id, Reason::new(node_loc, ReasonKind::PolyParam(i))));
+                        param_values[i] = type_id;
+                        param_reasons[i] = (type_id, other_poly_arg.value_id, Reason::new(node_loc, ReasonKind::PolyParam(i)));
                     } else {
                         let unknown = statics.infer.add_unknown_type_with_set(sub_set);
                         let unspecified = statics.infer.add_type(TypeKind::CompareUnspecified, Args([]));
                         statics.infer.set_value_set(unspecified, sub_set);
                         let type_id = statics.infer.add_type(TypeKind::Constant, Args([(unknown, Reason::temp(node_loc)), (unspecified, Reason::temp(node_loc))]));
                         statics.infer.set_value_set(type_id, sub_set);
-                        param_values.push(type_id);
-                        param_reasons.push((type_id, other_poly_arg.value_id, Reason::new(node_loc, ReasonKind::PolyParam(i))));
+                        param_values[i] = type_id;
+                        param_reasons[i] = (type_id, other_poly_arg.value_id, Reason::new(node_loc, ReasonKind::PolyParam(i)));
                     }
                 } else {
                     let type_id = statics.infer.add_unknown_type_with_set(sub_set);
-                    param_values.push(type_id);
-                    param_reasons.push((type_id, other_poly_arg.value_id, Reason::new(node.loc, ReasonKind::PolyParam(i))));
+                    param_values[i] = type_id;
+                    param_reasons[i] = (type_id, other_poly_arg.value_id, Reason::new(node.loc, ReasonKind::PolyParam(i)));
                 }
             }
 
@@ -2445,9 +2502,9 @@ fn build_global<'a>(
                 poly_loc,
             );
 
-            statics.infer.value_sets.lock(set);
-
             if !ctx.inside_type_comparison {
+                statics.infer.value_sets.lock(set);
+
                 statics.infer.set_waiting_on_value_set(sub_set, WaitingOnTypeInferrence::MonomorphiseMember {
                     node_id: node_id,
                     poly_member_id: id,
