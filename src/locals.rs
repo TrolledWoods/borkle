@@ -22,8 +22,8 @@ pub struct PolymorphicId(pub usize);
 
 #[derive(Debug, Clone)]
 pub struct Polymorphic {
-    pub name: Ustr,
     pub loc: Location,
+    pub name: Ustr,
     pub value: Option<crate::type_infer::ValueId>,
 }
 

@@ -1,7 +1,7 @@
 use super::token_stream::TokenStream;
 use crate::dependencies::DependencyList;
 use crate::errors::ErrorCtx;
-use crate::locals::{Label, LocalScopeId, LabelId, Local, LocalId, LocalVariables};
+use crate::locals::{Label, LocalScopeId, LabelId, Local, LocalId, LocalVariables, Polymorphic, PolymorphicId};
 use crate::location::Location;
 use crate::program::{Program, ScopeId};
 use std::path::Path;
@@ -124,6 +124,13 @@ impl<'a> ImperativeContext<'a> {
         let name = local.name;
         let id = self.locals.insert(local);
         self.local_map.push((name, LocalScopeId::Local(id)));
+        id
+    }
+
+    pub fn insert_poly(&mut self, local: Polymorphic) -> PolymorphicId {
+        let name = local.name;
+        let id = self.locals.insert_poly(local);
+        self.local_map.push((name, LocalScopeId::Polymorphic(id)));
         id
     }
 

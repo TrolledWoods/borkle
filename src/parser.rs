@@ -1,7 +1,7 @@
 use crate::dependencies::{DepKind, DependencyList, MemberDep};
 use crate::errors::ErrorCtx;
 use crate::literal::Literal;
-use crate::locals::{Local, LocalVariables, LabelId, LocalId, LocalScopeId};
+use crate::locals::{Local, LocalVariables, LabelId, LocalId, LocalScopeId, Polymorphic, PolymorphicId};
 use crate::location::Location;
 use crate::operators::{BinaryOp, Operator, UnaryOp};
 use crate::program::{Program, ScopeId, Task, BuiltinFunction, constant::ConstantRef, MemberMetaData, MemberId, MemberKind, PolyOrMember, Builtin};
@@ -368,6 +368,32 @@ fn type_(
     let token = global.tokens.expect_peek(global.errors)?;
     let loc = token.loc;
     match token.kind {
+        TokenKind::Keyword(Keyword::Any) => {
+            global.tokens.next();
+
+            imperative.push_scope_boundary();
+
+            // TODO: `maybe_parse_polymorphic_arguments` should just add things to the scope.
+            let arguments = maybe_parse_polymorphic_arguments(global)?;
+            if arguments.is_empty() {
+                global.errors.error(loc, format!("`any` needs at least one generic argument"));
+                return Err(());
+            }
+
+            for (loc, name) in arguments {
+                let id = imperative.insert_poly(Polymorphic {
+                    loc,
+                    name,
+                    value: None,
+                });
+                slot.add().finish(Node::new(loc, NodeKind::DeclPolyArgument(id)));
+            }
+
+            type_(global, imperative, slot.add())?;
+            imperative.pop_scope_boundary();
+
+            Ok(slot.finish(Node::new(loc, NodeKind::Any)))
+        }
         TokenKind::Keyword(Keyword::Int) => {
             global.tokens.next();
             Ok(slot.finish(Node::new(loc, NodeKind::IntType)))
@@ -393,23 +419,18 @@ fn type_(
             if let Some(local_scope_id) = imperative.get_local(name) {
                 match local_scope_id {
                     LocalScopeId::Local(id) => {
-                        // This is not allowed in a type expression, but we deal with it in the typer to get more error reporting,
-                        // since it's not really a hard parsing error.
-                        let local = imperative.locals.get_mut(id);
-                        local.num_uses += 1;
-                        local.uses.push(loc);
-                        muncher.add().finish(Node::new(loc, NodeKind::Local { local_id: id }));
+                        let local = imperative.locals.get(id);
+                        global.errors.info(local.loc, format!("Defined here"));
+                        global.errors.error(loc, format!("`{}` is a local variable, not a type (did you intend to add `typeof`?)", name));
+                        return Err(());
                     }
                     LocalScopeId::Polymorphic(id) => {
-                        let poly = imperative.locals.get_poly(id);
-                        global.errors.info(poly.loc, format!("Defined here"));
-                        global.errors.error(loc, format!("`{}` is a polymorphic argument, not a local variable", name));
-                        return Err(());
+                        muncher.add().finish(Node::new(loc, NodeKind::PolymorphicArgumentNew(id)));
                     }
                     LocalScopeId::Label(id) => {
                         let poly = imperative.locals.get_label(id);
                         global.errors.info(poly.loc, format!("Defined here"));
-                        global.errors.error(loc, format!("`{}` is a label, not a local variable", name));
+                        global.errors.error(loc, format!("`{}` is a label, not a type", name));
                         return Err(());
                     }
                 }
@@ -1627,6 +1648,11 @@ pub enum NodeKind {
 
     Explain,
 
+    // [ .. poly args: DeclPolyArgument, inner ]
+    Any,
+    DeclPolyArgument(PolymorphicId),
+
+    PolymorphicArgumentNew(PolymorphicId),
     PolymorphicArgument(usize),
     ConstAtTyping,
     ConstAtEvaluation,
