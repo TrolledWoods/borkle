@@ -152,28 +152,24 @@ fn worker<'a>(alloc: &'a mut Bump, program: &'a Program) -> (ThreadContext<'a>, 
                             Ok((Ok((dependencies, locals, types, ast, root_type_id, additional_info)), meta_data)) => {
                                 let type_ = types.value_to_compiler_type(root_type_id);
 
-                                if type_.can_be_stored_in_constant() {
-                                    program.logger.log(format_args!(
-                                        "type '{}' {:?} {:?}",
-                                        program.member_name(member_id),
-                                        type_,
-                                        meta_data,
-                                    ));
+                                program.logger.log(format_args!(
+                                    "type '{}' {:?} {:?}",
+                                    program.member_name(member_id),
+                                    type_,
+                                    meta_data,
+                                ));
 
-                                    program.set_type_of_member(member_id, type_, meta_data);
+                                program.set_type_of_member(member_id, type_, meta_data);
 
-                                    if member_kind == MemberKind::Const {
-                                        program.queue_task(
-                                            dependencies,
-                                            Task::EmitMember(member_id, locals, types, additional_info, ast),
-                                        );
-                                    } else {
-                                        // OMEGA HACK!!!! To work with type expressions
-                                        program.set_value_of_member(member_id, crate::program::constant::ConstantRef::dangling());
-                                        program.flag_member_callable(member_id);
-                                    }
+                                if member_kind == MemberKind::Const {
+                                    program.queue_task(
+                                        dependencies,
+                                        Task::EmitMember(member_id, locals, types, additional_info, ast),
+                                    );
                                 } else {
-                                    errors.error(ast.root().loc, format!("'{}' cannot be stored in a constant, because it contains types that the compiler cannot reason about properly, such as '&any', '[] any', or similar", type_));
+                                    // OMEGA HACK!!!! To work with type expressions
+                                    program.set_value_of_member(member_id, crate::program::constant::ConstantRef::dangling());
+                                    program.flag_member_callable(member_id);
                                 }
                             }
                             Ok((Err(_), _)) => {

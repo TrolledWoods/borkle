@@ -784,12 +784,12 @@ fn build_constraints(
         NodeKind::Pack => {
             let [inner] = node.children.into_array();
             let inner_type = build_constraints(statics, ast_variant_ctx, ctx, inner, set);
-            statics.infer.set_pack(node_type_id, inner_type, Reason::temp(node_loc));
+            statics.infer.set_pack(node_type_id, inner_type, false, Reason::temp(node_loc));
         }
         NodeKind::Unpack => {
             let [inner] = node.children.into_array();
             let inner_type = build_constraints(statics, ast_variant_ctx, ctx, inner, set);
-            statics.infer.set_pack(inner_type, node_type_id, Reason::temp(node_loc));
+            statics.infer.set_pack(inner_type, node_type_id, true, Reason::temp(node_loc));
         }
         NodeKind::SizeOf => {
             let [inner] = node.children.into_array();
@@ -1495,6 +1495,25 @@ fn build_unique_type(
             statics.infer.set_type(node_type_id, TypeKind::Enum(marker, names), Args(fields));
             statics.infer.set_value_set(node_type_id, set);
         }
+        NodeKind::Any => {
+            let mut children = node.children.into_iter();
+
+            let num_args = children.len() - 1;
+            for (i, child) in children.by_ref().take(num_args).enumerate() {
+                let &NodeKind::DeclPolyArgument(id) = &child.kind else { panic!() };
+                let poly = statics.locals.get_poly_mut(id);
+                poly.declared_at = Some(child.id);
+
+                let child_id = TypeId::Node(ctx.ast_variant_id, child.id);
+                statics.infer.set_type(child_id, TypeKind::RuntimeGeneric { id: marker, number: i as u32 }, Args([]));
+                statics.infer.set_value_set(child_id, set);
+            }
+
+            let base_node = children.next().unwrap();
+            let base_id = build_type(statics, ast_variant_ctx, ctx, base_node, set);
+            statics.infer.set_type(node_type_id, TypeKind::Any { marker, num_args: num_args as u32 }, Args([(base_id, Reason::temp(node_loc))]));
+            statics.infer.set_value_set(node_type_id, set);
+        }
         _ => {
             let inner_type = build_type(statics, ast_variant_ctx, ctx, node, set);
             let unique_type = statics.infer.add_type(
@@ -1524,6 +1543,13 @@ fn build_type(
     statics.infer.value_sets.add_node_to_set(set, ctx.ast_variant_id, node.id);
 
     match node.kind {
+        NodeKind::PolymorphicArgumentNew(id) => {
+            let poly = statics.locals.get_poly(id);
+            let declared_at = poly.declared_at.unwrap();
+            let arg_id = TypeId::Node(ctx.ast_variant_id, declared_at);
+
+            statics.infer.set_equal(node_type_id, arg_id, Reason::temp(node_loc));
+        }
         NodeKind::IntType => {
             if ctx.inside_type_comparison {
                 let inner = statics.infer.add_type(TypeKind::CompareUnspecified, Args([]));
@@ -1649,6 +1675,30 @@ fn build_type(
             
             statics.infer.set_type(node_type_id, TypeKind::Enum(marker, names), Args(fields));
         }
+        NodeKind::Any => {
+            let marker = UniqueTypeMarker {
+                name: None,
+                loc: node_loc,
+            };
+            
+            let mut children = node.children.into_iter();
+
+            let num_args = children.len() - 1;
+            for (i, child) in children.by_ref().take(num_args).enumerate() {
+                let &NodeKind::DeclPolyArgument(id) = &child.kind else { panic!() };
+                let poly = statics.locals.get_poly_mut(id);
+                poly.declared_at = Some(child.id);
+
+                let child_id = TypeId::Node(ctx.ast_variant_id, child.id);
+                statics.infer.set_type(child_id, TypeKind::RuntimeGeneric { id: marker, number: i as u32 }, Args([]));
+                statics.infer.set_value_set(child_id, set);
+            }
+
+            let base_node = children.next().unwrap();
+            let base_id = build_type(statics, ast_variant_ctx, ctx, base_node, set);
+            statics.infer.set_type(node_type_id, TypeKind::Any { marker, num_args: num_args as u32 }, Args([(base_id, Reason::temp(node_loc))]));
+            statics.infer.set_value_set(node_type_id, set);
+        }
         NodeKind::StructType { ref fields } => {
             // @Performance: Many allocations
             let names = fields.to_vec().into_boxed_slice();
@@ -1741,12 +1791,12 @@ fn build_declarative_lvalue(
         NodeKind::Pack => {
             let [inner] = node.children.into_array();
             let inner_type = build_constraints(statics, ast_variant_ctx, ctx, inner, set);
-            statics.infer.set_pack(node_type_id, inner_type, Reason::temp(node_loc));
+            statics.infer.set_pack(node_type_id, inner_type, false, Reason::temp(node_loc));
         }
         NodeKind::Unpack => {
             let [inner] = node.children.into_array();
             let inner_type = build_constraints(statics, ast_variant_ctx, ctx, inner, set);
-            statics.infer.set_pack(inner_type, node_type_id, Reason::temp(node_loc));
+            statics.infer.set_pack(inner_type, node_type_id, true, Reason::temp(node_loc));
         }
         NodeKind::Local{ local_id } => {
             if is_declaring {
@@ -1883,12 +1933,12 @@ fn build_lvalue(
         NodeKind::Pack => {
             let [inner] = node.children.into_array();
             let inner_type = build_constraints(statics, ast_variant_ctx, ctx, inner, set);
-            statics.infer.set_pack(node_type_id, inner_type, Reason::temp(node_loc));
+            statics.infer.set_pack(node_type_id, inner_type, false, Reason::temp(node_loc));
         }
         NodeKind::Unpack => {
             let [inner] = node.children.into_array();
             let inner_type = build_constraints(statics, ast_variant_ctx, ctx, inner, set);
-            statics.infer.set_pack(inner_type, node_type_id, Reason::temp(node_loc));
+            statics.infer.set_pack(inner_type, node_type_id, true, Reason::temp(node_loc));
         }
         NodeKind::TypeBound => {
             let [value, bound] = node.children.into_array();

@@ -384,7 +384,7 @@ fn type_(
                 let id = imperative.insert_poly(Polymorphic {
                     loc,
                     name,
-                    value: None,
+                    declared_at: None,
                 });
                 slot.add().finish(Node::new(loc, NodeKind::DeclPolyArgument(id)));
             }

@@ -28,7 +28,7 @@ use crate::program::Program;
 use crate::errors::ErrorCtx;
 use crate::location::Location;
 use crate::operators::BinaryOp;
-use crate::types::{self, IntTypeKind};
+use crate::types::{self, IntTypeKind, UniqueTypeMarker};
 use crate::ast::{NodeId as AstNodeId};
 use std::collections::HashMap;
 use std::mem;
@@ -89,6 +89,8 @@ fn get_needed_children_for_layout<'a>(type_: &TypeKind, children: &'a [ValueId])
         TypeKind::Any { .. } => &children[0..1],
         // TODO: This can't have a size, we need some way to represent this.
         TypeKind::RuntimeGeneric { .. } => children,
+        // TODO: This can't have a size, we need some way to represent this.
+        TypeKind::MonomorphedRuntimeGeneric { .. } => children,
         TypeKind::Enum { .. } => &children[0..1],
         TypeKind::Float => &children[0..1],
         TypeKind::Int => &children[1..2],
@@ -110,7 +112,11 @@ fn compute_type_layout(kind: &TypeKind, structures: &Structures, values: &Values
         // Even worse, it _may_ have a runtime layout if the `any`/`all` type has the layout
         // tag on the generic.
         TypeKind::RuntimeGeneric { .. } => Layout { size: 0, align: 1 },
-        TypeKind::Any(_) => *get_value(structures, values, children[0]).layout.unwrap(),
+        // TODO: This shouldn't even have a Layout, but I have no way of representing this yet.
+        // Even worse, it _may_ have a runtime layout if the `any`/`all` type has the layout
+        // tag on the generic.
+        TypeKind::MonomorphedRuntimeGeneric { .. } => Layout { size: 0, align: 1 },
+        TypeKind::Any { .. } => *get_value(structures, values, children[0]).layout.unwrap(),
         TypeKind::Float => {
             let Some(&Type { kind: TypeKind::IntSize(size_value), .. }) = get_value(structures, values, children[0]).kind else { panic!() };
             let size_bytes = size_value as usize;
@@ -182,7 +188,9 @@ struct Constraint {
 enum Relation {
     NamedConstField(Ustr),
     InnerConstant,
-    Pack,
+    Pack {
+        unpacking: bool,
+    },
     Cast,
     BufferEqualsArray,
     ForIterator { by_reference: bool },
@@ -193,6 +201,11 @@ enum ConstraintKind {
     RequireSize {
         value_id: ValueId,
         value_set_id: ValueSetId,
+    },
+    DynMonomorph {
+        values: [ValueId; 2],
+        monomorph_id: u32,
+        marker: UniqueTypeMarker,
     },
     Compare {
         values: [ValueId; 2],
@@ -228,6 +241,7 @@ impl Constraint {
             ConstraintKind::Relation { values, .. } => &*values,
             ConstraintKind::Equal { values, .. }
             | ConstraintKind::Compare { values, .. }
+            | ConstraintKind::DynMonomorph { values, .. }
             | ConstraintKind::EqualsField { values, .. }
             | ConstraintKind::EqualNamedField { values, .. } => &*values,
             ConstraintKind::BinaryOp { values, .. } => &*values,
@@ -789,6 +803,12 @@ struct Comparison {
 }
 
 #[derive(Clone)]
+struct Monomorph {
+    // TODO: We can probably get away with just using a single type id and generating an array of them.
+    arg_types: Vec<ValueId>,
+}
+
+#[derive(Clone)]
 pub struct TypeSystem {
     comparisons: Vec<Comparison>,
     structures: Structures,
@@ -801,6 +821,8 @@ pub struct TypeSystem {
 
     available_constraints: HashMap<ValueId, Vec<ConstraintId>>,
     queued_constraints: Vec<ConstraintId>,
+
+    monomorphs: Vec<Monomorph>,
 
     pub errors: Vec<Error>,
 }
@@ -817,6 +839,7 @@ impl TypeSystem {
             available_constraints: HashMap::new(),
             queued_constraints: Vec::new(),
             errors: Vec::new(),
+            monomorphs: Vec::new(),
         }
     }
 
@@ -1122,13 +1145,13 @@ impl TypeSystem {
         );
     }
 
-    pub fn set_pack(&mut self, to: ValueId, from: ValueId, reason: Reason) {
+    pub fn set_pack(&mut self, to: ValueId, from: ValueId, unpacking: bool, reason: Reason) {
         insert_active_constraint(
             &mut self.constraints,
             &mut self.available_constraints,
             &mut self.queued_constraints,
             Constraint {
-                kind: ConstraintKind::Relation { kind: Relation::Pack, values: [to, from] },
+                kind: ConstraintKind::Relation { kind: Relation::Pack { unpacking }, values: [to, from] },
                 applied: false,
                 reason,
             }
@@ -1336,13 +1359,16 @@ impl TypeSystem {
             Some(Type { kind: TypeKind::IntSigned(s), .. }) => format!("int sign {}", s),
             Some(Type { kind: TypeKind::ConstantValue(_), .. }) => "<constant value>".to_string(),
             None => "_".to_string(),
-            Some(Type { kind: TypeKind::Any(marker), args: _ }) => {
+            Some(Type { kind: TypeKind::Any { marker, .. }, args: _ }) => {
                 // TODO: We want to print the generic parameters too, somehow.
                 if let Some(name) = marker.name {
                     name.to_string()
                 } else {
                     format!("<anonymous {}>", marker.loc)
                 }
+            }
+            Some(Type { kind: TypeKind::MonomorphedRuntimeGeneric { id, number }, args: _ }) => {
+                format!("<monomorphed {}.{}>", id, number)
             }
             Some(Type { kind: TypeKind::RuntimeGeneric { id, number }, args: _ }) => {
                 // TODO: We want to print the generic parameters too, somehow.
@@ -1487,6 +1513,9 @@ impl TypeSystem {
             ConstraintKind::RequireSize { value_id, value_set_id } => {
                 format!("{:?} requires size of {}", value_set_id, self.value_to_str(value_id, 0))
             }
+            ConstraintKind::DynMonomorph { values: [a, b], .. } => {
+                format!("{} monomorphed from {}", self.value_to_str(a, 0), self.value_to_str(b, 0))
+            }
             ConstraintKind::Compare { values: [a, b], .. } => {
                 format!("{} is {}?", self.value_to_str(a, 0), self.value_to_str(b, 0))
             }
@@ -1594,7 +1623,7 @@ impl TypeSystem {
 
                 match (kind, to.kind, from.kind) {
                     (
-                        Relation::Pack,
+                        Relation::Pack { .. },
                         Some(Type { kind: TypeKind::Unique(_), args: Some(to_args) }),
                         _,
                     ) => {
@@ -1602,7 +1631,7 @@ impl TypeSystem {
                         self.set_equal(to_arg, from_id, constraint.reason);
                     }
                     (
-                        Relation::Pack,
+                        Relation::Pack { .. },
                         Some(Type { kind: TypeKind::Enum { .. }, args: Some(args) }),
                         _,
                     ) => {
@@ -1610,7 +1639,41 @@ impl TypeSystem {
                         self.set_equal(to_arg, from_id, constraint.reason);
                     }
                     (
-                        Relation::Pack,
+                        Relation::Pack { unpacking, .. },
+                        Some(&Type { kind: TypeKind::Any { marker, num_args }, args: Some(ref args) }),
+                        _,
+                    ) => {
+                        let to_arg = args[0];
+
+                        let monomorph_id = self.monomorphs.len() as u32;
+                        let arg_types = (0..num_args).map(|number| {
+                            if unpacking {
+                                self.add_type(TypeKind::MonomorphedRuntimeGeneric { id: monomorph_id, number }, Args([]))
+                            } else {
+                                self.add_unknown_type()
+                            }
+                        }).collect();
+                        self.monomorphs.push(Monomorph {
+                            arg_types,
+                        });
+
+                        insert_active_constraint(
+                            &mut self.constraints,
+                            &mut self.available_constraints,
+                            &mut self.queued_constraints,
+                            Constraint {
+                                kind: ConstraintKind::DynMonomorph {
+                                    values: [to_arg, from_id],
+                                    monomorph_id,
+                                    marker,
+                                },
+                                applied: false,
+                                reason: constraint.reason,
+                            }
+                        );
+                    }
+                    (
+                        Relation::Pack { .. },
                         Some(Type { kind: _, args: _ }),
                         _,
                     ) => {
@@ -2078,6 +2141,54 @@ impl TypeSystem {
                         self.constraints[constraint_id].applied |= true;
                     }
                 }
+            }
+            ConstraintKind::DynMonomorph {
+                values: [a_id, b_id],
+                marker,
+                monomorph_id,
+            } => {
+                let a_value = get_value(&self.structures, &self.values, a_id);
+
+                let Some(a_type) = a_value.kind else { return };
+
+                if let TypeKind::RuntimeGeneric { id, number } = a_type.kind {
+                    if id == marker {
+                        self.constraints[constraint_id].applied = true;
+
+                        let monomorph = &self.monomorphs[monomorph_id as usize];
+                        let new_type = monomorph.arg_types[number as usize];
+
+                        self.set_equal(b_id, new_type, constraint.reason);
+                        return;
+                    }
+                }
+
+                let Some(a_args) = &a_type.args else { return };
+
+                let a_kind = a_type.kind.clone();
+                // TODO: Performance!
+                let a_args = a_args.to_vec();
+
+                let mut b_args = Vec::with_capacity(a_args.len());
+                for &a_arg in a_args.iter() {
+                    let b_arg = self.add_unknown_type();
+                    b_args.push((b_arg, Reason::temp_zero()));
+                    insert_active_constraint(
+                        &mut self.constraints,
+                        &mut self.available_constraints,
+                        &mut self.queued_constraints,
+                        Constraint {
+                            kind: ConstraintKind::DynMonomorph { values: [a_arg, b_arg], marker, monomorph_id },
+                            applied: false,
+                            reason: constraint.reason,
+                        },
+                    );
+                }
+
+                let b_reference_id = self.add_type(a_kind, Args(b_args));
+                self.set_equal(b_id, b_reference_id, Reason::temp_zero());
+
+                self.constraints[constraint_id].applied = true;
             }
             ConstraintKind::Compare {
                 values: [a_id, b_id],

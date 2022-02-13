@@ -137,7 +137,7 @@ impl Type {
             | TypeKind::ConstantValue(_) 
             | TypeKind::Constant
             | TypeKind::Bool => {}
-            TypeKind::CompareUnspecified | TypeKind::RuntimeGeneric { .. } => unreachable!(),
+            TypeKind::MonomorphedRuntimeGeneric { .. } | TypeKind::CompareUnspecified | TypeKind::RuntimeGeneric { .. } => unreachable!(),
             TypeKind::Reference => {
                 let pointee = &self.args()[0];
                 if pointee.size() > 0 {
@@ -327,7 +327,7 @@ impl Display for TypeData {
                 write!(fmt, "}}")?;
                 Ok(())
             }
-            TypeKind::Any(marker) => {
+            TypeKind::Any { marker, .. } => {
                 write!(fmt, "{}({})", marker.name.map_or("<anonymous>", |v| v.as_str()), &self.args[0])
             }
             TypeKind::RuntimeGeneric { id, number } => {
@@ -338,6 +338,9 @@ impl Display for TypeData {
             }
             TypeKind::ConstantValue(v) => {
                 write!(fmt, "<const value, {:p}", v.as_ptr())
+            }
+            TypeKind::MonomorphedRuntimeGeneric { id, number } => {
+                write!(fmt, "<monomorphed {}.{}>", id, number)
             }
             TypeKind::Constant => {
                 let type_ = &self.args[0];
@@ -433,10 +436,17 @@ pub enum TypeKind {
     IntSigned(bool),
 
     // any/all types are unique types right now. If this ends up being a problem I don't know, we'll see....
-    Any(UniqueTypeMarker),
+    Any {
+        marker: UniqueTypeMarker,
+        num_args: u32,
+    },
     RuntimeGeneric {
         /// The id of the `any` that this generic is a part of.
         id: UniqueTypeMarker,
+        number: u32,
+    },
+    MonomorphedRuntimeGeneric {
+        id: u32,
         number: u32,
     },
 
@@ -535,7 +545,10 @@ impl TypeData {
                 size = to_align(size, align);
                 (size, align)
             }
-            TypeKind::RuntimeGeneric { .. } => unreachable!(),
+            // TODO: This should actually panic, but since we always compute the sizes of things right now that's not possible
+            TypeKind::RuntimeGeneric { .. } => (0, 0),
+            // TODO: This should actually panic, but since we always compute the sizes of things right now that's not possible
+            TypeKind::MonomorphedRuntimeGeneric { .. } => (0, 0),
         }
     }
 }

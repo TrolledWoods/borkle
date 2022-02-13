@@ -82,6 +82,19 @@ const copy_nonoverlapping.(T) = fn(to: &T, from: &T, size: usize) {
     };
 };
 
+const box.(T) = fn(original: T) -> &T {
+    let buf = alloc(1);
+    *buf.ptr = original;
+    buf.ptr
+};
+
+const debox.(T) = fn(value: &T) {
+    let buf = #uninit;
+    buf.ptr = value;
+    buf.len = 1;
+    dealloc(buf);
+};
+
 const alloc_copy.(T) = fn(original: [] T) -> [] T {
     let buf = alloc(original.len);
     copy_nonoverlapping(buf.ptr, original.ptr, original.len);
@@ -710,6 +723,10 @@ const sprint.(Args) = fn(format_str: [] u8, #var_args: args: Args) -> [] u8 {
     let buffer = alloc(count);
     write(buf_writer(&{ buffer }), format_str, .args = args);
     buffer
+};
+
+const dbg.(Arg) = fn(arg: Arg) {
+    eprint("%\n", arg);
 };
 
 const print.(Args) = fn(format_str: [] u8, #var_args: args: Args) {

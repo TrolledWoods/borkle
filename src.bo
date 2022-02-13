@@ -1,11 +1,12 @@
-type VoidPtr = any.(T) &T;
+library "vec.bo";
 
-/*
-import "tests/main.bo";
-
-run_tests();
-create_exe("target/tests.exe", run_tests);
-*/
+const do_things = fn(from: Vec.(type any.(T) &T)) -> any.(T) Vec.(type &T) {
+    let vec = vec_new();
+    for from->as_buf() {
+        vec_push(&vec, unpack v);
+    };
+    pack vec
+};
 
 // IR emission improvements
 //
