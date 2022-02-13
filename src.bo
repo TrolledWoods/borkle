@@ -1,9 +1,4 @@
-import "tests/main.bo";
-
-create_exe(
-    "target/tests.exe",
-    run_tests,
-);
+type VoidPtr = any.(T) &T;
 
 // IR emission improvements
 //

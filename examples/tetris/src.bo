@@ -104,7 +104,9 @@ const init_map = fn(map: [] u64) {
     *(map.ptr + (HEIGHT - 3)) = FullLine;
 };
 
-#entry fn() {
+// TODO: Remove this bit_cast, in the future `create_exe` should take a `.Native`, and `.All` will just work with that.
+create_exe("target/output.exe", bit_cast main);
+const main = fn #target .Native: () {
     let screen = alloc.(u8)(WIDTH * HEIGHT);
     defer dealloc(screen);
 
@@ -290,7 +292,7 @@ const init_map = fn(map: [] u64) {
         };
 
         if message_timer > 0 && (message_timer / MESSAGE_BLINK_SPEED) % 2 == 0 {
-            write(buf_writer(&{ screen }), "%", pad(raw_text(message), WIDTH, PAD_CENTER, *"=".ptr));
+            write(buf_writer(&{ screen }), "%", pad(raw_text(message), WIDTH, .Center));
         } else {
             write(buf_writer(&{ screen }), "Score: % ", score);
         };

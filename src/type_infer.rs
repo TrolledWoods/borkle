@@ -86,6 +86,9 @@ impl<T> IntoValueArgs for Args<T> where T: IntoIterator<Item = (ValueId, Reason)
 fn get_needed_children_for_layout<'a>(type_: &TypeKind, children: &'a [ValueId]) -> &'a [ValueId] {
     match type_ {
         TypeKind::Target { .. } | TypeKind::IntSize(_) | TypeKind::IntSigned(_) | TypeKind::Bool | TypeKind::Empty | TypeKind::Function | TypeKind::Reference | TypeKind::Buffer | TypeKind::ConstantValue(_) | TypeKind::CompareUnspecified => &[],
+        TypeKind::Any { .. } => &children[0..1],
+        // TODO: This can't have a size, we need some way to represent this.
+        TypeKind::RuntimeGeneric { .. } => children,
         TypeKind::Enum { .. } => &children[0..1],
         TypeKind::Float => &children[0..1],
         TypeKind::Int => &children[1..2],
@@ -103,6 +106,11 @@ fn get_needed_children_for_layout<'a>(type_: &TypeKind, children: &'a [ValueId])
 fn compute_type_layout(kind: &TypeKind, structures: &Structures, values: &Values, children: &[ValueId]) -> Layout {
     match kind {
         TypeKind::CompareUnspecified => Layout { size: 1, align: 0 },
+        // TODO: This shouldn't even have a Layout, but I have no way of representing this yet.
+        // Even worse, it _may_ have a runtime layout if the `any`/`all` type has the layout
+        // tag on the generic.
+        TypeKind::RuntimeGeneric { .. } => Layout { size: 0, align: 1 },
+        TypeKind::Any(_) => *get_value(structures, values, children[0]).layout.unwrap(),
         TypeKind::Float => {
             let Some(&Type { kind: TypeKind::IntSize(size_value), .. }) = get_value(structures, values, children[0]).kind else { panic!() };
             let size_bytes = size_value as usize;
@@ -1328,6 +1336,22 @@ impl TypeSystem {
             Some(Type { kind: TypeKind::IntSigned(s), .. }) => format!("int sign {}", s),
             Some(Type { kind: TypeKind::ConstantValue(_), .. }) => "<constant value>".to_string(),
             None => "_".to_string(),
+            Some(Type { kind: TypeKind::Any(marker), args: _ }) => {
+                // TODO: We want to print the generic parameters too, somehow.
+                if let Some(name) = marker.name {
+                    name.to_string()
+                } else {
+                    format!("<anonymous {}>", marker.loc)
+                }
+            }
+            Some(Type { kind: TypeKind::RuntimeGeneric { id, number }, args: _ }) => {
+                // TODO: We want to print the generic parameters too, somehow.
+                if let Some(name) = id.name {
+                    format!("arg {} of {}", number, name)
+                } else {
+                    format!("arg {} of <anonymous {}>", number, id.loc)
+                }
+            }
             Some(Type { kind: TypeKind::Unique(marker), args: _ }) => {
                 // TODO: We want to print the generic parameters too, somehow.
                 if let Some(name) = marker.name {

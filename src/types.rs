@@ -85,6 +85,7 @@ impl Type {
 
     pub fn can_be_stored_in_constant(&self) -> bool {
         match self.kind() {
+            TypeKind::RuntimeGeneric { .. } => false,
             TypeKind::Function { .. } => true,
             _ => {
                 let mut can_be = true;
@@ -136,7 +137,7 @@ impl Type {
             | TypeKind::ConstantValue(_) 
             | TypeKind::Constant
             | TypeKind::Bool => {}
-            TypeKind::CompareUnspecified => unreachable!(),
+            TypeKind::CompareUnspecified | TypeKind::RuntimeGeneric { .. } => unreachable!(),
             TypeKind::Reference => {
                 let pointee = &self.args()[0];
                 if pointee.size() > 0 {
@@ -170,7 +171,7 @@ impl Type {
                     field.get_pointers_internal(base_offset + offset, add_pointer);
                 }
             }
-            TypeKind::Unique(_) | TypeKind::Enum { .. } => {
+            TypeKind::Unique(_) | TypeKind::Enum { .. } | TypeKind::Any { .. } => {
                 self.args()[0].get_pointers_internal(base_offset, add_pointer);
             }
         }
@@ -326,6 +327,12 @@ impl Display for TypeData {
                 write!(fmt, "}}")?;
                 Ok(())
             }
+            TypeKind::Any(marker) => {
+                write!(fmt, "{}({})", marker.name.map_or("<anonymous>", |v| v.as_str()), &self.args[0])
+            }
+            TypeKind::RuntimeGeneric { id, number } => {
+                write!(fmt, "arg {} of {}", number, id.name.map_or("<anonymous>", |v| v.as_str()))
+            }
             TypeKind::Unique(marker) => {
                 write!(fmt, "{}({})", marker.name.map_or("<anonymous>", |v| v.as_str()), &self.args[0])
             }
@@ -425,6 +432,14 @@ pub enum TypeKind {
     /// Whether an int is signed or not
     IntSigned(bool),
 
+    // any/all types are unique types right now. If this ends up being a problem I don't know, we'll see....
+    Any(UniqueTypeMarker),
+    RuntimeGeneric {
+        /// The id of the `any` that this generic is a part of.
+        id: UniqueTypeMarker,
+        number: u32,
+    },
+
     Target { min: u32, max: u32 },
 
     Bool,
@@ -476,7 +491,7 @@ impl TypeData {
             TypeKind::Reference | TypeKind::Function => (8, 8),
             TypeKind::Buffer => (16, 8),
             TypeKind::Bool => (1, 1),
-            TypeKind::Unique(_) | TypeKind::Enum { .. } => self.args[0].0.calculate_size_align(),
+            TypeKind::Any { .. } | TypeKind::Unique(_) | TypeKind::Enum { .. } => self.args[0].0.calculate_size_align(),
             TypeKind::Array => {
                 let internal = &self.args[0];
                 let length = unsafe { self.args[1].read_constant_as_usize() };
@@ -520,6 +535,7 @@ impl TypeData {
                 size = to_align(size, align);
                 (size, align)
             }
+            TypeKind::RuntimeGeneric { .. } => unreachable!(),
         }
     }
 }
