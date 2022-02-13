@@ -332,10 +332,14 @@ impl Program {
         *members[id].value.unwrap()
     }
 
-    pub fn get_polymember_yielddata(&self, id: PolyMemberId) -> Arc<crate::typer::YieldData> {
+    pub fn get_polymember_yielddata(&self, id: PolyMemberId) -> (Arc<crate::typer::YieldData>, Arc<Vec<Option<(Ustr, Location)>>>) {
         profile::profile!("Get polymember yielddata");
         let poly_members = self.poly_members.read();
-        poly_members[id].yield_data.as_ref().unwrap().clone()
+        let poly_member = &poly_members[id];
+        (
+            poly_member.yield_data.as_ref().unwrap().clone(),
+            poly_member.args.clone()
+        )
     }
 
     /// Locks
@@ -675,21 +679,21 @@ impl Program {
         loc: Location,
         scope_id: ScopeId,
         name: Ustr,
-        num_args: usize,
+        args: Vec<Option<(Ustr, Location)>>,
         kind: MemberKind,
     ) -> Result<PolyMemberId, ()> {
         profile::profile!("program::define_polymorphic_member");
         let id = self
             .poly_members
             .write()
-            .push(PolyMember::new(loc, name, num_args, kind));
+            .push(PolyMember::new(loc, name, args, kind));
 
         self.bind_member_to_name(errors, scope_id, name, loc, PolyOrMember::Poly(id), true)?;
         Ok(id)
     }
 
     pub fn get_num_poly_args(&self, id: PolyMemberId) -> usize {
-        self.poly_members.read()[id].num_args
+        self.poly_members.read()[id].args.len()
     }
 
     pub fn monomorphise_poly_member<'a>(
@@ -713,7 +717,7 @@ impl Program {
         let mut poly_members = self.poly_members.write();
 
         debug_assert_eq!(
-            poly_members[id].num_args,
+            poly_members[id].args.len(),
             poly_args.len(),
             "There has to be the same number of polymorphic arguments passed as ones that exist."
         );
@@ -1249,7 +1253,7 @@ struct PolyMember {
     kind: MemberKind,
     loc: Location,
     yield_data: Option<Arc<crate::typer::YieldData>>,
-    num_args: usize,
+    args: Arc<Vec<Option<(Ustr, Location)>>>,
 
     // These do not contain the actual types(because monomorphisation has to happen), however, they
     // do express the ability to calculate these things. Basically, if you monomorphise this
@@ -1267,7 +1271,7 @@ impl PolyMember {
     fn new(
         loc: Location,
         name: Ustr,
-        num_args: usize,
+        args: Vec<Option<(Ustr, Location)>>,
         kind: MemberKind,
     ) -> Self {
         Self {
@@ -1275,7 +1279,7 @@ impl PolyMember {
 
             loc,
             name,
-            num_args,
+            args: Arc::new(args),
             yield_data: None,
 
             type_: DependableOption::None(default()),

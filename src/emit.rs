@@ -950,7 +950,7 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, mut node: NodeView<'a>) -> (Value, T
 
             (Value::Immediate(size.to_le_bytes()), to_layout)
         }
-        NodeKind::PolymorphicArgument(_) | NodeKind::AnonymousMember { .. } => {
+        NodeKind::PolymorphicArgumentNew(_) | NodeKind::AnonymousMember { .. } => {
             let &AdditionalInfoKind::Constant(constant) = &ctx.additional_info[&(ctx.variant_id, node.id)] else { panic!() };
             let inner_type = TypeId::Node(ctx.variant_id, node.id);
             let layout = ctx.get_typed_layout(inner_type);

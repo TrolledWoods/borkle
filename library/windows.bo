@@ -29,13 +29,13 @@ extern "VirtualAlloc";
 
 const VirtualFree = fn #target .Native, #call .C: (address: &u8, size: usize, free_type: u32) -> i32 extern "VirtualFree";
 
-const MEM_COMMIT   = 0x00001000 : u32;
-const MEM_DECOMMIT = 0x00004000 : u32;
+const MEM_COMMIT  : u32 = 0x00001000;
+const MEM_DECOMMIT: u32 = 0x00004000;
 
-const PAGE_READWRITE = 0x04 : u32;
+const PAGE_READWRITE: u32 = 0x04;
 
-const GENERIC_READ  = 0x80000000 : u32;
-const GENERIC_WRITE = 0x40000000 : u32;
+const GENERIC_READ : u32 = 0x80000000;
+const GENERIC_WRITE: u32 = 0x40000000;
 
 const CreateConsoleScreenBuffer = fn #target .Native, #call .C: (
     desired_access: u32,
@@ -67,19 +67,19 @@ extern "GetAsyncKeyState";
 
 const Sleep = fn #target .Native, #call .C: (millis: u32) -> ()  extern "Sleep";
 
-const CS_VREDRAW = 0x0001 : u16;
-const CS_HREDRAW = 0x0002 : u16;
-const CS_OWNDC   = 0x0020 : u16;
+const CS_VREDRAW: u16 = 0x0001;
+const CS_HREDRAW: u16 = 0x0002;
+const CS_OWNDC  : u16 = 0x0020;
 
-const WM_ACTIVATEAPP = 0x001C : u32;
-const WM_CLOSE        = 0x0010 : u32;
-const WM_DESTROY      = 0x0002 : u32;
-const WM_SIZE         = 0x0005 : u32;
+const WM_ACTIVATEAPP: u32 = 0x001C;
+const WM_CLOSE      : u32 = 0x0010;
+const WM_DESTROY    : u32 = 0x0002;
+const WM_SIZE       : u32 = 0x0005;
 
-const WS_OVERLAPPED_WINDOW = 0x00C00000 | 0x00080000 | 0x00040000 | 0x00020000 | 0x00010000 : i32;
-const WS_VISIBLE = 0x10000000 : i32;
+const WS_OVERLAPPED_WINDOW: i32 = 0x00C00000 | 0x00080000 | 0x00040000 | 0x00020000 | 0x00010000;
+const WS_VISIBLE: i32 = 0x10000000;
 
-const CW_USEDEFAULT = -1 : i32;
+const CW_USEDEFAULT: i32 = -1;
 
 type HWND = HANDLE;
 type HANDLE = &u8;

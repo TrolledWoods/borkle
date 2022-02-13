@@ -226,7 +226,7 @@ fn type_declaration(global: &mut DataContext<'_>) -> Result<(), ()> {
             loc,
             global.scope,
             name,
-            poly_args.len(),
+            poly_args.iter().map(|v| extract_name(&locals, tree.get(v.node_id))).collect(),
             MemberKind::Type { is_aliased: is_aliased.is_some() },
         )?;
         global.program.queue_task(
@@ -308,7 +308,7 @@ fn constant(global: &mut DataContext<'_>) -> Result<(), ()> {
                 token.loc,
                 global.scope,
                 name,
-                poly_args.len(),
+                poly_args.iter().map(|v| extract_name(&locals, tree.get(v.node_id))).collect(),
                 MemberKind::Const,
             )?;
             global.program.queue_task(
@@ -1387,6 +1387,7 @@ fn function_declaration(
 #[derive(Debug, Clone)]
 pub struct PolyArgumentInfo {
     pub is_const: Option<Location>,
+    pub node_id: NodeId,
     pub loc: Location,
 }
 
@@ -1418,10 +1419,11 @@ fn parse_polymorphic_arguments(
             ])?;
 
             let loc = global.tokens.loc();
-            expression(global, imperative, slot.add())?;
+            let expr = expression(global, imperative, slot.add())?;
             args.push(PolyArgumentInfo {
                 is_const,
                 loc,
+                node_id: expr.id,
             });
 
             let token = global.tokens.expect_next(global.errors)?;
@@ -1675,6 +1677,22 @@ fn parse_basic_tags(global: &mut DataContext<'_>, expr_name: &str, tags: &mut [(
     }
 
     Ok(())
+}
+
+pub fn extract_name(locals: &LocalVariables, node: NodeView<'_>) -> Option<(Ustr, Location)> {
+    match node.kind {
+        NodeKind::DeclPolyArgument(id) => {
+            Some((locals.get_poly(id).name, node.loc))
+        }
+        NodeKind::Local { local_id, .. } => {
+            Some((locals.get(local_id).name, node.loc))
+        }
+        NodeKind::TypeBound => {
+            let [value, _] = node.children.into_array();
+            extract_name(locals, value)
+        }
+        _ => None,
+    }
 }
 
 fn offset_path(path: &Path, addition: &str) -> PathBuf {

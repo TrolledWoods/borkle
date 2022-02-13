@@ -1,8 +1,6 @@
 import "tests/main.bo";
 
-run_tests();
-
-// const add2.(T, A: T, B: T): T = A + B;
+create_exe("target/tests.exe", run_tests);
 
 
 // IR emission improvements
