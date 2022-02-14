@@ -472,20 +472,15 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, mut node: NodeView<'a>) -> (Value, T
             }
         }
         NodeKind::StringLiteral(data) => {
-            let u8_type = Type::new_int(IntTypeKind::U8);
-            // @Speed: There should be a global or something for common types, so we don't have
-            // to define them inline like this (slow)
-            let type_ = Type::new_with_args(TypeKind::Buffer, Box::new([u8_type]));
-            let ptr = ctx.program.insert_buffer(
-                &type_,
-                &crate::types::BufferRepr {
-                    ptr: data.as_ptr() as *mut _,
-                    length: data.len(),
-                } as *const _ as *const _,
+            let ptr = ctx.program.insert_raw_buffer(
+                data.len(),
+                1,
+                data.as_bytes().as_ptr() as *const _ as *const _,
             );
 
-            let (to, to_layout) = ctx.create_reg_and_typed_layout(TypeId::Node(ctx.variant_id, node.id));
-            ctx.emit_global(to, ptr, to_layout.layout);
+            let (to, to_layout) = ctx.create_reg_and_typed_layout(node_type_id);
+            ctx.emit_ref_to_global(get_member(to, 0), ptr, data.len());
+            ctx.emit_move_imm(get_member(to, 8), data.len().to_le_bytes(), Layout::USIZE);
             (Value::Stack(to), to_layout)
         }
         NodeKind::CStringLiteral(data) => {

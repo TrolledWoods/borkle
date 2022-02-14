@@ -10,7 +10,6 @@ create_exe_native("target/output.exe", fn #target .Native: () {
 
     MessageBox(#0, c"Hello!", c"This is a title!", 0);
 
-
 });
 
 // IR emission improvements
