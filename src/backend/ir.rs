@@ -12,12 +12,12 @@ pub struct Emitter {
 impl Emitter {
     pub fn emit_routine(
         &mut self, 
-        _program: &Program,
+        program: &Program,
         function_id: FunctionId,
         routine: &Routine,
     ) {
         if let Routine::UserDefined(routine) = routine {
-            print_instr_list(&mut self.text, function_id, routine);
+            print_instr_list(&mut self.text, program, function_id, routine);
         }
     }
 }
@@ -42,20 +42,27 @@ pub fn emit(program: &Program, file_path: &Path) {
     }
 }
 
-fn print_instr_list(out: &mut String, function_id: FunctionId, routine: &UserDefinedRoutine) {
+fn print_instr_list(out: &mut String, program: &Program, function_id: FunctionId, routine: &UserDefinedRoutine) {
     writeln!(out, "\nfn {}: ({})", routine.name, usize::from(function_id)).unwrap();
     for instr in &routine.instr {
-        print_instr(&mut *out, instr);
+        print_instr(&mut *out, program, instr);
     }
 }
 
-pub fn print_instr(mut out: impl Write, instr: &Instr) {
+pub fn print_instr(mut out: impl Write, program: &Program, instr: &Instr) {
     match instr {
         Instr::DebugLocation(loc) => {
             writeln!(out, "# {}, {}", loc.line, loc.file).unwrap();
         },
         Instr::CallImm { to, function_id, args, loc: _ } => {
-            write!(out, "\tcall {}, function_{}, (", to.0, usize::from(*function_id)).unwrap();
+            let routine = program.get_routine(*function_id).unwrap();
+            let name = match &*routine {
+                Routine::UserDefined(routine) => routine.name,
+                Routine::Extern(name) => *name,
+                Routine::Builtin(thing) => format!("{:?}", thing).into(),
+            };
+
+            write!(out, "\tcall {}, {} ({}), (", to.0, name, usize::from(*function_id)).unwrap();
 
             for (i, &(arg, _)) in args.iter().enumerate() {
                 if i > 0 { write!(out, ", ").unwrap(); }

@@ -324,6 +324,13 @@ impl Program {
         members[id].name
     }
 
+    pub fn poly_or_member_name(&self, id: PolyOrMember) -> Ustr {
+        match id {
+            PolyOrMember::Poly(id) => self.poly_member_name(id),
+            PolyOrMember::Member(id) => self.member_name(id),
+        }
+    }
+
     /// Locks
     /// * ``members`` read
     pub fn get_value_of_member(&self, id: MemberId) -> ConstantRef {
@@ -743,6 +750,7 @@ impl Program {
         });
 
         let yield_data = poly_members[id].yield_data.as_ref().unwrap().clone();
+        let name = poly_members[id].name;
         drop(poly_members);
 
         // Is the thing we want already computed?
@@ -791,7 +799,7 @@ impl Program {
         assert_ne!(wanted_dep, MemberDep::Value, "Depending on just the value shouldn't really happen in this place, because either you go full on callable or you depend on the type. If you need to depend on the value it monomorphises it by depending on the type and then calculates the type on the value individually.");
 
         // @HACK: Here we assume that stack frame id number 0 is the parent one.
-        let (_, routine) = crate::emit::emit(thread_context, self, &mut locals, &mut types, &typed_ast, &additional_info, typed_ast.root_id(), AstVariantId::root(), true);
+        let (_, routine) = crate::emit::emit(thread_context, self, &mut locals, &mut types, &typed_ast, &additional_info, typed_ast.root_id(), AstVariantId::root(), true, name);
         let mut stack = crate::interp::Stack::new(2048);
 
         let mut call_stack = Vec::new();
@@ -1430,6 +1438,7 @@ impl Builtin {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum BuiltinFunction {
     CreateExe,
+    CreateBir,
 
     StdoutWrite,
     StdoutFlush,
@@ -1483,6 +1492,7 @@ pub enum Task {
         Type,
         FunctionId,
         AstVariantId,
+        Ustr,
     ),
 }
 
@@ -1499,7 +1509,7 @@ impl fmt::Debug for Task {
             Task::EmitMember(id, ..) => write!(f, "emit_member({:?})", id),
             Task::EvaluateMember(id, _) => write!(f, "evaluate_member({:?})", id),
             Task::FlagMemberCallable(id) => write!(f, "flag_member_callable({:?})", id),
-            Task::EmitFunction(_, _, _, _, _, _, id, _) => write!(f, "emit_function({:?})", id),
+            Task::EmitFunction(_, _, _, _, _, _, id, _, _) => write!(f, "emit_function({:?})", id),
         }
     }
 }

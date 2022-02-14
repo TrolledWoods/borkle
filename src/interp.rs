@@ -6,6 +6,7 @@ use crate::program::{BuiltinFunction, Program, FunctionId};
 use crate::types::BufferRepr;
 use crate::type_infer::{TypeSystem, ValueId as TypeId, AstVariantId};
 use crate::typer::AdditionalInfo;
+use ustr::Ustr;
 
 mod stack;
 
@@ -23,6 +24,7 @@ pub fn emit_and_run<'a>(
     node: crate::ast::NodeId,
     variant_id: AstVariantId,
     call_stack: &mut Vec<Location>,
+    name: Ustr,
 ) -> Result<ConstantRef, (String, Box<[Location]>)> {
     // FIXME: This does not take into account calling dependencies
     let (_, routine) = crate::emit::emit(
@@ -35,6 +37,7 @@ pub fn emit_and_run<'a>(
         node,
         variant_id,
         true,
+        name,
     );
     let mut stack = Stack::new(DEFAULT_STACK_SIZE);
     let result = interp(program, &mut stack, &routine, call_stack)?;
@@ -192,6 +195,14 @@ fn interp_function_call(
     match &*calling {
         Routine::Extern(_) => {
             return Err(("Cannot call extern functions at compile time right now".to_string(), std::mem::take(call_stack).into_boxed_slice()));
+        }
+        Routine::Builtin(BuiltinFunction::CreateBir) => unsafe {
+            let path = stack.get(args[0].0).read::<BufferRepr>();
+
+            let slice = std::slice::from_raw_parts(path.ptr, path.length);
+            let path = String::from_utf8_lossy(slice);
+
+            crate::backend::emit_bir(program, path.as_ref().as_ref());
         }
         Routine::Builtin(BuiltinFunction::CreateExe) => unsafe {
             let path = stack.get(args[0].0).read::<BufferRepr>();

@@ -69,6 +69,7 @@ pub struct YieldData {
     infer: TypeSystem,
     poly_params: Vec<PolyParam>,
     needs_explaining: Vec<(NodeId, type_infer::ValueId)>,
+    name: Ustr,
 }
 
 impl YieldData {
@@ -89,6 +90,7 @@ struct Statics<'a, 'b> {
     infer: &'a mut TypeSystem,
     needs_explaining: &'a mut Vec<(NodeId, type_infer::ValueId)>,
     additional_info: &'a mut AdditionalInfo,
+    name: Ustr,
 }
 
 /// Things that each ast variant has. 
@@ -167,9 +169,10 @@ pub fn process_ast<'a>(
     locals: LocalVariables,
     ast: Ast,
     member_kind: MemberKind,
+    name: Ustr,
 ) -> Result<(Result<(DependencyList, LocalVariables, TypeSystem, Ast, TypeId, AdditionalInfo), (DependencyList, YieldData)>, MemberMetaData), ()> {
     profile::profile!("typer::process_ast");
-    let (mut yield_data, meta_data) = begin(errors, thread_context, program, locals, ast, Vec::new(), member_kind);
+    let (mut yield_data, meta_data) = begin(errors, thread_context, program, locals, ast, Vec::new(), member_kind, name);
     solve(errors, thread_context, program, &mut yield_data);
     finish(errors, yield_data).map(|v| (v, meta_data))
 }
@@ -182,6 +185,7 @@ pub fn begin<'a>(
     ast: Ast,
     poly_params: Vec<PolyArgumentInfo>,
     member_kind: MemberKind,
+    name: Ustr,
 ) -> (YieldData, MemberMetaData) {
     let mut infer = TypeSystem::new(ast.structure.len());
 
@@ -211,6 +215,7 @@ pub fn begin<'a>(
         infer: &mut infer,
         needs_explaining: &mut needs_explaining,
         additional_info: &mut additional_info,
+        name,
     };
 
     let mut ast_variant_ctx = AstVariantContext::default();
@@ -308,6 +313,7 @@ pub fn begin<'a>(
             poly_params,
             needs_explaining,
             additional_info,
+            name,
         },
         meta_data,
     )
@@ -327,6 +333,7 @@ pub fn solve<'a>(
         infer: &mut data.infer,
         needs_explaining: &mut data.needs_explaining,
         additional_info: &mut data.additional_info,
+        name: data.name,
     };
 
     loop {
@@ -421,6 +428,7 @@ fn subset_was_completed(statics: &mut Statics<'_, '_>, ast: &mut Ast, waiting_on
                 computation,
                 ast_variant_id,
                 &mut vec![len_loc],
+                statics.name,
             ) {
                 Ok(constant_ref) => {
                     let computation_node = ast.get(computation);
@@ -501,6 +509,7 @@ fn subset_was_completed(statics: &mut Statics<'_, '_>, ast: &mut Ast, waiting_on
                 condition,
                 ast_variant_id,
                 &mut vec![loc],
+                statics.name,
             ) {
                 Ok(constant_ref) => {
                     unsafe { *constant_ref.as_ptr().cast::<u8>() > 0 }
@@ -597,6 +606,7 @@ fn subset_was_completed(statics: &mut Statics<'_, '_>, ast: &mut Ast, waiting_on
                 computation,
                 ast_variant_id,
                 &mut vec![len_loc],
+                statics.name,
             ) {
                 Ok(constant_ref) => {
                     let computation_node = ast.get(computation);
@@ -652,6 +662,7 @@ fn subset_was_completed(statics: &mut Statics<'_, '_>, ast: &mut Ast, waiting_on
                                 type_,
                                 function_id,
                                 ast_variant_id,
+                                statics.name,
                             ),
                         );
                     }
@@ -668,6 +679,7 @@ fn subset_was_completed(statics: &mut Statics<'_, '_>, ast: &mut Ast, waiting_on
                             node_loc,
                             function_id,
                             true,
+                            statics.name,
                         );
                     }
                 }

@@ -803,6 +803,7 @@ fn value_without_unaries(
 
             let builtin_kind = match name.as_str() {
                 "create_exe" => BuiltinFunction::CreateExe,
+                "create_bir" => BuiltinFunction::CreateBir,
                 "assert" => BuiltinFunction::Assert,
                 "mem_copy" => BuiltinFunction::MemCopy,
                 "mem_copy_nonoverlapping" => BuiltinFunction::MemCopyNonOverlapping,

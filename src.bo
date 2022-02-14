@@ -1,9 +1,23 @@
-#no_base:
-
 library "vec.bo";
 import "tests/main.bo";
 
 create_exe("target/tests.exe", run_tests);
+
+library "iter.bo";
+
+const a_func = fn() {
+    let chainer = chain.(.Item = u32, ..);
+
+    print("Are we even running?\n");
+
+    fold(
+        chainer(iter_arr([5, 2, 3]), range(0, 3 : u32)),
+        {},
+        fn(_, value) print("The value is %\n", value),
+    );
+};
+
+a_func();
 
 // IR emission improvements
 //

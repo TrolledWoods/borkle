@@ -1119,7 +1119,7 @@ impl TypeSystem {
     }
 
     fn value_to_compiler_type_inner(&self, value_id: ValueId, rec: u32) -> types::Type {
-        debug_assert!(rec < 20);
+        debug_assert!(rec < 60);
 
         let Some(Type { kind: type_kind, args: Some(type_args) }) = &self.get(value_id).kind else {
             panic!("Cannot call value_to_compiler_type on incomplete value")
@@ -1508,11 +1508,7 @@ impl TypeSystem {
             },
         };
 
-        if let Some(kind) = kind {
-            format!("{:p}({})", kind, inner)
-        } else {
-            format!("?({})", inner)
-        }
+        inner
     }
 
     fn constraint_to_string(&self, constraint: &Constraint) -> String {

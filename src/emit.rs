@@ -11,6 +11,7 @@ use crate::thread_pool::ThreadContext;
 use crate::type_infer::{ValueId as TypeId, TypeSystem, Reason, Args, AstVariantId, self, Layout};
 use crate::typer::{AdditionalInfo, AdditionalInfoKind, FunctionArgUsage};
 use crate::types::{Type, TypeKind, IntTypeKind, FunctionArgs};
+use ustr::Ustr;
 
 /// Emit instructions for an Ast.
 pub fn emit<'a>(
@@ -23,6 +24,7 @@ pub fn emit<'a>(
     node: NodeId,
     variant_id: AstVariantId,
     emit_inner_function_declarations: bool,
+    name: Ustr,
 ) -> (Vec<FunctionId>, UserDefinedRoutine) {
     let mut ctx = Context {
         thread_context,
@@ -37,6 +39,7 @@ pub fn emit<'a>(
         variant_id,
         additional_info,
         emit_inner_function_declarations,
+        name,
 
         defers: Vec::new(),
     };
@@ -101,6 +104,7 @@ pub fn emit_function_declaration<'a>(
     loc: Location,
     function_id: FunctionId,
     emit_inner_function_declarations: bool,
+    name: Ustr,
 ) {
     // If it's already there, don't emit it.
     if program.get_routine(function_id).is_some() {
@@ -121,6 +125,7 @@ pub fn emit_function_declaration<'a>(
         last_location: None,
         additional_info,
         emit_inner_function_declarations,
+        name,
     };
 
     let function_type = ctx.types.get(TypeId::Node(ctx.variant_id, node_id));
@@ -130,7 +135,7 @@ pub fn emit_function_declaration<'a>(
 
     // Pretend there are actual values on the stack
     // @Speed:
-    let args: Vec<_> = args.args.to_vec().iter().map(|&v| {
+    let mut args: Vec<_> = args.args.to_vec().iter().map(|&v| {
         ctx.create_reg_and_typed_layout(v)
     }).collect();
 
@@ -139,6 +144,9 @@ pub fn emit_function_declaration<'a>(
     for (&(passed_as, _), child) in args.iter().zip(&mut children) {
         emit_declarative_lvalue(&mut ctx, child, &Value::Stack(passed_as), true);
     }
+
+    // Only retain the arguments that are not zero sized.
+    args.retain(|(_, layout)| layout.size > 0);
 
     // Now that we've read all the arguments of the function, only the return type,
     // and the body are left. We don't need the return type, as that is only for the typer,
@@ -151,7 +159,7 @@ pub fn emit_function_declaration<'a>(
 
     let routine = Routine::UserDefined(UserDefinedRoutine {
         loc,
-        name: "temp".into(),
+        name,
         label_locations: ctx.label_locations,
         instr: ctx.instr,
         stack: ctx.registers,
@@ -881,9 +889,12 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, mut node: NodeView<'a>) -> (Value, T
             let (calling, calling_layout) = emit_node(ctx, calling_node.clone());
             let calling_type = ctx.types.get(TypeId::Node(ctx.variant_id, calling_node.id));
             // @Performance
-            let output_args = FunctionArgs::get(calling_type.args()).args.to_vec().into_iter().map(|v| {
-                ctx.create_reg_and_typed_layout(v)
-            }).collect::<Vec<_>>();
+            let mut output_args = FunctionArgs::get(calling_type.args())
+                .args
+                .to_vec()
+                .into_iter()
+                .map(|v| ctx.create_reg_and_typed_layout(v))
+                .collect::<Vec<_>>();
 
             if let Some(AdditionalInfoKind::FunctionCall(args)) = ctx.additional_info.get(&(ctx.variant_id, node.id)) {
                 debug_assert_eq!(args.len(), children.len());
@@ -920,6 +931,9 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, mut node: NodeView<'a>) -> (Value, T
                     ctx.flush_value_to(to, &given, given_layout);
                 }
             }
+
+            // Only retain the arguments that are not zero sized.
+            output_args.retain(|(_, layout)| layout.size > 0);
 
             match calling {
                 Value::Constant { constant, offset } => {
@@ -1002,6 +1016,7 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, mut node: NodeView<'a>) -> (Value, T
                     node.loc,
                     id,
                     true,
+                    ctx.name,
                 );
 
 
@@ -1290,6 +1305,7 @@ pub struct Context<'a, 'b> {
     pub variant_id: AstVariantId,
     pub additional_info: &'a AdditionalInfo,
     pub emit_inner_function_declarations: bool,
+    pub name: Ustr,
 
     pub defers: Vec<NodeView<'a>>,
 }
@@ -1520,6 +1536,7 @@ impl Context<'_, '_> {
         }
     }
 
+    // TODO: Should this return an option that is none if it's a zst? That way we can't forget to handle that case...
     fn create_reg_and_typed_layout(&mut self, type_id: TypeId) -> (StackValue, TypedLayout) {
         let number_type = self.to_number_type(type_id);
 

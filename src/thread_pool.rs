@@ -107,7 +107,7 @@ fn worker<'a>(alloc: &'a mut Bump, program: &'a Program) -> (ThreadContext<'a>, 
                 Task::TypePolyMember { member_id, ast, member_kind, locals, mut dependencies, poly_args } => {
                     profile::profile!("Task::TypePolyMember");
 
-                    let (mut yield_data, meta_data) = crate::typer::begin(&mut errors, &mut thread_context, program, locals, ast, poly_args, member_kind);
+                    let (mut yield_data, meta_data) = crate::typer::begin(&mut errors, &mut thread_context, program, locals, ast, poly_args, member_kind, program.poly_member_name(member_id));
                     crate::typer::solve(&mut errors, &mut thread_context, program, &mut yield_data);
 
                     program.set_yield_data_of_poly_member(member_id, yield_data);
@@ -148,6 +148,7 @@ fn worker<'a>(alloc: &'a mut Bump, program: &'a Program) -> (ThreadContext<'a>, 
                             locals,
                             ast,
                             member_kind,
+                            program.member_name(member_id),
                         ) {
                             Ok((Ok((dependencies, locals, types, ast, root_type_id, additional_info)), meta_data)) => {
                                 let type_ = types.value_to_compiler_type(root_type_id);
@@ -207,6 +208,7 @@ fn worker<'a>(alloc: &'a mut Bump, program: &'a Program) -> (ThreadContext<'a>, 
                             ast.root_id(),
                             AstVariantId::root(),
                             false,
+                            program.member_name(member_id),
                         );
 
                         let mut dependencies = DependencyList::new();
@@ -267,7 +269,7 @@ fn worker<'a>(alloc: &'a mut Bump, program: &'a Program) -> (ThreadContext<'a>, 
                         }
                     }
                 }
-                Task::EmitFunction(mut locals, mut types, additional_info, ast, node_id, _, function_id, ast_variant_id) => {
+                Task::EmitFunction(mut locals, mut types, additional_info, ast, node_id, _, function_id, ast_variant_id, name) => {
                     program
                         .logger
                         .log(format_args!("emitting function '{:?}'", function_id));
@@ -286,6 +288,7 @@ fn worker<'a>(alloc: &'a mut Bump, program: &'a Program) -> (ThreadContext<'a>, 
                         loc,
                         function_id,
                         false,
+                        name,
                     );
                 }
             }
