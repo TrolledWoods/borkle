@@ -693,21 +693,21 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, mut node: NodeView<'a>) -> (Value, T
             (Value::Tuple(nodes), to_layout)
         }
         NodeKind::ArrayLiteral => {
-            // TODO: We want a `Value` that is just an array, to allow destructuring to be very fast later on.
+            let to_layout = ctx.get_typed_layout(node_type_id);
+            let mut child_layout = None;
 
-            let (to, to_layout) = ctx.create_reg_and_typed_layout(node_type_id);
-
-            let mut offset = 0;
+            let mut nodes = Vec::new();
             for child in node.children.into_iter() {
-                let child_layout = *ctx.types.get(TypeId::Node(ctx.variant_id, child.id)).layout.unwrap();
                 let (child_value, child_value_layout) = emit_node(ctx, child);
-                let child_value = ctx.flush_value(&child_value, child_value_layout);
-
-                ctx.emit_move(get_member(to, offset), child_value, child_layout);
-                offset += child_layout.size;
+                child_layout = Some(child_value_layout);
+                nodes.push(child_value);
             }
 
-            (Value::Stack(to), to_layout)
+            if let Some(child_layout) = child_layout {
+                (Value::Array(nodes, child_layout), to_layout)
+            } else {
+                (Value::Uninit, to_layout)
+            }
         }
         NodeKind::Reference => {
             let [operand] = node.children.as_array();
@@ -1105,20 +1105,31 @@ fn emit_declarative_lvalue<'a>(
             }
         }
         NodeKind::ArrayLiteral => {
-            let node_layout = ctx.get_typed_layout(node_type_id);
-            let from = ctx.flush_value(&from, node_layout);
+            match *from {
+                Value::Array(ref values, _) => {
+                    for (child, value) in node.children.into_iter().zip(values) {
+                        emit_declarative_lvalue(ctx, child, value, is_declaring);
+                    }
+                }
+                _ => {
+                    // TODO: We want to be able to get fields off of value, which can be done somewhat efficiently with
+                    // stack values, references(probably), e.t.c.
+                    let node_layout = ctx.get_typed_layout(node_type_id);
+                    let from = ctx.flush_value(&from, node_layout);
 
-            let mut temp = Vec::with_capacity(node.children.len());
-            let mut offset = 0;
-            for child in node.children.into_iter() {
-                let (to, child_layout) = ctx.create_reg_and_layout(TypeId::Node(ctx.variant_id, child.id));
-                ctx.emit_move(to, get_member(from, offset), child_layout);
-                offset += child_layout.size;
-                temp.push(to);
-            }
+                    let mut temp = Vec::with_capacity(node.children.len());
+                    let mut offset = 0;
+                    for child in node.children.into_iter() {
+                        let (to, child_layout) = ctx.create_reg_and_layout(TypeId::Node(ctx.variant_id, child.id));
+                        ctx.emit_move(to, get_member(from, offset), child_layout);
+                        offset += child_layout.size;
+                        temp.push(to);
+                    }
 
-            for (child, to) in node.children.into_iter().zip(temp) {
-                emit_declarative_lvalue(ctx, child, &Value::Stack(to), is_declaring);
+                    for (child, to) in node.children.into_iter().zip(temp) {
+                        emit_declarative_lvalue(ctx, child, &Value::Stack(to), is_declaring);
+                    }
+                }
             }
         }
         NodeKind::Unary {
@@ -1290,6 +1301,7 @@ enum Value {
         offset: usize,
     },
     Tuple(Vec<(Value, TypedLayout)>),
+    Array(Vec<Value>, TypedLayout),
 }
 
 impl Value {
@@ -1395,6 +1407,11 @@ impl Context<'_, '_> {
                 // Ultimately, I'd like to get rid of allocations in Value to begin with.
                 fields[member_number].0.clone()
             }
+            Value::Array(ref fields, _) => {
+                // @Speed: This is slow because of the clone, I don't know if we can fix this.
+                // Ultimately, I'd like to get rid of allocations in Value to begin with.
+                fields[member_number].clone()
+            }
             Value::PointerInStack { stack_value, offset } => {
                 Value::PointerInStack { stack_value, offset: offset + member_offset }
             }
@@ -1464,6 +1481,20 @@ impl Context<'_, '_> {
                 self.emit_dereference_with_offset(from, stack_value, offset, layout.layout);
                 self.emit_indirect_move(to_ptr, from, layout.layout);
             }
+            (_, &Value::Array(ref fields, field_layout)) => {
+                // TODO: Later, we want a "flush value offset", that lets you flush to an offset of something.
+                let temp = self.create_reg_with_layout(Layout::PTR);
+                let to_value = self.lvalue_as_value(to);
+                self.flush_value_to(temp, &to_value, TypedLayout::PTR);
+                let mut tuple_layout = StructLayout::new(0);
+                let mut prev_offset = 0;
+                for field in fields {
+                    let new_offset = tuple_layout.next(field_layout.layout);
+                    self.emit_binary_imm_u64(BinaryOp::Add, temp, temp, (new_offset - prev_offset) as u64);
+                    prev_offset = new_offset;
+                    self.flush_value_to_indirect(temp, field, field_layout);
+                }
+            }
             (_, &Value::Tuple(ref fields)) => {
                 // TODO: Later, we want a "flush value offset", that lets you flush to an offset of something.
                 let temp = self.create_reg_with_layout(Layout::PTR);
@@ -1518,6 +1549,13 @@ impl Context<'_, '_> {
                     self.emit_move(temp, stack_value, Layout::PTR);
                     self.emit_binary_imm_u64(BinaryOp::Add, temp, temp, offset as u64);
                     self.emit_dereference(to, temp, layout.layout);
+                }
+            }
+            Value::Array(ref fields, field_layout) => {
+                let mut tuple_layout = StructLayout::new(0);
+                for field in fields {
+                    let new_offset = tuple_layout.next(field_layout.layout);
+                    self.flush_value_to(StackValue(to.0 + new_offset), field, field_layout);
                 }
             }
             Value::Tuple(ref fields) => {
