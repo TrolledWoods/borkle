@@ -9,7 +9,7 @@ use crate::program::{FunctionId, Program, constant::ConstantRef};
 use crate::thread_pool::ThreadContext;
 use crate::type_infer::{ValueId as TypeId, TypeSystem, Reason, Args, AstVariantId, self, Layout};
 use crate::typer::{AdditionalInfo, AdditionalInfoKind, FunctionArgUsage};
-use crate::types::{Type, TypeKind, IntTypeKind, FunctionArgs};
+use crate::types::{TypeKind, FunctionArgs};
 use ustr::Ustr;
 
 /// Emit instructions for an Ast.
@@ -482,6 +482,11 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, mut node: NodeView<'a>) -> (Value, T
             ctx.emit_ref_to_global(get_member(to, 0), ptr, data.len());
             ctx.emit_move_imm(get_member(to, 8), data.len().to_le_bytes(), Layout::USIZE);
             (Value::Stack(to), to_layout)
+        }
+        NodeKind::ArrayStringLiteral(data) => {
+            let to_layout = ctx.get_typed_layout(node_type_id);
+            let elements = data.iter().map(|v| Value::Immediate([*v, 0, 0, 0, 0, 0, 0, 0])).collect();
+            (Value::Array(elements, TypedLayout::U8), to_layout) 
         }
         NodeKind::CStringLiteral(data) => {
             let ptr = ctx.program.insert_raw_buffer(

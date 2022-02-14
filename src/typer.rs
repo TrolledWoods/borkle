@@ -968,6 +968,21 @@ fn build_constraints(
             let u8_type = statics.infer.add_int(IntTypeKind::U8);
             statics.infer.set_type(node_type_id, TypeKind::Buffer, Args([(u8_type, Reason::temp(node_loc))]));
         }
+        NodeKind::ArrayStringLiteral(ref array) => {
+            let type_ = types::Type::new_int(IntTypeKind::Usize);
+            let length = statics.program.insert_buffer(
+                &type_,
+                array.len().to_le_bytes().as_ptr(),
+            );
+
+            let length_value = statics.infer.add_type(TypeKind::ConstantValue(length), Args([]));
+            let int = statics.infer.add_int(IntTypeKind::Usize);
+            let length = statics.infer.add_type(TypeKind::Constant, Args([(int, Reason::temp(node_loc)), (length_value, Reason::temp(node_loc))]));
+
+            let u8_type = statics.infer.add_int(IntTypeKind::U8);
+            statics.infer.set_type(node_type_id, TypeKind::Array, Args([(u8_type, Reason::temp(node_loc)), (length, Reason::temp(node_loc))]));
+            
+        }
         NodeKind::CStringLiteral(_) => {
             let builtin_id = statics.program
                 .get_member_id_from_builtin(Builtin::CString)

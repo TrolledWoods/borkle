@@ -12,7 +12,7 @@ const create_exe = #builtin_function create_exe : fn #target .Compiler: ([] u8, 
 const create_exe_native = #builtin_function create_exe : fn #target .Compiler: ([] u8, fn #target .Native: ());
 const create_bir = #builtin_function create_bir : fn #target .Compiler: ([] u8, fn());
 
-const cstring_as_string = fn(cstring: CString) -> [] u8 {
+const fix_c = fn(cstring: CString) -> [] u8 {
     let ptr = unpack cstring;
     let length = 0;
     while *ptr > 0 {
@@ -26,11 +26,24 @@ const cstring_as_string = fn(cstring: CString) -> [] u8 {
     out
 };
 
+const ruin_c = fn(string: [] u8) -> CString {
+    assert(string.len > 0);
+    assert_eq(*(string.ptr + (string.len - 1)), 0);
+    pack string.ptr
+};
+
 const true = 1 > (0 : u8);
 const false = 1 < (0 : u8);
 
 const min.(T) = fn(a: T, b: T) -> T  if a < b  a else b;
 const max.(T) = fn(a: T, b: T) -> T  if a > b  a else b;
+
+const buf_with_single.(T) = fn(single: &T) -> [] T {
+    let buf = #uninit;
+    buf.ptr = single;
+    buf.len = 1;
+    buf
+};
 
 const assert_eq.(T) = fn(a: T, b: T) {
     if a != b {
@@ -550,7 +563,10 @@ type PadAlign = enum u8 {
     Right  = 2;
 };
 
-const FMT_FLAGS_RAW = 1 : u8;
+type FormatFlags = enum u8 {
+    Raw = 1;
+    Char = 2;
+};
 
 type Format.(T) = {
     value: T;
@@ -558,7 +574,7 @@ type Format.(T) = {
     pad_char: u8;
     pad_align: PadAlign;
     base: u8;
-    flags: u8;
+    flags: FormatFlags;
 };
 
 const write_i64 = fn(to: Writer.(u8), num: i64, base: u64) -> usize { 'func
@@ -576,8 +592,6 @@ const write_i64 = fn(to: Writer.(u8), num: i64, base: u64) -> usize { 'func
 const write_escaped_string = fn(to: Writer.(u8), string: [] u8) -> usize {
     let written = 0;
 
-    written = written + write_single(to, DOUBLE_QUOTE);
-
     for string {
         if v == DOUBLE_QUOTE {
             written = written + write_buf(to, "\\\"");
@@ -594,8 +608,6 @@ const write_escaped_string = fn(to: Writer.(u8), string: [] u8) -> usize {
             written = written + write_single(to, v);
         };
     };
-
-    written = written + write_single(to, DOUBLE_QUOTE);
 
     written
 };
@@ -635,7 +647,20 @@ const write_fmt_no_padding.(T) = fn(to: Writer.(u8), fmt_val: Format.(T)) -> usi
         fmt_val.value
     };
 
-    if #const: typeof value is u8 || typeof value is u16 || typeof value is u32 || typeof value is u64 || typeof value is usize {
+    if #const: typeof value is u8 {
+        if fmt_val.flags & .Char {
+            if fmt_val.flags & .Raw {
+                write_single(to, value)
+            } else {
+                write_single(to, a"'"._0)
+                + write_escaped_string(to, buf_with_single(&value))
+                + write_single(to, a"'"._0)
+            }
+        } else {
+            let base = if fmt_val.base == 0 { 10 } else { fmt_val.base };
+            write_u64(to, cast value, cast base)
+        }
+    } else if #const: typeof value is u16 || typeof value is u32 || typeof value is u64 || typeof value is usize {
         let base = if fmt_val.base == 0 { 10 } else { fmt_val.base };
         write_u64(to, cast value, cast base)
     } else if #const: typeof value is i8 || typeof value is i16 || typeof value is i32 || typeof value is i64 || typeof value is isize {
@@ -652,18 +677,22 @@ const write_fmt_no_padding.(T) = fn(to: Writer.(u8), fmt_val: Format.(T)) -> usi
             + write_buf(to, ")")
         }
     } else if #const: typeof value is CString {
-        let value = cstring_as_string(value);
+        let value = fix_c(value);
 
-        if (fmt_val.flags & FMT_FLAGS_RAW) > 0 {
+        if fmt_val.flags & .Raw {
             write_buf(to, value)
         } else {
-            write_escaped_string(to, value)
+            write_single(to, a"\""._0)
+            + write_escaped_string(to, value)
+            + write_single(to, a"\""._0)
         }
     } else if #const: typeof value is [] u8 {
-        if (fmt_val.flags & FMT_FLAGS_RAW) > 0 {
+        if fmt_val.flags & .Raw {
             write_buf(to, value)
         } else {
-            write_escaped_string(to, value)
+            write_single(to, a"\""._0)
+            + write_escaped_string(to, value)
+            + write_single(to, a"\""._0)
         }
     } else {
         assert(false);
@@ -713,7 +742,13 @@ const fmt.(T) = fn(val: T) -> Format {
 
 const raw_text.(T) = fn(value: T) -> Format {
     let format = fmt(value);
-    format.flags = format.flags | FMT_FLAGS_RAW;
+    format.flags = format.flags | .Raw;
+    format
+};
+
+const fmt_char = fn(value: u8) -> Format.(u8) {
+    let format = fmt(value);
+    format.flags = format.flags | .Char;
     format
 };
 

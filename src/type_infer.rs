@@ -495,6 +495,7 @@ impl Layout {
     pub const ZST: Self = Self { size: 0, align: 1 };
     pub const PTR: Self = Self { size: 8, align: 8 };
     pub const U64: Self = Self { size: 8, align: 8 };
+    pub const U8: Self = Self { size: 1, align: 1 };
     pub const USIZE: Self = Self { size: 8, align: 8 };
 
     pub const BOOL: Self = Self { size: 1, align: 1 };

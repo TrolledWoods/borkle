@@ -2,14 +2,21 @@ library "windows.bo";
 
 create_exe_native("target/output.exe", fn #target .Native: () {
 
-
-    let normal_string = cstring_as_string(c"This is a c string!\n");
+    let normal_string = fix_c(c"This is a c string!\n");
     put_string(normal_string);
 
-    print("The c string is '%'\n", raw_text(c"message"));
+    print("The c string is %\n", c"message");
 
-    MessageBox(#0, c"Hello!", c"This is a title!", 0);
+    let number = 42 : u32;
+    let dynamic_title = sprint("This is a dynamic title, with the number %!\0", number);
+    defer dealloc(dynamic_title);
 
+    // ruin_c asserts that the string you pass ends in a null terminator.
+    MessageBox(#0, pack &a"Hello!\0"._0, ruin_c(dynamic_title), 0);
+
+    for a"abc" {
+        print("% is %\n", i, fmt_char(v));
+    };
 });
 
 // IR emission improvements
