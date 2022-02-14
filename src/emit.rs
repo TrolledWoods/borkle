@@ -499,6 +499,9 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, mut node: NodeView<'a>) -> (Value, T
             ctx.emit_ref_to_global(to, ptr, data.len());
             (Value::Stack(to), to_layout)
         }
+        NodeKind::CharLiteral(num) => {
+            (Value::Immediate((*num as u64).to_le_bytes()), TypedLayout::U8)
+        }
         NodeKind::IntLiteral(num) => {
             let to_layout = ctx.get_typed_layout(TypeId::Node(ctx.variant_id, node.id));
             (Value::Immediate((*num as u64).to_le_bytes()), to_layout)

@@ -255,10 +255,6 @@ const count_ones.(T) = fn(number: T) -> usize {
     num_bits
 };
 
-const NEGATIVE_SIGN = *"-".ptr : u8;
-const LETTER_A = *"A".ptr : u8;
-const DIGIT0 = *"0".ptr : u8;
-
 const cmp_strings = fn(a: [] u8, b: [] u8) -> bool { 'function
     if a.len != b.len  break 'function false;
 
@@ -328,7 +324,7 @@ const take_u64_with_base = fn(string: &[] u8, base: u64) -> u64 {
     while string.len > 0 {
         let c = *string.ptr;
         if !is_digit(c)  break;
-        number = number * base + cast (c - DIGIT0) : u64;
+        number = number * base + cast (c - s"0") : u64;
         advance(string);
     };
     number
@@ -339,7 +335,7 @@ const take_u64 = fn(string: &[] u8) -> u64 {
     while string.len > 0 {
         let c = *string.ptr;
         if !is_digit(c)  break;
-        number = number * 10 + cast (c - DIGIT0) : u64;
+        number = number * 10 + cast (c - s"0") : u64;
         advance(string);
     };
     number
@@ -394,29 +390,17 @@ const take_rev_whitespace = fn(string: &[] u8) {
     };
 };
 
-const SPACE = *" ".ptr;
-const DOUBLE_QUOTE = *"\"".ptr;
-const NEW_LINE = *"\n".ptr;
-const TAB = *"\t".ptr;
-const CARRIAGE_RETURN = *"\r".ptr;
-const LOWER_A = *"a".ptr;
-const LOWER_Z = *"z".ptr;
-const UPPER_A = *"A".ptr;
-const UPPER_Z = *"Z".ptr;
-
 const is_alpha = fn(c: u8) -> bool {
-    (c >= LOWER_A && c <= LOWER_Z) || (c >= UPPER_A && c <= UPPER_Z)
+    (c >= s"a" && c <= s"z") || (c >= s"A" && c <= s"Z")
 };
 
 const is_whitespace = fn(c: u8) -> bool {
-    c == SPACE || c == NEW_LINE || c == TAB || c == CARRIAGE_RETURN
+    c == s" " || c == s"\n" || c == s"\t" || c == s"\r"
 };
 
 const is_digit = fn(c: u8) -> bool {
-    c >= DIGIT0 && c < DIGIT0 + 10
+    c >= s"0" && c < s"0" + 10
 };
-
-const PERCENT = *"%".ptr;
 
 type Writer.(T) = any.(State) {
     state: &State;
@@ -580,7 +564,7 @@ type Format.(T) = {
 const write_i64 = fn(to: Writer.(u8), num: i64, base: u64) -> usize { 'func
     let written = 0;
     if num < 0 {
-        written = written + write_single(to, NEGATIVE_SIGN);
+        written = written + write_single(to, s"-");
         written = written + write_u64(to, cast -num, base);
     } else {
         written = written + write_u64(to, cast num, base);
@@ -593,13 +577,13 @@ const write_escaped_string = fn(to: Writer.(u8), string: [] u8) -> usize {
     let written = 0;
 
     for string {
-        if v == DOUBLE_QUOTE {
+        if v == s"\"" {
             written = written + write_buf(to, "\\\"");
-        } else if v == CARRIAGE_RETURN {
+        } else if v == s"\r" {
             written = written + write_buf(to, "\\r");
-        } else if v == TAB {
+        } else if v == s"\t" {
             written = written + write_buf(to, "\\t");
-        } else if v == NEW_LINE {
+        } else if v == s"\n" {
             written = written + write_buf(to, "\\n");
         } else if v < 31 {
             written = written + write_buf(to, "\\x");
@@ -618,7 +602,7 @@ const print_u64 = fn(num: u64, base: u64) -> usize {
 
 const write_u64 = fn(to: Writer.(u8), num: u64, base: u64) -> usize { 'func
     if num == 0 {
-        break 'func write_single(to, DIGIT0);
+        break 'func write_single(to, s"0");
     };
 
     let factor = 1;
@@ -631,9 +615,9 @@ const write_u64 = fn(to: Writer.(u8), num: u64, base: u64) -> usize { 'func
         num = num - digit * factor;
 
         if digit >= 10 {
-            written = written + write_single(to, LETTER_A + (cast digit : u8 - 10));
+            written = written + write_single(to, s"a" + (cast digit : u8 - 10));
         } else {
-            written = written + write_single(to, DIGIT0 + (cast digit : u8));
+            written = written + write_single(to, s"0" + (cast digit : u8));
         };
     };
 
@@ -712,7 +696,7 @@ const write_fmt.(T) = fn(to: Writer.(u8), val: Format.(T)) -> usize {
                 (val.pad - count) / 2
             };
             while i < padding {
-                written = written + write_single(to, if val.pad_char == 0  SPACE else val.pad_char);
+                written = written + write_single(to, if val.pad_char == 0  s" " else val.pad_char);
             };
         };
     };
@@ -721,7 +705,7 @@ const write_fmt.(T) = fn(to: Writer.(u8), val: Format.(T)) -> usize {
 
     if val.pad != 0 && val.pad > written {
         let remaining = val.pad - written;
-        let pad_char = if val.pad_char == 0  SPACE else val.pad_char;
+        let pad_char = if val.pad_char == 0  s" " else val.pad_char;
         while i < remaining {
             written = written + write_single(to, pad_char);
         };
@@ -772,7 +756,7 @@ const base.(T) = fn(value: T, base: u8) -> Format {
 };
 
 const write.(Args) = fn(writer: Writer.(u8), format_str: [] u8, #var_args: args: Args) -> usize {
-    let splits = split(format_str, fn(v) v == PERCENT);
+    let splits = split(format_str, fn(v) v == s"%");
 
     let written = 0;
     let sub_str = "hi";

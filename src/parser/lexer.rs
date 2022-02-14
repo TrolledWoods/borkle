@@ -22,6 +22,7 @@ pub enum TokenKind {
     Keyword(Keyword),
     Identifier(Ustr),
     IntLiteral(i128),
+    CharLiteral(u8),
     StringLiteral(String),
     CStringLiteral(Vec<u8>),
     ArrayStringLiteral(Vec<u8>),
@@ -147,6 +148,22 @@ pub fn process_string(errors: &mut ErrorCtx, file: Ustr, string: &str) -> Result
             'a' if string[index+1..].chars().next() == Some('"') => {
                 chars.next();
                 TokenKind::ArrayStringLiteral(string_literal(errors, &mut chars)?.into_bytes())
+            },
+            's' if string[index+1..].chars().next() == Some('"') => {
+                chars.next();
+                // TODO: This is not very fast...
+                let string = string_literal(errors, &mut chars)?;
+                if string.len() != 1 {
+                    errors.error(loc, "Char literals have to contain exactly one character".to_string());
+                    return Err(());
+                }
+
+                if string.as_bytes()[0] >= 128 {
+                    errors.error(loc, "Char literals can only contain ascii characters for now".to_string());
+                    return Err(());
+                }
+
+                TokenKind::CharLiteral(string.as_bytes()[0])
             },
 
             'a'..='z' | 'A'..='Z' | '_' => {

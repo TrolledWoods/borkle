@@ -952,6 +952,9 @@ fn build_constraints(
         NodeKind::FloatLiteral(_) => {
             statics.infer.set_type(node_type_id, TypeKind::Float, ());
         }
+        NodeKind::CharLiteral(_) => {
+            statics.infer.set_int(node_type_id, IntTypeKind::U8);
+        }
         NodeKind::IntLiteral(_) => {
             statics.infer.set_type(node_type_id, TypeKind::Int, ());
         }

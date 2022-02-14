@@ -16,7 +16,7 @@ const aoc_day4 = fn() -> { part_1: u64; part_2: u64; } {
     let max_number = 0;
     while !empty(&parse) {
         let number = cast take_u64(&parse);
-        if take_char(&parse) == NEW_LINE  break;
+        if take_char(&parse) == s"\n"  break;
         if number > max_number  max_number = number;
     };
 
@@ -27,7 +27,7 @@ const aoc_day4 = fn() -> { part_1: u64; part_2: u64; } {
     take_whitespace(&parse);
     while !empty(&parse) {
         let number = cast take_u64(&parse);
-        if take_char(&parse) == NEW_LINE  break;
+        if take_char(&parse) == s"\n"  break;
         *(number_map.ptr + number) = cast i;
     };
 

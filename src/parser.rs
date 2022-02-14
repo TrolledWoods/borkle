@@ -797,6 +797,7 @@ fn value_without_unaries(
             }
         }
         TokenKind::IntLiteral(literal) => slot.finish(Node::new(token.loc, NodeKind::IntLiteral(literal))),
+        TokenKind::CharLiteral(literal) => slot.finish(Node::new(token.loc, NodeKind::CharLiteral(literal))),
         TokenKind::FloatLiteral(literal) => slot.finish(Node::new(token.loc, NodeKind::FloatLiteral(literal))),
         TokenKind::StringLiteral(literal) => slot.finish(Node::new(token.loc, NodeKind::StringLiteral(literal))),
         TokenKind::ArrayStringLiteral(literal) => {
@@ -1764,6 +1765,7 @@ impl Node {
 
 #[derive(Debug, Clone)]
 pub enum NodeKind {
+    CharLiteral(u8),
     IntLiteral(i128),
     FloatLiteral(f64),
     StringLiteral(String),
