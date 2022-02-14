@@ -454,6 +454,58 @@ impl Program {
 
     /// Locks
     /// * ``constant_data`` write
+    pub fn insert_raw_buffer_from_operation(
+        &self,
+        size: usize,
+        align: usize,
+        get_data: impl FnOnce(*mut u8),
+    ) -> ConstantRef {
+        profile::profile!("program::insert_raw_buffer_from_operation");
+        if size == 0 {
+            return ConstantRef::dangling();
+        }
+
+        let layout = alloc::Layout::from_size_align(size, align).unwrap();
+
+        let owned_data = unsafe { alloc::alloc(layout) };
+        get_data(owned_data);
+
+        let mut constant_data = self.constant_data.lock();
+        let slice_version = unsafe { std::slice::from_raw_parts(owned_data, size) };
+        for pre_computed_constant in constant_data.iter() {
+            if pre_computed_constant.type_.is_none()
+                && pre_computed_constant.as_slice() == slice_version
+            {
+                unsafe {
+                    alloc::dealloc(owned_data, layout);
+                }
+                return pre_computed_constant.as_ref();
+            }
+        }
+
+        let constant = Constant {
+            ptr: NonNull::new(owned_data).unwrap(),
+            type_: None,
+            size,
+            align,
+        };
+
+        let const_ref = constant.as_ref();
+        constant_data.push(constant);
+
+        const_ref
+    }
+
+    /// # Locks
+    /// * ``constant_data`` write
+    pub fn insert_raw_buffer(&self, size: usize, align: usize, data: *const u8) -> ConstantRef {
+        self.insert_raw_buffer_from_operation(size, align, |buf| unsafe {
+            std::ptr::copy(data, buf, size)
+        })
+    }
+
+    /// Locks
+    /// * ``constant_data`` write
     pub fn insert_buffer_from_operation(
         &self,
         type_: &Type,
@@ -474,7 +526,7 @@ impl Program {
         let mut constant_data = self.constant_data.lock();
         let slice_version = unsafe { std::slice::from_raw_parts(owned_data, type_.size()) };
         for pre_computed_constant in constant_data.iter() {
-            if pre_computed_constant.type_ == *type_
+            if pre_computed_constant.type_.as_ref() == Some(type_)
                 && pre_computed_constant.as_slice() == slice_version
             {
                 unsafe {
@@ -486,7 +538,9 @@ impl Program {
 
         let constant = Constant {
             ptr: NonNull::new(owned_data).unwrap(),
-            type_: type_.clone(),
+            type_: Some(type_.clone()),
+            size: type_.size(),
+            align: type_.align(),
         };
 
         let const_ref = constant.as_ref();
@@ -1422,6 +1476,7 @@ impl<T> DependableOption<T> {
 pub enum Builtin {
     CallingConvention,
     Target,
+    CString,
     Count,
 }
 
@@ -1430,6 +1485,7 @@ impl Builtin {
         match name {
             "CallingConvention" => Some(Self::CallingConvention),
             "Target" => Some(Self::Target),
+            "CString" => Some(Self::CString),
             _ => None,
         }
     }

@@ -23,6 +23,8 @@ pub enum TokenKind {
     Identifier(Ustr),
     IntLiteral(i128),
     StringLiteral(String),
+    CStringLiteral(Vec<u8>),
+    ArrayStringLiteral(Vec<u8>),
     FloatLiteral(f64),
     /// An operator token can consist of several operators, it's just the rawest form
     /// of connected operator characters.
@@ -134,6 +136,18 @@ pub fn process_string(errors: &mut ErrorCtx, file: Ustr, string: &str) -> Result
                     _ => TokenKind::Tag(tag_name.into()),
                 }
             }
+
+            'c' if string[index+1..].chars().next() == Some('"') => {
+                chars.next();
+                let mut literal = string_literal(errors, &mut chars)?.into_bytes();
+                // Push the terminating character.
+                literal.push(0);
+                TokenKind::CStringLiteral(literal)
+            },
+            'a' if string[index+1..].chars().next() == Some('"') => {
+                chars.next();
+                TokenKind::ArrayStringLiteral(string_literal(errors, &mut chars)?.into_bytes())
+            },
 
             'a'..='z' | 'A'..='Z' | '_' => {
                 let identifier = slice_while(

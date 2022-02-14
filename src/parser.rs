@@ -799,6 +799,17 @@ fn value_without_unaries(
         TokenKind::IntLiteral(literal) => slot.finish(Node::new(token.loc, NodeKind::IntLiteral(literal))),
         TokenKind::FloatLiteral(literal) => slot.finish(Node::new(token.loc, NodeKind::FloatLiteral(literal))),
         TokenKind::StringLiteral(literal) => slot.finish(Node::new(token.loc, NodeKind::StringLiteral(literal))),
+        TokenKind::CStringLiteral(literal) => {
+            imperative.dependencies.add(
+                loc,
+                DepKind::MemberByBuiltin(
+                    Builtin::CString,
+                    MemberDep::Type,
+                ),
+            );
+
+            slot.finish(Node::new(token.loc, NodeKind::CStringLiteral(literal)))
+        }
         TokenKind::Keyword(Keyword::BuiltinFunction) => {
             let (name_loc, name) = global.tokens.expect_identifier(global.errors)?;
 
@@ -1753,6 +1764,7 @@ pub enum NodeKind {
     IntLiteral(i128),
     FloatLiteral(f64),
     StringLiteral(String),
+    CStringLiteral(Vec<u8>),
     ArrayLiteral,
     BuiltinFunction(BuiltinFunction),
 

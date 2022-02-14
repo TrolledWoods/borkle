@@ -488,6 +488,17 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, mut node: NodeView<'a>) -> (Value, T
             ctx.emit_global(to, ptr, to_layout.layout);
             (Value::Stack(to), to_layout)
         }
+        NodeKind::CStringLiteral(data) => {
+            let ptr = ctx.program.insert_raw_buffer(
+                data.len(),
+                1,
+                data.as_ptr() as *const _ as *const _,
+            );
+
+            let (to, to_layout) = ctx.create_reg_and_typed_layout(TypeId::Node(ctx.variant_id, node.id));
+            ctx.emit_ref_to_global(to, ptr, data.len());
+            (Value::Stack(to), to_layout)
+        }
         NodeKind::IntLiteral(num) => {
             let to_layout = ctx.get_typed_layout(TypeId::Node(ctx.variant_id, node.id));
             (Value::Immediate((*num as u64).to_le_bytes()), to_layout)
@@ -1242,7 +1253,7 @@ fn emit_lvalue<'a>(
         NodeKind::ResolvedGlobal(id, _) => {
             let to = ctx.create_reg(ref_type_id);
             let (from_ref, from_type) = ctx.program.get_member_value(*id);
-            ctx.emit_ref_to_global(to, from_ref, &from_type);
+            ctx.emit_ref_to_global(to, from_ref, from_type.size());
             LValue::Pointer { pointer: to, offset: 0 }
         }
         NodeKind::Parenthesis => {
@@ -1635,9 +1646,8 @@ impl Context<'_, '_> {
         }
     }
 
-    fn emit_ref_to_global(&mut self, to_ptr: StackValue, global: ConstantRef, type_: &crate::types::Type) {
-        if type_.size() != 0 {
-            println!("{}", crate::program::constant_to_str(type_, global, 0));
+    fn emit_ref_to_global(&mut self, to_ptr: StackValue, global: ConstantRef, size: usize) {
+        if size != 0 {
             self.instr.push(Instr::RefGlobal { to_ptr, global });
         }
     }

@@ -5,12 +5,14 @@ use std::ptr::NonNull;
 
 pub struct Constant {
     pub ptr: NonNull<u8>,
-    pub type_: Type,
+    pub type_: Option<Type>,
+    pub size: usize,
+    pub align: usize,
 }
 
 impl Drop for Constant {
     fn drop(&mut self) {
-        let layout = alloc::Layout::from_size_align(self.type_.size(), self.type_.align()).unwrap();
+        let layout = alloc::Layout::from_size_align(self.size, self.align).unwrap();
         unsafe { alloc::dealloc(self.ptr.as_ptr(), layout) };
     }
 }
@@ -30,7 +32,7 @@ impl Constant {
     }
 
     pub fn as_slice(&self) -> &'_ [u8] {
-        unsafe { std::slice::from_raw_parts(self.as_ptr(), self.type_.size()) }
+        unsafe { std::slice::from_raw_parts(self.as_ptr(), self.size) }
     }
 }
 

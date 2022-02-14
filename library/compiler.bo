@@ -11,3 +11,5 @@ type #builtin: Target = enum u32 {
 
     All      = cast (-1 : i32);
 };
+
+type #builtin: CString = &u8;

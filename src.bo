@@ -1,6 +1,17 @@
-import "tests/main.bo";
+library "windows.bo";
 
-create_exe("target/tests.exe", run_tests);
+create_exe_native("target/output.exe", fn #target .Native: () {
+
+
+    let normal_string = cstring_as_string(c"This is a c string!\n");
+    put_string(normal_string);
+
+    print("The c string is '%'\n", raw_text(c"message"));
+
+    MessageBox(#0, c"Hello!", c"This is a title!", 0);
+
+
+});
 
 // IR emission improvements
 //

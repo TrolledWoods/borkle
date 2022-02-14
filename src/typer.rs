@@ -968,6 +968,12 @@ fn build_constraints(
             let u8_type = statics.infer.add_int(IntTypeKind::U8);
             statics.infer.set_type(node_type_id, TypeKind::Buffer, Args([(u8_type, Reason::temp(node_loc))]));
         }
+        NodeKind::CStringLiteral(_) => {
+            let builtin_id = statics.program
+                .get_member_id_from_builtin(Builtin::CString)
+                .expect("Parser should make sure we have access to the cstr type");
+            build_global(statics, ast_variant_ctx, ctx, node.id, node.node, node.loc, builtin_id, None, set, true);
+        }
         NodeKind::BuiltinFunction(function) => {
             let function_type_id = statics.infer.add_unknown_type();
             let sub_set = statics.infer.value_sets.add(WaitingOnTypeInferrence::BuiltinFunctionInTyping {

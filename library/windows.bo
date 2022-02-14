@@ -1,10 +1,12 @@
 #no_base:
 
+library "compiler.bo";
+
 const QueryPerformanceFrequency = fn #target .Native, #call .C: (frequency: &u64) -> i32  extern "QueryPerformanceFrequency";
 const QueryPerformanceCounter   = fn #target .Native, #call .C: (frequency: &u64) -> i32  extern "QueryPerformanceCounter";
 
-const MessageBox = fn #target .Native, #call .C: (hwnd: &u8, message: &u8, title: &u8, u_type: u32) -> i32  extern "MessageBoxA";
-const OutputDebugString = fn #target .Native, #call .C: (message: &u8) -> ()  extern "OutputDebugStringA";
+const MessageBox = fn #target .Native, #call .C: (hwnd: HWND, message: CString, title: CString, u_type: u32) -> i32  extern "MessageBoxA";
+const OutputDebugString = fn #target .Native, #call .C: (message: CString) -> ()  extern "OutputDebugStringA";
 const WriteConsole = fn #target .Native, #call .C: (console_handle: &u8, buffer: &u8, num_chars: u32, written: &u32, _: &u8) -> i32  extern "WriteConsoleA";
 const GetStdHandle = fn #target .Native, #call .C: (handle: u32) -> &u8  extern "GetStdHandle";
 const GetLastError = fn #target .Native, #call .C: () -> u32  extern "GetLastError";
@@ -87,7 +89,7 @@ type #alias: HWND = HANDLE;
 type HANDLE = &u8;
 type HICON  = &u8;
 type HBRUSH = HANDLE;
-type LPCSTR = &u8;
+type #alias: LPCSTR = CString;
 type HCURSOR = HICON;
 type LONG_PTR = usize;
 type UINT_PTR = usize;

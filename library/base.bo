@@ -2,6 +2,7 @@
 
 library "windows.bo";
 library "builtins.bo";
+library "compiler.bo";
 
 library "iter.bo";
 library "vec.bo";
@@ -10,6 +11,20 @@ library "vec.bo";
 const create_exe = #builtin_function create_exe : fn #target .Compiler: ([] u8, fn());
 const create_exe_native = #builtin_function create_exe : fn #target .Compiler: ([] u8, fn #target .Native: ());
 const create_bir = #builtin_function create_bir : fn #target .Compiler: ([] u8, fn());
+
+const cstring_as_string = fn(cstring: CString) -> [] u8 {
+    let ptr = unpack cstring;
+    let length = 0;
+    while *ptr > 0 {
+        ptr = ptr + 1;
+        length = length + 1;
+    };
+
+    let out = #uninit;
+    out.ptr = unpack cstring;
+    out.len = length;
+    out
+};
 
 const true = 1 > (0 : u8);
 const false = 1 < (0 : u8);
@@ -635,6 +650,14 @@ const write_fmt_no_padding.(T) = fn(to: Writer.(u8), fmt_val: Format.(T)) -> usi
             write_buf(to, "bool(")
             + write_u64(to, cast (bit_cast value : u8), 10)
             + write_buf(to, ")")
+        }
+    } else if #const: typeof value is CString {
+        let value = cstring_as_string(value);
+
+        if (fmt_val.flags & FMT_FLAGS_RAW) > 0 {
+            write_buf(to, value)
+        } else {
+            write_escaped_string(to, value)
         }
     } else if #const: typeof value is [] u8 {
         if (fmt_val.flags & FMT_FLAGS_RAW) > 0 {
