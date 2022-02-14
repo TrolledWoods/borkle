@@ -71,17 +71,19 @@ const CS_VREDRAW: u16 = 0x0001;
 const CS_HREDRAW: u16 = 0x0002;
 const CS_OWNDC  : u16 = 0x0020;
 
-const WM_ACTIVATEAPP: u32 = 0x001C;
-const WM_CLOSE      : u32 = 0x0010;
-const WM_DESTROY    : u32 = 0x0002;
-const WM_SIZE       : u32 = 0x0005;
+type WindowMessage = enum u32 {
+    ActivateApp = 0x001C;
+    Close       = 0x0010;
+    Destroy     = 0x0002;
+    Size        = 0x0005;
+};
 
 const WS_OVERLAPPED_WINDOW: i32 = 0x00C00000 | 0x00080000 | 0x00040000 | 0x00020000 | 0x00010000;
 const WS_VISIBLE: i32 = 0x10000000;
 
 const CW_USEDEFAULT: i32 = -1;
 
-type HWND = HANDLE;
+type #alias: HWND = HANDLE;
 type HANDLE = &u8;
 type HICON  = &u8;
 type HBRUSH = HANDLE;
@@ -93,7 +95,7 @@ type LRESULT = LONG_PTR;
 type WPARAM = UINT_PTR;
 type LPARAM = LONG_PTR;
 type ATOM = u16;
-type HINSTANCE = HANDLE;
+type #alias: HINSTANCE = HANDLE;
 type HMENU = HANDLE;
 type LPVOID = &u8;
 
@@ -112,8 +114,8 @@ type WNDCLASS = {
 
 const RegisterClass = fn #target .Native, #call .C: (class: &WNDCLASS) -> ATOM  extern "RegisterClassA";
 
-type WNDPROC = fn #target .Native, #call .C: (HWND, u32, WPARAM, LPARAM) -> LRESULT;
-const DefWindowProc = fn #target .Native, #call .C: (hwnd: HWND, message: u32, w_param: WPARAM, l_param: LPARAM) -> LRESULT  extern "DefWindowProcA";
+type #alias: WNDPROC = fn #target .Native, #call .C: (HWND, WindowMessage, WPARAM, LPARAM) -> LRESULT;
+const DefWindowProc = fn #target .Native, #call .C: (hwnd: HWND, message: WindowMessage, w_param: WPARAM, l_param: LPARAM) -> LRESULT  extern "DefWindowProcA";
 
 const GetModuleHandle = fn #target .Native, #call .C: (handle: LPCSTR) -> HANDLE extern "GetModuleHandleA";
 

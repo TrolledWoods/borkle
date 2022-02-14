@@ -43,6 +43,12 @@ impl<'a> DataContext<'a> {
     }
 }
 
+pub struct MappedLocal {
+    pub name: Ustr,
+    pub id: LocalScopeId,
+    pub enabled: bool,
+}
+
 pub struct ImperativeContext<'a> {
     pub locals: &'a mut LocalVariables,
     pub dependencies: &'a mut DependencyList,
@@ -53,10 +59,11 @@ pub struct ImperativeContext<'a> {
     pub in_const_expression: bool,
     pub in_declarative_lvalue: bool,
     pub in_template_declaration: bool,
+    // TODO: We should be able to get rid of this.
     pub poly_args: &'a [(Location, Ustr)],
     default_labels: Vec<LabelId>,
     scope_boundaries: Vec<ScopeBoundary>,
-    local_map: Vec<(Ustr, LocalScopeId)>,
+    local_map: Vec<MappedLocal>,
 }
 
 impl<'a> ImperativeContext<'a> {
@@ -79,6 +86,16 @@ impl<'a> ImperativeContext<'a> {
             default_labels: Vec::new(),
             scope_boundaries: Vec::new(),
             local_map: Vec::new(),
+        }
+    }
+
+    pub fn get_local_count(&self) -> usize {
+        self.local_map.len()
+    }
+
+    pub fn whitelist_locals(&mut self, until: usize) {
+        for local in &mut self.local_map[until..] {
+            local.enabled = true;
         }
     }
 
@@ -105,7 +122,11 @@ impl<'a> ImperativeContext<'a> {
         let id = self.locals.insert_label(label);
         self.default_labels.push(id);
         if let Some(name) = name {
-            self.local_map.push((name, LocalScopeId::Label(id)));
+            self.local_map.push(MappedLocal {
+                name,
+                id: LocalScopeId::Label(id),
+                enabled: true,
+            });
         }
         id
     }
@@ -120,21 +141,33 @@ impl<'a> ImperativeContext<'a> {
 
     pub fn insert_label(&mut self, name: Ustr, label: Label) -> LabelId {
         let id = self.locals.insert_label(label);
-        self.local_map.push((name, LocalScopeId::Label(id)));
+        self.local_map.push(MappedLocal {
+            name,
+            id: LocalScopeId::Label(id),
+            enabled: true,
+        });
         id
     }
 
     pub fn insert_local(&mut self, local: Local) -> LocalId {
         let name = local.name;
         let id = self.locals.insert(local);
-        self.local_map.push((name, LocalScopeId::Local(id)));
+        self.local_map.push(MappedLocal {
+            name,
+            id: LocalScopeId::Local(id),
+            enabled: false,
+        });
         id
     }
 
     pub fn insert_poly(&mut self, local: Polymorphic) -> PolymorphicId {
         let name = local.name;
         let id = self.locals.insert_poly(local);
-        self.local_map.push((name, LocalScopeId::Polymorphic(id)));
+        self.local_map.push(MappedLocal {
+            name,
+            id: LocalScopeId::Polymorphic(id),
+            enabled: true,
+        });
         id
     }
 
@@ -142,7 +175,8 @@ impl<'a> ImperativeContext<'a> {
         self.local_map
             .iter()
             .rev()
-            .find_map(|&(local_name, id)| if local_name == name { Some(id) } else { None })
+            .filter(|v| v.enabled)
+            .find_map(|mapped_local| if mapped_local.name == name { Some(mapped_local.id) } else { None })
     }
 }
 

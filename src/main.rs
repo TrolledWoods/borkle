@@ -43,8 +43,6 @@ fn main() {
             return;
         }
 
-        let frontend_timer = std::time::Instant::now();
-
         let mut program = program::Program::new(logger, options.clone());
         program.add_file(&options.file, false);
         
@@ -56,21 +54,11 @@ fn main() {
 
         let errors = thread_pool::run(&mut program, options.num_threads);
 
-        let frontend_time = frontend_timer.elapsed();
-
         let files = program.file_contents();
         if !errors.print(files) {
             // There were errors!
             return;
         }
-
-        let backend_timer = std::time::Instant::now();
-
-        if options.output_ir {
-            backend::emit_bir(&program, &options.ir_path);
-        }
-
-        let backend_time = backend_timer.elapsed();
 
         let elapsed = time.elapsed();
 
@@ -81,8 +69,6 @@ fn main() {
         println!("      .. {} libraries", lib_lines);
 
         println!("Finished in {:.6} seconds", elapsed.as_secs_f32());
-        println!("         .. {:.6} were frontend", frontend_time.as_secs_f32());
-        println!("         .. {:.6} were backend",  backend_time.as_secs_f32());
     }
 
     profile::finish("target\\profile_output.json");

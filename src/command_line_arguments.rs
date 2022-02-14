@@ -150,9 +150,6 @@ create_arguments!(
         file: PathBuf = "src.bo";
             "The file to compile",
 
-        output: PathBuf = "target/";
-            "The folder to put output files into",
-
         lib_path: PathBuf = {
             let mut path = std::env::current_exe().expect("We have to be able to locate the executable");
             path.pop(); // Pop the executable
@@ -163,27 +160,10 @@ create_arguments!(
         };
             "The folder where global libraries are stored",
 
-        c_compiler: String = "clang";
-            "The c compiler to use",
-        output_c: bool = false;
-            "If set to true, c code will be emitted",
-        compile_c: bool = true;
-            "If set to true, the emitted c code will be compiled using the given c compiler",
-
-        c_path: PathBuf = "target/output.c";
-            "If set to true, c code will be emitted",
-        exe_path: PathBuf = "target/output.exe";
-            "The path of the executable",
-
         debug_asm_output: bool = false;
             "Internal compiler debugging option, debug symbols will be generated for the assembly itself to debug it",
         no_builtins: bool = false;
             "Don't include the `library/compiler.bo` file by default. This may break fundamental features of the language",
-
-        ir_path: PathBuf = "target/output.bir";
-            "The path where the ir file should be created",
-        output_ir: bool = true;
-            "If set to true, a file containing ir will be emitted",
 
         debug: bool = true;
             "Whether or not debug information will be emitted(very basic, just prints the locations of the nodes that are run for now)",

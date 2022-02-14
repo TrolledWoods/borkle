@@ -933,6 +933,8 @@ fn value_without_unaries(
 
             let label = parse_default_label(global, imperative)?;
 
+            let locals_count = imperative.get_local_count();
+
             let iterator_local = if let Some(Token {
                 kind: TokenKind::Keyword(Keyword::In),
                 ..
@@ -945,14 +947,16 @@ fn value_without_unaries(
             } else {
                 Local::new(token.loc, "v".into())
             };
+            let iterator = imperative.insert_local(iterator_local.read_only());
+            let iteration_var = imperative.insert_local(Local::new(token.loc, "i".into()).read_only());
 
             expression(global, imperative, slot.add())?;
 
-            let iteration_var = imperative.insert_local(Local::new(token.loc, "i".into()).read_only());
+            imperative.whitelist_locals(locals_count);
+
             slot.add().finish(Node::new(loc, NodeKind::Local { local_id: iteration_var }));
 
             let mut for_inner = slot.add();
-            let iterator = imperative.insert_local(iterator_local.read_only());
             for_inner.add().finish(Node::new(loc, NodeKind::Local { local_id: iterator }));
 
             expression(global, imperative, for_inner.add())?;
@@ -983,7 +987,10 @@ fn value_without_unaries(
             imperative.push_scope_boundary();
             let label = parse_default_label(global, imperative)?;
 
+            let locals_count = imperative.get_local_count();
             let iteration_var = imperative.insert_local(Local::new(token.loc, "i".into()).read_only());
+            imperative.whitelist_locals(locals_count);
+
             slot.add().finish(Node::new(loc, NodeKind::Local { local_id: iteration_var }));
 
             expression(global, imperative, slot.add())?;
@@ -1119,6 +1126,8 @@ fn value_without_unaries(
                     break;
                 }
 
+                let local_count = imperative.get_local_count();
+
                 let peek_token = global.tokens.expect_peek(global.errors)?;
                 let loc = peek_token.loc;
                 match peek_token.kind {
@@ -1139,6 +1148,8 @@ fn value_without_unaries(
                         expression(global, imperative, slot.add())?;
                     }
                 }
+
+                imperative.whitelist_locals(local_count);
 
                 let token = global.tokens.expect_next(global.errors)?;
                 match token.kind {
@@ -1339,10 +1350,14 @@ fn function_declaration(
 
         argument_infos.push(argument_info);
 
+        let locals_count = imperative.get_local_count();
+
         let old = imperative.in_declarative_lvalue;
         imperative.in_declarative_lvalue = true;
         expression_rec(global, imperative, slot.add(), 1)?;
         imperative.in_declarative_lvalue = old;
+
+        imperative.whitelist_locals(locals_count);
 
         let token = global.tokens.expect_next(global.errors)?;
         match token.kind {
