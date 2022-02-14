@@ -3,6 +3,11 @@ import "tests/main.bo";
 {
     let (a: u32, b: u32) = (12, 24);
 
+    (a, b) = (b, a);
+
+    let (a, b) = (&a, &b);
+    (*a, *b) = (1, 2);
+
     let a = sprint("a: %, b: %", a, b);
     defer dealloc(a);
 

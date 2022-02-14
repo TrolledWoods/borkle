@@ -632,10 +632,14 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, mut node: NodeView<'a>) -> (Value, T
         NodeKind::Binary {
             op: BinaryOp::Assign,
         } => {
-            // TODO: This can also be improved once emit_declarative_lvalue takes a value
             let [to, from] = node.children.as_array();
-            let (from, _from_layout) = emit_node(ctx, from);
-            emit_declarative_lvalue(ctx, to, &from, false);
+            let (from, from_layout) = emit_node(ctx, from);
+
+            // TODO: We should have a think about common cases where this can be optimized,
+            // like if you're just assigning a tuple of immediates or something, or
+            // reassigning distinct stack values...
+            let flushed = ctx.flush_value(&from, from_layout);
+            emit_declarative_lvalue(ctx, to, &Value::Stack(flushed), false);
 
             (Value::ZST, TypedLayout::ZST)
         }
