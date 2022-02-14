@@ -1,6 +1,5 @@
 use crate::dependencies::{DepKind, DependencyList, MemberDep};
 use crate::errors::ErrorCtx;
-use crate::literal::Literal;
 use crate::locals::{Local, LocalVariables, LabelId, LocalId, LocalScopeId, Polymorphic, PolymorphicId};
 use crate::location::Location;
 use crate::operators::{BinaryOp, Operator, UnaryOp};
@@ -108,7 +107,7 @@ pub fn process_string(
             TokenKind::Keyword(Keyword::Library) => {
                 context.tokens.next();
                 let name = context.tokens.expect_next(context.errors)?;
-                if let TokenKind::Literal(Literal::String(name)) = name.kind {
+                if let TokenKind::StringLiteral(name) = name.kind {
                     context
                         .tokens
                         .expect_next_is(context.errors, &TokenKind::SemiColon)?;
@@ -128,7 +127,7 @@ pub fn process_string(
                 context.tokens.next();
 
                 let name = context.tokens.expect_next(context.errors)?;
-                if let TokenKind::Literal(Literal::String(name)) = name.kind {
+                if let TokenKind::StringLiteral(name) = name.kind {
                     context
                         .tokens
                         .expect_next_is(context.errors, &TokenKind::SemiColon)?;
@@ -797,7 +796,9 @@ fn value_without_unaries(
                 }
             }
         }
-        TokenKind::Literal(literal) => slot.finish(Node::new(token.loc, NodeKind::Literal(literal))),
+        TokenKind::IntLiteral(literal) => slot.finish(Node::new(token.loc, NodeKind::IntLiteral(literal))),
+        TokenKind::FloatLiteral(literal) => slot.finish(Node::new(token.loc, NodeKind::FloatLiteral(literal))),
+        TokenKind::StringLiteral(literal) => slot.finish(Node::new(token.loc, NodeKind::StringLiteral(literal))),
         TokenKind::Keyword(Keyword::BuiltinFunction) => {
             let (name_loc, name) = global.tokens.expect_identifier(global.errors)?;
 
@@ -1377,7 +1378,7 @@ fn function_declaration(
     }
 
     let is_extern = if global.tokens.try_consume(&TokenKind::Keyword(Keyword::Extern)) {
-        let Token { kind: TokenKind::Literal(Literal::String(message)), .. } = global.tokens.expect_next(global.errors)? else {
+        let Token { kind: TokenKind::StringLiteral(message), .. } = global.tokens.expect_next(global.errors)? else {
             global.error(loc, "Expected string literal after `extern`".to_string());
             return Err(());
         };
@@ -1749,7 +1750,9 @@ impl Node {
 
 #[derive(Debug, Clone)]
 pub enum NodeKind {
-    Literal(Literal),
+    IntLiteral(i128),
+    FloatLiteral(f64),
+    StringLiteral(String),
     ArrayLiteral,
     BuiltinFunction(BuiltinFunction),
 

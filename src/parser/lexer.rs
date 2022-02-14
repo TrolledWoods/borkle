@@ -1,6 +1,5 @@
 use super::token_stream::TokenStream;
 use crate::errors::ErrorCtx;
-use crate::literal::Literal;
 use crate::location::Location;
 use crate::types::{IntTypeKind, Type};
 use core::iter::Peekable;
@@ -22,7 +21,9 @@ pub enum TokenKind {
     Close(Bracket),
     Keyword(Keyword),
     Identifier(Ustr),
-    Literal(Literal),
+    IntLiteral(i128),
+    StringLiteral(String),
+    FloatLiteral(f64),
     /// An operator token can consist of several operators, it's just the rawest form
     /// of connected operator characters.
     Operator(Ustr),
@@ -190,7 +191,7 @@ pub fn process_string(errors: &mut ErrorCtx, file: Ustr, string: &str) -> Result
                 }
             }
             '0'..='9' => lex_number(errors, loc, &mut chars)?,
-            '"' => TokenKind::Literal(Literal::String(string_literal(errors, &mut chars)?)),
+            '"' => TokenKind::StringLiteral(string_literal(errors, &mut chars)?),
 
             c if is_operator_token(c) => {
                 // FIXME: Is this the best place to put comment checking?
@@ -327,9 +328,9 @@ fn lex_number(
                     return Err(());
                 }
 
-                Ok(TokenKind::Literal(Literal::Int(i128::from(
+                Ok(TokenKind::IntLiteral(i128::from(
                     lex_basic_number(chars, 16, &mut 0),
-                ))))
+                )))
             }
             'b' => {
                 chars.next();
@@ -341,9 +342,9 @@ fn lex_number(
                 }
 
                 #[allow(clippy::cast_possible_truncation)]
-                Ok(TokenKind::Literal(Literal::Int(i128::from(
+                Ok(TokenKind::IntLiteral(i128::from(
                     lex_basic_number(chars, first as u32, &mut 0),
-                ))))
+                )))
             }
             '.' => {
                 chars.next();
@@ -353,12 +354,12 @@ fn lex_number(
 
                 #[allow(clippy::cast_precision_loss)]
                 let float = first as f64 + (fractal_part as f64 / 10.0_f64.powi(digits));
-                Ok(TokenKind::Literal(Literal::Float(float)))
+                Ok(TokenKind::FloatLiteral(float))
             }
-            _ => Ok(TokenKind::Literal(Literal::Int(i128::from(first)))),
+            _ => Ok(TokenKind::IntLiteral(i128::from(first))),
         }
     } else {
-        Ok(TokenKind::Literal(Literal::Int(i128::from(first))))
+        Ok(TokenKind::IntLiteral(i128::from(first)))
     }
 }
 

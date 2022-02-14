@@ -1,7 +1,6 @@
 use crate::ir::{Instr, LabelId, StackAllocator, Routine, UserDefinedRoutine, StackValue, PrimitiveType, TypedLayout};
 use crate::layout::StructLayout;
 use crate::location::Location;
-use crate::literal::Literal;
 use crate::locals::LocalVariables;
 use crate::operators::{BinaryOp, UnaryOp};
 use crate::parser::{Ast, NodeKind, NodeView, tags, TagKind};
@@ -472,7 +471,7 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, mut node: NodeView<'a>) -> (Value, T
                 (Value::Stack(to), false_body_layout)
             }
         }
-        NodeKind::Literal(Literal::String(data)) => {
+        NodeKind::StringLiteral(data) => {
             let u8_type = Type::new_int(IntTypeKind::U8);
             // @Speed: There should be a global or something for common types, so we don't have
             // to define them inline like this (slow)
@@ -489,11 +488,11 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, mut node: NodeView<'a>) -> (Value, T
             ctx.emit_global(to, ptr, to_layout.layout);
             (Value::Stack(to), to_layout)
         }
-        NodeKind::Literal(Literal::Int(num)) => {
+        NodeKind::IntLiteral(num) => {
             let to_layout = ctx.get_typed_layout(TypeId::Node(ctx.variant_id, node.id));
             (Value::Immediate((*num as u64).to_le_bytes()), to_layout)
         }
-        &NodeKind::Literal(Literal::Float(num)) => {
+        &NodeKind::FloatLiteral(num) => {
             let to_layout = ctx.get_typed_layout(TypeId::Node(ctx.variant_id, node.id));
 
             let bytes = match to_layout.size {

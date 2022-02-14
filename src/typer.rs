@@ -1,7 +1,6 @@
 use crate::dependencies::{DepKind, DependencyList, MemberDep};
 use crate::ir::Routine;
 use crate::errors::ErrorCtx;
-use crate::literal::Literal;
 use crate::location::Location;
 use crate::execution_time::ExecutionTime;
 use crate::locals::{LocalVariables, LabelId};
@@ -950,10 +949,10 @@ fn build_constraints(
 
             statics.infer.set_equal(node_type_id, else_type, Reason::new(node_loc, ReasonKind::Passed));
         }
-        NodeKind::Literal(Literal::Float(_)) => {
+        NodeKind::FloatLiteral(_) => {
             statics.infer.set_type(node_type_id, TypeKind::Float, ());
         }
-        NodeKind::Literal(Literal::Int(_)) => {
+        NodeKind::IntLiteral(_) => {
             statics.infer.set_type(node_type_id, TypeKind::Int, ());
         }
         NodeKind::Defer => {
@@ -965,7 +964,7 @@ fn build_constraints(
 
             statics.infer.set_equal(node_type_id, empty_id, Reason::new(node_loc, ReasonKind::IsOfType));
         }
-        NodeKind::Literal(Literal::String(_)) => {
+        NodeKind::StringLiteral(_) => {
             let u8_type = statics.infer.add_int(IntTypeKind::U8);
             statics.infer.set_type(node_type_id, TypeKind::Buffer, Args([(u8_type, Reason::temp(node_loc))]));
         }

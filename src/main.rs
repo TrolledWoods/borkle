@@ -14,7 +14,6 @@ mod errors;
 mod id;
 mod interp;
 mod ir;
-mod literal;
 mod locals;
 mod location;
 mod logging;
