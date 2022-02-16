@@ -13,18 +13,18 @@ pub struct ScopeBoundaryId(usize);
 /// A collection of various data that is needed for parsing
 /// things in a data scope. Data scopes are scopes where constants
 /// can be defined.
-pub struct DataContext<'a> {
+pub struct DataContext<'a, 'b> {
     pub errors: &'a mut ErrorCtx,
-    pub program: &'a Program,
+    pub program: &'a Program<'b>,
     pub tokens: &'a mut TokenStream,
     pub path: &'a Path,
     pub scope: ScopeId,
 }
 
-impl<'a> DataContext<'a> {
+impl<'a, 'b> DataContext<'a, 'b> {
     pub fn new(
         errors: &'a mut ErrorCtx,
-        program: &'a Program,
+        program: &'a Program<'b>,
         tokens: &'a mut TokenStream,
         path: &'a Path,
         scope: ScopeId,

@@ -81,10 +81,10 @@ impl YieldData {
 }
 
 /// Things that are global across the whole typer, independant of value sets, and other garbage like that.
-struct Statics<'a, 'b> {
+struct Statics<'a, 'b, 'p> {
     thread_context: &'a mut ThreadContext<'b>,
     errors: &'a mut ErrorCtx,
-    program: &'b Program,
+    program: &'b Program<'p>,
     locals: &'a mut LocalVariables,
     infer: &'a mut TypeSystem,
     needs_explaining: &'a mut Vec<(NodeId, type_infer::ValueId)>,
@@ -413,7 +413,7 @@ pub fn finish<'a>(
     Ok(Ok((ast_variant_ctx.emit_deps, from.locals, from.infer, from.ast, from.root_value_id, from.additional_info)))
 }
 
-fn subset_was_completed(statics: &mut Statics<'_, '_>, ast: &mut Ast, waiting_on: WaitingOnTypeInferrence, set: ValueSetId) {
+fn subset_was_completed(statics: &mut Statics, ast: &mut Ast, waiting_on: WaitingOnTypeInferrence, set: ValueSetId) {
     match waiting_on {
         WaitingOnTypeInferrence::TargetFromConstantValue { value_id, computation, ast_variant_id } => {
             let len_loc = ast.get(computation).loc;
@@ -728,7 +728,7 @@ fn validate(types: &TypeSystem, errors: &mut ErrorCtx, target_checks: &Vec<Targe
 }
 
 fn build_constraints(
-    statics: &mut Statics<'_, '_>,
+    statics: &mut Statics,
     ast_variant_ctx: &mut AstVariantContext,
     ctx: &Context,
     node: NodeView<'_>,
@@ -1282,7 +1282,7 @@ struct Tags {
 }
 
 impl Tags {
-    fn finish(self, statics: &mut Statics<'_, '_>, set: ValueSetId) {
+    fn finish(self, statics: &mut Statics, set: ValueSetId) {
         if let Some((loc, _)) = self.calling_convention {
             statics.errors.error(loc, format!("Tag not valid for this kind of expression"));
             statics.infer.value_sets.get_mut(set).has_errors = true;
@@ -1306,7 +1306,7 @@ impl Tags {
 }
 
 fn build_tags(
-    statics: &mut Statics<'_, '_>,
+    statics: &mut Statics,
     ast_variant_ctx: &mut AstVariantContext,
     ctx: &Context,
     node: NodeView<'_>,
@@ -1404,7 +1404,7 @@ fn build_tags(
 }
 
 fn build_function_declaration(
-    statics: &mut Statics<'_, '_>,
+    statics: &mut Statics,
     ctx: &Context,
     node: NodeView<'_>,
     set: ValueSetId,
@@ -1508,7 +1508,7 @@ fn build_function_declaration(
 }
 
 fn build_unique_type(
-    statics: &mut Statics<'_, '_>,
+    statics: &mut Statics,
     ast_variant_ctx: &mut AstVariantContext,
     ctx: &Context,
     node: NodeView<'_>,
@@ -1574,7 +1574,7 @@ fn build_unique_type(
 }
 
 fn build_type(
-    statics: &mut Statics<'_, '_>,
+    statics: &mut Statics,
     ast_variant_ctx: &mut AstVariantContext,
     ctx: &Context,
     node: NodeView<'_>,
@@ -1795,7 +1795,7 @@ fn build_type(
 }
 
 fn build_template_declaration(
-    statics: &mut Statics<'_, '_>,
+    statics: &mut Statics,
     ast_variant_ctx: &mut AstVariantContext,
     ctx: &Context,
     node: NodeView<'_>,
@@ -1837,7 +1837,7 @@ fn build_template_declaration(
 }
 
 fn build_declarative_lvalue(
-    statics: &mut Statics<'_, '_>,
+    statics: &mut Statics,
     ast_variant_ctx: &mut AstVariantContext,
     ctx: &Context,
     node: NodeView<'_>,
@@ -1980,7 +1980,7 @@ fn build_declarative_lvalue(
 /// the readability/writability of the value depend on deeper values in the expression.
 /// If this strategy doesn't work however, we fallback to read-only.
 fn build_lvalue(
-    statics: &mut Statics<'_, '_>,
+    statics: &mut Statics,
     ast_variant_ctx: &mut AstVariantContext,
     ctx: &Context,
     node: NodeView<'_>,
@@ -2078,7 +2078,7 @@ struct TypeSystemConstant {
 
 // The first return is the type of the constant, the second return is the value id of that constant, where the constant will later be stored.
 fn build_inferrable_constant_value(
-    statics: &mut Statics<'_, '_>,
+    statics: &mut Statics,
     ctx: &Context,
     node: NodeView<'_>,
     set: ValueSetId,
@@ -2163,7 +2163,7 @@ fn build_inferrable_constant_value(
 }
 
 fn build_with_metadata(
-    statics: &mut Statics<'_, '_>,
+    statics: &mut Statics,
     ast_variant_ctx: &mut AstVariantContext,
     ctx: &Context,
     node: NodeView<'_>,
@@ -2199,7 +2199,7 @@ fn build_with_metadata(
 }
 
 fn build_function_call<'a>(
-    statics: &mut Statics<'_, '_>,
+    statics: &mut Statics,
     ast_variant_ctx: &mut AstVariantContext,
     ctx: &Context,
     node_id: NodeId,
@@ -2380,7 +2380,7 @@ fn build_function_call<'a>(
 }
 
 fn build_global<'a>(
-    statics: &mut Statics<'_, '_>,
+    statics: &mut Statics,
     ast_variant_ctx: &mut AstVariantContext,
     ctx: &Context,
     node_id: NodeId,

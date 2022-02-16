@@ -23,6 +23,13 @@ use syncvec::SyncVec;
 
 pub mod constant;
 
+// This is a hack aruond non-self referential types, by dividing this we know this lives
+// longer than the program, and thus the program can hold references into this.
+#[derive(Default)]
+pub struct PreProgram {
+    scopes: SyncVec<Scope>,
+}
+
 /// This is the main hub of the program that is being compiled.
 ///
 /// We deal with constants(and possibly in the future globals too),
@@ -33,16 +40,17 @@ pub mod constant;
 /// of the program(from a threading perspective, not from a correctness perspective, i.e. if you
 /// pass it garbage it doesn't expect naturally that would cause problems, like passing an invalid
 /// pointer to ``insert_buffer`` while the type isn't a zst for example)!
-pub struct Program {
+pub struct Program<'a> {
     pub arguments: Arguments,
     pub logger: Logger,
 
     pub lib_lines_of_code: AtomicU64,
     pub user_lines_of_code: AtomicU64,
 
+    pre_program: &'a mut PreProgram,
+
     members: RwLock<IdVec<MemberId, Member>>,
     poly_members: RwLock<IdVec<PolyMemberId, PolyMember>>,
-    scopes: SyncVec<Scope>,
 
     external_symbols: Mutex<UstrSet>,
     constant_data: Mutex<Vec<Constant>>,
@@ -62,12 +70,13 @@ pub struct Program {
 // FIXME: Make a wrapper type for *const _ and have Send and Sync for that.
 // The thing about the *const _ that I use is that they are truly immutable; and immutable in other
 // points, and ALSO they do not allow interior mutability, which means they are threadsafe.
-unsafe impl Send for Program {}
-unsafe impl Sync for Program {}
+unsafe impl Send for Program<'_> {}
+unsafe impl Sync for Program<'_> {}
 
-impl Program {
-    pub fn new(logger: Logger, arguments: Arguments) -> Self {
+impl<'p> Program<'p> {
+    pub fn new(pre_program: &'p mut PreProgram, logger: Logger, arguments: Arguments) -> Self {
         Self {
+            pre_program,
             arguments,
             logger,
             builtins: [(); Builtin::Count as usize].map(|_| RwLock::new(BuiltinDefinition::Undefined(Vec::new()))),
@@ -76,7 +85,6 @@ impl Program {
             members: default(),
             poly_members: default(),
             external_symbols: default(),
-            scopes: default(),
             non_ready_tasks: default(),
             file_contents: default(),
             functions: default(),
@@ -107,7 +115,7 @@ impl Program {
     }
 
     pub fn check_for_completion(&mut self, errors: &mut ErrorCtx) {
-        let scopes = &mut self.scopes;
+        let scopes = &mut self.pre_program.scopes;
         let members = self.members.get_mut();
         for scope in scopes.iter_mut() {
             let wanted_names = scope.wanted_names.get_mut();
@@ -258,7 +266,7 @@ impl Program {
     /// * ``scopes`` write
     pub fn create_scope(&self) -> ScopeId {
         profile::profile!("Create scope");
-        let (id, _) = self.scopes.push(default());
+        let (id, _) = self.pre_program.scopes.push(default());
         ScopeId(id)
     }
 
@@ -272,7 +280,7 @@ impl Program {
         to: ScopeId,
     ) -> Result<(), ()> {
         profile::profile!("Insert wildcard export");
-        let scopes = &self.scopes;
+        let scopes = &self.pre_program.scopes;
         let mut wildcards = scopes.get(from.0).unwrap().wildcard_exports.write();
 
         if wildcards.contains(&to) {
@@ -308,7 +316,7 @@ impl Program {
     /// * ``scopes`` read
     pub fn get_member_id(&self, scope: ScopeId, name: Ustr) -> Option<PolyOrMember> {
         profile::profile!("Get member id");
-        let scopes = &self.scopes;
+        let scopes = &self.pre_program.scopes;
         let public = scopes.get(scope.0).unwrap().public_members.read().get(&name).copied();
         public.or_else(|| scopes.get(scope.0).unwrap().private_members.read().get(&name).copied())
     }
@@ -974,7 +982,7 @@ impl Program {
         member_id: PolyOrMember,
         is_public: bool,
     ) -> Result<(), ()> {
-        let scopes = &self.scopes;
+        let scopes = &self.pre_program.scopes;
 
         let contains_public_name = scopes.get(scope_id.0).unwrap().public_members.read().contains_key(&name);
         let contains_private_name = scopes.get(scope_id.0).unwrap().private_members.read().contains_key(&name);
@@ -1119,7 +1127,7 @@ impl Program {
                     
                 }
                 DepKind::MemberByName(scope_id, dep_name, dep_kind) => {
-                    let scopes = &self.scopes;
+                    let scopes = &self.pre_program.scopes;
                     let scope = scopes.get(scope_id.0).unwrap();
                     let mut scope_wanted_names = scope.wanted_names.write();
 

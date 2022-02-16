@@ -72,7 +72,7 @@ struct Tags {
     target: Option<u32>,
 }
 
-fn get_tags(ctx: &mut Context<'_, '_>, node: NodeView<'_>) -> Tags {
+fn get_tags(ctx: &mut Context, node: NodeView<'_>) -> Tags {
     let mut tags = Tags::default();
 
     for tag_child in node.children.into_iter() {
@@ -170,7 +170,7 @@ pub fn emit_function_declaration<'a>(
     ctx.program.set_routine_of_function(function_id, ctx.calling, routine);
 }
 
-fn emit_node<'a>(ctx: &mut Context<'a, '_>, mut node: NodeView<'a>) -> (Value, TypedLayout) {
+fn emit_node<'a>(ctx: &mut Context<'a, '_, '_>, mut node: NodeView<'a>) -> (Value, TypedLayout) {
     ctx.emit_debug(node.loc);
 
     let node_type_id = TypeId::Node(ctx.variant_id, node.id);
@@ -1062,7 +1062,7 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, mut node: NodeView<'a>) -> (Value, T
 }
 
 fn emit_declarative_lvalue<'a>(
-    ctx: &mut Context<'a, '_>,
+    ctx: &mut Context<'a, '_, '_>,
     mut node: NodeView<'a>,
     from: &Value,
     is_declaring: bool,
@@ -1191,7 +1191,7 @@ fn emit_declarative_lvalue<'a>(
 }
 
 fn emit_lvalue<'a>(
-    ctx: &mut Context<'a, '_>,
+    ctx: &mut Context<'a, '_, '_>,
     can_reference_temporaries: bool,
     mut node: NodeView<'a>,
     // We don't return a typed layout, because we know it's going to be a pointer.
@@ -1321,12 +1321,12 @@ impl Value {
     const ZST: Value = Value::Stack(StackValue::ZST);
 }
 
-pub struct Context<'a, 'b> {
+pub struct Context<'a, 'b, 'p> {
     pub thread_context: &'a mut ThreadContext<'b>,
     pub instr: Vec<Instr>,
     pub registers: StackAllocator,
     pub locals: &'a mut LocalVariables,
-    pub program: &'b Program,
+    pub program: &'b Program<'p>,
     pub types: &'a mut TypeSystem,
     pub label_locations: Vec<usize>,
     pub calling: Vec<FunctionId>,
@@ -1339,7 +1339,7 @@ pub struct Context<'a, 'b> {
     pub defers: Vec<NodeView<'a>>,
 }
 
-impl Context<'_, '_> {
+impl Context<'_, '_, '_> {
     pub fn emit_debug(&mut self, loc: Location) {
         if self.program.arguments.debug {
             if let Some(last_location) = self.last_location {

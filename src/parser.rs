@@ -178,7 +178,7 @@ pub fn process_string(
     Ok(loc)
 }
 
-fn type_declaration(global: &mut DataContext<'_>) -> Result<(), ()> {
+fn type_declaration(global: &mut DataContext) -> Result<(), ()> {
     let mut is_aliased = None;
     let mut is_builtin = None;
     parse_basic_tags(global, "type declaration", &mut [("alias".into(), &mut is_aliased), ("builtin".into(), &mut is_builtin)])?;
@@ -259,7 +259,7 @@ fn type_declaration(global: &mut DataContext<'_>) -> Result<(), ()> {
     Ok(())
 }
 
-fn constant(global: &mut DataContext<'_>) -> Result<(), ()> {
+fn constant(global: &mut DataContext) -> Result<(), ()> {
     let token = global.tokens.expect_next(global.errors)?;
     if let TokenKind::Identifier(name) = token.kind {
         let mut dependencies = DependencyList::new();
@@ -335,7 +335,7 @@ fn constant(global: &mut DataContext<'_>) -> Result<(), ()> {
 }
 
 fn expression(
-    global: &mut DataContext<'_>,
+    global: &mut DataContext,
     imperative: &mut ImperativeContext<'_>,
     slot: AstSlot<'_>,
 ) -> Result<FinishedNode, ()> {
@@ -345,7 +345,7 @@ fn expression(
 }
 
 fn expression_rec(
-    global: &mut DataContext<'_>,
+    global: &mut DataContext,
     imperative: &mut ImperativeContext<'_>,
     slot: AstSlot<'_>,
     precedence: usize,
@@ -376,7 +376,7 @@ fn expression_rec(
 }
 
 fn type_(
-    global: &mut DataContext<'_>,
+    global: &mut DataContext,
     imperative: &mut ImperativeContext<'_>,
     mut slot: AstSlot<'_>,
 ) -> Result<FinishedNode, ()> {
@@ -687,7 +687,7 @@ fn type_(
 }
 
 fn value(
-    global: &mut DataContext<'_>,
+    global: &mut DataContext,
     imperative: &mut ImperativeContext<'_>,
     mut slot: AstSlot<'_>,
 ) -> Result<FinishedNode, ()> {
@@ -711,7 +711,7 @@ fn value(
 
 /// A value
 fn value_without_unaries(
-    global: &mut DataContext<'_>,
+    global: &mut DataContext,
     imperative: &mut ImperativeContext<'_>,
     base_slot: AstSlot<'_>,
 ) -> Result<FinishedNode, ()> {
@@ -1263,7 +1263,7 @@ fn value_without_unaries(
 }
 
 fn function_type(
-    global: &mut DataContext<'_>,
+    global: &mut DataContext,
     imperative: &mut ImperativeContext<'_>,
     loc: Location,
     mut slot: AstSlot<'_>,
@@ -1306,7 +1306,7 @@ fn function_type(
 }
 
 fn function_arguments(
-    global: &mut DataContext<'_>,
+    global: &mut DataContext,
     imperative: &mut ImperativeContext<'_>,
     muncher: &mut Muncher<'_>,
 ) -> Result<u32, ()> {
@@ -1336,7 +1336,7 @@ fn function_arguments(
 /// Parses a function declaration, although doesn't expect the 'fn' keyword to be included because
 /// that keyword was what triggered this function to be called in the first place.
 fn function_declaration(
-    global: &mut DataContext<'_>,
+    global: &mut DataContext,
     imperative: &mut ImperativeContext<'_>,
     mut slot: AstSlot<'_>,
     loc: Location,
@@ -1426,7 +1426,7 @@ pub struct PolyArgumentInfo {
 }
 
 fn parse_polymorphic_arguments(
-    global: &mut DataContext<'_>,
+    global: &mut DataContext,
     imperative: &mut ImperativeContext<'_>,
     slot: &mut AstSlot<'_>,
 ) -> Result<Vec<PolyArgumentInfo>, ()> {
@@ -1478,7 +1478,7 @@ fn parse_polymorphic_arguments(
 }
 
 fn maybe_parse_polymorphic_arguments(
-    global: &mut DataContext<'_>,
+    global: &mut DataContext,
 ) -> Result<Vec<(Location, Ustr)>, ()> {
     let mut args = Vec::new();
 
@@ -1511,7 +1511,7 @@ fn maybe_parse_polymorphic_arguments(
 }
 
 fn parse_default_label(
-    global: &mut DataContext<'_>,
+    global: &mut DataContext,
     imperative: &mut ImperativeContext<'_>,
 ) -> Result<crate::locals::LabelId, ()> {
     let loc = global.tokens.loc();
@@ -1542,7 +1542,7 @@ fn parse_default_label(
 }
 
 fn maybe_parse_label(
-    global: &mut DataContext<'_>,
+    global: &mut DataContext,
     imperative: &mut ImperativeContext<'_>,
 ) -> Result<Option<crate::locals::LabelId>, ()> {
     if global.tokens.try_consume(&TokenKind::SingleQuote) {
@@ -1583,7 +1583,7 @@ pub mod tags {
     pub const LABEL:              u32 = 0x08;
 }   
 
-fn parse_tags(global: &mut DataContext<'_>, imperative: &mut ImperativeContext<'_>, mut slot: AstSlot<'_>) -> Result<u32, ()> {
+fn parse_tags(global: &mut DataContext, imperative: &mut ImperativeContext<'_>, mut slot: AstSlot<'_>) -> Result<u32, ()> {
     let loc = global.tokens.loc();
 
     let mut found_tags = 0;
@@ -1676,7 +1676,7 @@ fn parse_tags(global: &mut DataContext<'_>, imperative: &mut ImperativeContext<'
 }
 
 // TODO: This could be removed later probably
-fn parse_basic_tags(global: &mut DataContext<'_>, expr_name: &str, tags: &mut [(Ustr, &mut Option<Location>)]) -> Result<(), ()> {
+fn parse_basic_tags(global: &mut DataContext, expr_name: &str, tags: &mut [(Ustr, &mut Option<Location>)]) -> Result<(), ()> {
     let mut is_first = true;
     loop {
         let Some(&Token { loc, kind: TokenKind::Tag(tag_name), .. }) = global.tokens.peek() else {
