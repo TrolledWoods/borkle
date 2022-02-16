@@ -12,6 +12,12 @@ pub struct SyncVec<T, const N: usize = DEFAULT_SIZE> {
     len: AtomicUsize,
 }
 
+impl<T, const N: usize> Default for SyncVec<T, N> {
+    fn default() -> Self {
+        Self::new_with_size()
+    }
+}
+
 impl<T> SyncVec<T> {
     pub fn new() -> Self {
         Self::new_with_size()
@@ -44,6 +50,17 @@ impl<T, const N: usize> SyncVec<T, N> {
             local_index: N,
             occupied: ptr::null(),
             element: ptr::null(),
+            _phantom: PhantomData,
+        }
+    }
+
+    pub fn iter_mut(&mut self) -> IterMut<'_, T, N> {
+        IterMut {
+            next: &mut self.first,
+            // an index of `N` means that we need to reload the values.
+            local_index: N,
+            occupied: ptr::null_mut(),
+            element: ptr::null_mut(),
             _phantom: PhantomData,
         }
     }
@@ -254,6 +271,52 @@ impl<'a, T, const N: usize> Iterator for IterContiguous<'a, T, N> {
             self.local_index += 1;
 
             Some(&*element)
+        }
+    }
+}
+
+pub struct IterMut<'a, T, const N: usize = DEFAULT_SIZE> {
+    next: &'a mut AtomicPtr<Buffer<T, N>>,
+    local_index: usize,
+    occupied: *mut AtomicBool,
+    element: *mut T,
+    _phantom: PhantomData<&'a mut [T]>,
+}
+
+impl<'a, T, const N: usize> Iterator for IterMut<'a, T, N> {
+    type Item = &'a mut T;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        loop {
+            if self.local_index == N {
+                let pointer = *self.next.get_mut();
+                if pointer.is_null() {
+                    return None;
+                }
+
+                unsafe {
+                    self.next = &mut (*pointer).next;
+                    self.element = ptr::addr_of_mut!((*pointer).elements).cast::<T>();
+                    self.occupied = (*pointer).occupied.as_mut_ptr();
+                }
+
+                self.local_index = 0;
+            }
+
+            let occupied = self.occupied;
+            let element = self.element;
+            unsafe {
+                self.occupied = self.occupied.add(1);
+                self.element = self.element.add(1);
+                self.local_index += 1;
+            }
+
+            unsafe {
+                let is_occupied = *(*occupied).get_mut();
+                if is_occupied {
+                    return Some(&mut *element);
+                }
+            }
         }
     }
 }

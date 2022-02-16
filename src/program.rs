@@ -19,6 +19,7 @@ use std::ptr::NonNull;
 use std::sync::Arc;
 use ustr::{Ustr, UstrMap, UstrSet};
 use std::sync::atomic::AtomicU64;
+use syncvec::SyncVec;
 
 pub mod constant;
 
@@ -41,7 +42,7 @@ pub struct Program {
 
     members: RwLock<IdVec<MemberId, Member>>,
     poly_members: RwLock<IdVec<PolyMemberId, PolyMember>>,
-    scopes: RwLock<IdVec<ScopeId, Scope>>,
+    scopes: SyncVec<Scope>,
 
     external_symbols: Mutex<UstrSet>,
     constant_data: Mutex<Vec<Constant>>,
@@ -106,7 +107,7 @@ impl Program {
     }
 
     pub fn check_for_completion(&mut self, errors: &mut ErrorCtx) {
-        let scopes = self.scopes.get_mut();
+        let scopes = &mut self.scopes;
         let members = self.members.get_mut();
         for scope in scopes.iter_mut() {
             let wanted_names = scope.wanted_names.get_mut();
@@ -257,7 +258,8 @@ impl Program {
     /// * ``scopes`` write
     pub fn create_scope(&self) -> ScopeId {
         profile::profile!("Create scope");
-        self.scopes.write().push(default())
+        let (id, _) = self.scopes.push(default());
+        ScopeId(id)
     }
 
     /// # Fails
@@ -270,8 +272,8 @@ impl Program {
         to: ScopeId,
     ) -> Result<(), ()> {
         profile::profile!("Insert wildcard export");
-        let scopes = self.scopes.read();
-        let mut wildcards = scopes[from].wildcard_exports.write();
+        let scopes = &self.scopes;
+        let mut wildcards = scopes.get(from.0).unwrap().wildcard_exports.write();
 
         if wildcards.contains(&to) {
             errors.error(loc, "This is imported twice".to_string());
@@ -281,7 +283,7 @@ impl Program {
         wildcards.push(to);
         // FIXME: I don't really know how to fix this performance wise without messing up the
         // locks.
-        let public_members = scopes[from].public_members.read().clone();
+        let public_members = scopes.get(from.0).unwrap().public_members.read().clone();
         drop(wildcards);
         drop(scopes);
 
@@ -306,9 +308,9 @@ impl Program {
     /// * ``scopes`` read
     pub fn get_member_id(&self, scope: ScopeId, name: Ustr) -> Option<PolyOrMember> {
         profile::profile!("Get member id");
-        let scopes = self.scopes.read();
-        let public = scopes[scope].public_members.read().get(&name).copied();
-        public.or_else(|| scopes[scope].private_members.read().get(&name).copied())
+        let scopes = &self.scopes;
+        let public = scopes.get(scope.0).unwrap().public_members.read().get(&name).copied();
+        public.or_else(|| scopes.get(scope.0).unwrap().private_members.read().get(&name).copied())
     }
 
     pub fn poly_member_name(&self, id: PolyMemberId) -> Ustr {
@@ -972,25 +974,24 @@ impl Program {
         member_id: PolyOrMember,
         is_public: bool,
     ) -> Result<(), ()> {
-        let mut scopes = self.scopes.write();
+        let scopes = &self.scopes;
 
-        let contains_public_name = scopes[scope_id].public_members.read().contains_key(&name);
-        let contains_private_name = scopes[scope_id].private_members.read().contains_key(&name);
+        let contains_public_name = scopes.get(scope_id.0).unwrap().public_members.read().contains_key(&name);
+        let contains_private_name = scopes.get(scope_id.0).unwrap().private_members.read().contains_key(&name);
         if contains_public_name || contains_private_name {
             errors.error(loc, format!("'{}' is already defined", name));
             return Err(());
         }
 
         if is_public {
-            scopes[scope_id].public_members.write().insert(name, member_id);
+            scopes.get(scope_id.0).unwrap().public_members.write().insert(name, member_id);
         } else {
-            scopes[scope_id].private_members.write().insert(name, member_id);
+            scopes.get(scope_id.0).unwrap().private_members.write().insert(name, member_id);
         };
 
         // FIXME: Performance problems here!! I don't really know how to fix this without messing
         // up the locks again.
-        let wildcard_exports = scopes[scope_id].wildcard_exports.get_mut().clone();
-        drop(scopes);
+        let wildcard_exports = scopes.get(scope_id.0).unwrap().wildcard_exports.write().clone();
 
         if is_public {
             for dependant in wildcard_exports {
@@ -998,11 +999,9 @@ impl Program {
             }
         }
 
-        let scopes = self.scopes.read();
-        let mut wanted_names = scopes[scope_id].wanted_names.write();
+        let mut wanted_names = scopes.get(scope_id.0).unwrap().wanted_names.write();
         if let Some(dependants) = wanted_names.remove(&name) {
             drop(wanted_names);
-            drop(scopes);
 
             match member_id {
                 PolyOrMember::Member(member_id) => {
@@ -1120,13 +1119,12 @@ impl Program {
                     
                 }
                 DepKind::MemberByName(scope_id, dep_name, dep_kind) => {
-                    let scopes = self.scopes.read();
-                    let scope = &scopes[scope_id];
+                    let scopes = &self.scopes;
+                    let scope = scopes.get(scope_id.0).unwrap();
                     let mut scope_wanted_names = scope.wanted_names.write();
 
                     if let Some(dep_id) = scope.get(dep_name) {
                         drop(scope_wanted_names);
-                        drop(scopes);
 
                         match dep_id {
                             PolyOrMember::Poly(dep_id) => {
