@@ -16,6 +16,7 @@ debug = true
 incremental = true
 
 [dependencies]
+syncvec = { path = "syncvec/" }
 profile = { path = "profile/" }
 ustr = "0.8.*"
 bumpalo = { version = "3.4.0", features = ["boxed"] }

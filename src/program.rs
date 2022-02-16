@@ -117,7 +117,8 @@ impl Program {
                 errors.global_error(format!("'{}' is not defined", name));
             }
 
-            for (&name, &id) in &scope.public_members {
+            let public_members = scope.public_members.read();
+            for (&name, &id) in public_members.iter() {
                 if let PolyOrMember::Member(member_id) = id {
                     let member = &members[member_id];
                     if member.type_.to_option().is_none() {
@@ -280,7 +281,7 @@ impl Program {
         wildcards.push(to);
         // FIXME: I don't really know how to fix this performance wise without messing up the
         // locks.
-        let public_members = scopes[from].public_members.clone();
+        let public_members = scopes[from].public_members.read().clone();
         drop(wildcards);
         drop(scopes);
 
@@ -306,8 +307,8 @@ impl Program {
     pub fn get_member_id(&self, scope: ScopeId, name: Ustr) -> Option<PolyOrMember> {
         profile::profile!("Get member id");
         let scopes = self.scopes.read();
-        let public = scopes[scope].public_members.get(&name).copied();
-        public.or_else(|| scopes[scope].private_members.get(&name).copied())
+        let public = scopes[scope].public_members.read().get(&name).copied();
+        public.or_else(|| scopes[scope].private_members.read().get(&name).copied())
     }
 
     pub fn poly_member_name(&self, id: PolyMemberId) -> Ustr {
@@ -973,17 +974,17 @@ impl Program {
     ) -> Result<(), ()> {
         let mut scopes = self.scopes.write();
 
-        if scopes[scope_id].public_members.contains_key(&name)
-            | scopes[scope_id].private_members.contains_key(&name)
-        {
+        let contains_public_name = scopes[scope_id].public_members.read().contains_key(&name);
+        let contains_private_name = scopes[scope_id].private_members.read().contains_key(&name);
+        if contains_public_name || contains_private_name {
             errors.error(loc, format!("'{}' is already defined", name));
             return Err(());
         }
 
         if is_public {
-            scopes[scope_id].public_members.insert(name, member_id);
+            scopes[scope_id].public_members.write().insert(name, member_id);
         } else {
-            scopes[scope_id].private_members.insert(name, member_id);
+            scopes[scope_id].private_members.write().insert(name, member_id);
         };
 
         // FIXME: Performance problems here!! I don't really know how to fix this without messing
@@ -1248,16 +1249,16 @@ struct Scope {
     // FIXME: Have these store the location where the thing was bound to a name as well.
     // At least in the public_members, since those are usually not imported but bound in the scope?
     // However, even private_members would have a use for the location of the import/library
-    public_members: UstrMap<PolyOrMember>,
-    private_members: UstrMap<PolyOrMember>,
+    public_members: RwLock<UstrMap<PolyOrMember>>,
+    private_members: RwLock<UstrMap<PolyOrMember>>,
     wanted_names: RwLock<UstrMap<Vec<(MemberDep, Location, TaskId)>>>,
     wildcard_exports: RwLock<Vec<ScopeId>>,
 }
 
 impl Scope {
     fn get(&self, name: Ustr) -> Option<PolyOrMember> {
-        let public = self.public_members.get(&name).copied();
-        public.or_else(|| self.private_members.get(&name).copied())
+        let public = self.public_members.read().get(&name).copied();
+        public.or_else(|| self.private_members.read().get(&name).copied())
     }
 }
 

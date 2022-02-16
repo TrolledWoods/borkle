@@ -37,7 +37,18 @@ impl<T, const N: usize> SyncVec<T, N> {
         }
     }
 
-    pub fn reserve(&self) -> Reserved<'_, T> {
+    pub fn iter_contiguous(&self) -> IterContiguous<'_, T, N> {
+        IterContiguous {
+            next: &self.first,
+            // an index of `N` means that we need to reload the values.
+            local_index: N,
+            occupied: ptr::null(),
+            element: ptr::null(),
+            _phantom: PhantomData,
+        }
+    }
+
+    pub fn reserve(&self) -> (usize, Reserved<'_, T>) {
         // Get the index
         let index = self.len.fetch_add(1, Ordering::SeqCst);
         let block = index / N;
@@ -91,16 +102,28 @@ impl<T, const N: usize> SyncVec<T, N> {
             let element = ptr::addr_of_mut!((*current).elements).cast::<T>().add(inner_index);
             let occupied = &(*current).occupied[inner_index];
 
-            Reserved {
-                element,
-                occupied,
-                _phantom: PhantomData,
-            }
+            (
+                index,
+                Reserved {
+                    element,
+                    occupied,
+                    _phantom: PhantomData,
+                },
+            )
         }
     }
 
-    pub fn push(&self, item: T) -> &T {
-        self.reserve().insert(item)
+    /// This operation is O(N) with respect to the vector size.
+    pub fn get(&self, index: usize) -> Option<&T> {
+        self.iter_contiguous().nth(index)
+    }
+
+    pub fn push(&self, item: T) -> (usize, &T) {
+        let (index, reserved) = self.reserve();
+        (
+            index, 
+            reserved.insert(item),
+        )
     }
 }
 
@@ -187,6 +210,50 @@ impl<'a, T, const N: usize> Iterator for Iter<'a, T, N> {
                     return Some(&*element);
                 }
             }
+        }
+    }
+}
+
+pub struct IterContiguous<'a, T, const N: usize = DEFAULT_SIZE> {
+    next: &'a AtomicPtr<Buffer<T, N>>,
+    local_index: usize,
+    occupied: *const AtomicBool,
+    element: *const T,
+    _phantom: PhantomData<&'a [T]>,
+}
+
+impl<'a, T, const N: usize> Iterator for IterContiguous<'a, T, N> {
+    type Item = &'a T;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.local_index == N {
+            let pointer = self.next.load(Ordering::SeqCst);
+            if pointer.is_null() {
+                return None;
+            }
+
+            unsafe {
+                self.next = &(*pointer).next;
+                self.element = ptr::addr_of_mut!((*pointer).elements).cast::<T>();
+                self.occupied = (*pointer).occupied.as_ptr();
+            }
+
+            self.local_index = 0;
+        }
+
+        unsafe {
+            let is_occupied = (*self.occupied).load(Ordering::SeqCst);
+            if !is_occupied {
+                return None;
+            }
+
+            let element = self.element;
+
+            self.occupied = self.occupied.add(1);
+            self.element = self.element.add(1);
+            self.local_index += 1;
+
+            Some(&*element)
         }
     }
 }
