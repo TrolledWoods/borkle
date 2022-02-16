@@ -47,7 +47,7 @@ pub struct Program {
     pub lib_lines_of_code: AtomicU64,
     pub user_lines_of_code: AtomicU64,
 
-    pre_program: &'static mut PreProgram,
+    pre_program: &'static PreProgram,
 
     members: RwLock<IdVec<MemberId, Member>>,
     poly_members: RwLock<IdVec<PolyMemberId, PolyMember>>,
@@ -114,10 +114,9 @@ impl Program {
     }
 
     pub fn check_for_completion(&mut self, errors: &mut ErrorCtx) {
-        let scopes = &mut self.pre_program.scopes;
         let members = self.members.get_mut();
-        for scope in scopes.iter_mut() {
-            let wanted_names = scope.wanted_names.get_mut();
+        for scope in self.pre_program.scopes.iter() {
+            let wanted_names = scope.wanted_names.read();
             for (&name, dependants) in wanted_names.iter() {
                 for &(_, loc, _) in dependants {
                     errors.info(loc, "Dependant here".to_string());
@@ -265,8 +264,8 @@ impl Program {
     /// * ``scopes`` write
     pub fn create_scope(&self) -> ScopeId {
         profile::profile!("Create scope");
-        let (id, _) = self.pre_program.scopes.push(default());
-        ScopeId(id)
+        let (_, ptr) = self.pre_program.scopes.push(default());
+        ScopeId(ptr)
     }
 
     /// # Fails
@@ -279,8 +278,7 @@ impl Program {
         to: ScopeId,
     ) -> Result<(), ()> {
         profile::profile!("Insert wildcard export");
-        let scopes = &self.pre_program.scopes;
-        let mut wildcards = scopes.get(from.0).unwrap().wildcard_exports.write();
+        let mut wildcards = from.0.wildcard_exports.write();
 
         if wildcards.contains(&to) {
             errors.error(loc, "This is imported twice".to_string());
@@ -290,9 +288,8 @@ impl Program {
         wildcards.push(to);
         // FIXME: I don't really know how to fix this performance wise without messing up the
         // locks.
-        let public_members = scopes.get(from.0).unwrap().public_members.read().clone();
+        let public_members = from.0.public_members.read().clone();
         drop(wildcards);
-        drop(scopes);
 
         for (name, member_id) in public_members {
             self.bind_member_to_name(errors, to, name, loc, member_id, false)?;
@@ -315,9 +312,8 @@ impl Program {
     /// * ``scopes`` read
     pub fn get_member_id(&self, scope: ScopeId, name: Ustr) -> Option<PolyOrMember> {
         profile::profile!("Get member id");
-        let scopes = &self.pre_program.scopes;
-        let public = scopes.get(scope.0).unwrap().public_members.read().get(&name).copied();
-        public.or_else(|| scopes.get(scope.0).unwrap().private_members.read().get(&name).copied())
+        let public = scope.0.public_members.read().get(&name).copied();
+        public.or_else(|| scope.0.private_members.read().get(&name).copied())
     }
 
     pub fn poly_member_name(&self, id: PolyMemberId) -> Ustr {
@@ -981,24 +977,22 @@ impl Program {
         member_id: PolyOrMember,
         is_public: bool,
     ) -> Result<(), ()> {
-        let scopes = &self.pre_program.scopes;
-
-        let contains_public_name = scopes.get(scope_id.0).unwrap().public_members.read().contains_key(&name);
-        let contains_private_name = scopes.get(scope_id.0).unwrap().private_members.read().contains_key(&name);
+        let contains_public_name = scope_id.0.public_members.read().contains_key(&name);
+        let contains_private_name = scope_id.0.private_members.read().contains_key(&name);
         if contains_public_name || contains_private_name {
             errors.error(loc, format!("'{}' is already defined", name));
             return Err(());
         }
 
         if is_public {
-            scopes.get(scope_id.0).unwrap().public_members.write().insert(name, member_id);
+            scope_id.0.public_members.write().insert(name, member_id);
         } else {
-            scopes.get(scope_id.0).unwrap().private_members.write().insert(name, member_id);
+            scope_id.0.private_members.write().insert(name, member_id);
         };
 
         // FIXME: Performance problems here!! I don't really know how to fix this without messing
         // up the locks again.
-        let wildcard_exports = scopes.get(scope_id.0).unwrap().wildcard_exports.write().clone();
+        let wildcard_exports = scope_id.0.wildcard_exports.write().clone();
 
         if is_public {
             for dependant in wildcard_exports {
@@ -1006,7 +1000,7 @@ impl Program {
             }
         }
 
-        let mut wanted_names = scopes.get(scope_id.0).unwrap().wanted_names.write();
+        let mut wanted_names = scope_id.0.wanted_names.write();
         if let Some(dependants) = wanted_names.remove(&name) {
             drop(wanted_names);
 
@@ -1126,11 +1120,9 @@ impl Program {
                     
                 }
                 DepKind::MemberByName(scope_id, dep_name, dep_kind) => {
-                    let scopes = &self.pre_program.scopes;
-                    let scope = scopes.get(scope_id.0).unwrap();
-                    let mut scope_wanted_names = scope.wanted_names.write();
+                    let mut scope_wanted_names = scope_id.0.wanted_names.write();
 
-                    if let Some(dep_id) = scope.get(dep_name) {
+                    if let Some(dep_id) = scope_id.0.get(dep_name) {
                         drop(scope_wanted_names);
 
                         match dep_id {
@@ -1150,8 +1142,8 @@ impl Program {
                     } else {
                         num_deps += 1;
                         self.logger.log(format_args!(
-                            "Undefined identifier '{}' in scope {}, wants {:?} of it",
-                            dep_name, scope_id.0, dep_kind
+                            "Undefined identifier '{}' in scope {:?}, wants {:?} of it",
+                            dep_name, scope_id, dep_kind
                         ));
 
                         let wanted = scope_wanted_names.entry(dep_name).or_insert_with(Vec::new);
@@ -1700,27 +1692,20 @@ impl fmt::Debug for MemberId {
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Hash)]
-#[repr(transparent)]
-pub struct ScopeId(usize);
+#[derive(Clone, Copy)]
+pub struct ScopeId(&'static Scope);
 
-impl Id for ScopeId {}
-
-impl From<usize> for ScopeId {
-    fn from(other: usize) -> Self {
-        Self(other)
+impl std::cmp::PartialEq for ScopeId {
+    fn eq(&self, other: &Self) -> bool {
+        std::ptr::eq(self.0, other.0)
     }
 }
 
-impl From<ScopeId> for usize {
-    fn from(other: ScopeId) -> usize {
-        other.0
-    }
-}
+impl std::cmp::Eq for ScopeId {}
 
 impl fmt::Debug for ScopeId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.0)
+        write!(f, "{:p}", self.0)
     }
 }
 
