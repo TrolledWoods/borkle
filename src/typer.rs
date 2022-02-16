@@ -81,10 +81,10 @@ impl YieldData {
 }
 
 /// Things that are global across the whole typer, independant of value sets, and other garbage like that.
-struct Statics<'a, 'b, 'p> {
+struct Statics<'a, 'b> {
     thread_context: &'a mut ThreadContext<'b>,
     errors: &'a mut ErrorCtx,
-    program: &'b Program<'p>,
+    program: &'b Program,
     locals: &'a mut LocalVariables,
     infer: &'a mut TypeSystem,
     needs_explaining: &'a mut Vec<(NodeId, type_infer::ValueId)>,

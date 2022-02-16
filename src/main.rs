@@ -3,8 +3,6 @@
 #![feature(backtrace)]
 #![deny(rust_2018_idioms, mutable_borrow_reservation_conflict, unused_variables, unused_mut, unused_unsafe)]
 
-// This lets me not define the implicit lifetimes for contexts all the time, because that's
-// just bs..
 #![allow(elided_lifetimes_in_paths)]
 
 mod layout;
@@ -46,8 +44,7 @@ fn main() {
             return;
         }
 
-        let mut pre_program = program::PreProgram::default();
-        let mut program = program::Program::new(&mut pre_program, logger, options.clone());
+        let mut program = program::Program::new(logger, options.clone());
         program.add_file(&options.file, false);
         
         if !options.no_builtins {

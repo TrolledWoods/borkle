@@ -40,14 +40,14 @@ pub struct PreProgram {
 /// of the program(from a threading perspective, not from a correctness perspective, i.e. if you
 /// pass it garbage it doesn't expect naturally that would cause problems, like passing an invalid
 /// pointer to ``insert_buffer`` while the type isn't a zst for example)!
-pub struct Program<'a> {
+pub struct Program {
     pub arguments: Arguments,
     pub logger: Logger,
 
     pub lib_lines_of_code: AtomicU64,
     pub user_lines_of_code: AtomicU64,
 
-    pre_program: &'a mut PreProgram,
+    pre_program: &'static mut PreProgram,
 
     members: RwLock<IdVec<MemberId, Member>>,
     poly_members: RwLock<IdVec<PolyMemberId, PolyMember>>,
@@ -67,14 +67,13 @@ pub struct Program<'a> {
     file_contents: Mutex<UstrMap<Arc<String>>>,
 }
 
-// FIXME: Make a wrapper type for *const _ and have Send and Sync for that.
-// The thing about the *const _ that I use is that they are truly immutable; and immutable in other
-// points, and ALSO they do not allow interior mutability, which means they are threadsafe.
-unsafe impl Send for Program<'_> {}
-unsafe impl Sync for Program<'_> {}
-
-impl<'p> Program<'p> {
-    pub fn new(pre_program: &'p mut PreProgram, logger: Logger, arguments: Arguments) -> Self {
+impl Program {
+    /// Creates a new program. Leaks memory!! That's because this is only designed to
+    /// run once in a single compiler run, otherwise the whole codebase needs to be infested
+    /// with incredibly annoying lifetimes, which is possible, and may be something that I'd
+    /// want to do in the future, but not now.
+    pub fn new(logger: Logger, arguments: Arguments) -> Self {
+        let pre_program = Box::leak(Box::new(PreProgram::default()));
         Self {
             pre_program,
             arguments,
