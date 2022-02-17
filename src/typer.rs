@@ -566,7 +566,7 @@ fn subset_was_completed(statics: &mut Statics, ast: &mut Ast, waiting_on: Waitin
             statics.infer.value_sets.unlock(parent_set);
 
             if let Ok(member_id) = statics.program.monomorphise_poly_member(statics.errors, statics.thread_context, poly_member_id, &fixed_up_params, wanted_dep) {
-                let type_ = statics.program.get_member_type(member_id);
+                let type_ = member_id.type_();
 
                 let compiler_type = statics.infer.add_compiler_type(statics.program, &type_);
                 statics.infer.set_equal(TypeId::Node(ast_variant_id, node_id), compiler_type, Reason::new(node_loc, ReasonKind::IsOfType));
@@ -2559,7 +2559,7 @@ fn build_global<'a>(
                 return meta_data;
             }
 
-            let type_ = statics.program.get_member_type(id);
+            let type_ = id.type_();
 
             let type_id = statics.infer.add_compiler_type(
                 statics.program,

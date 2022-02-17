@@ -138,7 +138,7 @@ fn worker<'a>(alloc: &'a mut Bump, program: &'a Program) -> (ThreadContext<'a>, 
                 }
                 Task::TypeMember { member_id, member_kind, ast, locals } => {
                     // If it's a polymorphic thing this task could have been scheduled twice, so we have to do this check.
-                    if !program.member_is_typed(member_id) {
+                    if !member_id.is_typed() {
                         profile::profile!("Task::TypeMember");
 
                         match crate::typer::process_ast(
@@ -148,14 +148,14 @@ fn worker<'a>(alloc: &'a mut Bump, program: &'a Program) -> (ThreadContext<'a>, 
                             locals,
                             ast,
                             member_kind,
-                            program.member_name(member_id),
+                            member_id.name(),
                         ) {
                             Ok((Ok((dependencies, locals, types, ast, root_type_id, additional_info)), meta_data)) => {
                                 let type_ = types.value_to_compiler_type(root_type_id);
 
                                 program.logger.log(format_args!(
                                     "type '{}' {:?} {:?}",
-                                    program.member_name(member_id),
+                                    member_id.name(),
                                     type_,
                                     meta_data,
                                 ));
@@ -188,13 +188,13 @@ fn worker<'a>(alloc: &'a mut Bump, program: &'a Program) -> (ThreadContext<'a>, 
                     }
                 }
                 Task::EmitMember(member_id, mut locals, mut types, additional_info, ast) => {
-                    if !program.member_is_evaluated(member_id) {
+                    if !member_id.is_evaluated() {
                         profile::profile!("Task::EmitMember");
 
                         let type_ = types.value_to_compiler_type(TypeId::Node(AstVariantId::root(), ast.root_id()));
                         program.logger.log(format_args!(
                             "emitting member '{}' {:?}",
-                            program.member_name(member_id),
+                            member_id.name(),
                             type_,
                         ));
 
@@ -208,7 +208,7 @@ fn worker<'a>(alloc: &'a mut Bump, program: &'a Program) -> (ThreadContext<'a>, 
                             ast.root_id(),
                             AstVariantId::root(),
                             false,
-                            program.member_name(member_id),
+                            member_id.name(),
                         );
 
                         let mut dependencies = DependencyList::new();
@@ -224,17 +224,17 @@ fn worker<'a>(alloc: &'a mut Bump, program: &'a Program) -> (ThreadContext<'a>, 
                     }
                 }
                 Task::EvaluateMember(member_id, routine) => {
-                    if !program.member_is_evaluated(member_id) {
+                    if !member_id.is_evaluated() {
                         let mut stack = crate::interp::Stack::new(crate::interp::DEFAULT_STACK_SIZE);
 
                         match crate::interp::interp(program, &mut stack, &routine, &mut vec![]) {
                             Ok(result) => {
-                                let type_ = program.get_member_type(member_id);
+                                let type_ = member_id.type_();
                                 let value = program.insert_buffer(&type_, result.as_ptr());
 
                                 program
                                     .logger
-                                    .log(format_args!("value '{}': {}", program.member_name(member_id), crate::program::constant_to_str(&type_, value, 0)));
+                                    .log(format_args!("value '{}': {}", member_id.name(), crate::program::constant_to_str(&type_, value, 0)));
 
                                 program.set_value_of_member(member_id, value);
                                 program.flag_member_callable(member_id);
@@ -257,10 +257,11 @@ fn worker<'a>(alloc: &'a mut Bump, program: &'a Program) -> (ThreadContext<'a>, 
                     }
                 }
                 Task::FlagMemberCallable(member_id) => {
-                    if !program.member_is_callable(member_id) {
+                    if !member_id.is_callable() {
                         program.flag_member_callable(member_id);
 
-                        let (value, type_) = program.get_member_value(member_id);
+                        let type_ = member_id.type_();
+                        let value = member_id.value();
 
                         unsafe {
                             type_.get_function_ids(value.as_ptr(), |function_id| {

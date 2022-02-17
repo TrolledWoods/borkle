@@ -243,18 +243,6 @@ impl Program {
     }
 
     /// # Locks
-    /// * ``members`` read
-    pub fn get_member_value(&self, member: MemberId) -> (ConstantRef, Type) {
-        profile::profile!("Get member value");
-
-        // @Speed: We don't want to clone here!
-        let type_ = member.0.type_.read().to_option().unwrap().0.clone();
-        let value_ptr = *member.0.value.read().to_option().unwrap();
-
-        (value_ptr, type_)
-    }
-
-    /// # Locks
     /// * ``scopes`` write
     pub fn create_scope(&self) -> ScopeId {
         profile::profile!("Create scope");
@@ -318,16 +306,10 @@ impl Program {
 
     /// Locks
     /// * ``members`` read
-    pub fn member_name(&self, member: MemberId) -> Ustr {
-        profile::profile!("Member name");
-
-        member.0.name
-    }
-
     pub fn poly_or_member_name(&self, id: PolyOrMember) -> Ustr {
         match id {
             PolyOrMember::Poly(id) => self.poly_member_name(id),
-            PolyOrMember::Member(id) => self.member_name(id),
+            PolyOrMember::Member(id) => id.name(),
         }
     }
 
@@ -348,17 +330,6 @@ impl Program {
             poly_member.yield_data.as_ref().unwrap().clone(),
             poly_member.args.clone()
         )
-    }
-
-    /// Locks
-    /// * ``members`` read
-    // @Speed!!!!! We shouldn't clone the type here! (if types are even expensive to clone in the future,
-    // idk).
-    pub fn get_member_type(&self, id: MemberId) -> Type {
-        profile::profile!("Get member type");
-
-        let v = id.0.type_.read().unwrap().0.clone();
-        v
     }
 
     pub fn get_member_meta_data_and_kind(&self, id: PolyOrMember) -> (Arc<MemberMetaData>, MemberKind) {
@@ -621,18 +592,6 @@ impl Program {
         }
     }
 
-    pub fn member_is_typed(&self, id: MemberId) -> bool {
-        id.0.type_.read().is_some()
-    }
-
-    pub fn member_is_evaluated(&self, id: MemberId) -> bool {
-        id.0.value.read().is_some()
-    }
-
-    pub fn member_is_callable(&self, id: MemberId) -> bool {
-        id.0.callable.read().is_some()
-    }
-
     /// # Locks
     /// * ``constant_data`` write
     /// * ``members`` write
@@ -809,9 +768,9 @@ impl Program {
 
         // Is the thing we want already computed?
         match wanted_dep {
-            MemberDep::Type if self.member_is_typed(member_id) => return Ok(member_id),
-            MemberDep::Value if self.member_is_evaluated(member_id) => return Ok(member_id),
-            MemberDep::ValueAndCallableIfFunction if self.member_is_callable(member_id) => {
+            MemberDep::Type if member_id.is_typed() => return Ok(member_id),
+            MemberDep::Value if member_id.is_evaluated() => return Ok(member_id),
+            MemberDep::ValueAndCallableIfFunction if member_id.is_callable() => {
                 return Ok(member_id)
             }
             _ => {}
@@ -863,9 +822,9 @@ impl Program {
         };
 
         self.logger
-            .log(format_args!("value '{}'", self.member_name(member_id)));
+            .log(format_args!("value '{}'", member_id.name()));
 
-        let type_ = self.get_member_type(member_id);
+        let type_ = member_id.type_();
         let value = self.insert_buffer(&type_, result.as_ptr());
 
         self.set_value_of_member(member_id, value);
@@ -1655,6 +1614,35 @@ impl fmt::Debug for PolyMemberId {
 #[derive(Clone, Copy)]
 #[repr(transparent)]
 pub struct MemberId(&'static Member);
+
+impl MemberId {
+    #[inline]
+    pub fn name(self) -> Ustr {
+        self.0.name
+    }
+
+    pub fn type_(self) -> Type {
+        let v = self.0.type_.read().unwrap().0.clone();
+        v
+    }
+
+    pub fn value(self) -> ConstantRef {
+        let v = *self.0.value.read().to_option().unwrap();
+        v
+    }
+
+    pub fn is_typed(self) -> bool {
+        self.0.type_.read().is_some()
+    }
+
+    pub fn is_evaluated(self) -> bool {
+        self.0.value.read().is_some()
+    }
+
+    pub fn is_callable(self) -> bool {
+        self.0.callable.read().is_some()
+    }
+}
 
 impl std::cmp::PartialEq for MemberId {
     fn eq(&self, other: &Self) -> bool {

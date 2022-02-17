@@ -821,7 +821,7 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, mut node: NodeView<'a>) -> (Value, T
             (Value::Stack(to), to_layout)
         }
         NodeKind::ResolvedGlobal(id, _) => {
-            let (ptr, _) = ctx.program.get_member_value(*id);
+            let ptr = id.value();
 
             let to_layout = ctx.get_typed_layout(node_type_id);
 
@@ -991,7 +991,7 @@ fn emit_node<'a>(ctx: &mut Context<'a, '_>, mut node: NodeView<'a>) -> (Value, T
         NodeKind::PolymorphicArgs { .. } | NodeKind::Global { .. } => {
             let &AdditionalInfoKind::Monomorphised(id) = &ctx.additional_info[&(ctx.variant_id, node.id)] else { panic!() };
 
-            let (ptr, _) = ctx.program.get_member_value(id);
+            let ptr = id.value();
 
             if let type_infer::TypeKind::Function = ctx.types.get(TypeId::Node(ctx.variant_id, node.id)).kind() {
                 let function_id = unsafe { *(ptr.as_ptr() as *const FunctionId) };
@@ -1255,7 +1255,8 @@ fn emit_lvalue<'a>(
         }
         NodeKind::ResolvedGlobal(id, _) => {
             let to = ctx.create_reg(ref_type_id);
-            let (from_ref, from_type) = ctx.program.get_member_value(*id);
+            let from_type = id.type_();
+            let from_ref = id.value();
             ctx.emit_ref_to_global(to, from_ref, from_type.size());
             LValue::Pointer { pointer: to, offset: 0 }
         }
