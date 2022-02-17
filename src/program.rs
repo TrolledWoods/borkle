@@ -128,9 +128,9 @@ impl Program {
             for (&name, &id) in public_members.iter() {
                 if let PolyOrMember::Member(member_id) = id {
                     let member = &members[member_id];
-                    if member.type_.to_option().is_none() {
+                    if member.type_.read().to_option().is_none() {
                         errors.global_error(format!("'{}' cannot be computed", name));
-                    } else if member.kind == MemberKind::Const && member.value.to_option().is_none() {
+                    } else if member.kind == MemberKind::Const && member.value.read().to_option().is_none() {
                         errors.global_error(format!("'{}' cannot be computed(value)", name));
                     }
                 }
@@ -254,8 +254,8 @@ impl Program {
         let member = &members[id];
 
         // @Speed: We don't want to clone here!
-        let type_ = member.type_.to_option().unwrap().0.clone();
-        let value_ptr = *member.value.to_option().unwrap();
+        let type_ = member.type_.read().to_option().unwrap().0.clone();
+        let value_ptr = *member.value.read().to_option().unwrap();
 
         (value_ptr, type_)
     }
@@ -342,7 +342,8 @@ impl Program {
     pub fn get_value_of_member(&self, id: MemberId) -> ConstantRef {
         profile::profile!("Get value of member");
         let members = self.members.read();
-        *members[id].value.unwrap()
+        let v = *members[id].value.read().unwrap();
+        v
     }
 
     pub fn get_polymember_yielddata(&self, id: PolyMemberId) -> (Arc<crate::typer::YieldData>, Arc<Vec<Option<(Ustr, Location)>>>) {
@@ -362,7 +363,8 @@ impl Program {
     pub fn get_member_type(&self, id: MemberId) -> Type {
         profile::profile!("Get member type");
         let members = self.members.read();
-        members[id].type_.unwrap().0.clone()
+        let v = members[id].type_.read().unwrap().0.clone();
+        v
     }
 
     pub fn get_member_meta_data_and_kind(&self, id: PolyOrMember) -> (Arc<MemberMetaData>, MemberKind) {
@@ -370,11 +372,13 @@ impl Program {
         match id {
             PolyOrMember::Member(id) => {
                 let members = self.members.read();
-                (members[id].type_.unwrap().1.clone(), members[id].kind)
+                let v = members[id].type_.read().unwrap().1.clone();
+                (v, members[id].kind)
             }
             PolyOrMember::Poly(id) => {
                 let members = self.poly_members.read();
-                (members[id].type_.unwrap().clone(), members[id].kind)
+                let v = members[id].type_.unwrap().clone();
+                (v, members[id].kind)
             }
         }
     }
@@ -384,11 +388,13 @@ impl Program {
         match id {
             PolyOrMember::Member(id) => {
                 let members = self.members.read();
-                members[id].type_.unwrap().1.clone()
+                let v = members[id].type_.read().unwrap().1.clone();
+                v
             }
             PolyOrMember::Poly(id) => {
                 let members = self.poly_members.read();
-                members[id].type_.unwrap().clone()
+                let v = members[id].type_.unwrap().clone();
+                v
             }
         }
     }
@@ -606,9 +612,9 @@ impl Program {
 
     pub fn flag_member_callable(&self, id: MemberId) {
         profile::profile!("program::flag_member_callable");
-        let mut members = self.members.write();
+        let members = self.members.read();
         let is_monomorphised = members[id].is_monomorphised;
-        let old = std::mem::replace(&mut members[id].callable, DependableOption::Some(()));
+        let old = std::mem::replace(&mut *members[id].callable.write(), DependableOption::Some(()));
         drop(members);
 
         if let DependableOption::None(dependencies) = old {
@@ -626,15 +632,15 @@ impl Program {
     }
 
     pub fn member_is_typed(&self, id: MemberId) -> bool {
-        self.members.read()[id].type_.is_some()
+        self.members.read()[id].type_.read().is_some()
     }
 
     pub fn member_is_evaluated(&self, id: MemberId) -> bool {
-        self.members.read()[id].value.is_some()
+        self.members.read()[id].value.read().is_some()
     }
 
     pub fn member_is_callable(&self, id: MemberId) -> bool {
-        self.members.read()[id].callable.is_some()
+        self.members.read()[id].callable.read().is_some()
     }
 
     /// # Locks
@@ -643,9 +649,9 @@ impl Program {
     /// * ``functions`` write
     pub fn set_value_of_member(&self, id: MemberId, value: ConstantRef) {
         profile::profile!("program::set_value_of_member");
-        let mut members = self.members.write();
+        let members = self.members.read();
         let is_monomorphised = members[id].is_monomorphised;
-        let old = std::mem::replace(&mut members[id].value, DependableOption::Some(value));
+        let old = std::mem::replace(&mut *members[id].value.write(), DependableOption::Some(value));
         drop(members);
 
         if let DependableOption::None(dependencies) = old {
@@ -678,13 +684,14 @@ impl Program {
     /// * ``members`` write
     pub fn set_type_of_member(&self, id: MemberId, type_: Type, meta_data: MemberMetaData) {
         profile::profile!("program::set_type_of_member");
-        let mut members = self.members.write();
+        let members = self.members.read();
         let is_monomorphised = members[id].is_monomorphised;
-        let member_type = &mut members[id].type_;
+        let mut member_type = members[id].type_.write();
         let old = std::mem::replace(
-            member_type,
+            &mut *member_type,
             DependableOption::Some((type_, Arc::new(meta_data))),
         );
+        drop(member_type);
         drop(members);
 
         if let DependableOption::None(dependencies) = old {
@@ -1366,11 +1373,11 @@ struct Member {
     #[allow(unused)]
     loc: Location,
     name: Ustr,
-    type_: DependableOption<(Type, Arc<MemberMetaData>)>,
+    type_: RwLock<DependableOption<(Type, Arc<MemberMetaData>)>>,
 
     // None if the member is a type,
     // Some if it's a value.
-    value: DependableOption<ConstantRef>,
+    value: RwLock<DependableOption<ConstantRef>>,
 
     /// So this is pretty confusing, and needs some writing up to both help me now and in the
     /// future.
@@ -1390,7 +1397,7 @@ struct Member {
     /// will be checked through the function part of the dependency system. However, this flag is
     /// always used for more complex types, but that on the other hand does not allow for
     /// recursion.
-    callable: DependableOption<()>,
+    callable: RwLock<DependableOption<()>>,
 }
 
 impl Member {
@@ -1400,17 +1407,17 @@ impl Member {
             kind,
             loc,
             name,
-            type_: DependableOption::None(default()),
-            value: DependableOption::None(default()),
-            callable: DependableOption::None(default()),
+            type_: RwLock::new(DependableOption::None(default())),
+            value: RwLock::new(DependableOption::None(default())),
+            callable: RwLock::new(DependableOption::None(default())),
         }
     }
 
     fn add_dependant(&self, loc: Location, dep: MemberDep, dependant: TaskId) -> bool {
         match dep {
-            MemberDep::Type => self.type_.add_dependant(loc, dependant),
-            MemberDep::Value => self.value.add_dependant(loc, dependant),
-            MemberDep::ValueAndCallableIfFunction => self.callable.add_dependant(loc, dependant),
+            MemberDep::Type => self.type_.read().add_dependant(loc, dependant),
+            MemberDep::Value => self.value.read().add_dependant(loc, dependant),
+            MemberDep::ValueAndCallableIfFunction => self.callable.read().add_dependant(loc, dependant),
         }
     }
 }

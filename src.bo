@@ -1,6 +1,6 @@
 import "tests/main.bo";
 
-run_tests();
+create_exe("target/tests.exe", run_tests);
 
 {
     print("Hello!\n");

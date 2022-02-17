@@ -168,7 +168,7 @@ create_arguments!(
         debug: bool = true;
             "Whether or not debug information will be emitted(very basic, just prints the locations of the nodes that are run for now)",
 
-        num_threads: usize = 1_usize;
+        num_threads: usize = 4_usize;
             "The number of threads to use for compilation",
     }
 );
