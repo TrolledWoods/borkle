@@ -28,6 +28,7 @@ pub mod constant;
 #[derive(Default)]
 pub struct PreProgram {
     scopes: SyncVec<Scope>,
+    members: SyncVec<Member>,
 }
 
 /// This is the main hub of the program that is being compiled.
@@ -49,7 +50,6 @@ pub struct Program {
 
     pre_program: &'static PreProgram,
 
-    members: RwLock<IdVec<MemberId, Member>>,
     poly_members: RwLock<IdVec<PolyMemberId, PolyMember>>,
 
     external_symbols: Mutex<UstrSet>,
@@ -81,7 +81,6 @@ impl Program {
             builtins: [(); Builtin::Count as usize].map(|_| RwLock::new(BuiltinDefinition::Undefined(Vec::new()))),
             lib_lines_of_code: AtomicU64::new(0),
             user_lines_of_code: AtomicU64::new(0),
-            members: default(),
             poly_members: default(),
             external_symbols: default(),
             non_ready_tasks: default(),
@@ -114,7 +113,6 @@ impl Program {
     }
 
     pub fn check_for_completion(&mut self, errors: &mut ErrorCtx) {
-        let members = self.members.get_mut();
         for scope in self.pre_program.scopes.iter() {
             let wanted_names = scope.wanted_names.read();
             for (&name, dependants) in wanted_names.iter() {
@@ -126,11 +124,10 @@ impl Program {
 
             let public_members = scope.public_members.read();
             for (&name, &id) in public_members.iter() {
-                if let PolyOrMember::Member(member_id) = id {
-                    let member = &members[member_id];
-                    if member.type_.read().to_option().is_none() {
+                if let PolyOrMember::Member(member) = id {
+                    if member.0.type_.read().to_option().is_none() {
                         errors.global_error(format!("'{}' cannot be computed", name));
-                    } else if member.kind == MemberKind::Const && member.value.read().to_option().is_none() {
+                    } else if member.0.kind == MemberKind::Const && member.0.value.read().to_option().is_none() {
                         errors.global_error(format!("'{}' cannot be computed(value)", name));
                     }
                 }
@@ -247,15 +244,12 @@ impl Program {
 
     /// # Locks
     /// * ``members`` read
-    pub fn get_member_value(&self, id: MemberId) -> (ConstantRef, Type) {
+    pub fn get_member_value(&self, member: MemberId) -> (ConstantRef, Type) {
         profile::profile!("Get member value");
 
-        let members = self.members.read();
-        let member = &members[id];
-
         // @Speed: We don't want to clone here!
-        let type_ = member.type_.read().to_option().unwrap().0.clone();
-        let value_ptr = *member.value.read().to_option().unwrap();
+        let type_ = member.0.type_.read().to_option().unwrap().0.clone();
+        let value_ptr = *member.0.value.read().to_option().unwrap();
 
         (value_ptr, type_)
     }
@@ -324,10 +318,10 @@ impl Program {
 
     /// Locks
     /// * ``members`` read
-    pub fn member_name(&self, id: MemberId) -> Ustr {
+    pub fn member_name(&self, member: MemberId) -> Ustr {
         profile::profile!("Member name");
-        let members = self.members.read();
-        members[id].name
+
+        member.0.name
     }
 
     pub fn poly_or_member_name(&self, id: PolyOrMember) -> Ustr {
@@ -341,8 +335,8 @@ impl Program {
     /// * ``members`` read
     pub fn get_value_of_member(&self, id: MemberId) -> ConstantRef {
         profile::profile!("Get value of member");
-        let members = self.members.read();
-        let v = *members[id].value.read().unwrap();
+
+        let v = *id.0.value.read().unwrap();
         v
     }
 
@@ -362,8 +356,8 @@ impl Program {
     // idk).
     pub fn get_member_type(&self, id: MemberId) -> Type {
         profile::profile!("Get member type");
-        let members = self.members.read();
-        let v = members[id].type_.read().unwrap().0.clone();
+
+        let v = id.0.type_.read().unwrap().0.clone();
         v
     }
 
@@ -371,9 +365,8 @@ impl Program {
         profile::profile!("program::get_member_meta_data_and_kind");
         match id {
             PolyOrMember::Member(id) => {
-                let members = self.members.read();
-                let v = members[id].type_.read().unwrap().1.clone();
-                (v, members[id].kind)
+                let v = id.0.type_.read().unwrap().1.clone();
+                (v, id.0.kind)
             }
             PolyOrMember::Poly(id) => {
                 let members = self.poly_members.read();
@@ -387,8 +380,7 @@ impl Program {
         profile::profile!("program::get_member_meta_data");
         match id {
             PolyOrMember::Member(id) => {
-                let members = self.members.read();
-                let v = members[id].type_.read().unwrap().1.clone();
+                let v = id.0.type_.read().unwrap().1.clone();
                 v
             }
             PolyOrMember::Poly(id) => {
@@ -612,10 +604,8 @@ impl Program {
 
     pub fn flag_member_callable(&self, id: MemberId) {
         profile::profile!("program::flag_member_callable");
-        let members = self.members.read();
-        let is_monomorphised = members[id].is_monomorphised;
-        let old = std::mem::replace(&mut *members[id].callable.write(), DependableOption::Some(()));
-        drop(members);
+        let is_monomorphised = id.0.is_monomorphised;
+        let old = std::mem::replace(&mut *id.0.callable.write(), DependableOption::Some(()));
 
         if let DependableOption::None(dependencies) = old {
             for (_, dependency) in dependencies.into_inner() {
@@ -632,15 +622,15 @@ impl Program {
     }
 
     pub fn member_is_typed(&self, id: MemberId) -> bool {
-        self.members.read()[id].type_.read().is_some()
+        id.0.type_.read().is_some()
     }
 
     pub fn member_is_evaluated(&self, id: MemberId) -> bool {
-        self.members.read()[id].value.read().is_some()
+        id.0.value.read().is_some()
     }
 
     pub fn member_is_callable(&self, id: MemberId) -> bool {
-        self.members.read()[id].callable.read().is_some()
+        id.0.callable.read().is_some()
     }
 
     /// # Locks
@@ -649,10 +639,8 @@ impl Program {
     /// * ``functions`` write
     pub fn set_value_of_member(&self, id: MemberId, value: ConstantRef) {
         profile::profile!("program::set_value_of_member");
-        let members = self.members.read();
-        let is_monomorphised = members[id].is_monomorphised;
-        let old = std::mem::replace(&mut *members[id].value.write(), DependableOption::Some(value));
-        drop(members);
+        let is_monomorphised = id.0.is_monomorphised;
+        let old = std::mem::replace(&mut *id.0.value.write(), DependableOption::Some(value));
 
         if let DependableOption::None(dependencies) = old {
             for (_, dependency) in dependencies.into_inner() {
@@ -684,15 +672,13 @@ impl Program {
     /// * ``members`` write
     pub fn set_type_of_member(&self, id: MemberId, type_: Type, meta_data: MemberMetaData) {
         profile::profile!("program::set_type_of_member");
-        let members = self.members.read();
-        let is_monomorphised = members[id].is_monomorphised;
-        let mut member_type = members[id].type_.write();
+        let is_monomorphised = id.0.is_monomorphised;
+        let mut member_type = id.0.type_.write();
         let old = std::mem::replace(
             &mut *member_type,
             DependableOption::Some((type_, Arc::new(meta_data))),
         );
         drop(member_type);
-        drop(members);
 
         if let DependableOption::None(dependencies) = old {
             for (_, dependency) in dependencies.into_inner() {
@@ -809,7 +795,8 @@ impl Program {
         // Create a member to host the monomorphised thing, or grab one from the cached
         let member_id = member_id.unwrap_or_else(|| {
             let poly_member = &poly_members[id];
-            let member_id = self.members.write().push(Member::new(poly_member.loc, poly_member.name, true, member_kind));
+            let (_, ptr) = self.pre_program.members.push(Member::new(poly_member.loc, poly_member.name, true, member_kind));
+            let member_id = MemberId(ptr);
             poly_members[id]
                 .cached
                 .push((poly_args.to_vec(), member_id));
@@ -905,7 +892,8 @@ impl Program {
         name: Ustr,
         kind: MemberKind,
     ) -> Result<MemberId, ()> {
-        let id = self.members.write().push(Member::new(loc, name, false, kind));
+        let (_, ptr) = self.pre_program.members.push(Member::new(loc, name, false, kind));
+        let id = MemberId(ptr);
 
         if let Some(scope_id) = scope_id {
             self.bind_member_to_name(errors, scope_id, name, loc, PolyOrMember::Member(id), true)?;
@@ -934,16 +922,12 @@ impl Program {
                 match member_id {
                     PolyOrMember::Member(member_id) => {
                         for &(kind, loc, dependant) in &dependants {
-                            let mut members = self.members.write();
-                            let member = &mut members[member_id];
-
                             self.logger.log(format_args!(
                                 "Dependant at '{}' found definition of '{}', now searches for the {:?} of it",
-                                loc, member.name, kind,
+                                loc, member_id.0.name, kind,
                             ));
 
-                            if !member.add_dependant(loc, kind, dependant) {
-                                drop(members);
+                            if !member_id.0.add_dependant(loc, kind, dependant) {
                                 self.resolve_dependency(dependant);
                             }
                         }
@@ -1014,16 +998,12 @@ impl Program {
             match member_id {
                 PolyOrMember::Member(member_id) => {
                     for &(kind, loc, dependant) in &dependants {
-                        let mut members = self.members.write();
-                        let member = &mut members[member_id];
-
                         self.logger.log(format_args!(
                                 "Dependant at '{}' found definition of '{}', now searches for the {:?} of it",
-                                loc, member.name, kind,
+                                loc, member_id.0.name, kind,
                         ));
 
-                        if !member.add_dependant(loc, kind, dependant) {
-                            drop(members);
+                        if !member_id.0.add_dependant(loc, kind, dependant) {
                             self.resolve_dependency(dependant);
                         }
                     }
@@ -1107,8 +1087,7 @@ impl Program {
                                     }
                                 }
                                 PolyOrMember::Member(dep_id) => {
-                                    let members = self.members.read();
-                                    if members[dep_id].add_dependant(loc, dep_kind, id) {
+                                    if dep_id.0.add_dependant(loc, dep_kind, id) {
                                         num_deps += 1;
                                     }
                                 }
@@ -1140,8 +1119,7 @@ impl Program {
                                 }
                             }
                             PolyOrMember::Member(dep_id) => {
-                                let members = self.members.read();
-                                if members[dep_id].add_dependant(loc, dep_kind, id) {
+                                if dep_id.0.add_dependant(loc, dep_kind, id) {
                                     num_deps += 1;
                                 }
                             }
@@ -1158,8 +1136,7 @@ impl Program {
                     }
                 }
                 DepKind::Member(dep_id, dep_kind) => {
-                    let members = self.members.read();
-                    if members[dep_id].add_dependant(loc, dep_kind, id) {
+                    if dep_id.0.add_dependant(loc, dep_kind, id) {
                         num_deps += 1;
                     }
                 }
@@ -1645,7 +1622,7 @@ impl fmt::Debug for FunctionId {
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub enum PolyOrMember {
     Poly(PolyMemberId),
     Member(MemberId),
@@ -1675,27 +1652,22 @@ impl fmt::Debug for PolyMemberId {
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy)]
 #[repr(transparent)]
-pub struct MemberId(usize);
+pub struct MemberId(&'static Member);
 
-impl Id for MemberId {}
-
-impl From<usize> for MemberId {
-    fn from(other: usize) -> Self {
-        Self(other)
+impl std::cmp::PartialEq for MemberId {
+    fn eq(&self, other: &Self) -> bool {
+        std::ptr::eq(self.0, other.0)
     }
 }
 
-impl From<MemberId> for usize {
-    fn from(other: MemberId) -> usize {
-        other.0
-    }
-}
+impl std::cmp::Eq for MemberId {}
+
 
 impl fmt::Debug for MemberId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.0)
+        write!(f, "{:p}", self.0)
     }
 }
 
