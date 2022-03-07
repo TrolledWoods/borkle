@@ -36,10 +36,8 @@ fn main() {
     let time = std::time::Instant::now();
     let logger = logging::Logger::new();
 
-    let args: Vec<_> = std::env::args().skip(1).collect();
-    let borrowed_args: Vec<&str> = args.iter().map(|v| &**v).collect();
-    if let Some(options) = command_line_arguments::Arguments::from_args(&borrowed_args) {
-        if options.num_threads == 0 {
+    if let Some(options) = command_line_arguments::read_arguments() {
+        if options.threads == 0 {
             println!("Has to have at least one thread");
             return;
         }
@@ -47,13 +45,13 @@ fn main() {
         let mut program = program::Program::new(logger, options.clone());
         program.add_file(&options.file, false);
         
-        if !options.no_builtins {
+        if options.builtins {
             let mut compiler_path = options.lib_path.clone();
             compiler_path.push("compiler.bo");
             program.add_file(&compiler_path, true);
         }
 
-        let errors = thread_pool::run(&mut program, options.num_threads);
+        let errors = thread_pool::run(&mut program, options.threads);
 
         let files = program.file_contents();
         if !errors.print(files) {
